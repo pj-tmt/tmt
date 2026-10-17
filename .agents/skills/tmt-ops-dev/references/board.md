@@ -200,6 +200,21 @@ freezes the original target/socket/digest/selector/lifetime once; Core alone
 validates and binds. The accepted public roster projection reveals the returned
 UUID without a local roster mutation or readiness claim.
 
+## Pane resizing
+
+`pane_resize` owns domain-named ratios and disposable painted boundaries; existing
+placement owners apply ratios before both paint and pointer focus consume their
+rectangles. Only admitted visible pairs publish clipped divider/rule targets.
+App routes a drag ahead of row activation, keeps its starting geometry until
+release, blocks exec reload while held, and revokes it on external geometry
+invalidation. Hover changes separator
+strokes only. Double-click identity belongs to a boundary, independently of row
+clicks. Hidden panels and space below usable minimums publish no drag target.
+`view_state::Controls` carries ratios through the existing named-layer writer and
+exec snapshot. Defaults keep exact original geometry; temporary resize clamps do
+not replace retained ratios. Effective bindings supply optional resize actions;
+no raw key interception or default binding is added.
+
 ## Workspace and retained identity
 
 `board::shell` selects Overview/Agents/Digest without loading a second roster.

@@ -120,6 +120,56 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let Some(placement) = app.workspace_placement(area) else {
         return;
     };
+    use crate::action::ResizeBoundary as Boundary;
+    let (columns, rows) = if app.shell.tab == OpsTab::Overview {
+        (Boundary::OverviewColumns, Boundary::OverviewList)
+    } else {
+        (Boundary::AgentsColumns, Boundary::AgentsRows)
+    };
+    app.pane_resize
+        .record_panes(placement.panes, columns, rows, frame.area());
+    if app.shell.tab == OpsTab::Overview {
+        let usage = app.overview_usage_band(area);
+        if usage.height > 1
+            && app
+                .overview_panels()
+                .shown(crate::config::OverviewPanel::Monitor)
+        {
+            let min = crate::board::overview::chart::host::overview_demand(
+                app,
+                area.width.saturating_sub(1),
+                area.height,
+                crate::status::now_ms(),
+            );
+            app.pane_resize.record(
+                crate::board::pane_resize::Boundary {
+                    id: Boundary::OverviewUsage,
+                    hit: Rect::new(
+                        area.x,
+                        usage.bottom() + 2,
+                        placement.list.map_or(0, |list| list.width),
+                        1,
+                    ),
+                    total: area.height,
+                    before: usage.height,
+                    min,
+                    max: area.height.saturating_sub(
+                        crate::board::overview::composition::minimum_height(app, area.width),
+                    ),
+                },
+                frame.area(),
+            );
+        }
+    } else if let (Some(list), Some(detail)) = (placement.list, placement.conversation)
+        && list.y == detail.y
+    {
+        crate::board::divider::paint(
+            frame.buffer_mut(),
+            Rect::new(list.right(), list.y, 1, list.height),
+            false,
+            app.look(),
+        );
+    }
     if let Some(bands) = placement.agents {
         let snapshot = app.workspace_snapshot().unwrap();
         let count = snapshot

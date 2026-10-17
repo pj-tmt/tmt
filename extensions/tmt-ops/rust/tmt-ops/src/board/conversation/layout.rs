@@ -2,6 +2,13 @@
 //! choose a direction; minimum usable cell budgets always take precedence.
 use ratatui::layout::Rect;
 
+pub(in crate::board) const LIST_MIN_ROWS: u16 = 3;
+pub(in crate::board) const CONVERSATION_MIN_ROWS: u16 = 8;
+pub(in crate::board) const LIST_MIN_COLUMNS: u16 = 36;
+pub(in crate::board) const CONVERSATION_MIN_COLUMNS: u16 = 36;
+// Keep the Agents-list header whole through NOW when resizing the wide split.
+pub(in crate::board) const OVERVIEW_MIN_COLUMNS: u16 = 1 + 23 + 1 + 11 + 1 + 12 + 1 + 7 + 3 + 3;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Preference {
     #[default]
@@ -26,7 +33,7 @@ pub struct AgentsBands {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorkspacePlacement {
-    panes: Placement,
+    pub(in crate::board) panes: Placement,
     pub agents: Option<AgentsBands>,
 }
 
@@ -51,13 +58,11 @@ pub fn agents_tree(
     preference: Preference,
     conversation_focused: bool,
 ) -> WorkspacePlacement {
-    const TABLE_MIN: u16 = 1 + 1 + 1; // Header, range, one target.
-    const CONVERSATION_MIN: u16 = 4 + 1 + 3; // Existing composer, chrome, response/position.
     // Optional section controls yield before the compact conversation loses
     // its host metadata or response position. Narrow single-pane screens can
     // still afford these controls above their list.
     let bands = (area.height >= 8
-        && (area.width < 80 || area.height >= TABLE_MIN + CONVERSATION_MIN + 6))
+        && (area.width < 80 || area.height >= LIST_MIN_ROWS + CONVERSATION_MIN_ROWS + 6))
         .then_some(AgentsBands {
             title: Rect::new(area.x, area.y, area.width, 1),
             filters: Rect::new(area.x, area.y + 1, area.width, 1),
@@ -70,13 +75,13 @@ pub fn agents_tree(
         area.width,
         area.height - reserved,
     );
-    let dual_fits = body.height >= TABLE_MIN + CONVERSATION_MIN;
+    let dual_fits = body.height >= LIST_MIN_ROWS + CONVERSATION_MIN_ROWS;
     let side_fits = area.width >= 100 && dual_fits;
     let stack_fits = area.width >= 80 && dual_fits;
     let wants_side =
         preference == Preference::Side || preference == Preference::Auto && area.width >= 120;
     let panes = if side_fits && (wants_side || !stack_fits) {
-        let left = ((u32::from(area.width) * 47 / 100) as u16).max(36);
+        let left = ((u32::from(area.width) * 47 / 100) as u16).max(LIST_MIN_COLUMNS);
         Placement {
             list: Some(Rect::new(body.x, body.y, left, body.height)),
             conversation: Some(Rect::new(
@@ -92,7 +97,7 @@ pub fn agents_tree(
         let top = ((u32::from(area.height) + 7) * 42 / 100)
             .saturating_sub(6)
             .min(10) as u16;
-        let top = top.clamp(TABLE_MIN, body.height - CONVERSATION_MIN);
+        let top = top.clamp(LIST_MIN_ROWS, body.height - CONVERSATION_MIN_ROWS);
         Placement {
             list: Some(Rect::new(body.x, body.y, body.width, top)),
             conversation: Some(Rect::new(
@@ -115,7 +120,7 @@ pub fn agents_tree(
 }
 
 fn side(area: Rect) -> Placement {
-    let left = ((u32::from(area.width) * 2 / 5) as u16).max(36);
+    let left = ((u32::from(area.width) * 2 / 5) as u16).max(LIST_MIN_COLUMNS);
     Placement {
         list: Some(Rect::new(area.x, area.y, left, area.height)),
         conversation: Some(Rect::new(

@@ -682,6 +682,10 @@ impl App {
     pub(super) fn workspace_action(&mut self, action: OpsUiAction) -> Effect {
         use OpsUiAction::*;
         match action {
+            ResizePane => {
+                return self
+                    .say("Use resize-pane <boundary> <direction|reset> in an authored binding.");
+            }
             Quit => return Effect::Quit,
             QuotaDetails => return self.open_quota_details(),
             SavingsUnit => return self.cycle_savings_unit(),
@@ -940,9 +944,9 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            Overview | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
-            | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop
-            | ScrollBottom => {
+            ResizePane | Overview | Agents | DigestDashboard | QuotaDetails | SavingsUnit
+            | UsageControls | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
+            | ScrollPageDown | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

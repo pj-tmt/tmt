@@ -15,7 +15,7 @@ pub(super) mod timers;
 pub(super) mod view;
 
 #[cfg(test)]
-mod capture;
+pub(in crate::board) mod capture;
 
 #[cfg(test)]
 mod performance;

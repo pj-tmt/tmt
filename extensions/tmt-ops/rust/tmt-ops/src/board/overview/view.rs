@@ -104,28 +104,65 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .overview_panels()
         .shown(crate::config::OverviewPanel::Monitor);
     // Reserve the lower band through placement. Only data rows belong to Rows scroll.
-    let band_height = band
-        .as_ref()
-        .map_or(0, |band| band.height as u16)
-        .min(if monitor_shown {
-            area.height.saturating_sub(LIST_HEADER_ROWS as u16 + 3)
-        } else {
-            area.height
-        });
+    let mut band_height =
+        band.as_ref()
+            .map_or(0, |band| band.height as u16)
+            .min(if monitor_shown {
+                area.height.saturating_sub(LIST_HEADER_ROWS as u16 + 3)
+            } else {
+                area.height
+            });
     let gap = u16::from(band_height > 0 && monitor_shown);
-    let list_height = if monitor_shown {
+    let mut list_height = if monitor_shown {
         (LIST_HEADER_ROWS + rows.len().max(1))
             .min(usize::from(area.height.saturating_sub(band_height + gap))) as u16
     } else {
         0
     };
+    if monitor_shown && band_height > 0 {
+        use crate::action::ResizeBoundary as Boundary;
+        let total = area.height.saturating_sub(gap);
+        list_height = app.pane_resize.size(
+            Boundary::OverviewList,
+            total,
+            list_height,
+            LIST_HEADER_ROWS as u16 + 1,
+            band_height,
+        );
+        // Extra space belongs to the lower band only after an explicit resize.
+        if app.pane_resize.adjusted(Boundary::OverviewList) {
+            band_height = total.saturating_sub(list_height);
+        }
+        app.pane_resize.record(
+            crate::board::pane_resize::Boundary {
+                id: Boundary::OverviewList,
+                hit: Rect::new(area.x, area.y + list_height + gap, area.width, 1),
+                total,
+                before: list_height,
+                min: LIST_HEADER_ROWS as u16 + 1,
+                max: total.saturating_sub(band.as_ref().map_or(0, |band| band.height as u16)),
+            },
+            frame.area(),
+        );
+    }
+    let lower_available = area.height.saturating_sub(list_height + gap);
+    if band.as_ref().is_some_and(|band| band.rows_adjusted(app)) {
+        band_height = lower_available;
+    }
     if let Some(band) = &band {
+        band.register(
+            app,
+            Rect::new(area.x, area.y + list_height + gap, area.width, band_height),
+            lower_available,
+            frame.area(),
+        );
         for y in 0..band_height {
             band.paint(
                 frame,
                 app,
                 Rect::new(area.x, area.y + list_height + gap + y, area.width, 1),
                 usize::from(y),
+                lower_available,
             );
         }
     }

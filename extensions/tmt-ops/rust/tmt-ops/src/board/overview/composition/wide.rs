@@ -8,6 +8,14 @@ use crate::{
 };
 use ratatui::{Frame, layout::Rect, text::Line};
 
+pub(super) fn minimum_height(app: &App) -> u16 {
+    // Title, one exchange, reply block and its breathing rows precede observations.
+    let digest = app
+        .overview_panels()
+        .shown(crate::config::OverviewPanel::Digest);
+    10 + super::lower::Band::timers(app).height as u16 + if digest { 9 } else { 0 }
+}
+
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>, area: Rect) {
     if app.input.is_some()
         && app.composer_projection().is_none()
@@ -86,9 +94,39 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         0
     };
     let gap = u16::from(input > 0 && remaining > input + 2);
+    let timers = super::lower::Band::timers(app);
+    let digest_shown = app
+        .overview_panels()
+        .shown(crate::config::OverviewPanel::Digest);
+    let lower_min = timers.height as u16 + if digest_shown { 9 } else { 0 };
     let exchange = remaining
         .saturating_sub(input + gap)
         .min(conversation::exchange::desired_height(app, area.width));
+    use crate::action::ResizeBoundary as Boundary;
+    let exchange_min = exchange.min(3);
+    let natural = exchange + input + gap;
+    let total = remaining.saturating_sub(1);
+    let preserving_sections = [
+        Boundary::OverviewUsage,
+        Boundary::OverviewColumns,
+        Boundary::OverviewExchange,
+        Boundary::OverviewTimers,
+    ]
+    .into_iter()
+    .any(|id| app.pane_resize.adjusted(id));
+    let natural = if preserving_sections && total >= input + gap + exchange_min + lower_min {
+        natural.min(total - lower_min)
+    } else {
+        natural
+    };
+    let block = app.pane_resize.size(
+        Boundary::OverviewExchange,
+        total,
+        natural,
+        input + gap + exchange_min,
+        lower_min,
+    );
+    let exchange = exchange.min(block.saturating_sub(input + gap));
     let conversation_area = Rect::new(area.x, area.y + 1, area.width, exchange);
     conversation::exchange::render(frame, app, conversation_area);
     let input_area = Rect::new(
@@ -101,8 +139,22 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
     if admitted_input {
         app.input_band.set(Some(input_area));
     }
-    let mut y = input_area.bottom().saturating_add(1);
-    let timers = super::lower::Band::timers(app);
+    let mut y = (area.y + 1 + block)
+        .max(input_area.bottom())
+        .saturating_add(1);
+    if area.bottom().saturating_sub(y) >= lower_min {
+        app.pane_resize.record(
+            crate::board::pane_resize::Boundary {
+                id: Boundary::OverviewExchange,
+                hit: Rect::new(area.x, y, area.width, 1),
+                total,
+                before: block,
+                min: input + gap + exchange_min,
+                max: total.saturating_sub(lower_min),
+            },
+            frame.area(),
+        );
+    }
     if area.bottom().saturating_sub(y) >= timers.height as u16 {
         for row in 0..timers.height {
             timers.paint(
@@ -110,9 +162,35 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
                 app,
                 Rect::new(area.x, y + row as u16, area.width, 1),
                 row,
+                timers.height as u16,
             );
         }
-        y += timers.height as u16 + 1;
+        let total = area.bottom().saturating_sub(y + 1);
+        let height = if digest_shown {
+            app.pane_resize.size(
+                Boundary::OverviewTimers,
+                total,
+                timers.height as u16,
+                timers.height as u16,
+                8,
+            )
+        } else {
+            timers.height as u16
+        };
+        if digest_shown && total >= timers.height as u16 + 8 {
+            app.pane_resize.record(
+                crate::board::pane_resize::Boundary {
+                    id: Boundary::OverviewTimers,
+                    hit: Rect::new(area.x, y + height + 1, area.width, 1),
+                    total,
+                    before: height,
+                    min: timers.height as u16,
+                    max: total.saturating_sub(8),
+                },
+                frame.area(),
+            );
+        }
+        y += height + 1;
     }
     if app
         .overview_panels()

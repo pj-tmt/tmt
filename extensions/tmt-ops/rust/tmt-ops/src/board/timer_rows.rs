@@ -5,6 +5,8 @@ use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::style::TextFlow;
 
 pub(in crate::board) const MAX_ROWS: usize = 3;
+/// Identity, squad, schedule and the complete next-time field remain usable.
+pub(in crate::board) const MIN_CELLS: u16 = 1 + (2 + 1) + (10 + 1) + (10 + 1) + 8;
 
 pub(in crate::board) struct Row {
     pub id: String,

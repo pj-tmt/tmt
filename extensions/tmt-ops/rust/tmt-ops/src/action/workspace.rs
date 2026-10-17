@@ -2,6 +2,7 @@
 //! supplies one name/label/description used by parsing, menus and key guidance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpsUiAction {
+    ResizePane,
     Overview,
     Agents,
     DigestDashboard,
@@ -66,6 +67,13 @@ macro_rules! spec {
     };
 }
 const SPECS: &[OpsUiSpec] = &[
+    spec!(
+        ResizePane,
+        "resize-pane",
+        "resize",
+        "adjust a visible pane boundary or reset its default",
+        24
+    ),
     spec!(
         AgentsFilter,
         "agents-filter",
@@ -305,5 +313,71 @@ impl OpsUiAction {
                 | Self::RenameMember
                 | Self::MonitorDetails
         )
+    }
+}
+
+/// Stable names for retained pane ratios and explicitly authored resize actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ResizeBoundary {
+    OverviewColumns,
+    AgentsColumns,
+    AgentsRows,
+    DigestColumns,
+    DigestRows,
+    OverviewUsage,
+    OverviewList,
+    OverviewLowerColumns,
+    OverviewLowerRows,
+    OverviewExchange,
+    OverviewTimers,
+}
+impl ResizeBoundary {
+    pub const ALL: [Self; 11] = [
+        Self::OverviewColumns,
+        Self::AgentsColumns,
+        Self::AgentsRows,
+        Self::DigestColumns,
+        Self::DigestRows,
+        Self::OverviewUsage,
+        Self::OverviewList,
+        Self::OverviewLowerColumns,
+        Self::OverviewLowerRows,
+        Self::OverviewExchange,
+        Self::OverviewTimers,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::OverviewColumns => "overview-columns",
+            Self::AgentsColumns => "agents-columns",
+            Self::AgentsRows => "agents-rows",
+            Self::DigestColumns => "digest-columns",
+            Self::DigestRows => "digest-rows",
+            Self::OverviewUsage => "overview-usage",
+            Self::OverviewList => "overview-list",
+            Self::OverviewLowerColumns => "overview-lower-columns",
+            Self::OverviewLowerRows => "overview-lower-rows",
+            Self::OverviewExchange => "overview-exchange",
+            Self::OverviewTimers => "overview-timers",
+        }
+    }
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|id| id.name() == name)
+    }
+    pub fn columns(self) -> bool {
+        matches!(
+            self,
+            Self::OverviewColumns
+                | Self::AgentsColumns
+                | Self::DigestColumns
+                | Self::OverviewLowerColumns
+        )
+    }
+    pub fn accepts(self, direction: &str) -> bool {
+        direction == "reset"
+            || if self.columns() {
+                matches!(direction, "left" | "right")
+            } else {
+                matches!(direction, "up" | "down")
+            }
     }
 }

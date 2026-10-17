@@ -16,6 +16,7 @@ const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
         "usage height fractions, provider segments and legend keys",
     ),
     ("↩", "Recent exchanges reply direction"),
+    ("↔↕", "pane divider resize axes"),
     ("▶", "NO_COLOR receiving-pane marker"),
     ("·", "separates adjacent labels without implying a state"),
     ("…", "shared text fitter's truncation indicator"),
@@ -219,4 +220,12 @@ fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
     assert_eq!(glyph_error(&row), None);
     assert!(glyph_error("≈\u{fe0f}").is_some());
     assert!(glyph_error("≒").is_some());
+}
+
+#[test]
+fn pane_resize_axis_hints_use_only_the_registered_directions() {
+    assert_eq!(glyph_error("↔ drag to resize  double-click reset"), None);
+    assert_eq!(glyph_error("↕ drag to resize  double-click reset"), None);
+    assert!(glyph_error("↔\u{fe0f} drag to resize").is_some());
+    assert!(glyph_error("⏳ drag to resize").is_some());
 }

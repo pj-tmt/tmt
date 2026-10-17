@@ -38,6 +38,7 @@ impl App {
     /// flight, a view still loading or a resumed state not yet applied.
     pub(in crate::board) fn reload_blocked(&self) -> bool {
         self.current.is_none()
+            || self.pane_resize.dragging()
             || self.loading_since.is_some()
             || self.pending_resume.is_some()
             || self.in_flight > 0

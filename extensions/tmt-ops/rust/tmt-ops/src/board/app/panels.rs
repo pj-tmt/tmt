@@ -48,6 +48,44 @@ impl App {
             _ => false,
         }
     }
+    pub(in crate::board) fn digest_placement(
+        &self,
+        area: ratatui::layout::Rect,
+    ) -> crate::board::conversation::layout::Placement {
+        use crate::board::conversation::layout::{self, Placement, Preference};
+        let policy = self.digest_panels();
+        let placement = if !policy.shown(crate::config::DigestPanel::List) {
+            Placement {
+                list: None,
+                conversation: Some(area),
+            }
+        } else if !policy.side_shown() {
+            Placement {
+                list: Some(area),
+                conversation: None,
+            }
+        } else {
+            let preference = self
+                .workspace_snapshot()
+                .map_or(Preference::Auto, |snapshot| {
+                    match snapshot.preferences.layout {
+                        crate::config::OpsLayout::Auto => Preference::Auto,
+                        crate::config::OpsLayout::Side => Preference::Side,
+                        crate::config::OpsLayout::Stack => Preference::Stack,
+                    }
+                });
+            layout::agents(
+                area,
+                preference,
+                self.focused() == crate::config::Pane::Replies,
+            )
+        };
+        self.pane_resize.panes(
+            placement,
+            crate::action::ResizeBoundary::DigestColumns,
+            crate::action::ResizeBoundary::DigestRows,
+        )
+    }
     pub(in crate::board) fn overview_placement(
         &self,
         area: ratatui::layout::Rect,
@@ -61,7 +99,7 @@ impl App {
         );
         // Reader focus alone may come from Tab. The existing UUID draft owner
         // distinguishes an explicit message reveal without another open flag.
-        crate::board::conversation::layout::overview_policy(
+        let placement = crate::board::conversation::layout::overview_policy(
             area,
             &self.overview_panels(),
             self.focused() == crate::config::Pane::Replies
@@ -69,6 +107,11 @@ impl App {
                     .input
                     .as_ref()
                     .is_some_and(|input| input.draft_key.is_some()),
+        );
+        self.pane_resize.panes(
+            placement,
+            crate::action::ResizeBoundary::OverviewColumns,
+            crate::action::ResizeBoundary::OverviewList,
         )
     }
     pub(in crate::board) fn overview_usage_band(
@@ -84,6 +127,24 @@ impl App {
                 area.height,
                 crate::status::now_ms(),
             )
+        };
+        let height = if height > 1
+            && self
+                .overview_panels()
+                .shown(crate::config::OverviewPanel::Monitor)
+            && self
+                .pane_resize
+                .adjusted(crate::action::ResizeBoundary::OverviewUsage)
+        {
+            self.pane_resize.size(
+                crate::action::ResizeBoundary::OverviewUsage,
+                area.height,
+                height,
+                height,
+                crate::board::overview::composition::minimum_height(self, area.width),
+            )
+        } else {
+            height
         };
         ratatui::layout::Rect::new(
             area.x.saturating_add(u16::from(area.width > 0)),

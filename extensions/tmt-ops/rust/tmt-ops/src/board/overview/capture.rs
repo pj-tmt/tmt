@@ -449,7 +449,7 @@ fn capture_squads_packet(output: &str) {
 }
 
 /// Admitted fixture observations pass through the normal label/cron projections.
-pub(super) fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
+pub(in crate::board) fn populate_lower_band(app: &mut crate::board::app::App, scene: &str) {
     use crate::board::cronboard::{test_cron, test_views};
     use tmt_ops::cron::{ClockStatus, Holder};
     let now = crate::status::now_ms() as i64;
@@ -509,7 +509,7 @@ pub(super) fn populate_lower_band(app: &mut crate::board::app::App, scene: &str)
 }
 
 /// S4 fixture data enters the same held RateView/Meter and exact-question ports.
-pub(super) fn populate_final(app: &mut crate::board::app::App, scene: &str) {
+pub(in crate::board) fn populate_final(app: &mut crate::board::app::App, scene: &str) {
     use crate::board::{
         app::RateView,
         rate::{

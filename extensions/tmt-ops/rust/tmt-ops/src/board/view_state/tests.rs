@@ -669,3 +669,46 @@ fn retired_agents_attention_filter_loads_as_all_without_discarding_other_control
     assert_eq!(controls.query, "worker");
     assert_eq!(controls.json()["agentsFilter"], "all");
 }
+
+#[test]
+fn pane_ratios_restore_from_the_selected_named_layer_and_exec_controls() {
+    use crate::action::ResizeBoundary as Id;
+    let scratch = Scratch::new();
+    let left = Layer::parse("wide").unwrap().path(&scratch.0);
+    let right = Layer::parse("review").unwrap().path(&scratch.0);
+    let now = Instant::now();
+    let mut first = board();
+    first
+        .pane_resize
+        .restore([(Id::AgentsColumns, 7000)].into());
+    Session::load(left.clone(), false, false).flush(&mut first, now);
+    first
+        .pane_resize
+        .restore([(Id::AgentsColumns, 4500)].into());
+    Session::load(right.clone(), false, false).flush(&mut first, now);
+    let right_bytes = fs::read(&right).unwrap();
+    let mut next = cold();
+    assert!(
+        Session::load(left.clone(), false, false)
+            .tick(&mut next, now)
+            .0
+    );
+    assert_eq!(
+        next.pane_resize.ratios().get(&Id::AgentsColumns),
+        Some(&7000)
+    );
+    assert_eq!(fs::read(&right).unwrap(), right_bytes);
+    let directory = scratch.0.join("reload");
+    next.resume().unwrap().write(&directory, 17, 1_000).unwrap();
+    let resume = crate::board::resume::Resume::take(&directory, 17, 1_000).unwrap();
+    let mut exec = board();
+    exec.carry(resume);
+    let fresh = exec.view.take().unwrap();
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.view = Ok(fresh);
+    exec.apply(snapshot);
+    assert_eq!(exec.pane_resize.ratios(), next.pane_resize.ratios());
+    assert!(Session::open(left.clone(), false, false, true).is_ok());
+    assert!(!left.exists());
+    assert_eq!(fs::read(&right).unwrap(), right_bytes);
+}

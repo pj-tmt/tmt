@@ -2,12 +2,11 @@ use super::model;
 use crate::{
     board::{
         app::{App, Hit, HitTarget},
-        conversation::layout::{self, Preference},
         usage_report,
         view::fit,
         workspace::OpsTarget,
     },
-    config::{OpsLayout, Pane},
+    config::Pane,
 };
 use ratatui::{
     Frame,
@@ -228,28 +227,24 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
     app.conversation.borrow_mut().area = target;
-    let preference = app
-        .workspace_snapshot()
-        .map_or(Preference::Auto, |snapshot| {
-            match snapshot.preferences.layout {
-                OpsLayout::Auto => Preference::Auto,
-                OpsLayout::Side => Preference::Side,
-                OpsLayout::Stack => Preference::Stack,
-            }
-        });
-    let placement = if !policy.shown(Id::List) {
-        layout::Placement {
-            list: None,
-            conversation: Some(target),
-        }
-    } else if !policy.side_shown() {
-        layout::Placement {
-            list: Some(target),
-            conversation: None,
-        }
-    } else {
-        layout::agents(target, preference, app.focused() == Pane::Replies)
-    };
+    use crate::action::ResizeBoundary as Boundary;
+    let placement = app.digest_placement(target);
+    app.pane_resize.record_panes(
+        placement,
+        Boundary::DigestColumns,
+        Boundary::DigestRows,
+        frame.area(),
+    );
+    if let (Some(list), Some(detail)) = (placement.list, placement.conversation)
+        && list.y == detail.y
+    {
+        crate::board::divider::paint(
+            frame.buffer_mut(),
+            Rect::new(list.right(), list.y, 1, list.height),
+            false,
+            look,
+        );
+    }
     if let Some(list) = placement.list {
         members(frame, app, list);
     }

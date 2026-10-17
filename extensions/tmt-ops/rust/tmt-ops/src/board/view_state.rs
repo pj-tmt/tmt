@@ -69,6 +69,7 @@ impl From<&crate::config::OpsPreferences> for Order {
 /// Committed view controls are separate from shared Config preferences and drafts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Controls {
+    ratios: super::pane_resize::Ratios,
     query: String,
     agents_filter: super::workspace::AgentsFilter,
     overview_view: super::overview::monitor::View,
@@ -77,6 +78,7 @@ pub(super) struct Controls {
 impl Controls {
     pub(super) fn capture(app: &App) -> Self {
         Self {
+            ratios: app.pane_resize.ratios(),
             query: app.search.clone(),
             agents_filter: app.workspace.filter,
             overview_view: app.overview_view,
@@ -84,6 +86,7 @@ impl Controls {
         }
     }
     pub(super) fn apply(&self, app: &mut App) {
+        app.pane_resize.restore(self.ratios.clone());
         app.search = self.query.clone();
         app.workspace.query = self.query.clone();
         app.workspace.filter = self.agents_filter;
@@ -94,7 +97,7 @@ impl Controls {
     pub(super) fn json(&self) -> Value {
         use super::workspace::AgentsFilter;
         use crate::config::{OpsSort, OverviewDirection};
-        json!({ "query": self.query,
+        json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
             "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Pinned => "pinned" },
             "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
@@ -109,6 +112,7 @@ impl Controls {
             return None;
         }
         Some(Self {
+            ratios: super::pane_resize::ratios_decode(value.get("paneRatios"))?,
             query: query.into(),
             agents_filter: match value["agentsFilter"].as_str()? {
                 "all" => AgentsFilter::All,

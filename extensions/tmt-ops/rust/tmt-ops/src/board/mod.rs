@@ -38,6 +38,7 @@ pub(crate) mod notes;
 mod notice;
 mod overview;
 mod pane_chrome;
+mod pane_resize;
 mod panels_picker;
 mod picker_surface;
 mod rate;
