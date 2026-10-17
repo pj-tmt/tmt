@@ -238,10 +238,10 @@ impl HostAction {
             .selection
             .recipient
             .as_ref()
-            .ok_or("Preview unavailable: select an agent.")?;
+            .ok_or("Select an agent.")?;
         row["name"]
             .as_str()
-            .ok_or("Preview unavailable: this row has no agent.")?;
+            .ok_or("This row has no agent.")?;
         match action.verb {
             Verb::Run => Ok(format!(
                 "argv {:?}",
@@ -251,11 +251,11 @@ impl HostAction {
                 "tmt focus {} --into {} --json",
                 row["id"]
                     .as_str()
-                    .ok_or("Preview unavailable: no identity UUID.")?,
+                    .ok_or("No identity UUID.")?,
                 action.args[0].literal().expect("validated direction")
             )),
             Verb::Jump if !action.args.is_empty() => {
-                Err("Preview unavailable: this binding targets the squad lead; Focus agent is a different preset.".into())
+                Err("This binding targets the squad lead; Focus agent is a different preset.".into())
             }
             Verb::Jump if !self.selection.invoker_tmux => {
                 Ok("UI: open conversation (no shell command)".into())

@@ -233,7 +233,7 @@ Focus agent, Swap beside board (left/right/up/down), or Custom command. It reads
 the winning global/host/selected-section owner through `workspace_keys`, names
 that exact write scope and preserves other bindings. A preview freezes the selected
 binding context and recipient at opening: a squad uses its lead for host/argv
-evidence while retaining the squad selection for section overrides. It fills argv
+evidence, and its root does not inherit the lead's member-section binding. It fills argv
 without execution and leaves missing context unavailable;
 Preset previews are read-only (`s` saves); Custom command keeps typing and Enter
 save. Esc cancels, and a file conflict keeps the
