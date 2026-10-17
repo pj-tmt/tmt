@@ -193,6 +193,7 @@ pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
         session: ProviderSessionId::new(&payload.session_id).ok()?,
         transcript: payload.transcript_path.map(Into::into),
         final_text: None,
+        interrupted: false,
     })
 }
 

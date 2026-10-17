@@ -84,6 +84,9 @@ pub struct TurnEnd {
     pub session: ProviderSessionId,
     pub transcript: Option<PathBuf>,
     pub final_text: Option<tmt_core::responses::FinalText>,
+    /// The turn was interrupted: it ends activity only. It carries no final
+    /// answer and no transcript, so nothing is read or captured for it.
+    pub interrupted: bool,
 }
 
 /// One bounded turn observation; final text never enters opaque driver state.

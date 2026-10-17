@@ -95,6 +95,16 @@ fn activity_for_record(
     (Instant::now() < deadline).then_some(foreground)
 }
 
+/// The session a hook waits for: a starting event, a prompt, or a turn end
+/// (an interrupt included).
+fn admission_session(payload: &[u8]) -> Option<ProviderSessionId> {
+    decode_hook(payload)
+        .filter(|e| e.starting)
+        .map(|e| e.session)
+        .or_else(|| crate::runtime::hook_protocol::decode_prompt(payload))
+        .or_else(|| super::decode_turn(payload).map(|e| e.session))
+}
+
 pub fn wait_for_admission(
     payload: &[u8],
     deadline: Instant,
@@ -106,12 +116,7 @@ pub fn wait_for_admission(
     ) else {
         return Ok(());
     };
-    let session = decode_hook(payload)
-        .filter(|e| e.starting)
-        .map(|e| e.session)
-        .or_else(|| crate::runtime::hook_protocol::decode_prompt(payload))
-        .or_else(|| super::decode_turn(payload).map(|e| e.session));
-    let Some(session) = session else {
+    let Some(session) = admission_session(payload) else {
         return Ok(());
     };
     let binding = binding.into_string().map_err(|_| LifecycleUnavailable)?;

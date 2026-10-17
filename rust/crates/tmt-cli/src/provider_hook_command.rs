@@ -136,6 +136,9 @@ fn observe_turn(
     activity: Option<&tmt_core::binding::session::activity::Event>,
     deadline: Instant,
 ) -> Result<(), ()> {
+    // An interrupted turn ends activity only: no usage, consumption source or
+    // final answer is read or captured for it.
+    let activity_only = activity_only || turn.interrupted;
     let host = lifecycle.host_evidence().map_err(|_| ())?;
     if matches!(host, HostEvidence::Unsupported) {
         return Ok(());
@@ -194,14 +197,18 @@ fn observe_turn(
     let consumption = usage
         .as_ref()
         .and_then(|state| lifecycle.state_consumption(state));
-    let locator = turn.transcript.as_ref().and_then(|path| {
-        lifecycle.consumption_locator(
-            serde_json::json!({"transcript_path":path})
-                .to_string()
-                .as_bytes(),
-            &environment,
-        )
-    });
+    let locator = turn
+        .transcript
+        .as_ref()
+        .filter(|_| !activity_only)
+        .and_then(|path| {
+            lifecycle.consumption_locator(
+                serde_json::json!({"transcript_path":path})
+                    .to_string()
+                    .as_bytes(),
+                &environment,
+            )
+        });
     let reading = ConsumptionReading {
         locator,
         consumption,
@@ -959,6 +966,9 @@ fn worker_arguments(provider: &str, remaining: Duration) -> Result<Vec<std::ffi:
     args.extend(["--work-budget-ms".into(), budget.to_string().into()]);
     Ok(args)
 }
+
+#[cfg(test)]
+mod interrupt_tests;
 
 #[cfg(test)]
 mod budget_tests {

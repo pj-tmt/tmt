@@ -97,20 +97,36 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
 }
 
 /// `Stop`: the turn ended. A null transcript path leaves nothing to read.
+/// `Interrupt`: the turn was interrupted. It is recognized as a turn end for
+/// activity only, so its transcript path and any final text are dropped here.
 pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
     if bytes.len() > crate::runtime::hook_protocol::HOOK_INPUT_LIMIT {
         return None;
     }
     let payload: Payload = serde_json::from_slice(bytes).ok()?;
-    (payload.hook_event_name == "Stop").then_some(())?;
+    let interrupted = match payload.hook_event_name.as_str() {
+        "Stop" => false,
+        "Interrupt" => true,
+        _ => return None,
+    };
+    let session = ProviderSessionId::new(&payload.session_id).ok()?;
+    if interrupted {
+        return Some(crate::runtime::lifecycle::TurnEnd {
+            session,
+            transcript: None,
+            final_text: None,
+            interrupted,
+        });
+    }
     Some(crate::runtime::lifecycle::TurnEnd {
-        session: ProviderSessionId::new(&payload.session_id).ok()?,
+        session,
         transcript: payload.transcript_path.map(Into::into),
         final_text: payload
             .last_assistant_message
             .as_ref()
             .and_then(serde_json::Value::as_str)
             .and_then(tmt_core::responses::FinalText::new),
+        interrupted,
     })
 }
 
