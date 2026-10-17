@@ -337,7 +337,9 @@ Digest Usage report below.
 
 The Digest tab's Usage report panel shows `tmt digest usage report`: tokens per
 line and seat with their coverage, account limits with their pace, and the top
-senders and recipients. Its 24h, 7d and 30d chips (or Workspace settings on that
+senders and recipients. A seat recorded for only part of the window reads
+`partial · since <time>` (with the date unless that is today) when its evidence began
+inside the window, else `partial · <covered> of <window>`. Its 24h, 7d and 30d chips (or Workspace settings on that
 tab) choose the window. Ops reads it in the background about once a minute, and at
 once when the window changes, only while the panel is shown on the Digest tab;
 hiding the panel stops the reads. A source that is slow or failing leaves the panel

@@ -16,6 +16,7 @@ const USAGE: &[&str] = &[
     "cached",
     "coveredMs",
     "windowMs",
+    "startsAtMs",
     "complete",
     "unavailable",
 ];
@@ -77,6 +78,7 @@ fn usage(document: &Value) -> Vec<String> {
                 totals["cached"].clone(),
                 coverage["coveredMs"].clone(),
                 coverage["windowMs"].clone(),
+                coverage["startsAtMs"].clone(),
                 coverage["complete"].clone(),
                 Value::Null,
             ]
@@ -118,7 +120,7 @@ fn usage(document: &Value) -> Vec<String> {
             seat["name"].clone(),
             seat["retired"].clone(),
         ];
-        cells.extend(std::iter::repeat_n(Value::Null, 8));
+        cells.extend(std::iter::repeat_n(Value::Null, 9));
         cells.push(seat["reason"].clone());
         rows.push(row(&cells));
     }

@@ -90,14 +90,27 @@ fn window_label(minutes: u64) -> String {
     }
 }
 
-fn clock(ms: u64, zone: &jiff::tz::TimeZone) -> String {
+fn zoned(ms: u64, zone: &jiff::tz::TimeZone) -> Option<jiff::Zoned> {
     i64::try_from(ms)
         .ok()
         .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
-        .map_or_else(
-            || "unknown".into(),
-            |time| time.to_zoned(zone.clone()).strftime("%H:%M").to_string(),
-        )
+        .map(|time| time.to_zoned(zone.clone()))
+}
+
+fn clock(ms: u64, zone: &jiff::tz::TimeZone) -> String {
+    zoned(ms, zone).map_or_else(
+        || "unknown".into(),
+        |time| time.strftime("%H:%M").to_string(),
+    )
+}
+
+/// A time of day, with its date unless it is on the day of `now_ms`.
+fn moment(ms: u64, now_ms: u64, zone: &jiff::tz::TimeZone) -> String {
+    match (zoned(ms, zone), zoned(now_ms, zone)) {
+        (Some(at), Some(now)) if at.date() == now.date() => at.strftime("%H:%M").to_string(),
+        (Some(at), _) => at.strftime("%m-%d %H:%M").to_string(),
+        _ => "unknown".into(),
+    }
 }
 
 /// The name of a participant: its name, else the start of its UUID (muted).
@@ -219,7 +232,25 @@ fn line_row(report: &Report, line: &Line, columns: &Columns, buckets: usize) -> 
     Row::Line(pieces)
 }
 
-fn seat_row(seat: &Seat, columns: &Columns, buckets: usize) -> Row {
+/// Partial coverage in words: where the evidence began when that is inside the
+/// window, else how much of the window it covers.
+fn partial(report: &Report, seat: &Seat, zone: &jiff::tz::TimeZone) -> String {
+    match (seat.starts_at_ms, report.window_from_ms) {
+        (Some(start), Some(from)) if start > from => {
+            format!(
+                "partial · since {}",
+                moment(start, report.observed_at_ms, zone)
+            )
+        }
+        _ => format!(
+            "partial · {} of {}",
+            duration(seat.covered_ms),
+            duration(seat.window_ms)
+        ),
+    }
+}
+
+fn seat_row(seat: &Seat, columns: &Columns, buckets: usize, partial: &str) -> Row {
     let (name, role) = who(&seat.who);
     let retired = if seat.who.retired { " retired" } else { "" };
     let name = clip(&name, columns.name.saturating_sub(retired.len()));
@@ -237,14 +268,7 @@ fn seat_row(seat: &Seat, columns: &Columns, buckets: usize) -> Row {
     }
     pieces.push((numbers(seat.input, seat.output, seat.cached), Role::Text));
     if columns.text && !seat.complete {
-        pieces.push((
-            format!(
-                "  partial · {} of {}",
-                duration(seat.covered_ms),
-                duration(seat.window_ms)
-            ),
-            Role::Muted,
-        ));
+        pieces.push((format!("  {partial}"), Role::Muted));
     }
     Row::Line(pieces)
 }
@@ -449,7 +473,7 @@ fn layout(view: &View<'_>, since: Since, width: u16, zone: &jiff::tz::TimeZone) 
     }
     rows.extend(limit_rows(report));
     if !report.seats.is_empty() {
-        let layout = columns(width, name, buckets, "partial · 18h of 24h".len());
+        let layout = columns(width, name, buckets, "partial · since 10-16 21:20".len());
         rows.push(header(&layout, "COVERAGE"));
         let mut seats: Vec<&Seat> = report.seats.iter().collect();
         seats.sort_by_key(|seat| std::cmp::Reverse(seat.total()));
@@ -457,7 +481,7 @@ fn layout(view: &View<'_>, since: Since, width: u16, zone: &jiff::tz::TimeZone) 
             seats
                 .iter()
                 .take(TOP_SEATS)
-                .map(|seat| seat_row(seat, &layout, buckets)),
+                .map(|seat| seat_row(seat, &layout, buckets, &partial(report, seat, zone))),
         );
         if seats.len() > TOP_SEATS {
             rows.push(Row::muted(format!(

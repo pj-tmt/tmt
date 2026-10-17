@@ -95,6 +95,9 @@ pub struct Seat {
     series: Vec<Point>,
     covered_ms: u64,
     window_ms: u64,
+    /// Where the seat's evidence begins inside the window: Core's
+    /// `availableFromMs`, but never before the window itself.
+    starts_at_ms: u64,
     complete: bool,
     gap: bool,
     limits: Option<Observed>,
@@ -246,6 +249,8 @@ pub fn usage(
             });
             continue;
         }
+        let available =
+            number(&window["availableFromMs"]).ok_or_else(|| invalid("consumption window"))?;
         let bucket = match window["buckets"].as_array().map(Vec::as_slice) {
             Some([bucket]) => bucket,
             _ => return Err(invalid("consumption history")),
@@ -280,6 +285,7 @@ pub fn usage(
             covered_ms: number(&bucket["coveredMs"])
                 .ok_or_else(|| invalid("consumption bucket"))?,
             window_ms: span.to_ms.saturating_sub(span.from_ms),
+            starts_at_ms: available.max(span.from_ms),
             complete: bucket["complete"] == true,
             gap: bucket["gap"] == true,
             limits,
@@ -457,6 +463,7 @@ fn seat_json(seat: &Seat) -> Value {
             row
         }).collect::<Vec<_>>(),
         "coverage": {"coveredMs": seat.covered_ms, "windowMs": seat.window_ms,
+                     "startsAtMs": seat.starts_at_ms,
                      "complete": seat.complete, "gap": seat.gap},
     })
 }
