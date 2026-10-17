@@ -1,4 +1,5 @@
 import type { ReadingDetails } from './reading-details.js';
+import type { ActivityObservation } from './agent-activity.js';
 import type { RemotePresence } from './remote-presence.js';
 import type { CompactReport, PageUsage } from './page-usage.js';
 import type { attachment } from '@tmt/colab-client';
@@ -19,6 +20,7 @@ export interface PageView extends Projection {
   readonly threads?: readonly ThreadView[];
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
+  readonly agentActivity?: ActivityObservation;
 }
 import type { PageActivity, PageId } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
@@ -46,6 +48,7 @@ export interface PageSnapshot extends PageSummary {
   readonly threads?: readonly ThreadView[];
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
+  readonly agentActivity?: ActivityObservation;
 }
 /** A chapter borrows the mounted page owner and joins its release before replacement. */
 export interface PageLease {

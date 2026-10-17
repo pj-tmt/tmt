@@ -1944,8 +1944,7 @@ controller, read steps are capped at three seconds (two, then three seconds).
 Reads never extend this active window. It is ephemeral per controller; a Session
 replacement restarts observation from the fast step without carrying the window.
 Polling pauses hidden pages and stops after the unchanged two-hour operation
-horizon. Annotations and Chat then show
-a Lucide Clock with `no reply yet`, keeping the accepted ledger state and read-only re-check action.
+horizon. Annotations and Chat then keep a static status, the accepted ledger state and read-only re-check action; activity is presentation only, as defined below.
 Closing the asking browser delays page publication until it
 reopens; it never cancels work. Synchronization and other viewers cannot perform
 result reads as the asking Remote device.
@@ -2002,6 +2001,42 @@ time; ended/evicted/scope-denied, lost admission or a replaced page/client clear
 cached observation and pending read. Restoring the same admission requires a new read. An empty
 successful directory is separate from an unavailable read. The view does not change
 conversation drafts or admit a message recipient.
+
+### Agent working-state line (#3331)
+
+A sent Chat or annotation message uses only the current Remote agent row's optional
+`activity: {state, sinceMs}` and owner `observedAtMs`. Missing or invalid telemetry
+shows plain `Sent`, without animation. Sending shows `sending…`; held, refused,
+uncertain and failed outcomes keep their existing delivery actions. A verified reply,
+including an empty reply, replaces the line. Presence and runningDriver never prove
+working, delivery, completion or admission, and no activity observation dispatches.
+
+Phase times belong to the owner's wall clock. The anchor for an explicit Send is
+`observedAtMs` from the latest pre-Send directory read if it is younger than twice
+the current Ask cadence interval; otherwise one directory read is made at Send.
+Without that fresh owner-clock anchor the line stays `Sent`; the viewer's intent
+issuedAt is never substituted. Working since the anchor, including equality, shows
+`⠹ <name> is working · m:ss`; earlier working shows
+`◌ <name> is finishing an earlier turn · 3m`, without animation. Only an observed
+working phase at or after the anchor followed by idle, without a reply, shows
+`✓ <name> finished without replying · 2m ago`. Explicit unknown/ended or stale
+telemetry shows `✓ sent · <name>'s activity is not reported`. Durations use owner
+`observedAtMs − sinceMs` plus monotonic local time since acquisition, never an
+owner/viewer wall-clock subtraction. No elapsed time claims that work is stuck.
+Anchors and observed transitions are page/controller-local, never persisted or sent.
+
+One page-owned inventory read runs on the existing visible Ask receipt cadence,
+shared across recipients and surfaces, only while an owned Ask awaits a reply
+within its two-hour horizon. There is at most one inventory read in flight. Hidden,
+closed, replaced or no-longer-admitted generations discard late results; visible
+return reads once. Working animation and elapsed updates require a successful read
+younger than twice its interval. Stopping observation leaves plain `Sent` or the last
+non-working state, never animation. Reduced motion keeps working text static. Words carry every state and all activity colours are neutral; the text and mark remain visible under forced colours. `NO_COLOR` is a terminal convention, not a browser setting.
+
+Hosted currently has no `agents.list` operation and adds no call or native fallback;
+missing observation stays `Sent`. A future hosted inventory cadence is no faster
+than 60 seconds, with a 120-second freshness bound and the same Ask horizon. These
+cost bounds are policy, not a measurement of billed Firestore requests.
 
 ## Renderer and live anchors
 
@@ -2821,9 +2856,7 @@ draft without the creator mention hides the creator-default toggle; a fresh defa
 draft shows it again. The stored preference and send decision are unchanged. Failed delivery shows
 `✗ Not delivered` and the existing ask-again action labelled `Retry`; waiting,
 held and uncertain states retain their existing recovery and announcements.
-Thread actions retain their existing Lucide icons and accessible labels. After the existing
-two-hour observation window, an accepted turn awaiting a reply shows a display-only
-reply timeout; it keeps its accepted ledger state and read-only recheck action. No
+Thread actions retain their existing Lucide icons and accessible labels. Agent activity follows the bounded working-state observation above; after its two-hour horizon the status is static and keeps its accepted ledger state and read-only recheck action. No
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters
 the author-code renderer; highlights carry only anchor IDs, quote selectors and bounded paint-only ordinals.
 The internal highlight message separates an optional unsaved quote from numbered anchors;

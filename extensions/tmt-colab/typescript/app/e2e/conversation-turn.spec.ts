@@ -169,7 +169,7 @@ for (const width of [1440, 390]) {
         await expect(user).toHaveCSS('padding-left', surface === 'chat' ? '16px' : '0px');
         computed[`${surface}-user`] = await styles(user);
         for (const [state, label] of [
-          ['waiting', 'Waiting for Atlas'],
+          ['waiting', 'Sent'],
           ['held', 'Waiting for approval'],
           ['replied', ''],
           ['failed', 'Not delivered'],
@@ -197,6 +197,7 @@ for (const width of [1440, 390]) {
             );
             if (surface === 'chat' && state === 'failed')
               await expect(status.locator('.ask-state-mark')).toHaveText('✗');
+            else if (state === 'waiting') await expect(status.locator('svg.lucide')).toBeHidden();
             else await expect(status.locator('svg.lucide')).toBeVisible();
             await expect(user.locator('header').getByTestId('ask-state')).toHaveCount(0);
             const placement = await user.evaluate((node) => {
@@ -410,10 +411,10 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
     'abandon:00000000-0000-4000-8000-000000000043',
   ]);
   for (const [state, label, supporting] of [
-    ['dispatching', 'Waiting for Atlas', ''],
-    ['accepted', 'Waiting for Atlas', ''],
+    ['dispatching', 'sending…', ''],
+    ['accepted', 'Sent', ''],
     ['held', 'Waiting for approval', text.askHeld],
-    ['timeout', 'No reply yet from Atlas', ''],
+    ['timeout', 'Sent', ''],
     ['failed', 'Not delivered', text.askOperationFailed],
     ['refused', 'Not delivered', text.askRefused],
     ['cancelled', 'Not delivered', text.askCancelled],
@@ -428,7 +429,9 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   ]) {
     await run(page, 'conversation', { surface: 'thread', state });
     await expect(window.getByTestId('ask-state')).toHaveText(label);
-    await expect(window.getByTestId('ask-state').locator('svg.lucide')).toBeVisible();
+    if (['dispatching', 'accepted', 'timeout'].includes(state))
+      await expect(window.getByTestId('ask-state').locator('svg.lucide')).toBeHidden();
+    else await expect(window.getByTestId('ask-state').locator('svg.lucide')).toBeVisible();
     if (supporting) await expect(window.locator('.ask-supporting')).toHaveText(supporting);
     else await expect(window.locator('.ask-supporting')).toHaveCount(0);
     await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(
@@ -483,7 +486,10 @@ test('a long agent label wraps below the message without clipping or hiding Chec
   const name = 'LongAgentLabel'.repeat(8);
   await run(page, 'conversation', { surface: 'chat', state: 'waiting', agentName: name });
   const user = page.locator('.conversation-turn[data-turn-role="user"]');
-  await expect(user.getByTestId('ask-state')).toHaveText(`Waiting for ${name}`);
+  await run(page, 'conversationActivity', { kind: 'unknown' });
+  await expect(user.getByTestId('ask-state')).toHaveText(
+    `✓sent · ${name}'s activity is not reported`,
+  );
   const geometry = await user.locator('.conversation-status').evaluate((node) => {
     const style = getComputedStyle(node);
     const body = node
@@ -964,3 +970,66 @@ for (const [width, theme] of [
     await expect(chat.getByRole('combobox')).toHaveCount(0);
     expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
   });
+
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`agent activity stays cosmetic and bounded: ${surface} ${width} ${theme}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'no-preference' });
+        await mount(page, surface);
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, theme);
+        const window =
+          surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+        const status = window.getByTestId('ask-state');
+        await expect(status).toHaveText('Sent');
+        await expect(status.locator('.agent-activity-spinner')).toHaveCount(0);
+        const before = await run(page, 'proof');
+        for (const [kind, label] of [
+          ['working', /Atlas is working · 3:0[5-9]/],
+          ['queued', /Atlas is finishing an earlier turn · 3m/],
+          ['finished', /Atlas finished without replying · 3m ago/],
+          ['unknown', /sent · Atlas's activity is not reported/],
+        ] as const) {
+          await run(page, 'conversationActivity', { kind });
+          await expect(status).toContainText(label);
+          await expect(status.locator('.agent-activity-spinner')).toHaveCount(
+            kind === 'working' ? 1 : 0,
+          );
+          if (kind === 'working') {
+            await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
+              'animation-name',
+              'agent-working',
+            );
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
+              'animation-name',
+              'none',
+            );
+            await expect(status).toContainText('Atlas is working');
+            await page.emulateMedia({ reducedMotion: 'no-preference' });
+            await page.emulateMedia({ forcedColors: 'active' });
+            await expect(status.locator('.agent-activity-spinner')).toBeVisible();
+            await expect(status.locator('.agent-activity')).toContainText('Atlas is working');
+            await page.emulateMedia({ forcedColors: 'none' });
+          }
+          const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+          if (captures) {
+            mkdirSync(captures, { recursive: true });
+            await page.screenshot({ path: `${captures}/${surface}-${width}-${theme}-${kind}.png` });
+          }
+        }
+        await run(page, 'conversationActivity', { kind: 'working', ageMs: 6000 });
+        await expect(status).toContainText("sent · Atlas's activity is not reported");
+        await expect(status.locator('.agent-activity-spinner')).toHaveCount(0);
+        await run(page, 'conversationActivity', { kind: 'working', active: false });
+        await expect(status).toHaveText('Sent');
+        expect(await run(page, 'proof')).toEqual(before);
+        await run(page, 'conversation', { surface, state: 'replied' });
+        await expect(window.getByTestId('ask-reply')).toHaveText(reply);
+        await expect(status).toHaveCount(0);
+      });

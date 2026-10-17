@@ -1875,3 +1875,24 @@ body:has(.needs-you-header-menu) {
   outline: 2px solid var(--tmt-ui-color-focus);
   outline-offset: 3px;
 }
+
+.agent-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-muted);
+}
+.agent-activity-spinner {
+  display: inline-block;
+  animation: agent-working 1s steps(8) infinite;
+}
+@keyframes agent-working {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-spinner {
+    animation: none;
+  }
+}
