@@ -160,7 +160,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
       await fixture.waitForCapture(
         (screen) =>
-          screen.includes('Apply this exact operation') && screen.includes('New squad: product'),
+          /Cancel[ \t]+Create squad/.test(screen) && screen.includes('New squad: product'),
         shell.pane
       );
       const beforeApply = await fixture.runJsonCli(['room', 'show', 'squad-product']);
@@ -191,7 +191,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture(
-        (screen) => !screen.includes('Apply this exact operation') && screen.includes('product'),
+        (screen) => !/Cancel[ \t]+Create squad/.test(screen) && screen.includes('product'),
         shell.pane
       );
       fixture.tmux(['send-keys', '-t', shell.pane, '2']);

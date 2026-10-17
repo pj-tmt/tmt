@@ -1294,7 +1294,16 @@ fn removal_review_is_scrollable_frozen_and_cancel_is_the_initial_action() {
     let screen = paint(&app, 80, 24).join("\n");
     assert!(screen.contains("Source timers to pause: unknown"));
     assert!(screen.contains("identity, process, history"));
-    assert!(screen.contains("Apply this exact operation"));
+    assert!(screen.contains("Remove membership"));
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, &app))
+        .unwrap();
+    let confirm = app.workspace_form.as_ref().unwrap().controls.get()[1].unwrap();
+    let label: String = (confirm.x..confirm.right())
+        .map(|x| terminal.backend().buffer()[(x, confirm.y)].symbol())
+        .collect();
+    assert_eq!(label, " Remove membership ");
     let frozen = app.workspace_form.as_ref().unwrap().operation.clone();
     app.workspace.selected = Some(OpsTarget::Pool);
     assert_eq!(app.workspace_form.as_ref().unwrap().operation, frozen);
@@ -5306,3 +5315,4 @@ fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_stat
         );
     }
 }
+mod review_modal;

@@ -398,7 +398,7 @@ fn click(c: &mut Controller, id: &str) -> Option<Task> {
 fn real_surface_confirmation_requires_all_target_notes_and_choices_visible() {
     let mut c = controller();
     assert!(c.review(AgentSelector::NewName("worker".into()), false));
-    assert!(paint(&c, 160, 36).contains("Confirm binding"));
+    assert!(paint(&c, 160, 36).contains("Bind agent"));
     assert!(c.readable.get());
     c.ui.borrow_mut().invalidate();
     c.readable.set(false);
@@ -410,6 +410,128 @@ fn real_surface_confirmation_requires_all_target_notes_and_choices_visible() {
     assert!(c.readable.get());
     assert!(click(&mut c, "confirm").is_some());
     assert!(c.confirm().is_none());
+}
+#[test]
+fn binding_review_fits_the_target_without_changing_inventory_height() {
+    let mut c = controller();
+    paint(&c, 160, 80);
+    assert_eq!(c.ui.borrow().frame.as_ref().unwrap().areas.outer.height, 38);
+    assert!(c.review(AgentSelector::NewName("worker".into()), false));
+    let text = paint(&c, 160, 80);
+    assert!(text.contains("Bind agent"));
+    assert_eq!(
+        c.rows()
+            .iter()
+            .find(|row| row.id == "confirm")
+            .unwrap()
+            .label,
+        "Bind agent"
+    );
+    assert!(c.readable.get());
+    let outer = c.ui.borrow().frame.as_ref().unwrap().areas.outer;
+    assert!(
+        outer.height < 38,
+        "short binding review must not demand 38 rows"
+    );
+    assert!(outer.width <= 120);
+    c.readable.set(false);
+    c.ui.borrow_mut().invalidate();
+    assert!(
+        c.confirm().is_none(),
+        "a shorter label does not bypass current paint"
+    );
+}
+#[test]
+fn discovery_confirmation_keeps_escape_hint_whole_at_low_height() {
+    for width in [60, 100, 160] {
+        for height in [8, 24, 36] {
+            let mut c = controller();
+            assert!(c.review(AgentSelector::NewName("worker".into()), false));
+            let mut app = crate::board::app::workspace::tests::board();
+            app.discovery = Some(c);
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let c = app.discovery.as_ref().unwrap();
+            let footer = c.ui.borrow().frame.as_ref().unwrap().areas.footer;
+            assert_eq!(
+                footer.height, 1,
+                "one whole fitted hint row at {width}x{height}"
+            );
+            let text: String = (footer.x..footer.right())
+                .map(|x| terminal.backend().buffer()[(x, footer.y)].symbol())
+                .collect();
+            assert!(text.starts_with("Esc cancel"), "{width}x{height}: {text:?}");
+            assert!(text.contains("Enter select"));
+        }
+    }
+}
+#[test]
+fn short_binding_review_keeps_its_subject_and_cancel_visible() {
+    use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    for height in [8, 10, 12] {
+        let mut c = controller();
+        assert!(c.review(AgentSelector::NewName("worker".into()), false));
+        let mut app = crate::board::app::workspace::tests::board();
+        app.discovery = Some(c);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, height)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let c = app.discovery.as_ref().unwrap();
+        let state = c.ui.borrow();
+        let map = state.frame.as_ref().unwrap();
+        assert_eq!(
+            map.areas.outer,
+            ratatui::layout::Rect::new(0, 0, 60, height)
+        );
+        assert!(map.areas.content.height > 0);
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("Bind %3"), "{text}");
+        assert!(text.contains("worker"), "{text}");
+        assert!(
+            map.hits
+                .iter()
+                .any(|hit| hit.row_id.as_deref() == Some("cancel") && hit.rect.height > 0)
+        );
+        assert!(
+            !c.readable.get(),
+            "clipped target notes cannot authorize binding"
+        );
+        drop(state);
+        assert!(
+            app.discovery
+                .as_mut()
+                .unwrap()
+                .input(&Event::Key(KeyEvent::new(
+                    KeyCode::Down,
+                    KeyModifiers::NONE
+                )))
+                .is_none()
+        );
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(text.contains("Bind agent"));
+        assert!(text.contains("Bind %3"));
+        assert!(!app.discovery.as_ref().unwrap().readable.get());
+    }
 }
 #[test]
 fn actual_mouse_scan_select_review_and_cancel_emit_no_binding() {
@@ -748,4 +870,35 @@ fn unknown_pool_membership_retains_refresh_selection_until_it_is_observed() {
         })
     );
     assert!(app.workspace_selection_visible());
+}
+
+#[test]
+#[ignore = "explicit fitted review matrix; requires TMT_OVERLAY_CUE_OUTPUT"]
+fn capture_fitted_discovery_review() {
+    std::env::var("TMT_OVERLAY_CUE_OUTPUT").expect("task-owned output directory");
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (theme, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+            for width in [160, 100, 60] {
+                for height in [36, 24, 8] {
+                    let mut c = controller();
+                    assert!(c.review(AgentSelector::NewName("worker".into()), false));
+                    let mut app = crate::board::app::workspace::tests::board();
+                    app.view.as_mut().unwrap().look = look;
+                    app.discovery = Some(c);
+                    let mut terminal =
+                        ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                            .unwrap();
+                    terminal
+                        .draw(|frame| crate::board::view::render(frame, &app))
+                        .unwrap();
+                    let c = app.discovery.as_ref().unwrap();
+                    picker_surface::evidence::capture(
+                        &format!("discovery-bind-{theme}-{width}x{height}"),
+                        terminal.backend().buffer(),
+                        &c.ui.borrow(),
+                    );
+                }
+            }
+        }
+    });
 }

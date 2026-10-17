@@ -5,7 +5,7 @@ use ratatui::{Frame, layout::Rect};
 use serde_json::json;
 use std::sync::OnceLock;
 use tmt_cli_style::mark::Mark;
-use tmt_tui::components::{ListRow, surface};
+use tmt_tui::components::{KeyHint, ListRow, Modal, Placement, footer as fit_hints, surface};
 
 const FILE: &str = "ops.discovery.xml";
 const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="discovery" title="Add an agent already running" placement="center" class="w-120 h-38"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty=""><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" wrap="true"/></tmt-modal></tmt-view>"#;
@@ -153,7 +153,7 @@ impl Controller {
             }
             Screen::Confirm => vec![
                 Row::new("cancel", "Cancel", false),
-                Row::new("confirm", "Confirm binding", pending),
+                Row::new("confirm", "Bind agent", pending),
             ],
             Screen::Results => vec![
                 Row::new("previous-result", "Previous result", self.result_index == 0),
@@ -313,9 +313,34 @@ impl Controller {
     }
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
-        let template = TEMPLATE.get_or_init(|| {
-            picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["label", "cursor"]))
-        });
+        static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        static SHEET_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        // Center's 4/5 bound needs ten body rows to leave two reading
+        // rows after borders, query, status, position and footer.
+        let short = self.screen == Screen::Confirm && body.height < 10;
+        let template = if short {
+            SHEET_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP
+                        .replace(" h-38", "")
+                        .replace("placement=\"center\"", "placement=\"body\""),
+                    picker_surface::schema(&["label", "cursor"]),
+                )
+            })
+        } else if self.screen == Screen::Confirm {
+            REVIEW_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP.replace(" h-38", ""),
+                    picker_surface::schema(&["label", "cursor"]),
+                )
+            })
+        } else {
+            TEMPLATE.get_or_init(|| {
+                picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["label", "cursor"]))
+            })
+        };
         let rows = self.rows();
         let mut ui = self.ui.borrow_mut();
         ui.reconcile(
@@ -337,9 +362,19 @@ impl Controller {
         // The shared modal reserves one field row; the shared editor owns its
         // escaped cells, wrapping, cursor and pointer-to-source projection.
         let query = if self.screen == Screen::Form {
-            "▏"
+            "▏".to_owned()
+        } else if short {
+            self.confirmation
+                .as_ref()
+                .map_or_else(String::new, |selection| {
+                    format!(
+                        "Bind {} · {}",
+                        safe(&selection.key.pane),
+                        selector(selection)
+                    )
+                })
         } else {
-            ""
+            String::new()
         };
         let status = if let Some(task) = &self.pending {
             if task.job.writes() {
@@ -358,6 +393,51 @@ impl Controller {
             "↑↓ / PgUp/PgDn read · Tab actions · Esc candidates"
         } else {
             "↑↓ select · Enter opens/selects · Ctrl-R scan · Esc back"
+        };
+        let footer = if self.screen == Screen::Confirm {
+            let width = Modal {
+                title: String::new(),
+                placement: if short {
+                    Placement::Body
+                } else {
+                    Placement::Center
+                },
+            }
+            .areas(
+                if short { frame.area() } else { body },
+                [120, 38],
+                true,
+                false,
+            )
+            .footer
+            .width;
+            let hints = [
+                ("Esc", "cancel"),
+                ("Enter", "select"),
+                ("↑↓", "select"),
+                ("Ctrl-R", "scan"),
+            ]
+            .map(|(key, description)| KeyHint {
+                key: key.into(),
+                description: description.into(),
+            });
+            fit_hints(&hints, width, " · ")
+        } else {
+            footer.to_owned()
+        };
+        let body = if short {
+            frame.area()
+        } else if self.screen == Screen::Confirm {
+            // Keep the existing 38-row modal cap while allowing intrinsic fit.
+            let height = body.height.min(48);
+            Rect::new(
+                body.x,
+                body.y + (body.height - height) / 2,
+                body.width,
+                height,
+            )
+        } else {
+            body
         };
         ui.render(FILE,template,json!({"rows":projected,"notes":projected_notes,"query":query,"status":status,"footer":footer}),frame,look,body);
         self.editor_area.set(None);
