@@ -27,6 +27,10 @@ import { readReleaseSourceAtRef } from '../../scripts/release-source-at-ref.mjs'
 
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 
+const { productOfTag } = await import(
+  new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
+);
+
 vi.mock('../../scripts/cargo-workspace.mjs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../scripts/cargo-workspace.mjs')>();
   return { ...actual, readCargoWorkspace: vi.fn(actual.readCargoWorkspace) };
@@ -355,7 +359,7 @@ describe('release cut private Cargo home', () => {
   });
 });
 
-function fixture(activateExtensions = false) {
+function fixture(activateExtensions = false, allProducts = false) {
   const workspace = fixtureWorkspaces.get(activateExtensions);
   if (!workspace) throw new Error('Release lifecycle fixture workspace was not read.');
   vi.mocked(readCargoWorkspace).mockReturnValue(workspace);
@@ -398,7 +402,7 @@ function fixture(activateExtensions = false) {
     })
   );
   const fixtureMap = () => command(['show', 'HEAD:.github/components.json']);
-  writeReleaseWorkspace(root);
+  writeReleaseWorkspace(root, allProducts ? ['driver-herdr'] : []);
   const previous = commit('chore: initial fixture');
   command(['tag', 'v5.0.0-alpha.48']);
   command(['tag', 'tmt-ops-v0.1.0-alpha.14']);
@@ -406,7 +410,7 @@ function fixture(activateExtensions = false) {
   registry.components.ops.requiresCliSha = previous;
   writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
   if (activateExtensions) {
-    for (const product of ['remote', 'colab']) {
+    for (const product of ['remote', 'colab', ...(allProducts ? ['digest'] : [])]) {
       registry.components[`tmt-${product}`] = {
         package: `tmt-${product}`,
         owns: [`extensions/tmt-${product}`],
@@ -425,8 +429,22 @@ function fixture(activateExtensions = false) {
       release: false,
       releaseConsumers: ['tmt-remote'],
     };
+    if (allProducts) {
+      const driver = registry.components['driver-herdr'];
+      delete registry.components['driver-herdr'];
+      registry.components['driver-herdr'] = {
+        ...driver,
+        release: true,
+        bootstrapSha: previous,
+        initialVersion: '0.1.0-alpha.1',
+      };
+    }
     writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
-    writeReleaseWorkspace(root, ['remote', 'colab']);
+    writeReleaseWorkspace(root, [
+      'remote',
+      'colab',
+      ...(allProducts ? ['digest', 'driver-herdr'] : []),
+    ]);
   }
   writeFileSync(join(root, 'cli.txt'), 'feature');
   writeFileSync(join(root, 'extensions/ops/feature.txt'), 'feature');
@@ -502,6 +520,81 @@ it('reads the exact release-source ref through real Cargo metadata', async () =>
 }, 30_000);
 
 describe('live release cut lifecycle', () => {
+  it('bounds catalogue reads and REST work for five proposed products and a sixth unchanged row', async () => {
+    const f = fixture(true, true);
+    const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
+      '../../scripts/cargo-workspace.mjs'
+    );
+    vi.mocked(readCargoWorkspace).mockReturnValue(actual.readCargoWorkspace(f.root));
+    // Nine pages initially, ten after allocation; unrelated history adds no planner work.
+    while (f.releases.length < 900)
+      f.releases.push({
+        id: 1000 + f.releases.length,
+        draft: false,
+        tag_name: `history-${f.releases.length}`,
+        target_commitish: f.previous,
+        assets: [],
+      });
+    const execute = vi.fn((_executable: string, args: string[]) => {
+      const path = args[1].replace('repos/pj-tmt/tmt/', '');
+      const method = args[args.indexOf('--method') + 1];
+      const field = (name: string) =>
+        args.find((arg) => arg.startsWith(`${name}=`))!.slice(name.length + 1);
+      if (path === 'git/ref/heads/main') return JSON.stringify({ object: { sha: f.cut } });
+      if (path.startsWith('releases?')) {
+        const page = Number(new URL(`https://fixture.invalid/${path}`).searchParams.get('page'));
+        const lastPage = Math.ceil(f.releases.length / 100);
+        return `HTTP/2.0 200 OK\nLink: <https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=${lastPage}>; rel="last"\n\n${JSON.stringify(f.releases.slice((page - 1) * 100, page * 100))}`;
+      }
+      if (path.startsWith('git/matching-refs/tags/')) return '[]';
+      if (path === 'releases' && method === 'POST') {
+        const tag = field('tag_name');
+        return JSON.stringify(
+          f.client.draft({
+            tag,
+            cut: field('target_commitish'),
+            body: field('body'),
+            product: productOfTag(tag)!,
+          })
+        );
+      }
+      if (/^releases\/\d+$/.test(path))
+        return JSON.stringify(f.client.release(Number(path.split('/')[1])));
+      if (path === 'actions/workflows/native-release.yml/dispatches') {
+        f.client.dispatch(field('inputs[product]'), field('inputs[tag]'));
+        return '';
+      }
+      throw new Error(`Unexpected cut REST call: ${path}`);
+    });
+    const client = createCutClient(
+      { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+      execute
+    );
+    const metadata = vi.spyOn(client, 'metadata');
+    const result = await runReleaseCuts({ ...f, client, live: true });
+    expect(result.components).toHaveLength(6);
+    expect(result.actions.map((row) => [row.product, row.status])).toEqual([
+      ['cli', 'created'],
+      ['ops', 'created'],
+      ['remote', 'created'],
+      ['colab', 'created'],
+      ['digest', 'created'],
+      ['driver-herdr', 'no-releasable-commits'],
+    ]);
+    expect(f.client.draft).toHaveBeenCalledTimes(5);
+    expect(f.client.dispatch).toHaveBeenCalledTimes(5);
+    expect(metadata).toHaveBeenCalledTimes(6); // Initial snapshot plus one immediately before each mutation.
+    expect(execute.mock.calls.filter(([, args]) => args[1].includes('/releases?'))).toHaveLength(
+      70
+    );
+    expect(execute).toHaveBeenCalledTimes(96);
+    expect(execute.mock.calls.length).toBeLessThan(180);
+    expect(f.git.mock.calls.filter(([args]) => args[0] === 'for-each-ref')).toHaveLength(6);
+    expect(
+      f.git.mock.calls.filter(([args]) => args[0] === 'tag' && args[1] === '--contains')
+    ).toHaveLength(12);
+  });
+
   it('automatically allocates both approved first alphas using prefixed component identities', async () => {
     diagnostics.phase('fixture');
     const f = fixture(true);
@@ -536,6 +629,7 @@ describe('live release cut lifecycle', () => {
     vi.mocked(f.client.main).mockReturnValue(later);
     f.state.cut = later;
     const blocked = await runReleaseCuts({ ...f, live: true });
+    expect(f.client.metadata).toHaveBeenCalledTimes(3); // Two proposed rows; blocked rows keep their first status.
     for (const [product, tag] of [
       ['cli', 'v5.0.0-alpha.49'],
       ['ops', 'tmt-ops-v0.1.0-alpha.15'],

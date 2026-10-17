@@ -267,6 +267,16 @@ function planningFixture() {
   };
   const git = vi.fn((args: string[]) => {
     if (args[0] === 'merge-base') return '';
+    if (args[0] === 'for-each-ref')
+      return metadata
+        .releases!.filter((r) => r.tag_name.startsWith('v') && !r.draft)
+        .map((r) => `${r.tag_name}\t${sha(0)}\t\tcommit\t`)
+        .join('\n');
+    if (args[0] === 'tag' && args[1] === '--contains')
+      return metadata
+        .releases!.filter((r) => r.tag_name.startsWith('v') && !r.draft)
+        .map((r) => r.tag_name)
+        .join('\n');
     if (args[0] === 'tag') return '';
     if (args[0] === 'rev-parse') return sha(0);
     if (args[0] === 'log') return `${sha(1)}\0feat: feature\n\0\n`;

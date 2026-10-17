@@ -215,6 +215,9 @@ can reapply. App creation observes its Operation within the apply budget; pendin
 later effects and needs the same command rerun. Expired unfinalized stages require a fresh explicit
 plan. Joint read-back alone saves a verified public configuration
 and same-project web.app entry with Complete; the remote-link producer consumes that type later.
+Release POST/read-back compares validated site/release-ID identity across the two documented live
+name forms, retaining the received name. The [contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
+owns exact admission and the forward-only record boundary; no mutation retry or extra read is added.
 Site.appId selects a validated public app config after any recorded app identity. Fresh/existing
 unassociated sites use the same explicit appId-only configure step; nonempty associations are never
 repointed. Joint verification binds that association. The contract owns app selection, partial
