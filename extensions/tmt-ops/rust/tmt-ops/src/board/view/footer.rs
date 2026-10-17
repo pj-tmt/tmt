@@ -452,7 +452,11 @@ fn workspace_hints(app: &App, width: usize) -> String {
     }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
         return crate::board::view::fit(
-            "←→ choose · Enter apply/details · Tab Each/Range/buckets · Esc list · ? help",
+            if app.usage_chart.borrow().scrollable() {
+                "←→ scroll · Enter pin/menu · Home/End · Tab fields · Esc unpin/list · ? help"
+            } else {
+                "←→ select · Enter pin/menu · Tab fields · Esc unpin/list · ? help"
+            },
             width,
         )
         .trim_end()

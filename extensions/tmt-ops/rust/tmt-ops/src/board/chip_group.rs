@@ -71,6 +71,24 @@ pub(in crate::board) fn paint(
     app: &App,
     owner: Option<Overlay>,
 ) -> Vec<Hit> {
+    paint_with_idle(
+        buffer,
+        area,
+        groups,
+        app,
+        owner,
+        app.look().role(Role::Muted),
+    )
+}
+/// The same geometry and hover owner also serves filled dropdown triggers.
+pub(in crate::board) fn paint_with_idle(
+    buffer: &mut Buffer,
+    area: Rect,
+    groups: &[ChipGroup],
+    app: &App,
+    owner: Option<Overlay>,
+    idle: ratatui::style::Style,
+) -> Vec<Hit> {
     use ratatui::text::Line;
     use tmt_tui::components::strip;
     let look = app.look();
@@ -122,7 +140,7 @@ pub(in crate::board) fn paint(
                 .selected(choice.selected)
                 .focused(choice.cursor)
                 .enabled(!choice.disabled)
-                .idle(look.role(Role::Muted));
+                .idle(idle);
             if let Some(rect) =
                 super::buttons::paint(app, buffer, rect, &[button], Align::Left, owner)[0]
                 && !choice.disabled

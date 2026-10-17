@@ -16,31 +16,35 @@ impl Default for Selection {
 }
 
 impl Selection {
-    pub const EACH: [u32; 4] = [5, 15, 30, 60];
+    pub const EACH: [u32; 8] = [5, 15, 30, 60, 120, 360, 720, 1_440];
+    pub const MAX_BARS: u32 = 720;
     pub const RANGE: [u32; 5] = [60, 360, 1_440, 10_080, 43_200];
 
     pub fn each_choices(range_minutes: u32) -> &'static [u32] {
-        match range_minutes {
-            60 => &Self::EACH,
-            360 => &[15, 30, 60],
-            1_440 => &[60, 120],
-            10_080 => &[360, 720, 1_440],
-            43_200 => &[1_440, 2_880],
-            _ => &[],
+        if !Self::RANGE.contains(&range_minutes) {
+            return &[];
         }
+        &Self::EACH[..Self::EACH.partition_point(|each| *each <= range_minutes)]
     }
 
-    /// A range transition visibly selects its first interval when the old one
-    /// is not offered there. Direct invalid selections still leave state intact.
+    /// Keep an admitted fixed interval, otherwise choose the closest admitted
+    /// interval. Equal-distance ties prefer the coarser choice.
     pub fn with_range(self, range_minutes: u32) -> Result<Self, &'static str> {
-        let choices = Self::each_choices(range_minutes);
-        let first = *choices.first().ok_or("Unsupported interval or range")?;
+        let each_minutes = Self::each_choices(range_minutes)
+            .iter()
+            .copied()
+            .filter(|each| {
+                Self {
+                    each_minutes: *each,
+                    range_minutes,
+                }
+                .validate()
+                .is_ok()
+            })
+            .min_by_key(|each| (each.abs_diff(self.each_minutes), std::cmp::Reverse(*each)))
+            .ok_or("Unsupported interval or range")?;
         Ok(Self {
-            each_minutes: if choices.contains(&self.each_minutes) {
-                self.each_minutes
-            } else {
-                first
-            },
+            each_minutes,
             range_minutes,
         })
     }
@@ -52,6 +56,8 @@ impl Selection {
             Err("Interval is longer than the range")
         } else if !Self::each_choices(self.range_minutes).contains(&self.each_minutes) {
             Err("Unsupported interval or range")
+        } else if self.range_minutes / self.each_minutes > Self::MAX_BARS {
+            Err("This interval exceeds the 720-bucket limit")
         } else {
             Ok(())
         }
@@ -67,6 +73,50 @@ impl Selection {
         next.validate()?;
         *self = next;
         Ok(())
+    }
+}
+
+/// Authored controls are persisted; Auto's resolved interval is frame geometry.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Each {
+    #[default]
+    Auto,
+    Fixed(u32),
+}
+impl Each {
+    pub fn resolve(self, range_minutes: u32, width: usize) -> Selection {
+        let admitted = || {
+            Selection::each_choices(range_minutes)
+                .iter()
+                .copied()
+                .filter(|each| {
+                    Selection {
+                        each_minutes: *each,
+                        range_minutes,
+                    }
+                    .validate()
+                    .is_ok()
+                })
+        };
+        let each_minutes = match self {
+            Self::Auto => admitted()
+                .find(|each| range_minutes / *each <= width.max(1) as u32)
+                .or_else(|| admitted().next_back()),
+            Self::Fixed(each) => Some(
+                Selection {
+                    each_minutes: each,
+                    range_minutes,
+                }
+                .with_range(range_minutes)
+                .expect("supported range")
+                .each_minutes,
+            ),
+        }
+        .expect("each supported range has an admitted interval");
+        Selection {
+            each_minutes,
+            range_minutes,
+        }
     }
 }
 
@@ -177,11 +227,14 @@ mod tests {
                     each_minutes,
                     range_minutes,
                 };
+                if selection.validate().is_err() {
+                    continue;
+                }
                 valid += 1;
                 assert!(Series::new(selection, buckets(selection)).is_ok());
             }
         }
-        assert_eq!(valid, 14);
+        assert_eq!(valid, 30);
         assert_eq!(Selection::default().bars(), Ok(12));
         let mut current = Selection::default();
         assert_eq!(
@@ -194,10 +247,10 @@ mod tests {
         assert_eq!(current, Selection::default());
         assert_eq!(
             current.change(Selection {
-                each_minutes: 5,
-                range_minutes: 360
+                each_minutes: 30,
+                range_minutes: 43_200
             }),
-            Err("Unsupported interval or range")
+            Err("This interval exceeds the 720-bucket limit")
         );
         assert_eq!(current, Selection::default());
     }
@@ -206,11 +259,11 @@ mod tests {
     fn range_transition_keeps_a_compatible_interval_or_selects_its_visible_default() {
         let mut selection = Selection::default();
         for (range, each, bars) in [
-            (360, 15, 24),
-            (1_440, 60, 24),
-            (10_080, 360, 28),
-            (43_200, 1_440, 30),
-            (60, 5, 12),
+            (360, 5, 72),
+            (1_440, 5, 288),
+            (10_080, 15, 672),
+            (43_200, 60, 720),
+            (60, 60, 1),
         ] {
             selection = selection.with_range(range).unwrap();
             assert_eq!(selection.each_minutes, each);
@@ -222,6 +275,16 @@ mod tests {
         };
         assert_eq!(hourly.with_range(360).unwrap().each_minutes, 60);
         assert!(hourly.with_range(15).is_err());
+    }
+
+    #[test]
+    fn auto_resolves_width_and_cap_while_fixed_ignores_resize() {
+        assert_eq!(Each::Auto.resolve(10_080, 40).each_minutes, 360);
+        assert_eq!(Each::Auto.resolve(10_080, 100).each_minutes, 120);
+        assert_eq!(Each::Auto.resolve(43_200, 1_000).each_minutes, 60);
+        assert_eq!(Each::Fixed(60).resolve(10_080, 40).bars(), Ok(168));
+        assert_eq!(Each::Fixed(60).resolve(10_080, 200).bars(), Ok(168));
+        assert_eq!(Each::Fixed(30).resolve(43_200, 200).each_minutes, 60);
     }
 
     #[test]

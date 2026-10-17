@@ -266,6 +266,8 @@ pub enum Choice {
         target: super::workspace::OpsTarget,
         action: Action,
     },
+    /// A visible but disabled dropdown choice, with the reason it is unavailable.
+    Unavailable(String),
     AgentsFilter(super::workspace::AgentsFilter),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
@@ -514,7 +516,6 @@ pub(super) enum Overlay {
     Checklist,
     QuotaDetails,
     Discovery,
-    UsageDetails,
     UsageControls,
 }
 impl Overlay {
@@ -534,7 +535,6 @@ impl Overlay {
                 Self::Checklist => "checklist",
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
-                Self::UsageDetails => "usage-details",
                 Self::UsageControls => "usage-controls",
             }
             .into(),
@@ -689,7 +689,6 @@ pub struct App {
     pub(super) caller_failure: Option<String>,
     pub(in crate::board) usage_chart: RefCell<super::overview::chart::host::State>,
     pub(in crate::board) usage_controls: bool,
-    pub(in crate::board) usage_details: Option<RefCell<super::overview::chart::detail::Details>>,
     pub(super) quota_details: Option<RefCell<super::home::quota_detail::Details>>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
@@ -2681,6 +2680,7 @@ impl App {
             Choice::MemberLinkAction { target, action } => {
                 self.member_link_command(&target, &action)
             }
+            Choice::Unavailable(reason) => self.say(reason),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::WorkspaceTarget(target) => {
                 if self
@@ -3369,8 +3369,6 @@ impl App {
             Some(Overlay::ReplyReader)
         } else if self.checklist_shown() {
             Some(Overlay::Checklist)
-        } else if self.usage_details.is_some() {
-            Some(Overlay::UsageDetails)
         } else if self.usage_controls {
             Some(Overlay::UsageControls)
         } else if self.quota_details.is_some() {
@@ -3421,16 +3419,6 @@ impl App {
                     }
                     _ => Effect::None,
                 })
-            }
-            Overlay::UsageDetails => {
-                if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
-                {
-                    self.usage_details = None;
-                    self.invalidate_frame_geometry();
-                } else {
-                    self.usage_details.as_ref()?.borrow_mut().input(event);
-                }
-                Some(Effect::None)
             }
             Overlay::QuotaDetails => {
                 if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
@@ -3693,9 +3681,6 @@ impl App {
             self.usage_chart.borrow_mut().release_focus();
         }
         self.usage_chart.borrow_mut().invalidate_geometry();
-        if let Some(details) = &self.usage_details {
-            details.borrow_mut().invalidate();
-        }
         self.input_viewport.set(None);
         self.input_band.set(None);
         self.hits.borrow_mut().clear();
@@ -3818,12 +3803,22 @@ impl App {
             (event.column, event.row).into(),
             !self.modal_open() && self.input.is_none() && !self.searching && !self.loading(),
         );
+        let chart_changed = if self.usage_controls_active()
+            || (!self.modal_open() && self.input.is_none() && !self.searching)
+        {
+            super::overview::chart::host::pointer(self, event)
+        } else {
+            false
+        };
         let links_changed = self.member_links.borrow_mut().move_pointer(
             (event.column, event.row).into(),
             !self.modal_open() && !self.loading(),
         );
-        let changed =
-            resize_changed || buttons_changed || links_changed || next != self.meter_hover;
+        let changed = chart_changed
+            || resize_changed
+            || buttons_changed
+            || links_changed
+            || next != self.meter_hover;
         self.meter_hover = next;
         changed
     }
@@ -3884,9 +3879,6 @@ impl App {
 
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if event.kind == MouseEventKind::Moved {
-            if !self.modal_open() && self.input.is_none() && !self.searching {
-                super::overview::chart::host::mouse(self, event);
-            }
             self.move_pointer(event);
             return Effect::None;
         }

@@ -2277,8 +2277,13 @@ mod tests {
             paint(&mut app, &mut terminal);
             for code in [
                 KeyCode::Char('u'),
+                KeyCode::Enter,
+                KeyCode::Down,
+                KeyCode::Enter,
                 KeyCode::Tab,
-                KeyCode::Right,
+                KeyCode::Enter,
+                KeyCode::Down,
+                KeyCode::Down,
                 KeyCode::Enter,
                 KeyCode::Esc,
             ] {

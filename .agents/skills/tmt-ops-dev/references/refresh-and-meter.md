@@ -231,16 +231,19 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   any unknown/changed cursor or time range discards reuse. This bounded worker
   cache does not replace interval freshness for panes or notebooks.
   Long chart ranges use the same reader and worker, requesting one retained
-  window with exactly Range/Each buckets (at most 48 per UUID). That window
+  window with exactly Range/Each buckets (at most 720 per UUID). That window
   closes on Core's five-minute boundary and validates its own resolution, retained
   start and availability; fine reporting does not suppress older evidence. Its
-  separate cache key includes cursor, closed boundary and interval/range. Range
+  pair cache is bounded to the current five-second source-refresh tick, successful
+  cursor and identical UUID set; each entry additionally validates the closed
+  retained boundary and interval/range. There is no historical paging contract
+  or session-long page cache. Range
   changes and each new closed boundary preempt through the existing generation
   while the Overview or Digest Usage surface is enabled. Leaving it cancels the
   demand. Overview's visible quota requests a separate fixed four-hour window
   at five-minute resolution (48 buckets), independent of chart Each/Range. The
-  same cache holds at most these two retained requests, keyed independently;
-  inactive demand releases its entry. Quota choice changes require no source
+  quota cache remains independent of token interval/range pairs;
+  inactive demand releases its corresponding cache. Quota choice changes require no source
   read. No additional reader thread or persistent history store is created.
   A new generation reacquires history even when queued tab switches coalesce
   back to the previous name; ordinary same-generation reloads do not acquire it.
@@ -259,9 +262,9 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   prorated. Missing or failed acquisition means unavailable evidence, not zero,
   and cannot bridge current cumulative counters.
 - Chart intervals: `rate::series` projects whole source records into the
-  range-dependent choices documented in [board-home.md](board-home.md). Default
-  remains Each 5m / Range 1h. The recent ring and a bounded retained tier (at most
-  48 intervals per UUID) share one Rate owner; a chart selects one resolution and
+  independent Range/Each choices documented in [board-home.md](board-home.md). Default
+  is Each Auto / Range 1h; Auto resolves against the current plot width. The recent ring and a bounded retained tier (at most
+  720 intervals per UUID) share one Rate owner; a chart selects one resolution and
   never adds overlapping fine/coarse totals. Long seeding does not resize the
   recent ring, alter configured meter windows or change the live counter baseline.
   A slice with Core's `byDriver` is attributed by it, so older history keeps its
@@ -279,12 +282,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   complete roster. Count overflow retains exact detail where representable but
   never wraps or truncates a plot. Sampling/history updates invalidate the bounded
   semantic projection, including replacements in the same clock slot. The visible
-  chart or controls modal registers its five-second or five-minute range clock only when its
+  chart or open dropdown registers its five-second or five-minute range clock only when its
   admitted data or inspection changes with time; an unavailable idle summary
   does not wake, and a covered chart adds no clock. The single admitted scene
   paints background-space fills in color and full/half block glyphs in NO_COLOR,
-  time ticks derived from Range and one centred baseline marker per incomplete
-  bucket. Paint and input perform no acquisition.
+  visible-window time ticks and a neutral selected-column marker. Paint and input perform no acquisition.
 - Live sampling: a named-squad load carries public counters; idle reads use only
   `ls --room --json` for those UUIDs on separate 5–10 second deadlines, without
   providers, notes or staleness publication. Full loads take priority, but

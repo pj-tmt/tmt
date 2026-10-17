@@ -92,6 +92,7 @@ pub(super) struct Controls {
     agents_filter: super::workspace::AgentsFilter,
     overview_view: super::overview::monitor::View,
     quota_window: super::limits::QuotaWindow,
+    chart: (u32, super::overview::chart::model::Each),
     order: Order,
 }
 impl Controls {
@@ -102,6 +103,7 @@ impl Controls {
             agents_filter: app.workspace.filter,
             overview_view: app.overview_view,
             quota_window: app.usage_chart.borrow().quota_window(),
+            chart: app.usage_chart.borrow().chart_controls(),
             order: app.workspace_order(),
         }
     }
@@ -114,6 +116,9 @@ impl Controls {
         app.usage_chart
             .borrow_mut()
             .restore_quota_window(self.quota_window);
+        app.usage_chart
+            .borrow_mut()
+            .restore_chart_controls(self.chart.0, self.chart.1);
         app.workspace.order = Some(self.order);
         app.overview_rows.borrow_mut().clear();
     }
@@ -124,6 +129,7 @@ impl Controls {
             "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Pinned => "pinned" },
             "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
             "quotaWindow": self.quota_window.key(),
+            "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
             "reversed": self.order.reversed,
             "overviewSort": self.order.overview.map(|order| json!({"column":order.column.key(), "descending":order.direction == OverviewDirection::Descending})) })
@@ -149,6 +155,8 @@ impl Controls {
                 None | Some(Some("agents")) => super::overview::monitor::View::Agents,
                 _ => return None,
             },
+            chart: decode_chart(&value["chart"])
+                .unwrap_or((60, super::overview::chart::model::Each::Auto)),
             quota_window: value
                 .get("quotaWindow")
                 .and_then(Value::as_str)
@@ -178,6 +186,27 @@ impl Controls {
             },
         })
     }
+}
+
+fn decode_chart(value: &Value) -> Option<(u32, super::overview::chart::model::Each)> {
+    use super::overview::chart::model::{Each, Selection};
+    let range = u32::try_from(value["rangeMinutes"].as_u64()?).ok()?;
+    if !Selection::RANGE.contains(&range) {
+        return None;
+    }
+    let each = if value.get("eachMinutes")?.is_null() {
+        Each::Auto
+    } else {
+        let minutes = u32::try_from(value["eachMinutes"].as_u64()?).ok()?;
+        Selection {
+            each_minutes: minutes,
+            range_minutes: range,
+        }
+        .validate()
+        .ok()?;
+        Each::Fixed(minutes)
+    };
+    Some((range, each))
 }
 
 /// Only known, unique pane offsets fit the bounded cache document.
