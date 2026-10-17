@@ -131,7 +131,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/docker-workspace.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-nextest.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/markdown-links.test.ts test/tooling/pr-agent-check.test.ts test/tooling/docker-workspace.test.ts
       - name: Verify isolated browser presentation leaf
         working-directory: typescript
         run: |
@@ -287,62 +287,12 @@ jobs:
     name: Native Rust workspace tests
     needs: changes
     if: needs.changes.outputs.native == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      - name: Record the pinned Node version
-        run: |
-          node --version
-          test "$(node --version)" = v22.23.2
-      - name: Install pinned Rust toolchains
-        run: |
-          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: rust
-          shared-key: native-rust
-          save-if: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
-      - name: Test and build workspace
-        if: needs.changes.outputs.native_scope == 'full'
-        working-directory: rust
-        run: |
-          remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
-          printf '%s\n' "$remote_tests"
-          grep -q ': test$' <<< "$remote_tests"
-          node ../typescript/scripts/private-world.mjs -- cargo test --locked --workspace
-          cargo build --locked --workspace
-      - name: Select hosted Temurin 21 for native sync acceptance
-        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
-        run: |
-          test -n "$JAVA_HOME_21_X64"
-          printf 'JAVA_HOME=%s\n' "$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
-          printf '%s\n' "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
-          "$JAVA_HOME_21_X64/bin/java" -version
-      - name: Install pinned native sync emulator tools
-        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
-        run: npm install --global firebase-tools@15.29.0
-      - name: Prove native Auth and sealed sync against Colab Rules
-        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
-        timeout-minutes: 8
-        run: node extensions/tmt-remote/typescript/remote-client/test/emulator/native-qualify.mjs
-      - name: Prove Colab cloud sync between real serves and Colab Rules
-        if: needs.changes.outputs.native_scope == 'full' && needs.changes.outputs.native_sync_emulator == 'true'
-        timeout-minutes: 8
-        run: node extensions/tmt-colab/scripts/cloud-sync-emulator.mjs
-      - name: Test Ops and architecture
-        if: needs.changes.outputs.native_scope == 'ops'
-        working-directory: rust
-        run: |
-          node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-ops
-          cargo test --locked -p tmt-cli --test architecture
+    uses: ./.github/workflows/workspace-partitions.yml
+    with:
+      scope: ${{ needs.changes.outputs.native_scope }}
+      native-sync: ${{ needs.changes.outputs.native_sync_emulator == 'true' }}
+      save-cache: ${{ github.ref == 'refs/heads/main' && (needs.changes.outputs.verify == 'false' || needs.changes.outputs.main_full_admitted == 'true') }}
+      partitions: 2
 
   native-process-tests:
     name: Native process contracts

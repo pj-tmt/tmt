@@ -187,6 +187,27 @@ days, never raw error values, private traces or profiles. Unexpected outcomes al
 print the bounded summary from the private JSON report for triage.
 It remains outside required aggregates and does not authorize publication.
 
+## Workspace partition experiment
+
+The draft compile-once mode calls `workspace-partitions.yml` under the existing
+workspace worker ID. Its producer retains independent Cargo/libtest discovery,
+separate doctests, the dev build and selected native-sync proofs; Ops scope keeps
+its original Cargo/architecture path. `partitions` is the one K parameter (2 for
+the first probe). Each consumer runs on its own hosted Ubuntu VM, admits the same
+run/attempt/source/toolchain and archive digest, proves its exact slice before
+execution, then reports actual PASS identities. The always-run collector rejects
+missing, skipped, failed, overlapping or foreign results before the caller can
+satisfy the native aggregate. It never replaces identity proof with counts.
+
+The pinned nextest installer is shared by producer and consumers. Consumers only
+extract and run the archive; they restore no Cargo cache and issue no build.
+Producer-only cache writes retain main admission. Phase evidence records compile,
+listing, archive, extraction and execution; Actions step times retain setup,
+transfer, selected emulators and collection costs. Separate VM ownership avoids a
+shared-host cleanup domain; any local heavy proof still needs Infra's run grant.
+This is measurement, not rollout. A reviewed exact head needs explicit run GO
+before its PR event; later retries require their own disposition.
+
 ## Gate-time budgets
 
 `node typescript/scripts/ci-gate-time.mjs` (read-only REST, no CI run, about 85 requests) measures the
