@@ -274,13 +274,15 @@ At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
 Smaller widths admit complete fields or leave full values in the existing Details.
 Digest retains its independent held account meters and width rules.
 
-Overview quota pace uses the last two hours, independent of token Each/Range.
+Overview quota pace uses the last two hours of the actual clock, including the
+latest admitted observation and both horizon endpoints, independent of token
+Each/Range.
 Rate is the change in used percentage divided by actual source elapsed hours;
 trend compares it with the preceding two hours. Reset crossings, changed windows
 and percentage drops restart the admitted suffix. Fewer than two observations or
 less than 30 minutes of spacing means unknown; an unknown prior rate has no arrow.
-The worker acquires all 48 closed five-minute observations over four hours through
-the existing retained reader. Account observations repeat across seats and are
+The worker acquires admitted observations from 48 closed five-minute buckets over
+four hours through the existing retained reader, then includes current evidence. Account observations repeat across seats and are
 never summed. Only history linked to the verified driver watermark is attributed.
 Positive pace projects depletion from the latest source observation; ◆ appears
 only when that time precedes reset. Zero or unknown pace invents no depletion.

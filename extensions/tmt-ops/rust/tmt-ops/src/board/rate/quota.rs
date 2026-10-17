@@ -140,7 +140,6 @@ mod tests {
             rate.quota_reports().map(|(_, r)| r),
             QuotaWindow::Weekly,
             NOW,
-            NOW,
         );
         assert_eq!(observed.per_hour, Some(12.0));
         assert_eq!(observed.trend, Some(crate::board::limits::Trend::Same));
@@ -163,7 +162,7 @@ mod tests {
         rate.sample(&input, NOW);
         let reports: Vec<_> = rate.quota_reports().map(|(_, report)| report).collect();
         assert_eq!(reports.len(), 1);
-        let value = pace::project(reports, QuotaWindow::Short, NOW, NOW);
+        let value = pace::project(reports, QuotaWindow::Short, NOW);
         assert_eq!(value.latest.unwrap().balance().left, 80.0);
         assert_eq!(value.per_hour, None);
     }

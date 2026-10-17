@@ -12,13 +12,13 @@ fn report(at: u64, used: f64, reset: u64) -> Report {
     .unwrap()
 }
 fn project_week(points: &[Report]) -> Pace {
-    project(points, QuotaWindow::Weekly, NOW, NOW)
+    project(points, QuotaWindow::Weekly, NOW)
 }
 #[test]
 fn rate_uses_actual_endpoint_spacing_and_trend_uses_the_preceding_two_hours() {
     let points = [
-        report(NOW - 4 * HOUR, 10.0, RESET),
-        report(NOW - 3 * HOUR, 11.0, RESET),
+        report(NOW - 4 * HOUR, 18.0, RESET),
+        report(NOW - 3 * HOUR, 19.0, RESET),
         report(NOW - 2 * HOUR, 20.0, RESET),
         report(NOW - HOUR / 2, 23.0, RESET),
     ];
@@ -27,7 +27,7 @@ fn rate_uses_actual_endpoint_spacing_and_trend_uses_the_preceding_two_hours() {
     assert_eq!(pace.trend, Some(Trend::Up));
     assert_eq!(pace.latest.unwrap().balance().left, 77.0);
     assert_eq!(
-        project(&points, QuotaWindow::Short, NOW, NOW).per_hour,
+        project(&points, QuotaWindow::Short, NOW).per_hour,
         Some(1.0)
     );
     assert_eq!(pace.early_ms(), None);
@@ -69,11 +69,11 @@ fn sparse_zero_future_stale_and_conflicting_evidence_are_honest() {
     future.push(report(NOW + HOUR, 90.0, RESET));
     assert_eq!(project_week(&future), zero);
     assert_eq!(
-        project(&points, QuotaWindow::Weekly, NOW + 3 * HOUR, NOW + 3 * HOUR),
+        project(&points, QuotaWindow::Weekly, NOW + 3 * HOUR),
         Pace::default()
     );
     assert_eq!(
-        project(&points, QuotaWindow::Weekly, RESET, RESET),
+        project(&points, QuotaWindow::Weekly, RESET),
         Pace::default()
     );
 }
@@ -96,14 +96,14 @@ fn every_intermediate_drop_or_reset_restarts_the_suffix() {
     assert_eq!(project_week(&crossed).per_hour, None);
 }
 #[test]
-fn newest_open_observation_cannot_hide_a_reset_or_drop_after_closed_history() {
+fn latest_admitted_drop_cannot_reuse_the_estimate_before_the_drop() {
     let points = [
         report(NOW - 2 * HOUR, 10.0, RESET),
         report(NOW - HOUR, 20.0, RESET),
         report(NOW + 60_000, 30.0, RESET),
         report(NOW + 120_000, 25.0, RESET),
     ];
-    let pace = project(&points, QuotaWindow::Weekly, NOW, NOW + 120_000);
+    let pace = project(&points, QuotaWindow::Weekly, NOW + 120_000);
     assert_eq!(pace.per_hour, None);
     assert_eq!(pace.early_ms(), None);
 }
@@ -119,4 +119,38 @@ fn preceding_horizon_uses_its_own_boundary_and_an_expired_prior_cycle_has_no_arr
     let pace = project_week(&points);
     assert_eq!(pace.per_hour, Some(10.0));
     assert_eq!(pace.trend, None);
+}
+
+#[test]
+fn actual_clock_admits_the_current_observation_after_the_last_closed_bucket() {
+    let points = [
+        report(NOW - 110 * 60_000, 20.0, RESET),
+        report(NOW - 10 * 60_000, 21.0, RESET),
+        report(NOW + 60_000, 24.0, RESET),
+    ];
+    let value = project(&points, QuotaWindow::Weekly, NOW + 3 * 60_000);
+    assert!((value.per_hour.unwrap() - 80.0 / 37.0).abs() < 1e-10);
+}
+
+#[test]
+fn actual_clock_excludes_points_that_have_left_the_two_hour_horizon() {
+    let points = [
+        report(NOW - 119 * 60_000, 10.0, RESET),
+        report(NOW - 110 * 60_000, 20.0, RESET),
+        report(NOW - 10 * 60_000, 21.0, RESET),
+    ];
+    let value = project(&points, QuotaWindow::Weekly, NOW + 3 * 60_000);
+    assert!((value.per_hour.unwrap() - 0.6).abs() < 1e-10);
+}
+
+#[test]
+fn actual_clock_includes_an_observation_at_the_horizon_endpoint() {
+    let now = NOW + 3 * 60_000;
+    let points = [
+        report(NOW - 110 * 60_000, 20.0, RESET),
+        report(NOW - 10 * 60_000, 21.0, RESET),
+        report(now, 24.0, RESET),
+    ];
+    let value = project(&points, QuotaWindow::Weekly, now);
+    assert!((value.per_hour.unwrap() - 240.0 / 113.0).abs() < 1e-10);
 }

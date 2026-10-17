@@ -27,7 +27,6 @@ impl Pace {
 pub(in crate::board) fn project<'a>(
     reports: impl IntoIterator<Item = &'a Report>,
     kind: QuotaWindow,
-    through: u64,
     now: u64,
 ) -> Pace {
     let reports: Vec<_> = reports
@@ -67,26 +66,11 @@ pub(in crate::board) fn project<'a>(
         return pace;
     }
     pace.latest = Some(latest);
-    let Some((rate, endpoint)) = horizon(&points, through) else {
+    let Some(rate) = horizon(&points, now) else {
         return pace;
     };
-    // A newer reset/drop invalidates the closed-history estimate immediately.
-    let mut previous = endpoint;
-    for point in points
-        .iter()
-        .filter(|p| p.observed_at_ms > endpoint.observed_at_ms)
-    {
-        if point.window_minutes != previous.window_minutes
-            || point.resets_at_ms != previous.resets_at_ms
-            || point.observed_at_ms >= previous.resets_at_ms
-            || point.used_percent < previous.used_percent
-        {
-            return pace;
-        }
-        previous = *point;
-    }
     pace.per_hour = Some(rate);
-    if let Some((before, _)) = horizon(&points, through.saturating_sub(HORIZON_MS)) {
+    if let Some(before) = horizon(&points, now.saturating_sub(HORIZON_MS)) {
         pace.trend = Some(
             if (rate - before).abs() <= f64::EPSILON * 64.0 * rate.abs().max(before.abs()).max(1.0)
             {
@@ -111,14 +95,14 @@ pub(in crate::board) fn project<'a>(
     pace
 }
 
-fn horizon(points: &[Point], through: u64) -> Option<(f64, Point)> {
+fn horizon(points: &[Point], through: u64) -> Option<f64> {
     let start = through.saturating_sub(HORIZON_MS);
     let mut first: Option<Point> = None;
     let mut last: Option<Point> = None;
     let mut blocked_at = None;
     for &point in points
         .iter()
-        .filter(|p| (start..through).contains(&p.observed_at_ms))
+        .filter(|p| (start..=through).contains(&p.observed_at_ms))
     {
         if blocked_at == Some(point.observed_at_ms) {
             continue;
@@ -148,7 +132,7 @@ fn horizon(points: &[Point], through: u64) -> Option<(f64, Point)> {
         return None;
     }
     let rate = (last.used_percent - first.used_percent) * 3_600_000.0 / elapsed as f64;
-    rate.is_finite().then_some((rate, last))
+    rate.is_finite().then_some(rate)
 }
 
 #[cfg(test)]

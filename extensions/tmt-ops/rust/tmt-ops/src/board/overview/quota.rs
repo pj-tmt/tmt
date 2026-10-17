@@ -36,9 +36,7 @@ pub(in crate::board) fn projection(
         .filter(|(driver, _)| *driver == provider)
         .map(|(_, report)| report)
         .collect();
-    let through = now / crate::board::rate::history::rollup::RESOLUTION_MS
-        * crate::board::rate::history::rollup::RESOLUTION_MS;
-    let pace = pace::project(reports.iter().copied(), kind, through, now);
+    let pace = pace::project(reports.iter().copied(), kind, now);
     let balance = if reports.is_empty() {
         app.limits
             .as_deref()
