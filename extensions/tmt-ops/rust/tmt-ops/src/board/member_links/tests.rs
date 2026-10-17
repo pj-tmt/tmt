@@ -928,7 +928,7 @@ mod named_surface_tests {
                 crate::board::recent_responses::Observation::Observed(vec![
                     crate::board::recent_responses::Item {
                         text: "Pane output mentions night-2 without request authority".into(),
-                        ended_ms: 1,
+                        ended_ms: crate::status::now_ms(),
                         truncated: false,
                     },
                 ]),
