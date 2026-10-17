@@ -187,7 +187,9 @@ impl Scene {
             let mut pieces =
                 vec![json!({"id":format!("{prefix}name-{provider}"),"text":format!("{name} ")})];
             for (index, reading) in row.values.iter().enumerate() {
-                let glyph = if data.no_data {
+                let glyph = if data.no_data
+                    || row.total == "—" && row.values.iter().all(Option::is_none)
+                {
                     " "
                 } else {
                     quantize::glyph(*reading, scale)

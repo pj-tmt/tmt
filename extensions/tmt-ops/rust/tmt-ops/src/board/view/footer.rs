@@ -578,7 +578,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             )
         });
     let legend = if footer.height >= 2 && app.error.is_none() && app.migration_notice.is_none() {
-        agents_pairs(app, usize::from(hint_area.width))
+        agents_pairs(
+            app,
+            usize::from(hint_area.width.saturating_sub(u16::from(
+                app.shell.tab == crate::board::shell::OpsTab::Agents,
+            ))),
+        )
     } else {
         None
     };
@@ -669,11 +674,31 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 Role::Blocked
             }),
         ))
-    } else if app.modal_open() || (app.input.is_some() && app.input_band.get().is_some()) {
-        // Notices and errors above stay; the base key hints would misname the keys.
+    } else if app.modal_open() {
         Line::default()
+    } else if app.input.is_some() && app.input_band.get().is_some() {
+        // The filled input owns Send/Cancel; capability-derived editing keys
+        // remain in the footer rather than reviving the old composer frame.
+        let (key, label) = app
+            .newline_hint()
+            .split_once(' ')
+            .expect("newline key and label");
+        let hints = fit_hints(
+            vec![
+                (key.into(), label.into()),
+                ("Ctrl-P".into(), "paste".into()),
+            ],
+            vec![],
+            usize::from(hint_area.width.saturating_sub(1)),
+        );
+        let mut line = paint_hints(&hints, look, Role::Text);
+        line.spans.insert(0, Span::raw(" "));
+        line
     } else if let Some(hint) = app.member_link_hint() {
-        if app.shell.tab == crate::board::shell::OpsTab::Overview {
+        if matches!(
+            app.shell.tab,
+            crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Agents
+        ) {
             crate::board::key_hints::legacy_line(hint, look, look.role(Role::Text), "  ")
         } else {
             hint_line(hint, look)
@@ -683,9 +708,10 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             || {
                 hints(
                     app,
-                    usize::from(hint_area.width.saturating_sub(u16::from(
-                        app.shell.tab == crate::board::shell::OpsTab::Overview,
-                    ))),
+                    usize::from(hint_area.width.saturating_sub(u16::from(matches!(
+                        app.shell.tab,
+                        crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Agents
+                    )))),
                 )
             },
             |lines| hint_text(&lines[1]),
@@ -701,11 +727,17 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             line.spans.insert(0, Span::raw(" "));
             line
         } else {
-            if let Some(lines) = &legend {
-                paint_hints(&lines[1], look, Role::Accent)
+            let mut line = if let Some(lines) = &legend {
+                paint_hints(&lines[1], look, Role::Text)
+            } else if app.shell.tab == crate::board::shell::OpsTab::Agents {
+                crate::board::key_hints::legacy_line(&text, look, look.role(Role::Text), "  ")
             } else {
                 hint_line(&text, look)
+            };
+            if app.shell.tab == crate::board::shell::OpsTab::Agents {
+                line.spans.insert(0, Span::raw(" "));
             }
+            line
         }
     };
     if app.settings.is_some() {
@@ -723,8 +755,26 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     if let Some([first, _]) = legend {
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(footer.x, footer.bottom() - 2, footer.width, 1),
-            paint_hints(&first, look, Role::Accent),
+            Rect::new(
+                footer.x
+                    + u16::from(
+                        app.shell.tab == crate::board::shell::OpsTab::Agents && footer.width > 0,
+                    ),
+                footer.bottom() - 2,
+                footer.width.saturating_sub(u16::from(
+                    app.shell.tab == crate::board::shell::OpsTab::Agents,
+                )),
+                1,
+            ),
+            paint_hints(
+                &first,
+                look,
+                if app.shell.tab == crate::board::shell::OpsTab::Agents {
+                    Role::Text
+                } else {
+                    Role::Accent
+                },
+            ),
         );
     }
     strip::paint_left(frame.buffer_mut(), hint_area, footer_line);

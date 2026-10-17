@@ -14,8 +14,8 @@ use crate::{
 };
 use std::rc::Rc;
 
-/// Rows are shared only within an immutable paint, never across an input or
-/// snapshot update. Nested paints and unwinding restore the previous scope.
+/// Rows are shared only within an immutable paint or binding projection, never
+/// across an input or snapshot update. Nested scopes and unwinding restore it.
 pub(in crate::board) struct FrameRows<'a> {
     slot: &'a RefCell<Option<Rc<[OpsTreeRow]>>>,
     previous: Option<Rc<[OpsTreeRow]>>,
@@ -175,6 +175,19 @@ impl App {
         width: usize,
     ) -> String {
         crate::board::digest_dashboard::savings_caption(
+            summary,
+            self.digest_window(),
+            self.savings_unit(),
+            width,
+        )
+    }
+    /// Whole supplied estimate for the bounded focus detail slots.
+    pub(in crate::board) fn compact_savings_caption(
+        &self,
+        summary: &crate::labels::digest::SavingsSummary,
+        width: usize,
+    ) -> Option<String> {
+        crate::board::digest_dashboard::compact_savings_caption(
             summary,
             self.digest_window(),
             self.savings_unit(),
@@ -349,32 +362,54 @@ impl App {
     }
     /// A squad selection grants a conversation only to its observed, current lead.
     pub(in crate::board) fn workspace_message_target(&self) -> Option<OpsTarget> {
-        if self.shell.tab == OpsTab::Overview
-            && self.workspace_selection_visible()
-            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.as_ref()
-        {
-            let snapshot = self.workspace_snapshot()?;
-            let squad = snapshot.roster.squads.iter().find(|s| &s.room_id == room)?;
-            let lead = squad.lead.as_ref()?;
-            if !squad.members.contains(lead) {
-                return None;
+        match self.workspace.selected.as_ref()? {
+            OpsTarget::Squad(room)
+                if matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
+                    && self.workspace_selection_visible() =>
+            {
+                self.workspace_squad_lead(room)
             }
-            let target = OpsTarget::Member {
-                room_id: Some(room.clone()),
-                identity_id: lead.clone(),
-            };
-            return (snapshot.roster.contains(&target)
-                && snapshot
-                    .rows
-                    .get(&target)
-                    .is_some_and(|row| row["id"].as_str() == Some(lead.as_str())))
-            .then_some(target);
+            member @ OpsTarget::Member { .. } if self.workspace_selection_visible() => {
+                Some(member.clone())
+            }
+            _ => None,
         }
-        self.workspace_selected_member().cloned()
+    }
+
+    /// Read-only search preview admission is distinct from message authority.
+    pub(in crate::board) fn workspace_preview_member(&self) -> Option<OpsTarget> {
+        match self.workspace_retained_search_target()? {
+            member @ OpsTarget::Member { .. } => Some(member.clone()),
+            OpsTarget::Squad(room) => self.workspace_squad_lead(room),
+            OpsTarget::Pool => None,
+        }
+    }
+
+    fn workspace_squad_lead(&self, room: &str) -> Option<OpsTarget> {
+        let snapshot = self.workspace_snapshot()?;
+        let squad = snapshot
+            .roster
+            .squads
+            .iter()
+            .find(|squad| squad.room_id == room)?;
+        let lead = squad.lead.as_ref()?;
+        if !squad.members.contains(lead) {
+            return None;
+        }
+        let target = OpsTarget::Member {
+            room_id: Some(room.into()),
+            identity_id: lead.clone(),
+        };
+        (snapshot.roster.contains(&target)
+            && snapshot
+                .rows
+                .get(&target)
+                .is_some_and(|row| row["id"].as_str() == Some(lead.as_str())))
+        .then_some(target)
     }
     pub(in crate::board) fn workspace_selected_member(&self) -> Option<&OpsTarget> {
         self.workspace.selected.as_ref().filter(|target| {
-            self.workspace_selection_visible() && matches!(target, OpsTarget::Member { .. })
+            matches!(target, OpsTarget::Member { .. }) && self.workspace_selection_visible()
         })
     }
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
@@ -449,8 +484,9 @@ impl App {
         self.invalidate_frame_geometry();
     }
     pub(in crate::board) fn workspace_bindings(&self) -> Bindings {
+        let _rows = self.workspace_frame_rows();
         let mut keys = self.workspace_effective_bindings();
-        if self.shell.tab != OpsTab::Agents || self.workspace_scope().is_reader() {
+        if self.shell.tab != OpsTab::Agents {
             keys.retain(|_, action| {
                 !matches!(
                     action.verb,
@@ -466,7 +502,7 @@ impl App {
         if !self.usage_chart_available() {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::UsageControls));
         }
-        if !self.workspace_selection_visible() || self.workspace_scope() != OpsKeyScope::Member {
+        if self.workspace_selected_member().is_none() {
             keys.retain(|_, action| action.verb != Verb::Ui(OpsUiAction::RenameMember));
         }
         let squad = self
@@ -544,11 +580,42 @@ impl App {
     }
     fn workspace_effective_bindings(&self) -> Bindings {
         let host = self.workspace_selected_host();
-        self.workspace_context_bindings(
+        let mut keys = self.workspace_context_bindings(
             self.workspace.selected.as_ref(),
             self.workspace_scope(),
             host,
-        )
+        );
+        if self.shell.tab == OpsTab::Agents
+            && let Some(target) = self.workspace_message_target()
+            && let Some(sources) = self.workspace_binding_sources()
+        {
+            // Factory actions follow the selected recipient in either pane.
+            // Provenance keeps every authored key, including Reader overrides.
+            if sources
+                .get("enter")
+                .is_some_and(|source| source == "workspace default")
+            {
+                let pending = self
+                    .workspace_snapshot()
+                    .and_then(|snapshot| snapshot.rows.get(&target))
+                    .is_some_and(crate::attention::waits_on_you);
+                keys.insert(
+                    "enter".into(),
+                    crate::action::Action::parse(if pending { "reply" } else { "talk" })
+                        .expect("factory message action"),
+                );
+            }
+            if sources
+                .get("j")
+                .is_some_and(|source| source == "workspace default")
+            {
+                keys.insert(
+                    "j".into(),
+                    crate::action::Action::parse("jump").expect("factory host action"),
+                );
+            }
+        }
+        keys
     }
     fn workspace_selected_host(&self) -> Option<&str> {
         let row = self

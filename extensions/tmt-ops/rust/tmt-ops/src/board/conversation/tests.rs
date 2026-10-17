@@ -623,7 +623,7 @@ fn workspace_fixture() -> App {
 }
 
 #[test]
-fn link_hint_uses_effective_action_and_truncates_url_before_hint() {
+fn link_preview_uses_effective_action_without_printing_inline_key_hints() {
     let mut app = workspace_fixture();
     let selected = app.workspace.selected.clone().unwrap();
     app.view
@@ -637,14 +637,16 @@ fn link_hint_uses_effective_action_and_truncates_url_before_hint() {
         .get_mut(&selected)
         .unwrap()["fields"]["link"] =
         json!(format!("https://example.test/{}", "long-path/".repeat(20)));
-    assert!(draw(&app, 60, 24).contains("(press o - open $link)"));
+    let first = draw(&app, 60, 24);
+    assert!(first.contains("https://example.test/"));
+    assert!(!first.contains("(press ") && !first.contains("$link"));
     let path = std::env::temp_dir()
         .join(format!("ops-conversation-link-{}", std::process::id()))
         .join("ops.toml");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     for (text, expected) in [
-        ("[bind]\no = 'copy custom'\n", "(press o - copy custom)"),
-        ("", "(press o - open $link)"),
+        ("[bind]\no = 'copy custom'\n", "copy from the selected row"),
+        ("", "https://example.test/"),
     ] {
         std::fs::write(&path, text).unwrap();
         let config = crate::config::Config::read(path.clone()).unwrap();
@@ -659,10 +661,20 @@ fn link_hint_uses_effective_action_and_truncates_url_before_hint() {
             .unwrap();
         let shown = draw(&app, 60, 24);
         assert!(shown.contains(expected), "{shown}");
-        assert!(
-            !shown.contains("long-path/long-path/long-path/long-path/long-path/"),
-            "URL must truncate before the effective action hint"
-        );
+        assert!(!shown.contains("(press ") && !shown.contains("$link"));
+        let open = app.workspace_bindings()["o"].clone();
+        match app.perform(&open) {
+            crate::board::app::Effect::Act(crate::board::app::Request::Open { link, .. }) => {
+                assert_eq!(
+                    link,
+                    format!("https://example.test/{}", "long-path/".repeat(20))
+                )
+            }
+            crate::board::app::Effect::Act(crate::board::app::Request::Copy { text, .. }) => {
+                assert_eq!(text, "custom")
+            }
+            other => panic!("effective authored action: {other:?}"),
+        }
     }
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
@@ -736,7 +748,9 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
             );
         } else {
             assert!(
-                text.contains("https://example.test/pr") && text.contains("(press o - open $link)"),
+                text.contains("https://example.test/pr")
+                    && !text.contains("(press ")
+                    && !text.contains("$link"),
                 "{tab:?}: {text}"
             );
             assert!(text.contains("worker line 089"), "{tab:?}: {text}");
@@ -846,7 +860,7 @@ fn resize_keeps_one_editor_and_wheel_scrolls_response_without_changing_recipient
 }
 
 #[test]
-fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
+fn focus_uses_held_identity_stat_tiles_and_uuid_fenced_details_action() {
     use ratatui::crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
@@ -866,27 +880,27 @@ fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
         .unwrap();
     let buffer = terminal.backend().buffer();
     let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-    assert!(screen.contains("working · product · member"));
+    assert!(screen.contains("product · member"));
     assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
-    assert!(screen.contains("tok/h") && screen.contains(" Details   Links "));
-    let hits = app.conversation.borrow().header_hits.clone();
-    assert_eq!(hits.len(), 2);
-    for hit in &hits {
-        assert_eq!(hit.target, app.conversation_target().unwrap());
-        assert_eq!(hit.area.intersection(buffer.area), hit.area);
-        let painted: String = (hit.area.x..hit.area.right())
-            .map(|x| buffer[(x, hit.area.y)].symbol())
-            .collect();
-        assert!(painted == " Details " || painted == " Links ");
+    for caption in ["TOK 1h", "STATE", "DIGEST", "TIMERS"] {
+        assert!(screen.contains(caption));
     }
-    let click = MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: hits[1].area.x,
-        row: hits[1].area.y,
-        modifiers: KeyModifiers::NONE,
-    };
-    app.mouse(click, std::time::Instant::now());
-    assert!(app.monitor_details.is_some());
+    assert!(!screen.contains(" Details   Links "));
+    assert!(
+        app.conversation.borrow().header_hits.is_empty(),
+        "retired inline controls grant no hits"
+    );
+    let selected = app.workspace.selected.clone().unwrap();
+    let action = app
+        .workspace_bindings()
+        .into_iter()
+        .find(|(_, action)| {
+            action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::MonitorDetails)
+        })
+        .unwrap()
+        .1;
+    app.perform(&action);
+    assert_eq!(app.monitor_details.as_ref().unwrap().target, selected);
     assert!(app.input.is_none());
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
@@ -896,10 +910,16 @@ fn mock_header_uses_held_squad_role_usage_and_uuid_fenced_details_buttons() {
     assert_eq!(app.selected, 2);
     app.invalidate_frame_geometry();
     assert!(app.conversation.borrow().header_hits.is_empty());
+    let click = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 78,
+        row: 9,
+        modifiers: KeyModifiers::NONE,
+    };
     app.mouse(click, std::time::Instant::now());
     assert!(
         app.monitor_details.is_none(),
-        "stale controls retain no authority"
+        "an unpainted metadata cell grants no details authority"
     );
 }
 
@@ -939,7 +959,7 @@ fn shortened_or_missing_header_rows_never_publish_timer_or_details_hits() {
 }
 
 #[test]
-fn compact_host_label_hides_uuid_and_never_calls_reader_navigation_a_host_shortcut() {
+fn compact_identity_hides_uuid_and_selected_host_action_survives_pane_focus() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_fixture();
     for focused in [false, true] {
@@ -958,11 +978,21 @@ fn compact_host_label_hides_uuid_and_never_calls_reader_navigation_a_host_shortc
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(shown.contains("Host: tmux"));
+        assert!(shown.contains("tmux"));
         assert!(!shown.contains(crate::board::app::workspace::tests::MEMBER));
-        if focused {
-            assert!(!shown.contains("j host"), "reader j remains a reading key");
-        } else {
+        assert_eq!(
+            app.workspace_bindings()["j"].verb,
+            crate::action::Verb::Jump
+        );
+        assert_eq!(
+            app.workspace_bindings()["pageup"].verb,
+            if focused {
+                crate::action::Verb::Ui(crate::action::OpsUiAction::ScrollPageUp)
+            } else {
+                crate::action::Verb::Ui(crate::action::OpsUiAction::PageUp)
+            }
+        );
+        if !focused {
             assert!(shown.contains("j host"));
         }
     }
@@ -988,7 +1018,19 @@ fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(screen.contains("1–1 / 1"), "{screen}");
+        let state = app.conversation.borrow();
+        let identity = state.active.as_ref().expect("selected UUID session");
+        let mapped = &state.sessions[identity].rendered.as_ref().unwrap().mapped;
+        assert_eq!(
+            mapped.lines.len(),
+            1,
+            "only the retained unavailable observation is content"
+        );
+        assert_eq!(app.scrolls.offset(Pane::Replies), 0);
+        assert!(
+            !screen.contains("earlier"),
+            "empty viewport cells are not retained lines"
+        );
         assert!(screen.contains("Exchange history unavailable"));
         assert!(!screen.contains("Loading recent pane output"));
     }
@@ -1410,4 +1452,35 @@ fn pane_output_uses_the_exchange_header_time_format() {
                     && line.to_string().trim_end() == "alpha · pane output · 6h ago")
         );
     });
+}
+
+#[test]
+fn grouped_wrap_keeps_the_full_body_and_invalidates_only_layout_not_source() {
+    let mut session = Session::default();
+    let raw = "abcdefghijklmnopqrstuvwxyz0123456789";
+    session.update(Some(reply("grouped-width", raw)));
+    for width in [8, 16, 40] {
+        assert!(session.prepare_grouped(width, Look::default(), &Default::default()));
+        let rendered = session.rendered.as_ref().unwrap();
+        let text: String = rendered.mapped.lines.iter().map(Line::to_string).collect();
+        assert_eq!(text, raw);
+        assert!(
+            rendered
+                .mapped
+                .lines
+                .iter()
+                .all(|line| line.width() + 3 <= width)
+        );
+        assert_eq!(session.reply.as_ref().unwrap().body, raw);
+        assert_eq!(
+            session
+                .response_key_at(rendered.mapped.sources[0])
+                .unwrap()
+                .0
+                .request,
+            "grouped-width"
+        );
+        assert!(!session.prepare_grouped(width, Look::default(), &Default::default()));
+        assert!(session.prepare(width, Look::default(), &Default::default()));
+    }
 }

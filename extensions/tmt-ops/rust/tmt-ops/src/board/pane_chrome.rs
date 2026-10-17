@@ -1,12 +1,7 @@
 //! Pane presentation projects the App's existing focus, never a second focus store.
 use super::{app::App, overview::cron_counts::GlyphSet};
 use crate::config::Pane;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Modifier, Style},
-    text::Line,
-};
+use ratatui::{Frame, layout::Rect, style::Modifier, text::Line};
 use tmt_cli_style::{Depth, Role};
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
@@ -59,18 +54,6 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect, pane: Pane, title:
         ),
     );
     Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 1)
-}
-
-/// A retained selection is identifiable without impersonating the receiving cursor.
-pub(super) fn row_style(app: &App, selected: bool, style: Style) -> Style {
-    let look = app.look();
-    if !selected {
-        style
-    } else if app.focused() == Pane::Rows {
-        look.selection().patch(look.row_span(true, style, true))
-    } else {
-        look.role(Role::Muted).add_modifier(Modifier::DIM)
-    }
 }
 
 #[cfg(test)]

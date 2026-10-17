@@ -398,7 +398,22 @@ fn no_home_frame_stacks_two_rules() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|line| line.as_str().unwrap().to_owned())
+            .map(|line| {
+                let mut line = line.as_str().unwrap().to_owned();
+                // A floating review dialog is a separate layer. Its top edge
+                // can sit below a background section rule; keep checking the
+                // uncovered background columns, without counting that edge as
+                // a second rule in the underlying pane.
+                if matches!(frame["state"].as_str(), Some("review" | "result"))
+                    && let Some(left) = line.find('┌')
+                    && let Some(right) = line.rfind('┐')
+                {
+                    let end = right + '┐'.len_utf8();
+                    let width = unicode_width::UnicodeWidthStr::width(&line[left..end]);
+                    line.replace_range(left..end, &" ".repeat(width));
+                }
+                line
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             crate::test_support::stacked_rules(&lines),

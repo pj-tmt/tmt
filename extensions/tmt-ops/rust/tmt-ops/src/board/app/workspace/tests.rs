@@ -560,7 +560,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             snapshot.shell_counts = snapshot.roster.shell_counts();
             let row = painted_member_row(&app, 100, 24);
             assert!(
-                row.contains("worker") && row.contains(state.unwrap_or("? member")),
+                row.contains("worker") && row.contains(state.unwrap_or("?")),
                 "{row}"
             );
             let counts = &app.workspace_snapshot().unwrap().shell_counts;
@@ -617,7 +617,7 @@ fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
             row.contains("worker") && row.contains("● working"),
             "{width}: {row}"
         );
-        assert_eq!(row.contains("Auto"), width >= 60, "{width}: {row}");
+        assert!(!row.contains("Auto"), "{width}: {row}");
         assert_eq!(
             row.contains("17"),
             row.contains("17 held"),
@@ -634,7 +634,7 @@ fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
         if width == 100 {
             let conversation = paint(&app, width, 36).join("\n");
             assert!(
-                conversation.contains("17 held") && conversation.contains("tail-extra-whole"),
+                conversation.contains("17 held") && !conversation.contains("tail-extra-wh…"),
                 "{conversation}"
             );
         }
@@ -734,7 +734,11 @@ fn frame_rows_share_one_projection_and_release_it_after_nested_paint_or_unwind()
             assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
         }
         assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
+        app.bindings();
+        assert!(Rc::ptr_eq(&rows, &app.workspace_rows()));
     }
+    assert!(app.frame_workspace_rows.borrow().is_none());
+    app.bindings();
     assert!(app.frame_workspace_rows.borrow().is_none());
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _frame = app.workspace_frame_rows();
@@ -1213,24 +1217,18 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
     let target = app.workspace.selected.clone();
-    assert_eq!(app.bindings()["j"].text, "scroll-down");
+    assert_eq!(app.bindings()["j"].text, "jump");
     assert_eq!(app.bindings()["2"].text, "agents");
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     assert_eq!(app.workspace.selected, target);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    let keys = app
-        .view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .keys
-        .get_mut(&OpsKeyScope::Reader)
-        .unwrap();
-    keys.insert("j".into(), Action::parse("copy $name").unwrap());
-    keys.insert("k".into(), Action::parse("jump").unwrap());
+    crate::board::app::tests::configure_workspace(
+        &mut app,
+        "[bind]\nj = 'copy $name'\nk = 'jump'\n",
+    );
     let help = crate::board::help::model(&app);
     let bindings = help
         .sections
@@ -1262,7 +1260,7 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
 }
 
 #[test]
-fn a_refresh_cannot_restore_factory_pane_focus_or_turn_reader_j_into_host() {
+fn refresh_preserves_pane_focus_and_selected_factory_host_action() {
     let mut app = board();
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
@@ -1281,7 +1279,10 @@ fn a_refresh_cannot_restore_factory_pane_focus_or_turn_reader_j_into_host() {
     app.apply(loaded);
     paint(&app, 160, 36);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -1458,32 +1459,43 @@ fn partial_item_result_survives_as_readable_evidence_with_no_automatic_retry() {
     assert!(app.workspace_form.is_some());
 }
 #[test]
-fn squad_controls_are_clickable_and_stale_controls_never_retarget() {
+fn squad_actions_keep_metadata_inert_and_refuse_unobserved_targets() {
     let mut app = board();
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     app.workspace_reconcile();
     paint(&app, 160, 36);
-    let (area, _, _) = app
-        .workspace_action_hits
-        .borrow()
-        .iter()
-        .find(|(_, _, choice)| matches!(choice, Choice::WorkspaceBegin(Kind::Add)))
+    assert!(
+        app.workspace_action_hits
+            .borrow()
+            .iter()
+            .all(|(_, _, choice)| !matches!(choice, Choice::WorkspaceBegin(_))),
+        "actions moved out of panel chrome"
+    );
+    assert_eq!(key(&mut app, KeyCode::Char('m')), Effect::None);
+    let choice = app
+        .menu
+        .as_ref()
         .unwrap()
+        .entries
+        .iter()
+        .find(|entry| matches!(entry.choice, Choice::WorkspaceBegin(Kind::Add)))
+        .unwrap()
+        .choice
         .clone();
-    let event = MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: area.x,
-        row: area.y,
-        modifiers: KeyModifiers::NONE,
-    };
+    key(&mut app, KeyCode::Esc);
     app.workspace.selected = Some(OpsTarget::Pool);
-    assert_eq!(app.mouse(event, Instant::now()), Effect::None);
-    assert!(app.workspace_form.is_none());
+    app.choose(choice.clone());
+    assert!(
+        app.workspace_form.is_none(),
+        "no stale squad context can become a pool membership write"
+    );
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
     paint(&app, 160, 36);
-    assert_eq!(app.mouse(event, Instant::now()), Effect::None);
+    app.choose(choice);
     assert_eq!(app.workspace_form.as_ref().unwrap().kind, Kind::Add);
 }
+
 #[test]
 fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     let mut app = board();
@@ -1599,11 +1611,7 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
         app.shell.tab = tab;
         for width in [100, 160] {
             let screen = paint(&app, width, 36).join("\n");
-            let mode = if matches!(tab, OpsTab::Digest | OpsTab::Overview) {
-                "Auto ▾"
-            } else {
-                "digest Auto ▾"
-            };
+            let mode = "Auto ▾";
             assert!(screen.contains(mode), "{tab:?}: {screen}");
             assert!(screen.contains("1 held"));
             assert!(
@@ -1621,7 +1629,13 @@ fn supplied_label_choice_hit_at_look(look: crate::look::Look) {
             // unrelated "1 held" in the Digest summary or conversation history.
             for (area, _) in &chips {
                 for x in area.right()..width.saturating_sub(5).min(area.right() + 12) {
-                    let start = usize::from(area.y) * usize::from(width) + usize::from(x);
+                    let label_y = area.y + u16::from(tab == OpsTab::Agents);
+                    let label_x = if tab == OpsTab::Agents {
+                        area.x + (x - area.right())
+                    } else {
+                        x
+                    };
+                    let start = usize::from(label_y) * usize::from(width) + usize::from(label_x);
                     let cells = &buffer.content[start..start + 6];
                     if cells.iter().map(|cell| cell.symbol()).collect::<String>() == "1 held" {
                         held.push(cells);
@@ -2061,11 +2075,15 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
         key(&mut app, KeyCode::Enter);
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("Enter send")));
         assert!(
-            lines.last().unwrap().trim().is_empty(),
-            "{width}: {:?}",
-            lines.last()
+            lines
+                .iter()
+                .any(|line| line.contains("⏎ send · Esc cancel"))
+        );
+        assert_eq!(
+            lines.last().unwrap().trim(),
+            "Alt+Enter new line  Ctrl-P paste",
+            "{width}: only editing keys accompany the filled composer"
         );
         key(&mut app, KeyCode::Char('j'));
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "j");
@@ -2106,11 +2124,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains(if width >= 140 {
-            "› worker as you…"
-        } else {
-            "Message → worker"
-        })));
+        assert!(lines.iter().any(|line| line.contains("Message worker…")));
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");
@@ -2143,7 +2157,10 @@ fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     paint(&app, 80, 36);
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -2166,9 +2183,9 @@ fn selected_squad_discloses_existing_usage_facts_without_private_lead_fields() {
             paint(&app, width, 36);
             key(&mut app, KeyCode::Tab);
             let text = paint(&app, width, 36).join("\n");
-            assert!(text.contains("Lead usage:"), "{width}: {text}");
+            assert!(text.contains("── Usage "), "{width}: {text}");
             assert!(text.contains("~21 tok"), "{width}: {text}");
-            assert!(text.contains("Lead share: ~100%"), "{width}: {text}");
+            assert!(text.contains("~100%"), "{width}: {text}");
             assert!(!text.contains("private lead task") && !text.contains("private PR"));
         }
     });
@@ -2240,7 +2257,10 @@ fn passive_composer_preserves_footer_bindings_notice_error_modal_and_reload_prec
         assert!(paint(&app, width, 18).last().unwrap().contains("j host"));
         assert!(app.input_band.get().is_some() && app.input.is_none());
         key(&mut app, KeyCode::Enter);
-        assert!(paint(&app, width, 18).last().unwrap().trim().is_empty());
+        assert_eq!(
+            paint(&app, width, 18).last().unwrap().trim(),
+            "Alt+Enter new line  Ctrl-P paste"
+        );
         app.reload = crate::board::reload::Watch::due();
         let lines = paint(&app, width, 18);
         assert!(lines.last().unwrap().contains("reload waiting"));
@@ -2302,8 +2322,8 @@ fn workspace_settings_cancel_returns_to_the_exact_reader_without_factory_actions
         assert_eq!(app.focused_pane(), Some(Pane::Replies));
         assert_eq!(
             key(&mut app, KeyCode::Char('j')),
-            Effect::None,
-            "the restored Reader must scroll rather than jump to host"
+            Effect::Act(Request::Jump(MEMBER.into())),
+            "restoring Reader preserves the selected factory host action"
         );
         assert_eq!(app.workspace.selected, selected);
     }
@@ -2796,7 +2816,10 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     );
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
-    assert_eq!(key(&mut app, KeyCode::Char('j')), Effect::None);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Jump(MEMBER.into()))
+    );
     let original = app.workspace.selected.clone();
     key(&mut app, KeyCode::Char('1'));
     assert_eq!(app.shell.tab, OpsTab::Overview);
@@ -2892,18 +2915,18 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 .collect::<String>();
                             assert!(
                                 text.contains(if selected_squad {
-                                    "▾   product"
+                                    "▾ product"
                                 } else {
-                                    "└   worker"
+                                    "└ worker"
                                 }),
                                 "{width}x{height}: {text}"
                             );
                         } else {
                             assert!(
                                 lines.iter().any(|line| line.contains(if selected_squad {
-                                    "Roster preview"
+                                    "── Board "
                                 } else {
-                                    "Message → worker"
+                                    "Exchanges with you"
                                 })),
                                 "{width}x{height}: {lines:?}"
                             );
@@ -3087,11 +3110,11 @@ fn agents_wide_table_uses_hour_readings_once_and_marks_missing_members() {
             let slots = app
                 .agents_layout
                 .borrow_mut()
-                .slots(Rect::new(1, row.y, 158, 1));
+                .slots(Rect::new(0, row.y, 160, 1));
             for (field, expected) in [
                 (
                     crate::board::workspace::columns::AgentsField::Lead,
-                    "worker".to_owned(),
+                    String::new(),
                 ),
                 (
                     crate::board::workspace::columns::AgentsField::Tokens,
@@ -3221,14 +3244,21 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                     .collect::<String>();
                 assert!(painted_row.contains("worker"));
                 // A narrow cell cuts the task first; it is never painted for "working".
-                let shown = painted_row.contains(&format!("● working · {state}"));
-                assert!(role.is_some() || !shown, "{painted_row}");
-                shown_tasks += usize::from(shown);
-                let task = if shown {
-                    format!(" · {state}").chars().count() as u16
-                } else {
-                    0
+                let tail = match state {
+                    "working" => "",
+                    "idle" => " · idle",
+                    "offline" => " · off…",
+                    "waiting" => " · wai…",
+                    "blocked" => " · blo…",
+                    _ => unreachable!(),
                 };
+                assert!(
+                    painted_row.contains(&format!("● working{tail}")),
+                    "{painted_row}"
+                );
+                assert!(!painted_row.contains("· working"));
+                shown_tasks += usize::from(!tail.is_empty());
+                let task = tail.chars().count() as u16;
                 for x in hit.x..hit.x + hit.width {
                     if terminal.backend().buffer()[(x, hit.y)]
                         .symbol()
@@ -3242,6 +3272,12 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                         terminal.backend().buffer()[(x, hit.y)].fg,
                         look.role(match role {
                             Some(role) if in_task => role,
+                            _ if selected => Role::Text,
+                            _ if x == 49 => {
+                                assert_eq!(terminal.backend().buffer()[(x, hit.y)].symbol(), "—");
+                                Role::Dim
+                            }
+                            _ if x >= 53 => Role::Muted,
                             _ => Role::Text,
                         })
                         .fg
@@ -3495,9 +3531,9 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     }
                     if tab == OpsTab::Agents {
                         assert!(text.contains(if mode == "revealed" {
-                            "Agents · 2 squads"
+                            "2 squads ·"
                         } else {
-                            "Agents · 1 squad"
+                            "1 squad ·"
                         }));
                         if mode == "scoped" {
                             assert!(!text.contains("+ Common pool"));
@@ -3782,14 +3818,8 @@ fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
                 .all(|(area, _)| area.intersection(list).is_empty()),
             "no retired table dropdown retains an authority"
         );
-        let values = crate::board::overview::monitor::values(
-            &app,
-            app.workspace_snapshot().unwrap(),
-            &app.workspace_rows()[0],
-        );
         assert!(
-            values
-                .digest_labels
+            crate::board::workspace::columns::member_digest_labels(&app.labels, MEMBER)
                 .iter()
                 .any(|label| label.text == "1 held")
         );
@@ -3884,12 +3914,18 @@ fn search_follows_first_match_and_clearing_restores_the_original_selection() {
             assert!(
                 lines
                     .iter()
-                    .any(|line| line.contains(&format!("Conversation · {name}"))),
+                    .any(|line| line.contains(&format!("── {name} "))),
                 "the previous conversation remains painted"
             );
         } else {
             assert!(
-                lines.iter().any(|line| line.contains("Roster preview")),
+                lines
+                    .iter()
+                    .any(|line| line.contains(if tab == OpsTab::Agents {
+                        "── Board "
+                    } else {
+                        "Roster preview"
+                    })),
                 "the previous squad remains painted"
             );
         }
@@ -4024,7 +4060,7 @@ fn empty_search_preview_does_not_assume_a_retained_member_payload_is_available()
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains("Select an agent to read its response."))
+                .any(|line| line.contains("Selected agent unavailable."))
         );
         assert_eq!(app.workspace.selected, Some(target));
         assert!(app.workspace_action_hits.borrow().is_empty());
@@ -4490,7 +4526,7 @@ fn pinned_filter_disclosure_matches_temporarily_shown_children() {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains(&format!("▾   {group}"))),
+                .any(|line| line.contains(&format!("▾ {group}"))),
             "{lines:?}"
         );
         assert!(app.workspace.expanded.is_empty() && !app.workspace.pool_expanded);
@@ -4573,7 +4609,8 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
             };
             let x = name_x(&after, after_y);
             assert!(x >= 2, "name must reserve two cells for its pin mark");
-            assert_eq!(after[(x - 2, after_y)].symbol(), "▪");
+            let pin_x = if tab == OpsTab::Agents { 0 } else { x - 2 };
+            assert_eq!(after[(pin_x, after_y)].symbol(), "▪");
             let pinned_row = (0..148)
                 .map(|column| after[(column, after_y)].symbol())
                 .collect::<String>();
@@ -4584,9 +4621,9 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
                 x,
                 "unpinned names reserve the same two cells"
             );
-            assert_eq!(before[(x - 2, before_y)].symbol(), " ");
+            assert_eq!(before[(pin_x, before_y)].symbol(), " ");
             assert_eq!(
-                after[(x - 2, after_y)].fg,
+                after[(pin_x, after_y)].fg,
                 app.look()
                     .role(tmt_cli_style::Role::Muted)
                     .fg
@@ -4657,8 +4694,9 @@ fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows(
         .unwrap()
         .activity
         .since_ms = Some(1_000);
-    // Collapse the tree and select the squad: only its roster preview paints
-    // the member, which the tree rows no longer hold.
+    // Collapse the tree and select the squad: only its observed lead focus
+    // paints the member's age, which the tree rows no longer hold.
+    snapshot.roster.squads[0].lead = Some(MEMBER.into());
     app.workspace.expanded.clear();
     let room = OpsTarget::Squad(ROOM.into());
     let index = app
@@ -4834,7 +4872,16 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains(words), "tree: {tree}");
+        let clipped = if waiting {
+            "◆ waiting · blo…"
+        } else {
+            "● working · blo…"
+        };
+        assert!(tree.contains(clipped), "tree: {tree}");
+        assert!(
+            paint(&app, 160, 36).join("\n").contains(words),
+            "focus keeps the full state"
+        );
         app.shell.tab = OpsTab::Overview;
         app.overview_view = monitor::View::Agents;
         let overview = paint(&app, 160, 36).join("\n");
@@ -5065,14 +5112,17 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
             depth,
         };
         let mut app = disagreeing_board(false, look);
-        assert!(painted_member_row(&app, 160, 36).contains("● working · blocked"));
+        assert!(painted_member_row(&app, 160, 36).contains("● working · blo…"));
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
-        assert!(
-            tree.contains("● 2 unread · blocked"),
-            "{depth:?} tree: {tree}"
-        );
+        assert!(tree.contains("● 2 unread · bl…"), "{depth:?} tree: {tree}");
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
+        assert!(
+            paint(&app, 160, 36)
+                .join("\n")
+                .contains("● 2 unread · blocked"),
+            "focus keeps full unread/task words"
+        );
         app.shell.tab = OpsTab::Overview;
         app.overview_view = monitor::View::Agents;
         for (width, words) in [
@@ -5118,7 +5168,7 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
 
 /// The activity form leaves out a task that repeats its activity word. Unread
 /// replies replace that word, so the same task follows `● N unread`, wide and
-/// clipped, in the tree, the roster preview and Overview.
+/// clipped, in the tree, selected member/squad-lead focus and Overview.
 #[test]
 fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
     use crate::board::activity::Phase;
@@ -5159,7 +5209,25 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         with_unread_replies(&mut app);
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains(&unread), "{word} tree: {tree}");
+        assert!(
+            tree.contains(&format!("● 2 unread · {}…", &word[..2])),
+            "{word} tree: {tree}"
+        );
+        assert!(
+            paint(&app, 160, 36).join("\n").contains(&unread),
+            "{word} member focus"
+        );
+        // The final squad focus shows its observed lead instead of a roster STATE column.
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .squads[0]
+            .lead = Some(MEMBER.into());
         app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
         app.workspace_reconcile();
         let roster = paint(&app, 160, 44).join("\n");
@@ -5174,5 +5242,67 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains(&words), "{word} {width}: {screen}");
         }
+    }
+}
+
+#[test]
+fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_waiting() {
+    use std::time::{Duration, Instant};
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.squads[0].lead = Some(MEMBER.into());
+    snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
+    snapshot.read_at = Some(Instant::now() - Duration::from_secs(60));
+    app.workspace.expanded.clear();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    assert!(
+        !app.workspace_rows()
+            .iter()
+            .any(|row| matches!(row.target, OpsTarget::Member { .. }))
+    );
+    let screen = paint(&app, 160, 44).join("\n");
+    assert!(screen.contains("stale"), "{screen}");
+    assert!(
+        !screen.contains("◆ waiting"),
+        "global waiting cannot become room attention: {screen}"
+    );
+    let state = app.conversation.borrow();
+    let mark = state
+        .active_agent_mark()
+        .expect("lead conversation is active");
+    assert!(mark.contains("worker stale"), "{mark}");
+}
+
+#[test]
+fn agents_group_glyphs_use_core_activity_and_room_attention_instead_of_task_state() {
+    use crate::board::activity::Phase;
+    use std::time::{Duration, Instant};
+    for (phase, waiting, stale, glyph) in [
+        (Phase::Working, false, false, '●'),
+        (Phase::Idle, false, false, '◌'),
+        (Phase::Unknown, false, false, '?'),
+        (Phase::Working, true, false, '◆'),
+        (Phase::Working, false, true, '?'),
+    ] {
+        let mut app = disagreeing_board(waiting, crate::look::Look::default());
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let member = snapshot.roster.members.get_mut(MEMBER).unwrap();
+        member.activity.phase = phase;
+        member.waiting = true; // This global request is not room waiting evidence.
+        snapshot.read_at = stale.then(|| Instant::now() - Duration::from_secs(60));
+        app.workspace.expanded.clear();
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        let screen = paint(&app, 160, 36);
+        let group = screen
+            .iter()
+            .find(|line| line.starts_with(" ▸ product"))
+            .unwrap();
+        assert_eq!(
+            group.chars().nth(26),
+            Some(glyph),
+            "{phase:?}/{waiting}/{stale}: {group}"
+        );
     }
 }

@@ -2,6 +2,7 @@
 //! `tmt ops squad ls`, paints from it, and reloads in the background.
 
 mod activity;
+mod agents_focus;
 mod app;
 mod buttons;
 mod changes;
@@ -24,6 +25,7 @@ mod glyph_guard;
 mod help;
 mod home;
 mod home_leads;
+mod identity_line;
 mod input_field;
 mod inventory;
 mod key_hints;
@@ -56,12 +58,14 @@ mod search_field;
 mod section_rule;
 mod settings;
 mod spark_row;
+mod stat_tiles;
 mod state_cell;
 mod status_update;
 mod tab_strip;
 mod team_strip;
 mod timer_rows;
 mod top_bar;
+mod tree_row;
 mod unread;
 pub(crate) use crate::tabs;
 mod shell;

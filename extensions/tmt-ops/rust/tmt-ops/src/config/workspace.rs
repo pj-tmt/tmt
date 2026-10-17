@@ -235,6 +235,9 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("D", "digest"),
         ]),
         OpsKeyScope::Squad => entries.extend([
+            ("j", "jump"),
+            ("o", "open"),
+            ("D", "digest"),
             ("p", "pin"),
             ("m", "manage"),
             ("n", "create-squad"),

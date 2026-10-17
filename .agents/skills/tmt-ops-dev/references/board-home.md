@@ -31,7 +31,8 @@ filters Agents and Overview; launch scope applies across destinations. The hidde
 rooms in the existing state roles, cached when preferences configure the snapshot;
 it omits absent attention and drops these counts after session reveal. The
 acquired roster and global shell attention remain unchanged.
-A collapsed squad keeps its worst observed child state, prioritizing attention.
+Attention ordering uses each squad's worst observed child state; its tree strip
+shows the admitted members once each, with the observed lead first.
 Refresh, sorting and pinning preserve the anchor; a hidden or removed
 anchor disables actions rather than selecting its neighbour. A confirmed explicit
 Hide of the currently visible squad intentionally selects the next visible row;
@@ -53,8 +54,9 @@ Overview orders its chips Agents then Squads and starts in Agents unless a saved
 choice exists. Its default `v` toggles that view from either pane for any selected
 row; authored bindings retain precedence. `p` pins or unpins the selected visible
 agent or squad in either tab, and the effective footer reflects its saved state.
-Pinned names carry a Muted `▪` mark in both lists; the same two-cell name slot is
-reserved when unpinned, and NO_COLOR keeps the glyph. Other columns do not move.
+Pinned names carry a Muted `▪` mark in both lists. Overview reserves its two-cell
+name slot; the Agents tree uses its leading gutter. An unpinned row keeps the same
+name and numeric tracks, and NO_COLOR keeps the glyph.
 Selected chips keep their fill while search owns input; hover and activation
 eligibility remain independent.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
@@ -112,8 +114,10 @@ switchable Squads/Agents list. The shared FilterBar paints mode chips and the
 in-place search field; section rules own right-aligned counts. `v` switches the
 view through the effective binding table; active searches show matching squads or
 agents out of that mode's admitted unsearched total. Agents counts deduplicate
-identities across memberships and include collapsed matching children. Explicit
-authored keys win; App retains the only search query and editing state.
+identities across memberships and include collapsed matching children, without
+building or sorting display rows. Binding resolution shares the existing immutable
+row scope and releases it before any input or model change. Explicit authored keys
+win; App retains the only search query and editing state.
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership
 occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting
@@ -212,8 +216,9 @@ Shared `top_bar` and `tab_strip` own shell paint; the host supplies held counts
 and publishes whole tab hits. Only nonzero waiting/blocked glyphs use state colour.
 Attention keeps priority over a truncated named-layer caption.
 
-`workspace::render` retains the Agents tree and squad detail. Conversation, editor,
-drafts, reply reader and Send keep their existing owners. Digest projects the
+`workspace::render` projects the Agents tree through `tree_row`; `agents_focus`
+projects the selected member or squad through the shared board components.
+Conversation, editor, drafts, reply reader and Send keep their existing owners. Digest projects the
 supplier-owned status snapshot and UUID-deduplicated member list through
 `digest_dashboard`; the canonical roster owns membership and action admission.
 Agents and Digest use the selected squad's appearance and contextual detail. Auto/Side/Stack is an Ops preference,
@@ -221,7 +226,7 @@ not a second editor or a revival of factory board views. An explicit message
 focuses the selected agent's conversation: compact Overview opens Agents, while
 wide Overview retains its shared pane. A retained Reader moves to Agents when
 Overview can no longer fit its conversation; refresh/resize never converts its
-scroll keys into list/Host actions. Logical placement survives clearing pointer
+reader arrows or paging into list/host actions. Logical placement survives clearing pointer
 rectangles. With fewer than three content rows, the table omits its header and
 keeps usable target rows.
 
@@ -235,23 +240,38 @@ than maintaining a second HOME renderer. The single decoded HOME oracle and
 private workspace capture packet share literal fixtures and the actual frame
 entry point; source changes do not authorize frozen regeneration.
 
-Selected-squad detail presents a fixed-width roster preview with lead-first UUID
-members, scoped state and supplied task/next text. Common pool remains virtual.
-The detail retains supplied usage windows, independent lead model/readings/share,
-and their missing/partial markers. It does not expose private lead summary fields.
-The shared HOUR observations supply Agents room token totals, deduplicated once per
-member (~ when any member is missing/partial, — when none is observed); Common pool
-group tokens remain unavailable. Overview and Agents share the truthful TOK 1h and
-spaced ◷ CRON captions. Shell online/waiting/blocked aggregates are computed during
+The selected member's focus contains identity, HOUR tokens/trend/squad share,
+state, supplier Digest and owned-timer tiles, followed by its resolved link and
+actor-only `Exchanges with you`. State-since labels wait for proven evidence.
+The selected squad contains its observed current lead, task/pending/next fields,
+per-member HOUR spark rows and shares, scoped Timers, and the same exchange/input
+owner. A missing lead grants no substitute recipient. Common pool stays virtual.
+`identity_line` and `stat_tiles` own their fitted inert elements.
+The shared HOUR observations supply member values and room totals, deduplicated
+once per member (~ when any member is missing/partial, — when none is observed).
+Each mini-trend uses the same admitted meter observation and bounded buckets;
+no new history is acquired. Common-pool group tokens remain unavailable.
+The tree keeps STATE, TOK 1h, `◷` and the lead marker; Digest/model/runtime belong
+in focus. Supplied savings keep their shared tokens/cost/percent choice: one
+whole compact estimate in the member DIGEST detail, or in the squad Usage rule
+note when it fits. An absent member value leaves its normal Digest detail;
+the squad note omits an estimate that does not fit. No extra rows or placeholder
+estimates are added; Digest Usage retains the full description and coverage.
+`◷` means **timers owned** by that identity in that row's room, paused
+included, as an integer. Known zero is muted `0`; unavailable is muted `—`.
+Squad timer totals use the same acquired room/ID deduplication. Shell online/waiting/blocked aggregates are computed during
 snapshot configuration from independent UUID sets; paint reads them on every tab,
 qualifying partial/unknown evidence rather than publishing false zero totals.
 Agents tables use the shared Scrolls table viewport, reveal and paging rule with
 one non-interactive range/total/more line, including when every row fits.
 
 Config projects one effective table per list/Reader scope for dispatch, help and
-footer. Reader defaults scroll responses with `j/k`; compatible explicit
-bindings keep global/host/section precedence, so hints name the action that will
-actually run. Retired notebook-pane actions are reported for explicit migration
+footer. In Agents, factory Enter replies to an observed question or messages the
+selected member/current lead; factory `j` uses that recipient's guarded host path
+from either pane. Reader arrows and paging retain response scrolling, and Tab/
+BackTab retain pane movement. Generic Reader retains `j/k` scrolling. Explicit
+bindings keep global/host/section precedence, including authored Reader keys;
+hints name the action that will actually run. Retired notebook-pane actions are reported for explicit migration
 without rewriting the authored file or redirecting to a different recipient.
 Before a snapshot arrives, the same Config-owned defaults drive the three shell
 tabs; no named-squad tab or old-key fallback is admitted. Text, search, completion, overlays and conversation take their keys before shell
@@ -348,8 +368,9 @@ Shared board modules own visual elements once. `section_rule` owns neutral rules
 and right-side counts; `team_strip` owns lead-first glyphs; `state_cell` owns
 attention glyph roles; `activity` owns the one typed projection of core's
 `session.activity`, the STATE words (`Label`) and the agent `Tally`, and
-`workspace::columns::activity_spans`/`paint_activity` own every member STATE
-cell's spans, task colour and state-cell areas; `filter_bar` composes `chip_group` selectors and the idle
+`workspace::columns::activity_spans` owns every member STATE cell's words and
+colours; `paint_activity` and `tree_row` report the separate activity/task areas
+for their layouts; `filter_bar` composes `chip_group` selectors and the idle
 search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
 trends, numeric headings, totals, shares, optional quota tracks and drawn-width
 time axes. `chip_group` owns option padding, selection and clipped option hits;
@@ -357,7 +378,14 @@ time axes. `chip_group` owns option padding, selection and clipped option hits;
 job tracks and their more hint, `key_value` owns aligned metric values, and
 `divider` owns joined band separators. Overview adapts acquired
 observations and owns effects. These painters perform no acquisition or
-view-specific projection, and later Agents placements reuse the same modules.
+view-specific projection. Agents focus reuses these same modules.
+`top_bar` and `tab_strip` paint the neutral shared shell from held values.
+`exchange_view` paints grouped exchange headers and body gutters, `input_field`
+paints the filled editor surface, and `digest_matrix` paints observed metrics
+across identity columns. The host retains data projection, recipient authority,
+editor/session state, effective keys and clipped hits; these painters acquire no
+data and perform no effects.
+
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
 and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle
 counts tally core activity once per identity and count a stale read as unknown;
@@ -415,12 +443,3 @@ Frozen HOME and TUI parity baselines retain their provenance until a decoded
 cells/styles/hits/oracle diff is approved by the UX primary reviewer. Regeneration follows the
 [TUI parity gate](../../tmt-tui/references/development.md#board-parity-baseline).
 [development.md](development.md#checks) owns commands and isolated captures.
-
-## Shared board components
-
-`top_bar` and `tab_strip` paint the neutral shared shell from held values.
-`exchange_view` paints grouped exchange headers and body gutters, `input_field`
-paints the filled editor surface, and `digest_matrix` paints observed metrics
-across identity columns. The host retains data projection, recipient authority,
-editor/session state, effective keys and clipped hits; these painters acquire no
-data and perform no effects.

@@ -65,7 +65,6 @@ fn ratio_survives_resize_without_saving_the_temporary_clamp() {
     );
     assert_eq!(ratios_decode(None), Some(Ratios::new()));
     for invalid in [
-        json!({"unknown":5000}),
         json!({"agents-columns":10001}),
         json!({"agents-columns":-1}),
         json!({"agents-columns":0.5}),
@@ -73,6 +72,20 @@ fn ratio_survives_resize_without_saving_the_temporary_clamp() {
     ] {
         assert!(ratios_decode(Some(&invalid)).is_none());
     }
+}
+#[test]
+fn unknown_pane_names_do_not_discard_recognized_ratios() {
+    let known: Ratios = [(Id::AgentsColumns, 4700)].into();
+    for future in [json!(5000), json!(-1), json!({"new": "format"})] {
+        assert_eq!(
+            ratios_decode(Some(&json!({"agents-columns":4700,"future-pane":future}))),
+            Some(known.clone())
+        );
+    }
+    assert_eq!(
+        ratios_decode(Some(&json!({"future-pane":5000}))),
+        Some(Ratios::new())
+    );
 }
 #[test]
 fn invalidated_and_clipped_boundaries_cannot_start_or_continue_drag() {

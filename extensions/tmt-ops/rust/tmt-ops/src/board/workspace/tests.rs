@@ -279,6 +279,93 @@ fn search_counts_distinct_identities_and_keeps_only_matching_ancestors() {
 }
 
 #[test]
+fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters() {
+    let mut roster = roster();
+    roster.squads.push(OpsSquad {
+        room_id: "second".into(),
+        name: "Other team".into(),
+        members: vec!["one".into(), "one".into(), "missing".into()],
+        ..roster.squads[0].clone()
+    });
+    for observation in [
+        OpsObservation::Complete,
+        OpsObservation::Partial,
+        OpsObservation::Stale,
+    ] {
+        roster.observation = observation;
+        roster.squads[1].observation = observation;
+        for visibility in [
+            OpsVisibility::default(),
+            OpsVisibility {
+                reveal_hidden: true,
+                ..Default::default()
+            },
+            OpsVisibility {
+                scope: vec!["room".into()],
+                ..Default::default()
+            },
+            OpsVisibility {
+                scope: vec!["second".into()],
+                ..Default::default()
+            },
+        ] {
+            for filter in [AgentsFilter::All, AgentsFilter::Pinned] {
+                for (squad_pin, hide_room) in
+                    [(false, false), (false, true), (true, false), (true, true)]
+                {
+                    let preferences = OpsPreferences {
+                        hidden: if hide_room {
+                            ["room".into()].into()
+                        } else {
+                            Default::default()
+                        },
+                        pinned: if squad_pin {
+                            ["second".into()].into()
+                        } else {
+                            Default::default()
+                        },
+                        agent_pins: ["lead".into(), "free".into()].into(),
+                        ..Default::default()
+                    };
+                    for query in [
+                        "",
+                        "ALICE",
+                        "product",
+                        "Other",
+                        "Common pool",
+                        "Free",
+                        "missing",
+                    ] {
+                        let workspace = OpsWorkspace {
+                            query: query.into(),
+                            visibility: visibility.clone(),
+                            filter,
+                            ..Default::default()
+                        };
+                        let identities = |query| {
+                            workspace
+                                .project_rows(&roster, &preferences, query, true)
+                                .into_iter()
+                                .filter_map(|row| match row.target {
+                                    OpsTarget::Member { identity_id, .. } => Some(identity_id),
+                                    _ => None,
+                                })
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                        };
+                        assert_eq!(
+                            workspace.search_counts(&roster, &preferences),
+                            (identities(query), identities("")),
+                            "{observation:?} {visibility:?} {filter:?} pin={squad_pin} hidden={hide_room} query={query}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn all_filter_keeps_incomplete_observations_visible_without_claiming_counts() {
     let mut roster = roster();
     let workspace = OpsWorkspace::default();
@@ -802,4 +889,61 @@ fn pinned_agents_keep_their_groups_without_revealing_unpinned_children() {
     preferences.pinned.insert("room".into());
     let rows = workspace.rows(&roster, &preferences);
     assert!(rows.iter().any(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == "lead")), "a pinned squad retains its full membership");
+}
+
+#[test]
+fn direct_member_projection_matches_expanded_rows_without_leaking_global_waiting() {
+    let mut roster = roster();
+    let lead = roster.members.get_mut("lead").unwrap();
+    lead.waiting = true;
+    lead.state = Some("blocked".into());
+    lead.activity = crate::board::activity::ObservedActivity {
+        phase: crate::board::activity::Phase::Working,
+        since_ms: Some(10),
+        last_ms: Some(20),
+    };
+    roster.squads[0].member_states.insert(
+        "lead".into(),
+        OpsMembershipState {
+            state: Some("review".into()),
+            waiting: false,
+            rank: None,
+        },
+    );
+    let workspace = OpsWorkspace {
+        expanded: ["room".into()].into(),
+        pool_expanded: true,
+        ..Default::default()
+    };
+    for row in workspace
+        .rows(&roster, &OpsPreferences::default())
+        .iter()
+        .filter(|row| matches!(row.target, OpsTarget::Member { .. }))
+    {
+        assert_eq!(member_target_row(&roster, &row.target).as_ref(), Some(row));
+    }
+    let target = OpsTarget::Member {
+        room_id: Some("room".into()),
+        identity_id: "lead".into(),
+    };
+    let row = member_target_row(&roster, &target).unwrap();
+    assert!(row.lead);
+    assert_eq!(
+        row.activity.unwrap().label(false, 30).fit(80).0,
+        "working 0s"
+    );
+    assert_eq!(row.state.as_deref(), Some("review"));
+    let unrelated = OpsTarget::Member {
+        room_id: Some("room".into()),
+        identity_id: "free".into(),
+    };
+    assert!(member_target_row(&roster, &unrelated).is_none());
+    assert!(member_target_row(&roster, &OpsTarget::Squad("room".into())).is_none());
+    roster.squads[0].member_states.clear();
+    let row = member_target_row(&roster, &target).unwrap();
+    assert_eq!(
+        row.state, None,
+        "unreported membership never inherits global task/attention"
+    );
+    assert!(!row.activity.unwrap().waiting);
 }

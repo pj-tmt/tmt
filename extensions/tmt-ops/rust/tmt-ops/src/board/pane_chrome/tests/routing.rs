@@ -158,12 +158,12 @@ fn conversation_has_one_title_and_stack_separator_while_uuid_draft_survives_focu
                     .map(|x| buffer[(x, y)].symbol())
                     .collect::<String>()
             };
-            assert!(line(pane.y).contains("Conversation ·"));
-            assert!(line(pane.y).contains("focused · Esc back"));
-            assert_eq!(buffer[(pane.x, pane.y)].symbol(), "━");
+            assert!(line(pane.y).contains("worker"));
+            assert!(!line(pane.y).contains("Conversation ·"));
+            assert_eq!(buffer[(pane.x, pane.y)].symbol(), "─");
             assert_eq!(
                 (pane.y..pane.bottom())
-                    .filter(|y| line(*y).contains("Conversation ·"))
+                    .filter(|y| line(*y).contains("Exchanges with you"))
                     .count(),
                 1
             );

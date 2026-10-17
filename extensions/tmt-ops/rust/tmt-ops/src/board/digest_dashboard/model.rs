@@ -264,6 +264,30 @@ pub(in crate::board) fn savings_caption(
     }
 }
 
+/// Compact focus variant of the supplied savings caption; omitted unless a
+/// value exists and the complete amount, window and coverage fit together.
+pub(in crate::board) fn compact_savings_caption(
+    summary: &crate::labels::digest::SavingsSummary,
+    window: crate::config::DigestWindow,
+    unit: crate::config::SavingsUnit,
+    width: usize,
+) -> Option<String> {
+    use unicode_width::UnicodeWidthStr;
+    let (value, coverage, note) = savings_value(summary, window, unit);
+    let value = value?;
+    let value = value
+        .strip_suffix(" at list price")
+        .or_else(|| value.strip_suffix(" of input"))
+        .unwrap_or(&value);
+    let value = value.strip_prefix("≈ ").unwrap_or(value);
+    let text = format!(
+        "≈{}: {value}{coverage}{}",
+        window.label(),
+        note.map_or_else(String::new, |note| format!(" ({note})"))
+    );
+    (text.width() <= width).then_some(text)
+}
+
 /// Whole percent, half up; a nonzero share below one percent never reads as zero.
 pub(in crate::board) fn percent_text(basis_points: u16) -> String {
     match basis_points {

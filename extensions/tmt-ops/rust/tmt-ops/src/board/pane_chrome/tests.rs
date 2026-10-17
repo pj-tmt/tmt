@@ -1,4 +1,5 @@
 use super::*;
+use ratatui::style::Style;
 use ratatui::{Terminal, backend::TestBackend};
 
 mod routing;
@@ -133,13 +134,19 @@ fn focused_rule_title_and_marker_share_existing_focus_with_one_header_row() {
 fn tiny_frame_keeps_navigation_cells_and_unselected_state_styles() {
     let app = app(Depth::None);
     let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
+    let working = app.look().role(Role::Working);
     for area in [Rect::new(2, 1, 1, 8), Rect::new(2, 1, 50, 2)] {
         terminal
-            .draw(|frame| assert_eq!(paint(frame, &app, area, Pane::Rows, "Agents"), area))
+            .draw(|frame| {
+                frame.buffer_mut()[(area.x, area.y)].set_style(working);
+                assert_eq!(paint(frame, &app, area, Pane::Rows, "Agents"), area);
+                assert_eq!(
+                    frame.buffer_mut()[(area.x, area.y)].fg,
+                    working.fg.unwrap_or_default()
+                );
+            })
             .unwrap();
     }
-    let working = app.look().role(Role::Working);
-    assert_eq!(row_style(&app, false, working), working);
 }
 
 #[test]
@@ -197,8 +204,9 @@ fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_rece
                 .unwrap();
             let cell = &terminal.backend().buffer()[(hit.x + 3, hit.y)];
             assert_eq!(cell.symbol(), "└");
-            assert!(cell.modifier.contains(Modifier::DIM));
-            assert!(!cell.modifier.contains(Modifier::REVERSED));
+            assert_eq!(cell.bg, cursor.bg);
+            assert_eq!(cell.modifier, cursor.modifier);
+            assert!(!cell.modifier.contains(Modifier::BOLD));
             assert_eq!(app.workspace.selected, selected);
         }
     }

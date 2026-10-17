@@ -851,7 +851,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
 fn member_conversation_status_shows_the_supplied_estimate() {
     let mut app = savings_board();
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("Est. ctx avoided 24h: 18.2k"), "{shown}");
+    assert!(shown.contains("≈24h: 18.2k"), "{shown}");
 }
 
 #[test]
@@ -862,7 +862,7 @@ fn selected_squad_summary_shows_the_same_supplied_estimate() {
     ));
     app.workspace_reconcile();
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("Est. ctx avoided 24h: 18.2k"), "{shown}");
+    assert!(shown.contains("≈24h: 18.2k"), "{shown}");
 }
 
 pub(in crate::board) fn valued_document() -> serde_json::Value {
@@ -955,7 +955,11 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         }
         let shown = paint(&mut app, 160, 36);
         assert!(
-            shown.contains("Est. ctx avoided 24h: 18.2k"),
+            shown.contains(if matches!(surface, "member" | "squad") {
+                "≈24h: 18.2k"
+            } else {
+                "Est. ctx avoided 24h: 18.2k"
+            }),
             "{surface}: {shown}"
         );
         // Click: tokens -> percent.
@@ -963,7 +967,11 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         save(&mut app, effect);
         let shown = paint(&mut app, 160, 36);
         assert!(
-            shown.contains("Est. ctx avoided 24h: 18% of input"),
+            shown.contains(if matches!(surface, "member" | "squad") {
+                "≈24h: 18%"
+            } else {
+                "Est. ctx avoided 24h: 18% of input"
+            }),
             "{surface}: {shown}"
         );
         // Key: percent -> cost, one label and only the value changing.
@@ -971,14 +979,24 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         save(&mut app, effect);
         let shown = paint(&mut app, 160, 36);
         assert!(
-            shown.contains("Est. ctx avoided 24h: ≈ $12.40 at list price"),
+            shown.contains(if matches!(surface, "member" | "squad") {
+                "≈24h: $12.40"
+            } else {
+                "Est. ctx avoided 24h: ≈ $12.40 at list price"
+            }),
             "{surface}: {shown}"
         );
         assert!(!shown.contains("saved $"), "{surface}");
         // Key: cost -> tokens again.
         let effect = press(&mut app, '$');
         save(&mut app, effect);
-        assert!(paint(&mut app, 160, 36).contains("Est. ctx avoided 24h: 18.2k"));
+        assert!(
+            paint(&mut app, 160, 36).contains(if matches!(surface, "member" | "squad") {
+                "≈24h: 18.2k"
+            } else {
+                "Est. ctx avoided 24h: 18.2k"
+            })
+        );
         // Lifetime has no percent: a saved percent reads as tokens and the
         // next step skips to cost.
         let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -1164,7 +1182,7 @@ fn member_savings_remain_visible_at_each_supported_width() {
             ratatui::crossterm::event::KeyModifiers::NONE,
         ));
         let shown = paint(&mut app, width, 36);
-        assert!(shown.contains("Est."), "width {width}: {shown}");
+        assert!(shown.contains("≈24h:"), "width {width}: {shown}");
         assert!(shown.contains("18.2k"), "width {width}: {shown}");
     }
 }

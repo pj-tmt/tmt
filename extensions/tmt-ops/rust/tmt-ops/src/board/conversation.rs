@@ -36,7 +36,7 @@ pub(super) type ConversationKey = (Option<String>, String);
 #[derive(Default)]
 pub(super) struct State {
     sessions: BTreeMap<ConversationKey, Session>,
-    active: Option<ConversationKey>,
+    pub(in crate::board) active: Option<ConversationKey>,
     sequence: u64,
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
@@ -59,6 +59,7 @@ impl State {
 
 struct Rendered {
     width: usize,
+    gutter: usize,
     look: Look,
     identities: Option<std::sync::Arc<()>>,
     mapped: Mapped,
@@ -213,9 +214,74 @@ impl Session {
         self.rendered = None;
     }
 
+    /// The one acquired-context update used by legacy and grouped placements.
+    fn observe_context(
+        &mut self,
+        app: &App,
+        target: &RowTarget,
+        row: &serde_json::Value,
+    ) -> String {
+        self.update(
+            app.detail(&Target::Row(target.clone()))
+                .and_then(|detail| detail.reply),
+        );
+        let projected = match target {
+            RowTarget::Workspace(target) => app
+                .workspace_snapshot()
+                .and_then(|snapshot| super::workspace::member_target_row(&snapshot.roster, target)),
+            _ => None,
+        };
+        let label = projected.as_ref().and_then(|row| app.activity_label(row));
+        let state = label.as_ref().map_or_else(
+            || row["state"].as_str().unwrap_or("unknown"),
+            |label| label.state,
+        );
+        let words = label.as_ref().map_or_else(
+            || sanitize(state),
+            |label| {
+                let (head, task) = label.fit(usize::MAX);
+                head + task.as_deref().unwrap_or("")
+            },
+        );
+        self.agent_observed(row["name"].as_str().unwrap_or("unknown agent"),
+            state, &words,
+            app.loading() || app.error.is_some() || app.workspace_snapshot().is_some_and(|snapshot| {
+                use super::workspace::{OpsObservation, OpsTarget};
+                snapshot.roster.observation != OpsObservation::Complete || !snapshot.roster.membership_complete
+                    || matches!(target, RowTarget::Workspace(OpsTarget::Member { room_id: Some(room), .. })
+                        if snapshot.roster.squads.iter().find(|squad| &squad.room_id == room)
+                            .is_none_or(|squad| squad.observation != OpsObservation::Complete))
+            }) || app.view.as_ref().is_none_or(|view| view.document["partial"] == true));
+        self.correlate_loaded(
+            app,
+            &sanitize(row["name"].as_str().unwrap_or("unknown agent")),
+        );
+        self.transcript_context(app, row);
+        words
+    }
+
     fn prepare(
         &mut self,
         width: usize,
+        look: Look,
+        inventory: &super::inventory::Inventory,
+    ) -> bool {
+        self.prepare_with_gutter(width, 0, look, inventory)
+    }
+
+    fn prepare_grouped(
+        &mut self,
+        width: usize,
+        look: Look,
+        inventory: &super::inventory::Inventory,
+    ) -> bool {
+        self.prepare_with_gutter(width, 3, look, inventory)
+    }
+
+    fn prepare_with_gutter(
+        &mut self,
+        width: usize,
+        gutter: usize,
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
@@ -225,6 +291,7 @@ impl Session {
             .then(|| std::sync::Arc::clone(&inventory.generation));
         let changed = self.rendered.as_ref().is_none_or(|rendered| {
             rendered.width != width
+                || rendered.gutter != gutter
                 || rendered.look != look
                 || match (&rendered.identities, &identities) {
                     (None, None) => false,
@@ -233,8 +300,12 @@ impl Session {
                 }
         });
         if changed {
-            let mut mapped =
-                markdown::render_with_members(&self.text, width, look, Some(inventory));
+            let mut mapped = markdown::render_with_members(
+                &self.text,
+                width.saturating_sub(gutter).max(1),
+                look,
+                Some(inventory),
+            );
             let mut lines = Vec::with_capacity(mapped.lines.len());
             let mut sources = Vec::with_capacity(mapped.sources.len());
             let mut mentions = Vec::with_capacity(mapped.mentions.len());
@@ -267,6 +338,7 @@ impl Session {
             self.anchor.reconcile(&transcript.anchor_text);
             self.rendered = Some(Rendered {
                 width,
+                gutter,
                 look,
                 identities,
                 mapped: transcript.mapped,
@@ -372,12 +444,12 @@ impl App {
     }
 }
 
-struct LinkPreview {
-    value: String,
+pub(in crate::board) struct LinkPreview {
+    pub(in crate::board) value: String,
     key: String,
     wording: String,
 }
-fn link_preview(
+pub(in crate::board) fn link_preview(
     app: &App,
     row: &serde_json::Value,
     bindings: &crate::action::Bindings,
@@ -468,9 +540,6 @@ fn render_target(
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         row["id"].as_str().unwrap().to_owned(),
     );
-    let reply = app
-        .detail(&Target::Row(target.clone()))
-        .and_then(|detail| detail.reply);
     let input_height = interactive
         .then(|| app.conversation_input_area())
         .flatten()
@@ -515,16 +584,10 @@ fn render_target(
         Default::default()
     };
     let link = link_preview(app, row, &bindings).map(|preview| {
-        let hint = format!(" (press {} - {})", preview.key, preview.wording);
-        let hint = super::view::fit(&hint, hint.width().min(usize::from(area.width)));
-        let text = super::view::fit(
-            &preview.value,
-            usize::from(area.width).saturating_sub(hint.width()),
-        );
-        Line::from(vec![
-            Span::styled(text, look.role(Role::Link)),
-            Span::styled(hint, look.role(Role::Dim)),
-        ])
+        Line::styled(
+            super::view::fit(&preview.value, usize::from(area.width)),
+            look.role(Role::Muted),
+        )
     });
     // One activity-first label feeds both the header and the conversation
     // status; a target without a member row keeps its task state.
@@ -532,45 +595,12 @@ fn render_target(
     let tree_row = tree
         .get(app.selected)
         .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
-    let (status_state, state_words) = tree_row
-        .and_then(|row| app.activity_label(row))
-        .map_or_else(
-            || {
-                let task = sanitize(row["state"].as_str().unwrap_or("unknown"));
-                (task.clone(), task)
-            },
-            |label| {
-                let (head, task) = label.fit(usize::MAX);
-                (label.state.to_owned(), head + task.as_deref().unwrap_or(""))
-            },
-        );
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity).or_default();
-    session.update(reply);
-    session.agent_observed(
-        row["name"].as_str().unwrap_or("unknown agent"),
-        &status_state,
-        &state_words,
-        app.loading()
-            || app.error.is_some()
-            || app.workspace_snapshot().is_some_and(|snapshot| {
-                use super::workspace::{OpsObservation, OpsTarget};
-                snapshot.roster.observation != OpsObservation::Complete
-                    || !snapshot.roster.membership_complete
-                    || matches!(&target, RowTarget::Workspace(OpsTarget::Member { room_id: Some(room), .. })
-                        if snapshot.roster.squads.iter().find(|squad| &squad.room_id == room)
-                            .is_none_or(|squad| squad.observation != OpsObservation::Complete))
-            })
-            || app
-                .view
-                .as_ref()
-                .is_none_or(|view| view.document["partial"] == true),
-    );
+    let state_words = session.observe_context(app, &target, row);
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
-    session.correlate_loaded(app, &name);
-    session.transcript_context(app, row);
     let values = tree_row
         .zip(app.workspace_snapshot())
         .map(|(row, snapshot)| super::overview::monitor::values(app, snapshot, row));

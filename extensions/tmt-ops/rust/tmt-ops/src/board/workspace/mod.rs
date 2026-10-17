@@ -89,6 +89,15 @@ pub struct OpsVisibility {
 }
 
 impl OpsVisibility {
+    fn unrestricted(&self, roster: &OpsRoster, preferences: &OpsPreferences) -> bool {
+        self.scope.is_empty()
+            && (self.reveal_hidden
+                || !roster
+                    .squads
+                    .iter()
+                    .any(|squad| preferences.hidden.contains(&squad.room_id)))
+    }
+
     /// Admission for view totals uses the same room visibility as the tree.
     /// Unassigned identities remain visible only outside an explicit scope;
     /// a hidden membership never turns its agent into a Common pool member.
@@ -97,13 +106,7 @@ impl OpsVisibility {
         roster: &'a OpsRoster,
         preferences: &OpsPreferences,
     ) -> Option<BTreeSet<&'a String>> {
-        if self.scope.is_empty()
-            && (self.reveal_hidden
-                || !roster
-                    .squads
-                    .iter()
-                    .any(|squad| preferences.hidden.contains(&squad.room_id)))
-        {
+        if self.unrestricted(roster, preferences) {
             return None;
         }
         let mut visible: BTreeSet<_> = roster
@@ -439,22 +442,59 @@ impl OpsWorkspace {
     }
 
     /// Count identities, not their repeated memberships or collapsed rows.
-    pub fn search_counts(
+    pub fn search_counts<'a>(
         &self,
-        roster: &OpsRoster,
+        roster: &'a OpsRoster,
         preferences: &OpsPreferences,
     ) -> (usize, usize) {
-        let count = |query: &str| {
-            self.project_rows(roster, preferences, query, true)
-                .into_iter()
-                .filter_map(|row| match row.target {
-                    OpsTarget::Member { identity_id, .. } => Some(identity_id),
-                    _ => None,
-                })
-                .collect::<BTreeSet<_>>()
-                .len()
+        let query = self.query.to_lowercase();
+        // A complete, unrestricted All view admits every acquired identity,
+        // including the proven Common pool; no membership scan is needed.
+        if query.is_empty()
+            && self.filter == AgentsFilter::All
+            && roster.complete()
+            && self.visibility.unrestricted(roster, preferences)
+        {
+            return (roster.members.len(), roster.members.len());
+        }
+        let mut total = BTreeSet::new();
+        let mut matched = BTreeSet::new();
+        let mut admit = |member: &'a OpsMember, group_matches: bool| {
+            total.insert(&member.id);
+            if !query.is_empty() && (group_matches || member.name.to_lowercase().contains(&query)) {
+                matched.insert(&member.id);
+            }
         };
-        (count(&self.query), count(""))
+        if self.visibility.scope.is_empty() {
+            let group_matches = "common pool".contains(&query);
+            for member in roster.pool().filter(|member| {
+                self.filter != AgentsFilter::Pinned || preferences.agent_pins.contains(&member.id)
+            }) {
+                admit(member, group_matches);
+            }
+        }
+        for squad in roster
+            .squads
+            .iter()
+            .filter(|squad| self.visibility.shows_squad(&squad.room_id, preferences))
+        {
+            let group_matches = squad.name.to_lowercase().contains(&query);
+            for member in roster.members(squad).filter(|member| {
+                self.filter != AgentsFilter::Pinned
+                    || preferences.pinned.contains(&squad.room_id)
+                    || preferences.agent_pins.contains(&member.id)
+            }) {
+                admit(member, group_matches);
+            }
+        }
+        (
+            if query.is_empty() {
+                total.len()
+            } else {
+                matched.len()
+            },
+            total.len(),
+        )
     }
 
     fn project_rows(
@@ -621,6 +661,37 @@ impl OpsWorkspace {
         }
         rows
     }
+}
+
+/// Projects one held member without constructing or sorting the display tree.
+/// A room target requires observed membership and keeps that room's task/attention.
+pub(in crate::board) fn member_target_row(
+    roster: &OpsRoster,
+    target: &OpsTarget,
+) -> Option<OpsTreeRow> {
+    let OpsTarget::Member {
+        room_id,
+        identity_id,
+    } = target
+    else {
+        return None;
+    };
+    let member = roster.members.get(identity_id)?;
+    let Some(room) = room_id else {
+        return Some(member_row(member, None, false, roster.observation, None));
+    };
+    let squad = roster
+        .squads
+        .iter()
+        .find(|squad| &squad.room_id == room && squad.members.contains(identity_id))?;
+    let unknown = OpsMembershipState::default();
+    Some(member_row(
+        member,
+        Some(room),
+        squad.lead.as_deref() == Some(identity_id),
+        squad.observation,
+        Some(squad.member_states.get(identity_id).unwrap_or(&unknown)),
+    ))
 }
 
 fn member_row(

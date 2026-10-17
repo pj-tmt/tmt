@@ -26,9 +26,7 @@ pub struct Placement {
 /// The Agents section bands precede both panes, as in the fixed-cell mock.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AgentsBands {
-    pub title: Rect,
     pub filters: Rect,
-    pub actions: Rect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,11 +62,9 @@ pub fn agents_tree(
     let bands = (area.height >= 8
         && (area.width < 80 || area.height >= LIST_MIN_ROWS + CONVERSATION_MIN_ROWS + 6))
         .then_some(AgentsBands {
-            title: Rect::new(area.x, area.y, area.width, 1),
-            filters: Rect::new(area.x, area.y + 1, area.width, 1),
-            actions: Rect::new(area.x, area.y + 2, area.width, 1),
+            filters: Rect::new(area.x, area.y, area.width, 1),
         });
-    let reserved = if bands.is_some() { 3 } else { 0 };
+    let reserved = if bands.is_some() { 2 } else { 0 };
     let body = Rect::new(
         area.x,
         area.y + reserved,
@@ -81,13 +77,13 @@ pub fn agents_tree(
     let wants_side =
         preference == Preference::Side || preference == Preference::Auto && area.width >= 120;
     let panes = if side_fits && (wants_side || !stack_fits) {
-        let left = ((u32::from(area.width) * 47 / 100) as u16).max(LIST_MIN_COLUMNS);
+        let left = (((u32::from(area.width) * 47 + 50) / 100) as u16).max(LIST_MIN_COLUMNS);
         Placement {
             list: Some(Rect::new(body.x, body.y, left, body.height)),
             conversation: Some(Rect::new(
-                body.x + left + 2,
+                body.x + left + 1,
                 body.y,
-                body.width - left - 2,
+                body.width - left - 1,
                 body.height,
             )),
         }
@@ -365,11 +361,11 @@ mod tests {
     #[test]
     fn agents_tree_matches_the_mock_bands_and_keeps_the_conversation_minimum() {
         let wide = agents_tree(Rect::new(0, 4, 160, 37), Preference::Auto, false);
-        assert_eq!(wide.list, Some(Rect::new(0, 7, 75, 34)));
-        assert_eq!(wide.conversation, Some(Rect::new(77, 7, 83, 34)));
+        assert_eq!(wide.list, Some(Rect::new(0, 6, 75, 35)));
+        assert_eq!(wide.conversation, Some(Rect::new(76, 6, 84, 35)));
         let medium = agents_tree(Rect::new(0, 4, 100, 17), Preference::Auto, false);
-        assert_eq!(medium.list, Some(Rect::new(0, 7, 100, 4)));
-        assert_eq!(medium.conversation, Some(Rect::new(0, 11, 100, 10)));
+        assert_eq!(medium.list, Some(Rect::new(0, 6, 100, 4)));
+        assert_eq!(medium.conversation, Some(Rect::new(0, 10, 100, 11)));
         for width in 100..=200 {
             for height in [0, 1, 4, 8, 10, 13, 17, 29, 37] {
                 let area = Rect::new(2, 3, width, height);

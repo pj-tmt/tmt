@@ -715,3 +715,38 @@ fn model_follows_the_last_completed_turn_and_unknown_stays_unknown() {
 fn provider_provenance_stays_in_the_existing_ring_cell_budget() {
     assert_eq!(std::mem::size_of::<Bucket>(), 64);
 }
+
+#[test]
+fn member_trends_share_admitted_buckets_without_other_identity_tokens() {
+    let mut rate = Rate::default();
+    let mut first = input(100);
+    first.names.insert("b".into(), "second worker".into());
+    first.resumes.insert("b".into(), first.resumes["a"].clone());
+    rate.sample(&first, 0);
+    let mut next = input(200);
+    next.names.insert("b".into(), "second worker".into());
+    next.resumes
+        .insert("b".into(), input(300).resumes["a"].clone());
+    rate.sample(&next, 10_000);
+    for total in [
+        rate.member_trend::<8>("a", 10_000, TokenWindow::HOUR)
+            .into_iter()
+            .flatten()
+            .sum::<f64>(),
+        rate.member_trend::<12>("a", 10_000, TokenWindow::HOUR)
+            .into_iter()
+            .flatten()
+            .sum::<f64>(),
+    ] {
+        assert_eq!(total, 150.0);
+    }
+    assert_eq!(
+        rate.member_trend::<12>("b", 10_000, TokenWindow::HOUR)[11],
+        Some(300.0)
+    );
+    assert_eq!(
+        rate.member_trend::<12>("missing", 10_000, TokenWindow::HOUR),
+        [None; 12]
+    );
+    assert_eq!(rate.trend(10_000, TokenWindow::HOUR)[7], Some(450.0));
+}
