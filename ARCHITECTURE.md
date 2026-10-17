@@ -559,21 +559,19 @@ leaf neither discovers roots nor accesses core state or provider configuration.
 
 ## Remote extension pilot
 
-`extensions/tmt-remote` builds `tmt remote`. Fixed public Core JSON calls use absolute
-`TMT_EXECUTABLE` via `tmt-invoke` (reference below). Remote owns
-`<dataRoot>/remote/` through the [state leaf](#shared-extension-state-layout).
-Core delegates restart for replaced Remote observed running; Remote owns
-[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state.
+`extensions/tmt-remote` builds `tmt remote`, owns `<dataRoot>/remote/` through the
+[state leaf](#shared-extension-state-layout), and calls public Core JSON via absolute
+`TMT_EXECUTABLE` through `tmt-invoke`. Core delegates restart for replaced Remote observed running;
+Remote owns [lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery), listener and state.
 Its archive embeds pages, CSS, SDK and wordlist, no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
-[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns the wire, pairing,
-sessions (reattach, caps, held work), operations, settings authority, mounts, serve lifecycle,
-discovery shapes, and the [hard lines and standing guarantees](contracts/remote-channel-v1.md#user-path)
-that open it. Remote owns authority; shared components supply presentation only. The door serves
-`remote-client`'s `remote-v1.js` (README: re-admission, hosted sync, registry)
-and mounts owner-installed extensions. [Colab](#colab-extension) is mounted at
-`/r/<prefix>/x/colab/` and otherwise reaches Remote only through the public CLI, that SDK and
-the extension object channel (`tmt-extension-objects`), never through Remote state files.
+The [Remote contract](contracts/remote-channel-v1.md) owns one message layer: signed envelopes,
+grants, scope, allowlist, hold, uncertainty and audit. Backend design: send `talk` → common Remote
+interface → resolve target host → backend driver; receive `serve` source event → Core's public API resolves the local
+target/driver and sends. Only the binding driver varies; cloud agent operations remain proposed.
+Shared components supply presentation only. The door serves `remote-client`'s `remote-v1.js` and
+owner-installed extensions. [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/` and otherwise uses
+only the public CLI, SDK and object channel (`tmt-extension-objects`), never Remote state files.
 
 `object_service`: leased object/v3 carrier; `firebase_auth` credentials/HTTP.
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
