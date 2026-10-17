@@ -1776,6 +1776,9 @@ impl App {
     pub(super) fn host_action_selection(&self) -> super::settings::host_action::Selection {
         super::settings::host_action::Selection {
             row: self.selected_row().cloned(),
+            recipient: self
+                .workspace_message_target()
+                .and_then(|target| self.workspace_snapshot()?.rows.get(&target).cloned()),
             squad: self
                 .workspace
                 .selected

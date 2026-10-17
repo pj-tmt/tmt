@@ -286,7 +286,7 @@ impl Action {
     /// independent CLI/config projections retain their existing description.
     pub fn workspace_description(&self) -> String {
         match self.verb {
-            Verb::Jump => "focus the member's pane".into(),
+            Verb::Jump if self.args.is_empty() => "focus the member's pane".into(),
             Verb::Run => format!(
                 "run {} for this member",
                 self.args

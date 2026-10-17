@@ -1262,7 +1262,7 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
         && entry.description == app.bindings()["k"].workspace_description()));
     let rendered = paint(&app, 160, 36).join("\n");
     assert!(rendered.contains("j copy"), "{rendered}");
-    assert!(rendered.contains("k focus"), "{rendered}");
+    assert!(rendered.contains("k host"), "{rendered}");
     assert!(matches!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Copy { .. })

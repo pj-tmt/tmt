@@ -962,7 +962,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         overlay.display_path
     );
     let footer = if overlay.host_action.is_some() {
-        "↑↓ choose · Enter preview · s save · Esc cancel"
+        "↑↓ choose · Enter preview · Esc cancel"
     } else if reset_hint {
         "↑↓ select · Enter edit · r reset · PgUp/PgDn page · Esc close"
     } else {

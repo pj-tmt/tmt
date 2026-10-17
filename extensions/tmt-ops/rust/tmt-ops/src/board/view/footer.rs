@@ -156,7 +156,7 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
 /// priority first. Core hints drop from the end; the optional note is dropped first.
 /// `q quit` and effective Help stay (Help alone when only it fits).
 pub(super) fn hints(app: &App, width: usize) -> String {
-    workspace_hints(app, width)
+    hint_text(&workspace_pairs(app, width))
 }
 
 type Hint = (String, String);
@@ -191,10 +191,6 @@ fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
         ),
         width,
     ))
-}
-/// Text projection for tests and consumers that do not paint key roles.
-pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
-    overview_pairs(app, width).map(|pairs| hint_text(&pairs))
 }
 fn agents_pairs(app: &App, width: usize) -> Option<[Vec<Hint>; 2]> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
@@ -475,21 +471,25 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     })
 }
 
-fn workspace_hints(app: &App, width: usize) -> String {
-    if let Some(hints) = overview_hints(app, width) {
+fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
+    if let Some(hints) = overview_pairs(app, width) {
         return hints;
     }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
-        return crate::board::view::fit(
-            if app.usage_chart.borrow().scrollable() {
-                "←→ scroll · Enter pin/menu · Home/End · Tab fields · Esc unpin/list · ? help"
-            } else {
-                "←→ select · Enter pin/menu · Tab fields · Esc unpin/list · ? help"
-            },
+        let scrollable = app.usage_chart.borrow().scrollable();
+        return fit_hints(
+            [
+                ("←→", if scrollable { "scroll" } else { "select" }),
+                ("Enter", "pin/menu"),
+            ]
+            .into_iter()
+            .chain(scrollable.then_some(("Home/End", "ends")))
+            .chain([("Tab", "fields"), ("Esc", "unpin/list"), ("?", "help")])
+            .map(|(key, label)| (key.into(), label.into()))
+            .collect(),
+            vec![],
             width,
-        )
-        .trim_end()
-        .to_owned();
+        );
     }
     use crate::action::{OpsUiAction, Verb};
     let bindings = app.bindings();
@@ -575,11 +575,11 @@ fn workspace_hints(app: &App, width: usize) -> String {
     }
     if hint_text(&tail).width() > width {
         return help_hint
-            .map(|hint| hint_text(&[hint]))
-            .filter(|hint| hint.width() <= width)
-            .unwrap_or_default();
+            .filter(|hint| hint_text(std::slice::from_ref(hint)).width() <= width)
+            .into_iter()
+            .collect();
     }
-    hint_text(&fit_hints(hints, tail, width))
+    fit_hints(hints, tail, width)
 }
 
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.
@@ -772,8 +772,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             |lines| hint_text(&lines[1]),
         );
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            let pairs = overview_pairs(app, usize::from(hint_area.width.saturating_sub(1)))
-                .unwrap_or_default();
+            let pairs = workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1)));
             let refs: Vec<_> = pairs
                 .iter()
                 .map(|(key, label)| (key.as_str(), label.as_str()))
@@ -785,7 +784,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             let mut line = if let Some(lines) = &legend {
                 paint_hints(&lines[1], look, Role::Text)
             } else if app.shell.tab == crate::board::shell::OpsTab::Agents {
-                crate::board::key_hints::legacy_line(&text, look, look.role(Role::Text), "  ")
+                paint_hints(
+                    &workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1))),
+                    look,
+                    Role::Text,
+                )
             } else {
                 hint_line(&text, look)
             };

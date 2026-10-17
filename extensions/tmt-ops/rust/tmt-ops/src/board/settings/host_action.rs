@@ -1,4 +1,4 @@
-//! The j editor keeps one selected-row sample and reuses its parent's Config draft/writer.
+//! The j editor holds its binding context and agent sample with the parent's Config draft/writer.
 use crate::{
     action::{Action, Verb},
     config::{Config, OpsKeyScope},
@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::board) struct Selection {
+    /// The selected context owns section binding provenance.
     pub row: Option<Value>,
+    /// A squad's host action targets its current lead, not the squad record.
+    pub recipient: Option<Value>,
     pub squad: Option<String>,
     pub scope: OpsKeyScope,
     pub invoker_tmux: bool,
@@ -103,6 +106,7 @@ impl HostAction {
         let (action, source) = config.host_action_binding(
             self.selection.scope,
             self.selection.row.as_ref(),
+            self.selection.recipient.as_ref(),
             self.selection.squad.as_deref(),
         )?;
         self.source = source.clone();
@@ -128,7 +132,7 @@ impl HostAction {
 
     pub fn name(&self) -> String {
         self.selection
-            .row
+            .recipient
             .as_ref()
             .and_then(|row| row["name"].as_str())
             .map(crate::board::notes::sanitize)
@@ -161,7 +165,10 @@ impl HostAction {
     pub fn meaning(&self, line: &str) -> String {
         let name = self.name();
         match Action::parse(line) {
-            Ok(action) if action.verb == Verb::Jump => format!("Focus {name}"),
+            Ok(action) if action.verb == Verb::Jump && action.args.is_empty() => {
+                format!("Focus {name}")
+            }
+            Ok(action) if action.verb == Verb::Jump => action.workspace_description(),
             Ok(action) if action.verb == Verb::Swap => format!(
                 "Swap {name} into the pane {} the board",
                 match action.args[0].literal().unwrap() {
@@ -193,7 +200,8 @@ impl HostAction {
             value: if action
                 .as_ref()
                 .is_some_and(|action| match (id, action.verb) {
-                    ("host-focus", Verb::Jump) | ("host-custom", Verb::Run) => true,
+                    ("host-focus", Verb::Jump) => action.args.is_empty(),
+                    ("host-custom", Verb::Run) => true,
                     (_, Verb::Swap) => id.strip_prefix("host-") == action.args[0].literal(),
                     _ => false,
                 }) {
@@ -228,7 +236,7 @@ impl HostAction {
         let action = Action::parse(line)?;
         let row = self
             .selection
-            .row
+            .recipient
             .as_ref()
             .ok_or("Preview unavailable: select an agent.")?;
         row["name"]
@@ -246,6 +254,9 @@ impl HostAction {
                     .ok_or("Preview unavailable: no identity UUID.")?,
                 action.args[0].literal().expect("validated direction")
             )),
+            Verb::Jump if !action.args.is_empty() => {
+                Err("Preview unavailable: this binding targets the squad lead; Focus agent is a different preset.".into())
+            }
             Verb::Jump if !self.selection.invoker_tmux => {
                 Ok("UI: open conversation (no shell command)".into())
             }

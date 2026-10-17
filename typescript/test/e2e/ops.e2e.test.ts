@@ -71,7 +71,199 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
   return member;
 }
 
+/** Actual pane slots, independent of the board's selected-row/model state. */
+function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
+  return Object.fromEntries(
+    fixture
+      .tmux([
+        'list-panes',
+        '-a',
+        '-F',
+        '#{pane_id}|#{window_id}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}',
+      ])
+      .trim()
+      .split('\n')
+      .map((line) => {
+        const [pane, ...slot] = line.split('|');
+        return [pane!, slot.join('|')];
+      })
+  );
+}
+
+/** Two consumers share the same real board/caller/lead/member setup. */
+async function hostActionBoard(fixture: E2EFixture, action: string, task: string) {
+  installSquad(fixture);
+  const left = fixture.createShellPane('host-left');
+  const worker = fixture.createShellPane('host-worker');
+  const board = fixture.createShellPane('host-board');
+  expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+  // Leadership deliberately uses a saved identity; the worker stays temporary for pane-gone coverage.
+  expectJsonResult(await fixture.runJsonCli(['add', '--save', left.pane, 'left-agent']));
+  expectJsonResult(await fixture.runJsonCli(['add', worker.pane, 'worker']));
+  expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+  expectJsonResult(await squadCli(fixture, ['lead', 'left-agent']));
+  expectJsonResult(await squadCli(fixture, ['add', 'worker']));
+  expectJsonResult(await squadCli(fixture, ['set', 'worker', `task=${task}`]));
+  fs.appendFileSync(
+    path.join(fixture.globalDir, 'ops.toml'),
+    `\n[board]\nrefresh = "off"\n[bind]\nj = ${JSON.stringify(action)}\n`
+  );
+  await fixture.attachSessionClient('e2e');
+  // Both pane processes are tracked by the fixture; joining avoids an unowned child.
+  fixture.tmux(['join-pane', '-d', '-h', '-b', '-s', left.pane, '-t', board.pane]);
+  fixture.tmux(['select-window', '-t', board.pane]);
+  fixture.tmux(['select-pane', '-t', board.pane]);
+  fixture.tmux([
+    'send-keys',
+    '-t',
+    board.pane,
+    `tmt ops ui --squad product; printf '\\nHOST_BOARD_EXIT=%s\\n' "$?"`,
+    'Enter',
+  ]);
+  await fixture.waitForCapture(
+    (screen) => screen.includes('OPS / UI') && screen.includes('2 Agents'),
+    board.pane
+  );
+  fixture.tmux([
+    'send-keys',
+    '-t',
+    board.pane,
+    '2',
+    'Home',
+    'Right',
+    '/',
+    'C-u',
+    'worker',
+    'Enter',
+    'End',
+  ]);
+  return { board: board.pane, left: left.pane, worker: worker.pane };
+}
+
+async function closeHostActionBoard(fixture: E2EFixture, board: string) {
+  fixture.tmux(['send-keys', '-t', board, 'q']);
+  await fixture.waitForCapture((screen) => /^HOST_BOARD_EXIT=0$/m.test(screen), board);
+}
+
 describe('squad on a private tmux server', { concurrent: false }, () => {
+  it('dispatches authored j through real Core swaps and keeps the board focused on success and refusal', async () => {
+    await withE2EFixture(async (fixture) => {
+      const panes = await hostActionBoard(fixture, 'swap left', 'host action integration');
+      const initial = hostPaneSlots(fixture);
+      const caller = clientPlace(fixture);
+      const ids = Object.keys(initial).sort();
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
+      await fixture.waitFor(
+        () => hostPaneSlots(fixture)[panes.worker] === initial[panes.left],
+        2_000,
+        'worker exchanged into the left slot'
+      );
+      expect(hostPaneSlots(fixture)[panes.left]).toBe(initial[panes.worker]);
+      expect(Object.keys(hostPaneSlots(fixture)).sort()).toEqual(ids);
+      expect(hostPaneSlots(fixture)[panes.board]).toBe(initial[panes.board]);
+      expect(clientPlace(fixture)).toBe(caller);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Swapped worker into the left pane beside the board.'),
+        panes.board
+      );
+      // The same authored key still wins while the member conversation owns focus.
+      fixture.tmux(['send-keys', '-t', panes.board, 'Tab', 'j']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('worker is already beside the board.'),
+        panes.board
+      );
+      expect(clientPlace(fixture)).toBe(caller);
+      // Selecting the squad targets its lead and reverses the exact exchange.
+      fixture.tmux(['send-keys', '-t', panes.board, 'Escape', '/', 'C-u', 'Enter', 'Home', 'j']);
+      await fixture.waitFor(
+        () => hostPaneSlots(fixture)[panes.left] === initial[panes.left],
+        2_000,
+        'lead exchanged back into the original left slot'
+      );
+      expect(hostPaneSlots(fixture)).toEqual(initial);
+      expect(clientPlace(fixture)).toBe(caller);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Swapped left-agent into the left pane beside the board.'),
+        panes.board
+      );
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('left-agent is already beside the board.'),
+        panes.board
+      );
+      expect(hostPaneSlots(fixture)).toEqual(initial);
+      fixture.tmux(['send-keys', '-t', panes.board, '/', 'C-u', 'worker', 'Enter', 'End']);
+      fixture.tmux(['kill-pane', '-t', panes.left]);
+      const noNeighbour = hostPaneSlots(fixture);
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('No visible neighbouring pane in that direction; nothing changed.'),
+        panes.board
+      );
+      expect(hostPaneSlots(fixture)).toEqual(noNeighbour);
+      expect(clientPlace(fixture)).toBe(caller);
+      const replacement = fixture.createShellPane('host-replacement-left');
+      fixture.tmux(['join-pane', '-d', '-h', '-b', '-s', replacement.pane, '-t', panes.board]);
+      const workerId = String(durableIdentity(fixture, 'worker').id);
+      fixture.tmux(['kill-pane', '-t', panes.worker]);
+      const missingAgent = hostPaneSlots(fixture);
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes(`Identity '${workerId}' is not active.`) ||
+          screen.includes(`Identity '${workerId}' was not found.`) ||
+          screen.includes(
+            "The identity's pane changed before it could be focused; nothing changed."
+          ),
+        panes.board
+      );
+      expect(hostPaneSlots(fixture)).toEqual(missingAgent);
+      expect(clientPlace(fixture)).toBe(caller);
+      await closeHostActionBoard(fixture, panes.board);
+    });
+  });
+
+  it('dispatches a custom j command with verified board and member panes as single literal argv', async () => {
+    await withE2EFixture(async (fixture) => {
+      const script = path.join(fixture.workspace, 'host argument probe.mjs');
+      const output = path.join(fixture.workspace, 'host argv.json');
+      const forbidden = path.join(fixture.workspace, 'unexpected-shell-effect');
+      fs.writeFileSync(
+        script,
+        `import {writeFileSync,renameSync} from 'node:fs';
+const [output,...args]=process.argv.slice(2);
+writeFileSync(output+'.tmp',JSON.stringify({pid:process.pid,args}));
+renameSync(output+'.tmp',output);
+`
+      );
+      const task = `one argument ; $(touch ${forbidden})`;
+      // JSON quoting is for the Action/TOML grammars; no shell consumes this line.
+      const command = `run ${[process.execPath, script, output].map((arg) => JSON.stringify(arg)).join(' ')} {board_pane} {pane} {task} {{left-of}}`;
+      const panes = await hostActionBoard(fixture, command, task);
+      const before = hostPaneSlots(fixture);
+      const caller = clientPlace(fixture);
+      expect(fs.existsSync(output)).toBe(false);
+      fixture.tmux(['send-keys', '-t', panes.board, 'j']);
+      await fixture.waitFor(() => fs.existsSync(output), 2_000, 'custom command argv publication');
+      const observed = JSON.parse(fs.readFileSync(output, 'utf8')) as {
+        pid: number;
+        args: string[];
+      };
+      expect(observed.args).toEqual([panes.board, panes.worker, task, '{left-of}']);
+      expect(Number.isInteger(observed.pid) && observed.pid > 0).toBe(true);
+      await fixture.waitFor(
+        () => !fixture.mockProcessIsRunning(observed.pid),
+        2_000,
+        'custom command completion'
+      );
+      expect(fs.existsSync(forbidden)).toBe(false);
+      expect(hostPaneSlots(fixture)).toEqual(before);
+      expect(clientPlace(fixture)).toBe(caller);
+      await closeHostActionBoard(fixture, panes.board);
+    });
+  });
+
   it('creates from the empty workspace only after exact review and keeps section keys out of fields', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);

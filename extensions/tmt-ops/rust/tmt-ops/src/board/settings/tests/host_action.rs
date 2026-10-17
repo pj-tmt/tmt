@@ -5,6 +5,7 @@ use crate::config::OpsKeyScope;
 fn open(f: &mut Fixture, board_pane: Option<&str>) {
     f.app.open_host_action(Config::read(f.path.clone()).unwrap(), Selection {
         row: Some(json!({"id":"11111111-1111-4111-8111-111111111111", "name":"alpha", "presence":"active", "fields":{"pr_link":"https://example.com/pull/42"}, "pane":{"id":"%3","location":{"host":"tmux"}}})),
+        recipient: Some(json!({"id":"11111111-1111-4111-8111-111111111111", "name":"alpha", "presence":"active", "fields":{"pr_link":"https://example.com/pull/42"}, "pane":{"id":"%3","location":{"host":"tmux"}}})),
         squad: Some("product".into()), scope: OpsKeyScope::Member, invoker_tmux: true,
     }, board_pane.map(str::to_owned)).unwrap();
 }
@@ -110,7 +111,7 @@ fn focus_preview_uses_the_existing_host_guard_and_names_local_conversation() {
         host.preview("jump").unwrap(),
         "tmt focus 11111111-1111-4111-8111-111111111111 --json"
     );
-    host.selection.row.as_mut().unwrap()["presence"] = json!("offline");
+    host.selection.recipient.as_mut().unwrap()["presence"] = json!("offline");
     assert!(host.preview("jump").unwrap_err().contains("offline"));
     host.selection.invoker_tmux = false;
     assert_eq!(
@@ -150,7 +151,7 @@ fn custom_preview_keeps_unknown_context_unknown_and_conflict_keeps_the_draft() {
 #[test]
 fn host_action_presets_and_preview_render_in_terminal_rows_at_each_width() {
     let mut f = fixture("host-render", "[bind]\nj='run echo {board_pane} {name}'\n");
-    for (width, height) in [(160, 36), (100, 24), (80, 24)] {
+    for (width, height) in [(103, 51), (148, 51), (160, 36), (100, 24), (80, 24)] {
         for look in picker_surface::evidence::looks() {
             open(&mut f, Some("%9"));
             let overlay = f.app.settings.as_mut().unwrap();
@@ -227,7 +228,19 @@ fn host_action_survives_same_tab_acquisition_before_and_after_save() {
                 .as_ref()
                 .unwrap()["name"],
             "alpha",
-            "refresh keeps the opening preview sample"
+            "refresh keeps the opening binding context"
+        );
+        assert_eq!(
+            overlay
+                .host_action
+                .as_ref()
+                .unwrap()
+                .selection
+                .recipient
+                .as_ref()
+                .unwrap()["name"],
+            "alpha",
+            "refresh keeps the opening recipient preview sample"
         );
     };
     refresh(&mut f);
@@ -240,4 +253,84 @@ fn host_action_survives_same_tab_acquisition_before_and_after_save() {
         f.app.settings.as_ref().unwrap().settings.entries[0].value,
         "swap left"
     );
+}
+
+#[test]
+fn squad_editor_previews_the_lead_and_saves_its_host_binding_without_a_member_section() {
+    let text = "[bind]\nj='jump'\n[bind.tmux]\nj='swap left'\n[[squad.product.section]]\ntitle='All'\n[squad.product.section.bind]\nj='swap down'\n";
+    let mut f = fixture("squad-host-owner", text);
+    let context = json!({"kind":"squad","name":"product","roomId":"room"});
+    let recipient = json!({"id":"11111111-1111-4111-8111-111111111111","name":"alpha","presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}});
+    f.app
+        .open_host_action(
+            Config::read(f.path.clone()).unwrap(),
+            Selection {
+                row: Some(context),
+                recipient: Some(recipient),
+                squad: None,
+                scope: OpsKeyScope::Squad,
+                invoker_tmux: true,
+            },
+            Some("%9".into()),
+        )
+        .unwrap();
+    let overlay = f.app.settings.as_mut().unwrap();
+    assert_eq!(overlay.settings.entries[0].source, "bind.tmux.j");
+    assert_eq!(overlay.settings.entries[0].value, "swap left");
+    assert_eq!(
+        overlay
+            .host_action
+            .as_ref()
+            .unwrap()
+            .preview("swap left")
+            .unwrap(),
+        "tmt focus 11111111-1111-4111-8111-111111111111 --into left --json"
+    );
+    overlay.surface.borrow_mut().select("pick:host-right");
+    overlay.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(overlay.save());
+    let saved = std::fs::read_to_string(&f.path)
+        .unwrap()
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap();
+    assert_eq!(saved["bind"]["tmux"]["j"].as_str(), Some("swap right"));
+    assert_eq!(saved["bind"]["j"].as_str(), Some("jump"));
+    assert_eq!(
+        saved["squad"]["product"]["section"][0]["bind"]["j"].as_str(),
+        Some("swap down")
+    );
+}
+
+#[test]
+fn a_retired_lead_binding_uses_the_effective_default_without_rewriting_the_file() {
+    let mut f = fixture("host-lead-binding", "[bind]\nj='jump lead'\n");
+    open(&mut f, Some("%9"));
+    let overlay = f.app.settings.as_mut().unwrap();
+    assert_eq!(overlay.settings.entries[0].value, "jump");
+    assert_eq!(overlay.picks[0].value, "(current)");
+    let host = overlay.host_action.as_ref().unwrap();
+    assert_eq!(host.meaning("jump lead"), "go to the squad lead's pane");
+    assert!(
+        host.preview("jump lead")
+            .unwrap_err()
+            .contains("targets the squad lead")
+    );
+    assert_eq!(
+        crate::action::Action::parse("jump lead")
+            .unwrap()
+            .workspace_description(),
+        "go to the squad lead's pane"
+    );
+    assert!(
+        Config::read(f.path.clone())
+            .unwrap()
+            .preview_host_action("bind.j", "jump lead")
+            .is_err(),
+        "the editor must preserve the existing retired-action admission guard"
+    );
+    assert!(matches!(
+        overlay.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        Input::Close
+    ));
+    assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
 }
