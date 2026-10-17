@@ -1338,7 +1338,8 @@ pub fn supersession_refusal(plan: &DeployPlan, record: &DeployRecord) -> Option<
                 | "hosting-site:create"
                 | "hosting-site:configure"
                 | "hosting:stage:create"
-        ) && step.state == StepState::Unknown
+        ) && (step.state == StepState::Unknown
+            || (step.id == "web-app:create" && step.state == StepState::Building))
     }) {
         return Some(DeployRefusal::PreviousCreateUnconfirmed);
     }

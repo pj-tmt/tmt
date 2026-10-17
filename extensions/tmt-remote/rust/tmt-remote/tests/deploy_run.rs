@@ -2061,31 +2061,44 @@ fn supersession_refuses_staged_versions_and_each_unconfirmed_creation_before_cal
         1,
     )
     .unwrap();
-    for (id, expected) in [
+    for (id, state, expected) in [
         (
             "hosting:stage:create",
+            StepState::Unknown,
             "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
         ),
         (
             "web-app:create",
+            StepState::Unknown,
             "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
         ),
         (
             "hosting-site:create",
+            StepState::Unknown,
             "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
         ),
         (
             "hosting-site:configure",
+            StepState::Unknown,
             "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
         ),
-        ("staged-version", "REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED"),
+        (
+            "staged-version",
+            StepState::Pending,
+            "REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED",
+        ),
+        (
+            "web-app:create",
+            StepState::Building,
+            "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
+        ),
     ] {
         let mut unsafe_record = record.clone();
         let run = unsafe_record.run.as_mut().unwrap();
         if id == "staged-version" {
             run.hosting.as_mut().unwrap().version = Some(format!("sites/{PROJECT}/versions/one"));
         } else {
-            run.steps.iter_mut().find(|s| s.id == id).unwrap().state = StepState::Unknown;
+            run.steps.iter_mut().find(|s| s.id == id).unwrap().state = state;
         }
         let mut port = HostedFake::new();
         let mut saved = Mem::default();
