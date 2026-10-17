@@ -4,6 +4,9 @@ use crate::split::{Size, Split};
 
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
+        if key == "board.startup_tab" {
+            return squad.is_none();
+        }
         matches!(
             key,
             "board.refresh"
@@ -67,6 +70,13 @@ impl Config {
     }
 
     fn parse_setting_value(key: &str, text: &str) -> Result<Item, SquadError> {
+        if key == "board.startup_tab" {
+            return StartupTab::parse(text)
+                .map(|tab| value(tab.name()))
+                .ok_or_else(|| {
+                    invalid("`board.startup_tab` must be last, overview, agents or digest.")
+                });
+        }
         if key == "reminders.enabled" {
             return text
                 .parse::<bool>()

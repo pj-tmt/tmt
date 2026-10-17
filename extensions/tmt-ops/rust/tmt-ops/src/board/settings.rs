@@ -502,6 +502,9 @@ fn group_entries(settings: &mut BoardSettings) {
 }
 
 fn setting_name(key: &str) -> (&str, &str) {
+    if key == "board.startup_tab" {
+        return ("board", "startup tab");
+    }
     key.split_once('.').unwrap_or(match key {
         "layout" => ("layout", "preset"),
         "rows" => ("rows", "grid"),

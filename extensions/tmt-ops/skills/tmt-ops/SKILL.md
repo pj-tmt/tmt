@@ -194,6 +194,18 @@ A request tagged `[<squad> · <member>]` from the user is an annotation: a note
 about that member for you to act on. Answer it with `tmt reply` as usual. Never
 edit the user's notes for it.
 
+## Startup tab
+
+`tmt ops ui --tab overview|agents|digest` opens a fixed destination; `1`, `2` and
+`3` are aliases. The flag wins over the global `[board] startup_tab` preference,
+which accepts `last` (default), `overview`, `agents` or `digest`. `last` keeps the
+selected view layer's saved destination. Edit **startup tab** in Ops Config or
+run `tmt ops sq config set board.startup_tab digest`. Invalid authored values are
+ignored with a notice and left untouched; an invalid flag or edit is rejected.
+In-place reload keeps its current destination rather than reapplying this cold
+startup choice. Without an interactive terminal, the flag validates and the
+existing listing behavior is unchanged.
+
 ## Retained view layers
 
 `tmt ops ui --view popup --popup` opens a separate retained view; omit `--view`

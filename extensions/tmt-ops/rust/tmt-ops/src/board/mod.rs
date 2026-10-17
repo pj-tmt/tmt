@@ -1132,6 +1132,7 @@ pub fn run(
     popup: bool,
     layer: ViewLayer,
     reset_view: bool,
+    startup_tab: Option<crate::config::StartupTab>,
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
     let trace = timing::Trace::from_env();
@@ -1188,6 +1189,13 @@ pub fn run(
     let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
+    let (preference, startup_notice) = config.startup_tab();
+    let cold_tab = view_state::startup_destination(startup_tab, preference, resume.is_some());
+    if cold_tab.is_some()
+        && let Some(state) = &mut view_state
+    {
+        state.explicit_startup();
+    }
     let squad = Some(ALL.to_owned());
     // The labels read in the background; nothing waits for it, and a source that
     // does not answer simply never shows. Dropping it ends the thread.
@@ -1227,7 +1235,18 @@ pub fn run(
     let mut app = App::new(squad);
     app.keyboard_enhanced = keyboard_enhanced;
     app.invoker_tmux = invoker_tmux;
-    app.workspace_startup = scope.first().map(|squad| squad.room_id.clone());
+    if let Some(tab) = cold_tab {
+        app.shell.tab = tab;
+    }
+    let room_id = scope.first().map(|squad| squad.room_id.clone());
+    app.workspace_startup = if room_id.is_some() || cold_tab.is_some() {
+        Some(app::WorkspaceStartup {
+            room_id,
+            tab: cold_tab,
+        })
+    } else {
+        None
+    };
     app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
     app.timing = trace.map(timing::Ui::new);
     app.migration_notice = core.paths.board_notice();
@@ -1235,7 +1254,8 @@ pub fn run(
         crate::migration::paths(&core, None)?
             .notice
             .filter(|_| app.migration_notice.is_none())
-            .or_else(|| config.obsolete_board_notice().map(str::to_owned)),
+            .or_else(|| config.obsolete_board_notice().map(str::to_owned))
+            .or(startup_notice),
         false,
     );
     app.initial_look = Some(crate::look::Look::new(initial_theme));
