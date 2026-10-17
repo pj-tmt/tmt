@@ -152,7 +152,14 @@ and no retries. Dot/JSON reporters share the results artifact (`results.json`
 per-test durations); refits record source runs/method/variance and verify full
 test-ID equality before changing the split.
 
-`colab-hosted` PRs run the bundle spec for `colab_hosted` or `colab_hosted_emulator`.
+`colab-hosted` PRs run the bundle spec for `colab_hosted` or `colab_hosted_emulator`. The
+same job's final step runs `e2e/served.spec.ts` against the embedded binary and a private
+expected-byte copy of `dist` (checkout `dist` is hidden and restored by an exit trap) when
+`selectColabHosted` selects the exact serve/door/assets/reader-entry inputs. There
+`COLAB_SERVE_REQUIRED=1` fails a missing binary, and the JSON report guard requires every
+listed case to pass exactly once with zero skips; component-only runs keep the named
+missing-native skip. Record the first three real timings on #3126; stop and report if the
+served step exceeds 90 seconds or the job 15 minutes.
 `selectHostedReaderEmulator` in `ci-scope.mjs` selects hosted-reader inputs (Objects,
 Catchup/reader keys), signed-proof client, native producer/composer and Remote
 production Rust/assets/SDK; it excludes client tests, Remote tests/docs and the

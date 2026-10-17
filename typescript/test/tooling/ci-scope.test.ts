@@ -1346,7 +1346,13 @@ describe('Colab browser-only native scope', () => {
     });
     const files = inventory.split('\0').filter((file) => file && selectColabHosted([file]));
     expect(files).toContain(app + 'acceptance/hosted-bundle.spec.ts');
-    for (const file of files) expect(selectNativeScope([file]), file).toBe('full');
+    const browserOnly = new Set([
+      app + 'src/reader-link.ts',
+      app + 'src/reader.ts',
+      app + 'e2e/served.spec.ts',
+    ]);
+    for (const file of files)
+      expect(selectNativeScope([file]), file).toBe(browserOnly.has(file) ? 'none' : 'full');
   });
 });
 
@@ -2000,7 +2006,18 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/typescript/app/package.json',
     'extensions/tmt-colab/typescript/app/vite.config.ts',
     'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
-  ])('selects the hosted bundle spec for %s', (file) => {
+    'extensions/tmt-colab/rust/tmt-colab/src/serve.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/socket.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/door.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/assets.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/readers.rs',
+    'extensions/tmt-colab/rust/tmt-colab/build.rs',
+    'extensions/tmt-colab/typescript/app/public/reader.html',
+    'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+    'extensions/tmt-colab/typescript/app/src/reader-main.tsx',
+    'extensions/tmt-colab/typescript/app/src/reader.ts',
+    'extensions/tmt-colab/typescript/app/e2e/served.spec.ts',
+  ])('selects the served and hosted job for %s', (file) => {
     expect(selectColabHosted([file])).toBe(true);
     expect(selectColabHosted(['DEVELOPMENT.md', file])).toBe(true);
   });
@@ -2010,7 +2027,11 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
     'extensions/tmt-remote/typescript/remote-client/package.json',
     'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json.bak',
-    'extensions/tmt-colab/rust/tmt-colab/build.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/serve_release.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/socket_tests.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/readers/tests.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/reader.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/sync.rs',
     'extensions/tmt-colab/rust/tmt-colab/src/deploy_declaration.rs',
     'extensions/tmt-colab/typescript/app/src/index.tsx',
     'extensions/tmt-colab/typescript/app/acceptance/page-save.spec.ts',
@@ -3543,6 +3564,30 @@ describe('required CI gate', () => {
     expect(hosted).toContain('-p tmt-remote --example compose_hosting');
     expect(hosted).not.toMatch(/-p tmt-cli[^\n]*--example/);
     expect(hosted).toContain('acceptance/hosted-bundle.spec.ts');
+    expect(hosted).toContain('name: Colab hosted and native served specs (Chromium)');
+    expect(hosted).toContain("COLAB_SERVE_REQUIRED: '1'");
+    expect(hosted).toContain("COLAB_SERVE_EMBEDDED: '1'");
+    expect(hosted).toContain("TMT_AGENT: '1'");
+    expect(hosted).toContain('BROWSER: /usr/bin/true');
+    expect(hosted).toContain('COLAB_SERVE_APP_DIR: ${{ runner.temp }}/colab-served-app');
+    expect(hosted).toContain(
+      'cp -R ../extensions/tmt-colab/typescript/app/dist "$COLAB_SERVE_APP_DIR"'
+    );
+    expect(hosted).toContain(
+      'trap \'mv "$RUNNER_TEMP/colab-served-checkout" ../extensions/tmt-colab/typescript/app/dist\' EXIT'
+    );
+    expect(hosted).toContain('e2e/served.spec.ts --workers=1 --reporter=list,json');
+    expect(hosted.indexOf('name: Run native served specs without skips')).toBeGreaterThan(
+      hosted.indexOf('uses: ./.github/actions/hosted-reader-emulator')
+    );
+    expect(
+      hosted
+        .trim()
+        .endsWith(
+          'node scripts/colab-served-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"'
+        )
+    ).toBe(true);
+
     expect(hosted).not.toContain('colab-acceptance-shards');
     expect(hosted).not.toContain('continue-on-error');
   });
