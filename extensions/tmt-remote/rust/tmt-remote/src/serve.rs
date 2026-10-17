@@ -20,6 +20,7 @@ use tmt_remote::{
     devices::Devices,
     error::RemoteError,
     http::{Door, Handler},
+    message::MessageService,
     mount::{self, Extension, Mounts, ObjectDeclaration},
     object_service::{ActivateError, ObjectReadiness, ObjectService, Origins, ServiceBounds},
     objects::{IoBudget, Quotas, system_clock},
@@ -583,10 +584,14 @@ fn foreground_with_native(
                 .with_management(Arc::clone(&devices))
                 .with_firestore(Arc::clone(&firestore)),
         );
+        let messages = Arc::new(
+            MessageService::new(Arc::clone(&sessions), input_limit)
+                .with_operations(Arc::clone(&operations)),
+        );
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions))
-            .with_operations(Arc::clone(&operations));
+            .with_messages(messages);
         let address = format!("{}{}", door.origin, routes.prefix());
         let approval = Arc::new(Approval::new(
             Arc::clone(&store),

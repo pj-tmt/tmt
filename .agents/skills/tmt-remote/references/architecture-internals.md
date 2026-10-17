@@ -8,7 +8,9 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `main`, binary-private `serve`, `core`           | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE`                                         |
 | `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                                            |
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
-| `session`, `admission`, `transport`              | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                                                           |
+| `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits |
+| `message`                                       | Shared signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend |
+| `transport`                                     | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects |
 | `journal`, `budgets`, `audit`                    | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                                                 |
 | `operations`, `approval`                         | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                                                          |
 | `authority`, `store`, `state`                    | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                                                         |
@@ -35,6 +37,12 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 
 Rules that are easy to get wrong:
 
+- **One message receiver.** Foreground `serve` constructs one `message::MessageService`
+  over the existing session and operation owners and injects it into the local `routes`
+  driver. Ingress direction is driver → message → session/admission/operations, never
+  a backend-specific verifier. The pure `transport` port only carries exact bytes and
+  untrusted origin metadata; signed refusals and effect uncertainty stay in the common
+  owner. A finite subscribe does not acknowledge; only the explicit signed ack does.
 - **One opener.** `store::Store` opens only with the `state::Serving` proof of the
   serve lock. Pairing and device commands reach state through serve's control
   socket; `tmt remote devices` without serve takes the lock itself.

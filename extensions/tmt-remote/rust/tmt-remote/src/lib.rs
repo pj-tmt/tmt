@@ -28,6 +28,7 @@ pub mod http;
 pub mod journal;
 pub mod limits;
 pub mod management;
+pub mod message;
 pub mod mount;
 pub mod native_sync;
 pub mod object_service;

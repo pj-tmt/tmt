@@ -5,10 +5,10 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tmt_remote::{
     journal::{DAY, RECOVERY},
+    message::MessageService,
     pairing::now_ms,
     state::Layout,
     store::{SUPPORTED_SCOPES, Store, uuid_v4},
-    transport::{LoopbackTransport, Transport},
 };
 
 fn control(
@@ -24,7 +24,7 @@ fn control(
         operation,
         input.to_string().as_bytes(),
     );
-    let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 1024);
+    let transport = MessageService::new(Arc::clone(&owner.sessions), 1024);
     let bytes = serde_json::to_vec(&wire).unwrap();
     let response = if operation == "subscribe" {
         transport.subscribe(None, &bytes)
@@ -272,7 +272,7 @@ fn held_adoption_refuses_at_outstanding_capacity() {
 fn authenticated_rate_refusal_is_signed_and_does_not_deadlock() {
     let owner = OwnerDoor::new();
     let session = owner.open();
-    let transport = LoopbackTransport::new(Arc::clone(&owner.sessions), 1024);
+    let transport = MessageService::new(Arc::clone(&owner.sessions), 1024);
     for sequence in 1..=120 {
         let wire = owner.wire(&session, &sequence.to_string(), "capabilities", b"{}");
         let reply: Value = serde_json::from_slice(
