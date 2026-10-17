@@ -41,8 +41,12 @@ fn turn(
     tmt_adapters::runtime::hook_protocol::ActivityObservation {
         event: Event {
             kind: match phase {
-                ActivityPhase::Working => tmt_core::binding::session::activity::EventKind::TurnStarted,
-                ActivityPhase::Waiting => tmt_core::binding::session::activity::EventKind::ApprovalPrompt,
+                ActivityPhase::Working => {
+                    tmt_core::binding::session::activity::EventKind::TurnStarted
+                }
+                ActivityPhase::Waiting => {
+                    tmt_core::binding::session::activity::EventKind::ApprovalPrompt
+                }
                 ActivityPhase::Idle => tmt_core::binding::session::activity::EventKind::TurnEnded,
             },
             turn: Some(ProviderSessionId::new(id).unwrap()),
@@ -95,7 +99,9 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
         event
     };
     let observed = |state: &tmt_core::binding::session::DriverState| {
-        driver.state_observed_model(state).map(|observed| observed.model)
+        driver
+            .state_observed_model(state)
+            .map(|observed| observed.model)
     };
     for race in ["unchanged", "preferences", "binding"] {
         let directory = Directory::new();
@@ -157,7 +163,8 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
                     "preferences" => {
                         let mut racer = start("b");
                         racer.model = (provider == "codex").then(|| "racer-model".into());
-                        let later = driver.activity_state(&racer, &session, &process, Some(&working), 150);
+                        let later =
+                            driver.activity_state(&racer, &session, &process, Some(&working), 150);
                         preferences.remembered.as_mut().unwrap().state = later;
                         records.set_session_preferences(&identity.id, &preferences)?;
                     }
@@ -191,17 +198,130 @@ fn assert_activity_cas(provider: &str, event: &str, expected_phase: ActivityPhas
             let state = after.preferences.remembered.unwrap().state.unwrap();
             assert_eq!(Some(&state), next.as_ref());
             assert_eq!(driver.state_activity(&state).unwrap().phase, expected_phase);
-            assert_eq!(observed(&state).as_deref(), (provider == "codex").then_some("hook-model"));
+            assert_eq!(
+                observed(&state).as_deref(),
+                (provider == "codex").then_some("hook-model")
+            );
         } else {
             assert_eq!(after.entry, before.entry, "{race}");
             assert_eq!(after.preferences, before.preferences, "{race}");
-            // The losing hook's model is never stored.
-            let state = after.preferences.remembered.unwrap().state.unwrap();
+            // The losing hook's model is never stored. A racing Claude prompt
+            // can clear optional state, which must stay cleared after this CAS.
+            let state = after.preferences.remembered.unwrap().state;
             let expected = (race == "preferences" && provider == "codex").then_some("racer-model");
-            assert_eq!(observed(&state).as_deref(), expected, "{race}");
+            assert_eq!(
+                state.as_ref().and_then(observed).as_deref(),
+                expected,
+                "{race}"
+            );
         }
         // An interrupt never adds a consumption source or a response.
         assert_eq!(rows(&paths.database, "consumption_sources"), 0);
         assert_eq!(rows(&paths.database, "recent_responses"), 0);
+    }
+}
+
+#[test]
+fn tool_completions_probe_only_when_storage_reports_waiting_and_never_write_the_precheck() {
+    use tmt_core::binding::session::{
+        DriverState,
+        activity::{Activity, EventKind},
+    };
+    struct Probe(AtomicU64);
+    impl RuntimeLifecycle for Probe {
+        fn host_evidence(
+            &self,
+        ) -> Result<HostEvidence, tmt_adapters::runtime::lifecycle::LifecycleUnavailable> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(HostEvidence::Unsupported)
+        }
+        fn state_activity(&self, state: &DriverState) -> Option<Activity> {
+            tmt_adapters::runtime::driver_state::state_activity(state)
+        }
+    }
+    let registry = RuntimeRegistry::first_party();
+    let claude = registry
+        .lifecycle(&HarnessId::new("claude").unwrap())
+        .unwrap();
+    let harness = HarnessId::new("claude").unwrap();
+    let session = ProviderSessionId::new("session").unwrap();
+    let process = ProcessIncarnation::new(20, "runtime").unwrap();
+    for (phase, probes) in [
+        (ActivityPhase::Working, 0),
+        (ActivityPhase::Waiting, 1),
+        (ActivityPhase::Idle, 0),
+    ] {
+        let directory = Directory::new();
+        let paths = ConfigPaths {
+            global_dir: directory.0.clone(),
+            global_config: directory.0.join("config.json"),
+            local_config: directory.0.join("local.json"),
+            database: directory.0.join("state.db"),
+        };
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let identity = create_or_resolve(&mut storage, "Tool agent", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let start = tmt_adapters::runtime::hook_protocol::ActivityObservation {
+            event: Event {
+                kind: EventKind::TurnStarted,
+                turn: None,
+            },
+            model: None,
+        };
+        let working = claude
+            .activity_state(&start, &session, &process, None, 100)
+            .unwrap();
+        let state = if phase == ActivityPhase::Working {
+            working
+        } else {
+            claude
+                .activity_state(
+                    &tmt_adapters::runtime::hook_protocol::ActivityObservation {
+                        event: Event {
+                            kind: if phase == ActivityPhase::Waiting {
+                                EventKind::ApprovalPrompt
+                            } else {
+                                EventKind::TurnEnded
+                            },
+                            turn: None,
+                        },
+                        model: None,
+                    },
+                    &session,
+                    &process,
+                    Some(&working),
+                    101,
+                )
+                .unwrap()
+        };
+        storage.close().unwrap();
+        let connection = rusqlite::Connection::open(&paths.database).unwrap();
+        connection.execute("INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, bound_at, last_verified_at, runtime_pid, runtime_start_identity, observed_provider_session_id) VALUES ('binding', ?1, 'tmux', '%1', 'server', '/tmp/test.sock', 10, 'start', 11, 'original', 'original', 20, 'runtime', 'session')", [&identity.id]).unwrap();
+        connection.execute("INSERT INTO identity_session_preferences (identity_id, remembered_harness, runtime_mode, provider_session_id, driver_state_version, driver_state) VALUES (?1, 'claude', 'embedded', 'session', ?2, ?3)", rusqlite::params![identity.id, state.version(), state.document()]).unwrap();
+        drop(connection);
+        let before = fs::read(&paths.database).unwrap();
+        for event in ["PostToolUse", "PostToolUseFailure"] {
+            let activity = claude
+                .decode_activity(
+                    serde_json::json!({"hook_event_name":event,"session_id":"session"})
+                        .to_string()
+                        .as_bytes(),
+                )
+                .unwrap();
+            let probe = Probe(AtomicU64::new(0));
+            let output = observe_activity_event(
+                &harness,
+                &probe,
+                &session,
+                &activity,
+                Instant::now() + Duration::from_secs(2),
+                || Ok(paths.clone()),
+            )
+            .unwrap();
+            assert_eq!(output, "");
+            assert_eq!(probe.0.load(Ordering::Relaxed), probes, "{phase:?} {event}");
+            assert_eq!(fs::read(&paths.database).unwrap(), before);
+        }
     }
 }

@@ -517,14 +517,13 @@ fn observe(
         );
     }
     if let Some(session) = lifecycle.decode_activity_session(input.as_bytes()) {
-        return observe_main_event(
-            provider,
+        return observe_activity_event(
             &harness,
             lifecycle,
             &session,
-            activity.as_ref(),
-            None,
+            activity.as_ref().ok_or(())?,
             deadline,
+            || ConfigPaths::discover().map_err(|_| ()),
         );
     }
     let event = lifecycle.decode(input.as_bytes()).ok_or(())?;
@@ -777,6 +776,52 @@ pub(super) fn commit_session(
             }
         })
         .map_err(|_| ())
+}
+
+/// Activity-only callbacks share main-event admission; path discovery is lazy.
+fn observe_activity_event(
+    harness: &HarnessId,
+    lifecycle: &dyn RuntimeLifecycle,
+    session: &ProviderSessionId,
+    activity: &tmt_adapters::runtime::hook_protocol::ActivityObservation,
+    deadline: Instant,
+    paths: impl FnOnce() -> Result<ConfigPaths, ()>,
+) -> Result<String, ()> {
+    use tmt_core::binding::session::activity::{ActivityPhase, EventKind};
+    if activity.event.kind == EventKind::ToolFinished {
+        // This is only a read-only no-op shortcut, never caller admission. A
+        // stale miss leaves activity for the next event; a stale hit still
+        // needs all of the existing live verification and CAS below.
+        let waiting = paths()
+            .ok()
+            .and_then(|paths| {
+                Storage::context_by_provider_session(
+                    &paths.database,
+                    harness.as_str(),
+                    session.as_str(),
+                    tmt_adapters::request_runtime::wall_time_ms(),
+                )
+                .ok()
+                .flatten()
+            })
+            .and_then(|stored| stored.preferences.remembered?.state)
+            .and_then(|state| lifecycle.state_activity(&state))
+            .is_some_and(|activity| {
+                activity.session == *session && activity.phase == ActivityPhase::Waiting
+            });
+        if !waiting {
+            return Ok(String::new());
+        }
+    }
+    observe_main_event(
+        harness.as_str(),
+        harness,
+        lifecycle,
+        session,
+        Some(activity),
+        None,
+        deadline,
+    )
 }
 
 /// Main events observe an already admitted session; only prompts contribute context.
