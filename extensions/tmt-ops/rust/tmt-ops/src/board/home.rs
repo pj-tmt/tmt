@@ -42,6 +42,8 @@ pub struct Home {
     pub window: crate::config::TokenWindow,
     /// Overview uses global windows; per-squad samplers retain their overrides.
     pub windows: [crate::config::TokenWindow; 3],
+    /// Acquired even when token sampling is disabled.
+    pub reduced_motion: bool,
     pub squads: Vec<SquadLine>,
     pub failures: Vec<Value>,
     pub incomplete: bool,
@@ -109,6 +111,7 @@ pub fn load(
     );
     home.workspace.configure(config)?;
     let settings = config.token_rate("")?;
+    home.reduced_motion = settings.reduced_motion;
     home.windows = settings.windows;
     home.window = settings.window.available(home.windows);
     Ok((public, home, inputs))
@@ -203,6 +206,7 @@ fn model(order: &[String], acquired: &Acquired) -> Home {
         summary,
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
+        reduced_motion: false,
         squads,
         failures: acquired.failures.clone(),
         incomplete: acquired

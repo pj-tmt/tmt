@@ -42,6 +42,7 @@ fn observation_home(leads: Vec<Lead>) -> super::super::home::Home {
         workspace: Default::default(),
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
+        reduced_motion: false,
         summary: Default::default(),
         squads: leads
             .into_iter()
@@ -304,6 +305,7 @@ fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
         workspace: Default::default(),
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
+        reduced_motion: false,
         summary: Default::default(),
         squads: retained
             .iter()
@@ -576,6 +578,7 @@ fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
         workspace: Default::default(),
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
+        reduced_motion: false,
         summary: Default::default(),
         squads: vec![super::super::home::SquadLine {
             squad: "squad".into(),

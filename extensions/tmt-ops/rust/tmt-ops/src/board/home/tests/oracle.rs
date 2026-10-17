@@ -194,7 +194,7 @@ fn buffer_json(buffer: &Buffer, styles: &mut Styles) -> Value {
     json!({"lines": lines, "styles": runs})
 }
 
-fn looks() -> [(&'static str, crate::look::Look); 4] {
+pub(in crate::board) fn looks() -> [(&'static str, crate::look::Look); 4] {
     use tmt_cli_style::{Depth, Theme, theme::Base};
     [
         ("tmt", Base::Tmt, Depth::TrueColor),
@@ -341,11 +341,21 @@ fn captures() -> Value {
                 "unread-waiting",
                 "unread-squads",
                 "unread-cleared",
-            ] {
+            ]
+            .into_iter()
+            .chain(
+                crate::board::conversation::outgoing::tests::captures::SCENES
+                    .iter()
+                    .copied(),
+            ) {
                 for width in [160, 100, 80, 60] {
                     for height in [36, 8] {
                         let app = if state == "header-usage" {
                             metered(look)
+                        } else if state.starts_with("sent-") {
+                            crate::board::conversation::outgoing::tests::captures::fixture(
+                                state, look, NOW,
+                            )
                         } else {
                             capture_case(state, look)
                         };
