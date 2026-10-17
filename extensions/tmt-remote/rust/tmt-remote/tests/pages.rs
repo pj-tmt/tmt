@@ -681,7 +681,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
 }
 
 #[test]
-fn settings_consume_shared_classes_and_native_selects_without_a_palette() {
+fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
     let h = Harness::new(FAST);
     let html = get(&h, "/settings", "").body;
     for class in [
@@ -699,7 +699,10 @@ fn settings_consume_shared_classes_and_native_selects_without_a_palette() {
         assert!(html.contains(class), "missing {class}");
     }
     assert_eq!(html.matches("<h1 ").count(), 1);
-    assert!(html.contains("<select") && html.contains("id=\"opening\""));
+    assert!(!html.contains("<select"));
+    assert_eq!(html.matches("aria-haspopup=\"listbox\"").count(), 2);
+    assert_eq!(html.matches("popover=\"auto\"").count(), 2);
+    assert!(html.contains("id=\"opening\""));
     assert!(html.contains("aria-labelledby=\"limit-custom-label\""));
     let css = get(&h, "/sdk/settings.css", "").body;
     for legacy in [

@@ -1,4 +1,112 @@
 import { ClientError, RefusalError, ReopenSessionError, budget, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/settings-controls.ts
+/** Static settings choices; values are drafts, never management authority. */
+function settingsChoice(trigger, surface) {
+	const options = [...surface.querySelectorAll("[role=option]")];
+	const enabled = () => options.filter((option) => !option.disabled);
+	const opened = () => surface.matches(":popover-open");
+	function close(refocus = false) {
+		if (opened()) surface.hidePopover();
+		trigger.setAttribute("aria-expanded", "false");
+		if (refocus && !trigger.disabled) trigger.focus({ preventScroll: true });
+	}
+	function place() {
+		const anchor = trigger.getBoundingClientRect();
+		const viewport = window.visualViewport;
+		const left = viewport?.offsetLeft ?? 0;
+		const top = viewport?.offsetTop ?? 0;
+		const width = viewport?.width ?? document.documentElement.clientWidth;
+		const height = viewport?.height ?? innerHeight;
+		surface.style.maxWidth = `${Math.max(0, width - 16)}px`;
+		surface.style.width = `${Math.min(anchor.width, width - 16)}px`;
+		surface.style.maxHeight = `${height - 16}px`;
+		const box = surface.getBoundingClientRect();
+		const below = top + height - anchor.bottom - 8;
+		const above = anchor.top - top - 8;
+		const up = box.height > below && above > below;
+		surface.style.left = `${Math.max(left + 8, Math.min(anchor.left, left + width - box.width - 8))}px`;
+		surface.style.maxHeight = `${Math.max(0, up ? above : below)}px`;
+		surface.style.top = `${up ? Math.max(top + 8, anchor.top - Math.min(box.height, above)) : anchor.bottom}px`;
+	}
+	function open(last = false) {
+		if (trigger.disabled) return;
+		if (!opened()) surface.showPopover();
+		trigger.setAttribute("aria-expanded", "true");
+		place();
+		search = "";
+		const items = enabled();
+		(items.find((option) => option.dataset.value === trigger.value) ?? (last ? items.at(-1) : items[0]))?.focus();
+	}
+	let pointerOpen = false;
+	let search = "";
+	let searchAt = 0;
+	trigger.addEventListener("pointerdown", () => {
+		pointerOpen = opened();
+	});
+	trigger.addEventListener("click", (event) => {
+		const dismiss = event.detail > 0 && pointerOpen;
+		pointerOpen = false;
+		if (dismiss || opened()) close();
+		else open();
+	});
+	trigger.addEventListener("keydown", (event) => {
+		if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+			event.preventDefault();
+			open(event.key === "ArrowUp");
+		}
+	});
+	for (const option of options) option.addEventListener("click", () => {
+		if (trigger.disabled || option.disabled) return;
+		trigger.value = option.dataset.value;
+		close(true);
+		trigger.dispatchEvent(new Event("change", { bubbles: true }));
+	});
+	surface.addEventListener("toggle", () => {
+		trigger.setAttribute("aria-expanded", String(opened()));
+	});
+	surface.addEventListener("focusin", () => {
+		for (const option of options) option.tabIndex = option === document.activeElement ? 0 : -1;
+	});
+	surface.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" || event.key === "Tab") {
+			if (event.key === "Escape") event.preventDefault();
+			close(true);
+			return;
+		}
+		if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+		const items = enabled();
+		const at = items.findIndex((option) => option === document.activeElement);
+		let next;
+		if (event.key === "ArrowDown") next = items[(at + 1) % items.length];
+		else if (event.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+		else if (event.key === "Home") next = items[0];
+		else if (event.key === "End") next = items.at(-1);
+		else if (event.key.length === 1 && event.key !== " ") {
+			const now = performance.now();
+			search = (now - searchAt > 700 ? "" : search) + event.key.toLowerCase();
+			searchAt = now;
+			next = [...items.slice(at + 1), ...items.slice(0, at + 1)].find((option) => option.textContent?.trim().toLowerCase().startsWith(search));
+		} else return;
+		event.preventDefault();
+		next?.focus();
+	});
+	const reposition = () => {
+		if (opened()) place();
+	};
+	window.addEventListener("resize", reposition);
+	window.addEventListener("scroll", reposition, true);
+	window.visualViewport?.addEventListener("resize", reposition);
+	window.visualViewport?.addEventListener("scroll", reposition);
+	return () => {
+		for (const option of options) {
+			option.disabled = trigger.disabled || option.dataset.value === "default";
+			option.setAttribute("aria-selected", String(option.dataset.value === trigger.value));
+		}
+		trigger.querySelector("[data-choice-value]").textContent = options.find((option) => option.dataset.value === trigger.value)?.textContent?.trim() ?? "";
+		if (trigger.disabled) close();
+	};
+}
+//#endregion
 //#region src/remote-state.ts
 /** Current-origin observation only. A foreign entry has no mark or live-access claim. */
 function remoteState(state, current = true) {
@@ -1327,6 +1435,47 @@ var more = element("more");
 var first = element("first");
 var rows = /* @__PURE__ */ new Map();
 var initialized = false;
+var choices;
+var confirmation;
+function targetSignature(target) {
+	return JSON.stringify([
+		target.name,
+		target.revoked,
+		target.talkEnabled,
+		target.thisBrowser
+	]);
+}
+function cancelConfirmation(refocus = false) {
+	if (!confirmation) return;
+	const { button, clientId } = confirmation;
+	const panel = rows.get(clientId)?.querySelector("[data-confirmation]");
+	if (panel) panel.hidden = true;
+	button.removeAttribute("aria-describedby");
+	button.setAttribute("aria-expanded", "false");
+	confirmation = void 0;
+	if (refocus && button.isConnected && !button.disabled) button.focus({ preventScroll: true });
+}
+/** A second deliberate press confirms only the same currently admitted presentation. */
+function confirmDevice(button, target, kind) {
+	const signature = targetSignature(target);
+	if (confirmation?.button === button && confirmation.signature === signature) {
+		cancelConfirmation();
+		return true;
+	}
+	cancelConfirmation();
+	const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
+	const consequence = panel.querySelector("p");
+	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to allow it. You can disable sending later.` : `Revoking ${target.name} ends ${target.thisBrowser ? "this browser’s" : "its"} access. Press Revoke again to end it. Pair again to restore access.`;
+	panel.hidden = false;
+	button.setAttribute("aria-describedby", consequence.id);
+	button.setAttribute("aria-expanded", "true");
+	confirmation = {
+		button,
+		clientId: target.clientId,
+		signature
+	};
+	return false;
+}
 var page;
 var registryState = remoteRegistryPage(() => {
 	if (!page) return "";
@@ -1427,6 +1576,10 @@ function renderOutcome() {
 }
 function render() {
 	registryState(page.access === "live" ? "Connected" : page.access === "lost" ? "Access ended" : page.access === "checking" ? "Checking" : "Unconfirmed");
+	if (confirmation) {
+		const target = page.devices?.devices.find((device) => device.clientId === confirmation.clientId);
+		if (!page.writable || !target || targetSignature(target) !== confirmation.signature) cancelConfirmation();
+	}
 	renderFirestore(element("firestore-content"), page.firestoreAccess, page.firestore);
 	const capacity = capacityCopy(page.accessRefusal);
 	const access = capacity ?? {
@@ -1480,6 +1633,10 @@ function render() {
 		custom
 	]) field.disabled = !editable || field === custom && mode.value !== "custom";
 	for (const button of document.querySelectorAll("form button")) button.disabled = !page.writable;
+	if (page.settings) {
+		choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
+		for (const update of choices) update();
+	}
 	saveState("opening-form", "opening-unchanged", openingChanged(), opening.checkValidity());
 	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
 	refresh.disabled = page.busy;
@@ -1533,7 +1690,8 @@ function render() {
 					if (!page.writable) return;
 					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
 					if (!target || target.revoked) return;
-					if (confirm(`Revoke ${target.name}${target.thisBrowser ? " (this device)" : ""}?`)) change({
+					if (!confirmDevice(revoke, target, "revoke")) return;
+					change({
 						kind: "revoke",
 						input: {
 							operationId: crypto.randomUUID(),
@@ -1567,7 +1725,7 @@ function render() {
 					if (!page.writable) return;
 					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
 					if (!target || target.revoked) return;
-					if (!target.talkEnabled && !confirm(`Allow ${target.name} to send to its permitted agents?`)) return;
+					if (!target.talkEnabled && !confirmDevice(talk, target, "talk")) return;
 					change({
 						kind: "talk",
 						input: {
@@ -1578,10 +1736,40 @@ function render() {
 					});
 				});
 				form.append(field, save, talk, revoke);
+				const panel = document.createElement("div");
+				panel.className = "device-confirmation";
+				panel.dataset.confirmation = "";
+				panel.id = `confirm-${device.clientId}`;
+				panel.hidden = true;
+				const consequence = document.createElement("p");
+				consequence.id = `${panel.id}-consequence`;
+				consequence.setAttribute("role", "status");
+				const cancel = document.createElement("button");
+				cancel.type = "button";
+				cancel.className = "tmt-ui-action";
+				const cancelLabel = document.createElement("span");
+				cancelLabel.className = "tmt-ui-action-label";
+				cancelLabel.textContent = "Cancel";
+				cancel.append(cancelLabel);
+				cancel.addEventListener("click", () => cancelConfirmation(true));
+				panel.append(consequence, cancel);
+				for (const button of [talk, revoke]) {
+					button.setAttribute("aria-controls", panel.id);
+					button.setAttribute("aria-expanded", "false");
+					button.addEventListener("keydown", (event) => {
+						if ((event.repeat || event.isComposing) && ["Enter", " "].includes(event.key)) event.preventDefault();
+					});
+				}
+				row.addEventListener("keydown", (event) => {
+					if (event.key === "Escape" && confirmation?.clientId === device.clientId) {
+						event.preventDefault();
+						cancelConfirmation(true);
+					}
+				});
 				const disabledReason = document.createElement("p");
 				disabledReason.id = `device-reason-${device.clientId}`;
 				disabledReason.className = "tmt-ui-field-description";
-				row.append(summary, form, deviceFeedback(device.clientId), disabledReason);
+				row.append(summary, form, panel, deviceFeedback(device.clientId), disabledReason);
 				rows.set(device.clientId, row);
 				devices.append(row);
 			}
@@ -1603,6 +1791,7 @@ function render() {
 			for (const button of row.querySelectorAll("form button")) {
 				button.disabled = !page.writable || device.revoked;
 				if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
+				else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
 				else button.removeAttribute("aria-describedby");
 				button.setAttribute("aria-busy", String(page.busy));
 			}
@@ -1611,6 +1800,7 @@ function render() {
 	renderOutcome();
 }
 async function run(action) {
+	cancelConfirmation();
 	const pending = action();
 	render();
 	try {
