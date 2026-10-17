@@ -2622,7 +2622,10 @@ and raw child errors are never disclosed. Missing bytes never select a fixture.
 extension inputs through the existing deployment owner and real provider port. It defaults
 to a plan with no provider effects for agents, CI, `--json` and non-interactive input;
 only an explicit digest authorization can run those invocations. An interactive terminal instead
-displays the captured account, target, changes, Rules/website deltas and asks once:
+displays a short summary of the captured account, target and Rules/website changes; `--details`
+shows the full plan instead. Database presence comes from the existing budget inventory;
+unknown database/sign-in/index state shows its target, never an inferred change. A completed
+record is not live no-change evidence, so fallback lines still require the question:
 `Deploy these changes to your Firebase project? [y/N]`. Yes authorizes precisely those captured
 bytes: discovery, inventory and plan preparation are not repeated after the answer; live account
 and effect guards still run. No, EOF or cancellation while waiting makes no provider changes;

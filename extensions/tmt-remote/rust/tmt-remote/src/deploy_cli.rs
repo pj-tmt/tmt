@@ -17,6 +17,7 @@ pub struct FirestoreArgs {
     pub sign_in: Vec<SignInProvider>,
     pub authorize: Option<String>,
     pub json: bool,
+    pub details: bool,
 }
 #[derive(Debug)]
 pub enum DeployCliError {
@@ -33,11 +34,12 @@ pub trait FirestoreCommandPort: DeployPort {
     const SUPPORTS_HOSTING: bool = false;
     fn prepare_hosting(&mut self, _content: &crate::hosting::HostingComposition) {}
     fn login(&mut self) -> Result<(), crate::deploy_firestore::DeploySetupError>;
+    /// Return database presence observed by the existing budget read, if known.
     fn check_index_budget(
         &mut self,
         project: &str,
         plan: &crate::deploy_plan::Plan,
-    ) -> Result<(), crate::deploy_firestore::DeployPreflightError>;
+    ) -> Result<Option<bool>, crate::deploy_firestore::DeployPreflightError>;
     fn live_rules(
         &mut self,
         project: &str,
@@ -68,8 +70,8 @@ impl FirestoreCommandPort for crate::deploy_firestore::DeployFirestore<'_> {
         &mut self,
         project: &str,
         plan: &crate::deploy_plan::Plan,
-    ) -> Result<(), crate::deploy_firestore::DeployPreflightError> {
-        self.check_index_budget(project, plan)
+    ) -> Result<Option<bool>, crate::deploy_firestore::DeployPreflightError> {
+        self.check_index_budget(project, plan).map(Some)
     }
     fn live_rules(
         &mut self,
@@ -97,6 +99,7 @@ pub fn command() -> Command {
                 .value_parser(["anonymous", "google.com"]),
         )
         .arg(Arg::new("authorize").long("authorize"))
+        .arg(Arg::new("details").long("details").action(ArgAction::SetTrue).help("Show the full plan (fingerprints, extension resources and indexes) before asking."))
 }
 pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> {
     let authorize = matches.get_one::<String>("authorize").cloned();
@@ -129,6 +132,7 @@ pub fn arguments(matches: &ArgMatches) -> Result<FirestoreArgs, DeployCliError> 
         sign_in,
         authorize,
         json: matches.get_flag("json"),
+        details: matches.get_flag("details"),
     })
 }
 fn digest(s: &str, minimum: usize) -> bool {
@@ -194,6 +198,7 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         sign_in: args.sign_in.clone(),
         authorize: args.authorize.clone(),
         json: args.json,
+        details: args.details,
     };
     let args = &selected;
     let mut store = DeployRecordStore::open_for_target(&layout, &args.project, &args.region)
@@ -249,13 +254,13 @@ fn execute_prepared<P: FirestoreCommandPort>(
     record_path: &std::path::Path,
     confirmation: Option<&mut PlanConfirmation<'_>>,
 ) -> Result<DeployCommandOutput, DeployCliError> {
-    provider
+    let database_present = provider
         .check_index_budget(&args.project, &discovered.extensions)
         .map_err(DeployCliError::Provider)?;
     let live_rules = provider
         .live_rules(&args.project)
         .map_err(DeployCliError::Provider)?;
-    let mut website_changed = false;
+    let mut website_live = false;
     let hosting = discovered
         .hosting
         .as_ref()
@@ -289,7 +294,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
                     record_path.to_path_buf(),
                 )
             })?;
-            website_changed = inventory.live.is_none() || view.replaces != "none";
+            website_live = inventory.live.is_some();
             if let Some(checkpoint) = record
                 .run
                 .as_ref()
@@ -353,12 +358,20 @@ fn execute_prepared<P: FirestoreCommandPort>(
             let mut preview = prepared
                 .preview(&input, store, hosting.as_ref())
                 .map_err(map)?;
-            preview.human.push_str(&confirmation_notice(
-                prepared.plan(),
-                prepared.record(),
-                live_rules.as_deref() != Some(prepared.plan().deployed_rules()),
-                hosting.as_ref().map(|_| website_changed),
-            ));
+            if args.details {
+                preview.human.push_str(&confirmation_notice(
+                    prepared.plan(),
+                    prepared.record(),
+                    website_live,
+                ));
+            } else {
+                preview.human = short_preview(
+                    prepared.plan(),
+                    prepared.record(),
+                    database_present,
+                    website_live,
+                );
+            }
             if !confirm(&preview)? {
                 preview.human = format!("{DECLINED}\n");
                 preview.json["declined"] = json!(true);
@@ -431,25 +444,22 @@ pub fn confirmation_answer(bytes: &[u8]) -> bool {
     answer.trim().eq_ignore_ascii_case("y") || answer.trim().eq_ignore_ascii_case("yes")
 }
 
-/// Display observations already captured for this decision, without a provider read.
+/// Display captured interactive changes, without another provider read.
 pub fn confirmation_notice(
     plan: &crate::deploy_run::DeployPlan,
     record: &crate::deploy_run::DeployRecord,
-    rules_changed: bool,
-    website_changed: Option<bool>,
+    website_live: bool,
 ) -> String {
-    let mut text = String::from(if rules_changed {
-        "Security rules: will be updated.\n"
-    } else {
-        "Security rules: no change.\n"
-    });
-    if let Some(changed) = website_changed {
-        text.push_str(if changed {
-            "Website files: will be updated.\n"
-        } else {
-            "Website files: no change.\n"
-        });
-    }
+    let mut text = change_lines(plan, website_live);
+    text.push_str(&supersession_notice(plan, record));
+    text
+}
+
+fn supersession_notice(
+    plan: &crate::deploy_run::DeployPlan,
+    record: &crate::deploy_run::DeployRecord,
+) -> String {
+    let mut text = String::new();
     if let Some(previous) = crate::deploy_run::superseded_run(plan, record) {
         text.push_str(REPLACING);
         text.push('\n');
@@ -473,5 +483,82 @@ pub fn confirmation_notice(
             }
         }
     }
+    text
+}
+
+/// Both interactive views use the same states and value-column notes.
+fn change_lines(plan: &crate::deploy_run::DeployPlan, website_live: bool) -> String {
+    use crate::deploy_run::LiveRules;
+    let mut text = format!(
+        "  Security rules  {}\n",
+        match plan.live_rules() {
+            LiveRules::Absent => "will be created",
+            LiveRules::Current => "no change",
+            LiveRules::Own => "will be updated",
+            LiveRules::Foreign(_) => "will replace rules set outside TMT",
+        },
+    );
+    if matches!(plan.live_rules(), LiveRules::Foreign(_)) {
+        text.push_str("                  Answering y replaces them.\n");
+    }
+    if let Some(hosting) = &plan.view().hosting {
+        let website = if hosting.replaces == "foreign" {
+            "will replace the live website".to_owned()
+        } else if !website_live {
+            "will be published for the first time".to_owned()
+        } else if hosting.replaces == "none" {
+            "no change".to_owned()
+        } else {
+            format!(
+                "will be updated ({} files)",
+                hosting.content["files"].as_array().map_or(0, Vec::len)
+            )
+        };
+        text.push_str(&format!("  Website files   {website}\n"));
+        if hosting.replaces == "foreign" {
+            text.push_str("                  Answering y replaces it.\n");
+        }
+    }
+    text
+}
+
+/// A terminal view of this frozen plan and its existing read-only observations.
+/// Unknown live state is a target, never inferred from an earlier completed run.
+fn short_preview(
+    plan: &crate::deploy_run::DeployPlan,
+    record: &crate::deploy_run::DeployRecord,
+    database_present: Option<bool>,
+    website_live: bool,
+) -> String {
+    use crate::deploy_run::StepKind;
+    let view = plan.view();
+    let mut text = format!(
+        "Deploy to Firebase\n  Account         {}\n  Project         {} ({})\n\n  Database        {}\n",
+        view.account,
+        view.project,
+        view.database.location,
+        match database_present {
+            Some(true) => "no change",
+            Some(false) => "will be created",
+            None => &view.database.location,
+        },
+    );
+    text.push_str(&change_lines(plan, website_live));
+    let indexes = plan
+        .steps()
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                StepKind::Index { .. } | StepKind::CompositeIndex(_)
+            )
+        })
+        .count();
+    text.push_str(&format!(
+        "  Sign-in         {}\n  Indexes         {indexes} needed\n\n",
+        view.sign_in.join(", "),
+    ));
+    text.push_str(&supersession_notice(plan, record));
+    text.push_str("Full plan: run the same command with --details.\n");
     text
 }

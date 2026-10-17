@@ -291,7 +291,9 @@ without charging or making provider requests.
 
 In the Firebase console, open Authentication and choose Get started. Then run
 `tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`
-in a terminal, review the changes and answer y/N; rerun the same command after a partial result.
+in a terminal, review the short summary and answer y/N; add `--details` for fingerprints,
+extension resources and indexes. Unknown live state shows the target and still asks; saved
+completion never substitutes for live evidence. Rerun the same command after a partial result.
 The same unfinished approved digest continues without another question; changed unfinished work gets one
 confirmation and retains its earlier outcomes. An earlier known or possibly created unreleased
 website Version stays untouched; unknown web-app/site/config creation still requires observation.

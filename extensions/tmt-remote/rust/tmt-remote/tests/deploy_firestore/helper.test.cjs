@@ -201,6 +201,23 @@ test('fields fake pins the proven request and refuses pageSize or whole-filter e
     assert.equal((await f.http(base + proven + suffix, { method: 'GET' })).status, 200);
   assert.equal(accepted, 2);
 });
+test('budget returns database presence from its existing inventory read only', async () => {
+  for (const present of [false, true]) {
+    const f = fixture((url) => {
+      if (url.endsWith('/(default)'))
+        return { status: present ? 200 : 404, body: present ? { name: database } : {} };
+      if (url.includes('/-/fields')) return { status: 200, body: { fields: [] } };
+      if (url.includes('/-/indexes')) return { status: 200, body: { indexes: [] } };
+      assert.fail(url);
+    });
+    assert.deepEqual(
+      await execute(request('index-budget', { project: PROJECT, fields: [], composites: [] }), f),
+      { status: 'within-budget', databasePresent: present }
+    );
+    assert.equal(f.calls.filter((call) => call.url.endsWith('/(default)')).length, 1);
+    assert.equal(mutations(f).length, 0);
+  }
+});
 for (const operation of ['index-budget', 'apply-index']) {
   test(`${operation} sends the pinned fields URL on every bounded page`, async () => {
     let pages = 0;
@@ -217,7 +234,7 @@ for (const operation of ['index-budget', 'apply-index']) {
                 ? { name: field, indexConfig: { indexes: [] } }
                 : {},
     }));
-    assert.equal(
+    assert.deepEqual(
       await execute(
         request(
           operation,
@@ -227,7 +244,7 @@ for (const operation of ['index-budget', 'apply-index']) {
         ),
         f
       ),
-      operation === 'index-budget' ? 'within-budget' : 'done'
+      operation === 'index-budget' ? { status: 'within-budget', databasePresent: true } : 'done'
     );
     const listed = f.calls.filter((call) => call.url.includes('/-/fields'));
     assert.equal(listed.length, 2);
@@ -1014,12 +1031,12 @@ test('plan-only composite budget counts only missing specs and never mutates', a
           ? { indexes: rows }
           : assert.fail(url),
   }));
-  assert.equal(
+  assert.deepEqual(
     await execute(
       request('index-budget', { project: PROJECT, fields: [], composites: [composite] }),
       f
     ),
-    'within-budget'
+    { status: 'within-budget', databasePresent: true }
   );
   await failure(
     () =>
@@ -1106,9 +1123,9 @@ test('preflight HTTP diagnostics name only the closed operation and numeric stat
 });
 test('absent database skips inventories, and missing release stays accepted', async () => {
   const f = fixture(() => ({ status: 404, body: {} }));
-  assert.equal(
+  assert.deepEqual(
     await execute(request('index-budget', { project: PROJECT, fields: [], composites: [] }), f),
-    'within-budget'
+    { status: 'within-budget', databasePresent: false }
   );
   assert.equal(
     f.calls.some((c) => c.url.includes('/collectionGroups/')),

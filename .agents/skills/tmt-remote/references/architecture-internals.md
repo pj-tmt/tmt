@@ -170,7 +170,8 @@ Real account/project provisioning remains separately authorized acceptance, not 
 
 Automation previews and saves one draft identity without provider effects; a terminal may
 confirm one captured plan, or continue its unfinished saved digest without another question. `deploy_cli`
-owns that decision, `deploy_command` retains the inputs/record across it, and `deploy_run` keeps
+owns the short preview (`--details` shows the full plan) and existing inventory observations;
+`deploy_command` retains the inputs/record across consent, and `deploy_run` keeps
 the creation/release fences. Only a new terminal confirmation may abandon a known or unknown
 unreleased Version only while its release is pending; it never supersedes unknown web-app/site/config creation. Preview keeps a changed unfinished intent visible without refusing it;
 `deploy_run` gates replacement before calls and archives accepted unfinished runs as `superseded`

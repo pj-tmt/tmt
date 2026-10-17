@@ -737,6 +737,7 @@ mod cli_composition {
         deploy_port::Fake,
         usize,
         Option<tmt_remote::hosting::HostingInventory>,
+        Option<bool>,
     );
     impl<const HOSTING: bool> DeployPort for &mut DeployCliProvider<HOSTING> {
         fn account(&mut self) -> Result<String, DeployProviderError> {
@@ -776,9 +777,9 @@ mod cli_composition {
             &mut self,
             _: &str,
             _: &tmt_remote::deploy_plan::Plan,
-        ) -> Result<(), tmt_remote::deploy_firestore::DeployPreflightError> {
+        ) -> Result<Option<bool>, tmt_remote::deploy_firestore::DeployPreflightError> {
             self.1 += 1;
-            Ok(())
+            Ok(self.3)
         }
         fn live_rules(
             &mut self,
@@ -803,6 +804,166 @@ mod cli_composition {
             .try_get_matches_from(words)
             .map_err(|_| DeployCliError::Usage)?;
         deploy_cli::arguments(&matches)
+    }
+    #[test]
+    fn interactive_preview_is_short_and_keeps_unknown_targets() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
+        let mut asked = false;
+        let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
+            asked = true;
+            assert_eq!(
+                out.human,
+                "Deploy to Firebase\n  Account         owner@example.test\n  Project         demo-remote-1 (asia-east1)\n\n  Database        asia-east1\n  Security rules  will be created\n  Sign-in         anonymous\n  Indexes         3 needed\n\nFull plan: run the same command with --details.\n"
+            );
+            assert!(!out.json["planDigest"].as_str().unwrap().is_empty());
+            Ok(false)
+        };
+        let out = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut no),
+        )
+        .unwrap();
+        assert!(asked, "unknown targets cannot suppress confirmation");
+        assert_eq!(out.json["declined"], true);
+        assert!(provider.0.effects.is_empty());
+    }
+    #[test]
+    fn summary_uses_captured_rules_and_database_evidence_but_still_asks() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+        store.persist(&DeployRecord::new(ID)).unwrap();
+        drop(store);
+        let mut source = DeployCliSource(0, true);
+        let discovered = tmt_remote::deploy_discovery::discover(&mut source, &["colab"]).unwrap();
+        let expected = deploy_run::prepare(
+            &discovered.extensions,
+            &DeployInput {
+                account: ACCOUNT,
+                project: "demo-remote-1",
+                deployment_id: ID,
+                location: "asia-east1",
+                sign_in: &[SignInProvider::Anonymous],
+                rules_body: discovered.artifacts.rules.as_bytes(),
+                live_rules: None,
+            },
+        )
+        .unwrap();
+        for (live, database, rules_line) in [
+            (None, true, "will be created"),
+            (Some(expected.deployed_rules().to_vec()), true, "no change"),
+            (
+                Some(b"foreign rules".to_vec()),
+                false,
+                "will replace rules set outside TMT",
+            ),
+        ] {
+            for details in [false, true] {
+                let mut provider =
+                    DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, Some(database));
+                provider.0.rules = live.clone();
+                let mut asked = false;
+                let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
+                    asked = true;
+                    if details {
+                        assert!(out.human.starts_with("Firestore sharing plan\n"));
+                        assert!(out.human.contains("Plan digest:"));
+                        assert!(out.human.contains("Extensions and resources:"));
+                        assert!(
+                            out.human
+                                .contains(&format!("  Security rules  {rules_line}\n")),
+                            "{}",
+                            out.human
+                        );
+                        assert!(
+                            !out.human.contains("Security rules:"),
+                            "the interactive delta uses the shared states"
+                        );
+                    } else {
+                        assert!(
+                            out.human
+                                .contains(&format!("  Security rules  {rules_line}\n"))
+                        );
+                        assert!(out.human.contains(if database {
+                            "Database        no change\n"
+                        } else {
+                            "Database        will be created\n"
+                        }));
+                        assert!(!out.human.contains("Plan digest:"));
+                        assert!(!out.human.contains("Extensions and resources:"));
+                        assert!(!out.human.contains("Nothing to deploy"));
+                        if !database {
+                            assert!(out.human.contains(
+                                "will replace rules set outside TMT\n                  Answering y replaces them.\n"
+                            ));
+                        }
+                    }
+                    assert_eq!(out.json["authorized"], false);
+                    Ok(false)
+                };
+                deploy_cli::execute_with_confirmation(
+                    &args(if details { &["--details"] } else { &[] }).unwrap(),
+                    &mut source,
+                    &["colab"],
+                    || Ok(&mut provider),
+                    || Ok(layout.clone()),
+                    || Ok(1),
+                    Some(&mut no),
+                )
+                .unwrap();
+                assert!(asked, "sign-in/index targets still need consent");
+                assert!(provider.0.effects.is_empty());
+                assert_eq!(
+                    provider.1, 4,
+                    "one login, budget, Rules and account snapshot"
+                );
+            }
+        }
+    }
+    #[test]
+    fn details_preserves_json_and_explicit_authorization_output() {
+        let run = |extra: &[&str]| {
+            let root = Root::new();
+            let layout = root.layout();
+            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+            store.persist(&DeployRecord::new(ID)).unwrap();
+            drop(store);
+            let mut source = DeployCliSource(0, true);
+            let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
+            let out = deploy_cli::execute(
+                &args(extra).expect("--details is a presentation option"),
+                &mut source,
+                &["colab"],
+                || Ok(&mut provider),
+                || Ok(layout.clone()),
+                || Ok(1),
+            )
+            .unwrap();
+            assert_eq!(source.0, 1);
+            (out, provider.0.effects)
+        };
+        let (plain, effects) = run(&["--json"]);
+        assert!(effects.is_empty());
+        let (details, effects) = run(&["--json", "--details"]);
+        assert!(effects.is_empty());
+        assert_eq!(details.json, plain.json);
+        assert_eq!(details.human, plain.human);
+
+        let digest = plain.json["planDigest"].as_str().unwrap();
+        let (plain, effects) = run(&["--authorize", digest]);
+        assert!(!effects.is_empty());
+        let (details, detailed_effects) = run(&["--authorize", digest, "--details"]);
+        assert_eq!(detailed_effects, effects);
+        assert_eq!(details.json, plain.json);
+        assert_eq!(details.human, plain.human);
     }
     #[test]
     fn website_notice_uses_the_frozen_replacement_view_even_for_identical_foreign_files() {
@@ -848,7 +1009,10 @@ mod cli_composition {
             .unwrap()
             .hosting
             .unwrap();
-        for kind in ["foreign", "own", "absent", "empty"] {
+        for (kind, details) in ["foreign", "own", "absent", "empty"]
+            .into_iter()
+            .flat_map(|kind| [(kind, false), (kind, true)])
+        {
             let root = Root::new();
             let layout = root.layout();
             let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
@@ -873,16 +1037,17 @@ mod cli_composition {
                 view.replaces,
                 if kind == "foreign" { "foreign" } else { "none" }
             );
-            let mut provider = DeployCliProvider::<true>(Fake::new(ACCOUNT), 0, Some(inventory));
+            let mut provider =
+                DeployCliProvider::<true>(Fake::new(ACCOUNT), 0, Some(inventory), None);
             let mut asked = false;
             let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
                 asked = true;
                 assert_eq!(out.json["plan"]["hosting"]["replaces"], view.replaces);
                 assert!(
-                    out.human.contains(if kind == "own" {
-                        "Website files: no change."
-                    } else {
-                        "Website files: will be updated."
+                    out.human.contains(match kind {
+                        "own" => "Website files   no change",
+                        "foreign" => "Website files   will replace the live website\n                  Answering y replaces it.",
+                        _ => "Website files   will be published for the first time",
                     }),
                     "{kind}: {}",
                     out.human
@@ -890,7 +1055,7 @@ mod cli_composition {
                 Ok(false)
             };
             deploy_cli::execute_with_confirmation(
-                &args(&[]).unwrap(),
+                &args(if details { &["--details"] } else { &[] }).unwrap(),
                 &mut source,
                 &["colab"],
                 || Ok(&mut provider),
@@ -908,7 +1073,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         let mut shown = None;
         let mut prompt = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
             assert!(shown.is_none());
@@ -939,7 +1104,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         let mut asked = 0;
         let mut no = |_: &tmt_remote::deploy_command::DeployCommandOutput| {
             asked += 1;
@@ -985,7 +1150,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         provider.0.owner_pending.insert(
             "sign-in:anonymous".into(),
             deploy_run::DeployOwnerAction::InitializeAuth,
@@ -1030,7 +1195,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         provider
             .0
             .faults
@@ -1072,7 +1237,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         let mut yes = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(true);
         let completed = deploy_cli::execute_with_confirmation(
             &args(&[]).unwrap(),
@@ -1118,7 +1283,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         let mut interrupted =
             |_: &tmt_remote::deploy_command::DeployCommandOutput| -> Result<bool, DeployCliError> {
                 Err(DeployCliError::Local(
@@ -1145,7 +1310,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None, None);
         provider
             .0
             .faults
@@ -1231,7 +1396,7 @@ mod cli_composition {
         let before = deploy_record::read(&layout).unwrap();
         let mut source = DeployCliSource(0, false);
         let provider =
-            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None);
+            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None, None);
         let out = deploy_cli::execute(
             &args(&[]).unwrap(),
             &mut source,
@@ -1260,7 +1425,7 @@ mod cli_composition {
         drop(store);
         let mut source = DeployCliSource(0, true);
         let mut provider =
-            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None);
+            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None, None);
         let preview = deploy_cli::execute(
             &args(&[]).unwrap(),
             &mut source,
@@ -1319,7 +1484,7 @@ mod cli_composition {
         drop(store);
         let mut source = DeployCliSource(0, true);
         let mut provider =
-            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None);
+            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None, None);
         let preview = deploy_cli::execute(
             &args(&["--json"]).unwrap(),
             &mut source,
@@ -1395,7 +1560,8 @@ mod cli_composition {
     fn plan_only_a_then_plan_and_authorize_b_binds_only_b() {
         let root = Root::new();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(deploy_port::Fake::new(ACCOUNT), 0, None);
+        let mut provider =
+            DeployCliProvider::<false>(deploy_port::Fake::new(ACCOUNT), 0, None, None);
         let request_a = args(&[]).unwrap();
         let plan_a = deploy_cli::execute(
             &request_a,
@@ -1457,7 +1623,8 @@ mod cli_composition {
     fn retained_target_conflict_precedes_provider_creation_and_preserves_the_record() {
         let root = Root::new();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider::<false>(deploy_port::Fake::new(ACCOUNT), 0, None);
+        let mut provider =
+            DeployCliProvider::<false>(deploy_port::Fake::new(ACCOUNT), 0, None, None);
         let request = args(&[]).unwrap();
         let preview = deploy_cli::execute(
             &request,

@@ -2151,10 +2151,10 @@ fn interactive_supersession_requires_one_new_consent_and_keeps_unknown_app_fence
             DeployRefusal::PreviousCreateUnconfirmed
         ))
     ));
-    let notice = deploy_cli::confirmation_notice(&next, &record, true, Some(true));
+    let notice = deploy_cli::confirmation_notice(&next, &record, false);
     assert!(notice.contains(deploy_cli::UNKNOWN_VERSION));
     assert!(
-        notice.starts_with("Security rules: will be updated.\nWebsite files: will be updated.\n")
+        notice.starts_with("  Security rules  will be created\n  Website files   will be published for the first time\n")
     );
     let mut known = record.clone();
     known
@@ -2175,21 +2175,17 @@ fn interactive_supersession_requires_one_new_consent_and_keeps_unknown_app_fence
         .unwrap()
         .state = StepState::Done;
     assert!(
-        deploy_cli::confirmation_notice(&next, &known, false, Some(false))
-            .starts_with("Security rules: no change.\nWebsite files: no change.\n")
+        deploy_cli::confirmation_notice(&next, &known, false)
+            .starts_with("  Security rules  will be created\n  Website files   will be published for the first time\n")
     );
     assert!(
-        deploy_cli::confirmation_notice(&next, &known, false, None)
-            .contains(deploy_cli::KNOWN_VERSION)
+        deploy_cli::confirmation_notice(&next, &known, false).contains(deploy_cli::KNOWN_VERSION)
     );
-    assert!(
-        !deploy_cli::confirmation_notice(&next, &known, false, None).contains("Website files:")
-    );
+    assert!(!deploy_cli::confirmation_notice(&fresh(), &known, false).contains("  Website files"));
     assert!(authorize_interactive(&next, &known).is_ok());
     known.run.as_mut().unwrap().rules_attempted = true;
     assert!(
-        deploy_cli::confirmation_notice(&next, &known, true, Some(true))
-            .contains(deploy_cli::KNOWN_VERSION)
+        deploy_cli::confirmation_notice(&next, &known, false).contains(deploy_cli::KNOWN_VERSION)
     );
     for state in [
         StepState::Unknown,
@@ -2213,7 +2209,7 @@ fn interactive_supersession_requires_one_new_consent_and_keeps_unknown_app_fence
             "release {state:?} retains the ordinary fence"
         );
         assert!(
-            !deploy_cli::confirmation_notice(&next, &released, true, Some(true))
+            !deploy_cli::confirmation_notice(&next, &released, false)
                 .contains(deploy_cli::KNOWN_VERSION)
         );
     }
