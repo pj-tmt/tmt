@@ -884,11 +884,12 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         `export XDG_CACHE_HOME='${cache}'; tmt ops ui --squad product; echo BOARD_EXIT=$?`,
         'Enter',
       ]);
+      // Registered cat panes are online, but have no provider activity observation.
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
           screen.includes('1 squad · 2 agents') &&
-          /^[ \t]*[▸▾] product[ \t]+● ●[ \t]/m.test(screen) &&
+          /^[ \t]*[▸▾] product[ \t]+\? \?[ \t]/m.test(screen) &&
           screen.includes('2 members'),
         shell.pane
       );
