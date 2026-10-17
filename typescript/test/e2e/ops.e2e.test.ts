@@ -235,15 +235,16 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       fixture.tmux(['kill-pane', '-t', panes.worker]);
       const missingAgent = hostPaneSlots(fixture);
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
+      // App names the frozen UUID in Core's refusal through its held roster.
       await fixture.waitForCapture(
-        (screen) =>
-          screen.includes(`Identity '${workerId}' is not active.`) ||
-          screen.includes(`Identity '${workerId}' was not found.`) ||
-          screen.includes(
-            "The identity's pane changed before it could be focused; nothing changed."
-          ),
+        (screen) => screen.includes("Identity 'worker' was not found."),
         panes.board
       );
+      expect(durableState(fixture).identities.find((row) => row.id === workerId)).toMatchObject({
+        id: workerId,
+        lifetime: 'temporary',
+        retired_at_ms: expect.any(Number),
+      });
       expect(hostPaneSlots(fixture)).toEqual(missingAgent);
       expect(clientPlace(fixture)).toBe(caller);
       await closeHostActionBoard(fixture, panes.board);
