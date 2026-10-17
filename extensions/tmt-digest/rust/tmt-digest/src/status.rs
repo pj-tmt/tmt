@@ -40,7 +40,7 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
         .data_root()
         .ok()
         .and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
-    if let Some(history) = history {
+    if let Some(mut history) = history {
         for (row, observation) in document["members"]
             .as_array_mut()
             .expect("projected rows")

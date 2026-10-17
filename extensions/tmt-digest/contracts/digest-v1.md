@@ -277,7 +277,15 @@ never offers delivery or changes Core's uncertainty/admission rules.
 Private evidence lives at `<dataRoot>/digest/history/history.sqlite` (public
 `storage.root` discovery), schema version 2. Read-only status accepts schema 1 with null valuations and
 never migrates it; the next writer atomically adds usage tables and advances the
-version while preserving settlement cursors and lifetime totals. Directories are 0700, files 0600;
+version while preserving settlement cursors and lifetime totals. Digest admits
+its private file/schema and DELETE/FULL policy, then transfers the writer
+connection to the shared [Store](../../../rust/crates/tmt-extension-state/src/lib.rs).
+Every mutation, including initialization, uses one BEGIN IMMEDIATE with at most
+five seconds of admission; callbacks run once. Rollback-journal COMMIT uses only
+the remainder of that same window. A timeout keeps the existing
+`DIGEST_HISTORY_IO` envelope and states whether the change was not started or may
+not be saved, with `tmt digest tick` as the retry. Read-only status keeps its own
+read-only connection and never adopts a writable Store. Directories are 0700, files 0600;
 nonprivate paths, symlinks and unsupported schema versions are refused. Events
 retain content-free IDs, settlement/claim/collection timestamps, original arrival
 inputs, outcome/opportunity, formula version, nullable estimate and nullable

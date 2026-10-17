@@ -41,40 +41,41 @@ impl Store {
         {
             return Err(invalid("Invalid usage snapshot"));
         }
-        let tx = self.0.transaction().map_err(io)?;
-        let started: Option<u64> = tx
-            .query_row("SELECT started FROM members WHERE id=?1", [id], |r| {
-                number(r, 0)
-            })
-            .optional()
-            .map_err(io)?;
-        let Some(started) = started else {
-            return Ok(());
-        };
-        let previous: Option<u64> = tx
-            .query_row("SELECT through FROM usage_state WHERE id=?1", [id], |r| {
-                number(r, 0)
-            })
-            .optional()
-            .map_err(io)?;
-        if previous.is_some_and(|time| time > page.through) {
-            return Err(invalid("Usage watermark moved backwards"));
-        }
-        for minute in &page.minutes {
-            if minute.start < started {
-                continue;
+        self.write(|tx| {
+            let started: Option<u64> = tx
+                .query_row("SELECT started FROM members WHERE id=?1", [id], |r| {
+                    number(r, 0)
+                })
+                .optional()
+                .map_err(io)?;
+            let Some(started) = started else {
+                return Ok(());
+            };
+            let previous: Option<u64> = tx
+                .query_row("SELECT through FROM usage_state WHERE id=?1", [id], |r| {
+                    number(r, 0)
+                })
+                .optional()
+                .map_err(io)?;
+            if previous.is_some_and(|time| time > page.through) {
+                return Err(invalid("Usage watermark moved backwards"));
             }
-            // A closed minute is a snapshot, so overlap/restart replaces rather
-            // than adds it. Later source reads may establish missing coverage.
-            tx.execute("INSERT INTO usage_minutes VALUES(?1,?2,?3,?4) ON CONFLICT(identity_id,minute) DO UPDATE SET input_tokens=excluded.input_tokens",
-                params![id,minute.start as i64,page.observed as i64,minute.input.map(|n|n as i64)]).map_err(io)?;
-        }
-        let (model, observed) = page.model.as_ref().map_or((None, None), |(model, time)| {
-            (Some(model.as_str()), Some(*time as i64))
-        });
-        tx.execute("INSERT INTO usage_state VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET through=excluded.through,model_id=excluded.model_id,observed=excluded.observed",params![id,page.through as i64,model,observed]).map_err(io)?;
-        prune(&tx, page.observed, super::RAW_LIMIT)?;
-        tx.commit().map_err(io)
+            for minute in &page.minutes {
+                if minute.start < started {
+                    continue;
+                }
+                // A closed minute is a snapshot, so overlap/restart replaces rather
+                // than adds it. Later source reads may establish missing coverage.
+                tx.execute("INSERT INTO usage_minutes VALUES(?1,?2,?3,?4) ON CONFLICT(identity_id,minute) DO UPDATE SET input_tokens=excluded.input_tokens",
+                    params![id,minute.start as i64,page.observed as i64,minute.input.map(|n|n as i64)]).map_err(io)?;
+            }
+            let (model, observed) = page.model.as_ref().map_or((None, None), |(model, time)| {
+                (Some(model.as_str()), Some(*time as i64))
+            });
+            tx.execute("INSERT INTO usage_state VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET through=excluded.through,model_id=excluded.model_id,observed=excluded.observed",params![id,page.through as i64,model,observed]).map_err(io)?;
+            prune(tx, page.observed, super::RAW_LIMIT)?;
+            Ok(())
+        })
     }
 
     pub(super) fn valuations(
