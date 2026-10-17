@@ -209,7 +209,17 @@ fn render(
         &plan.digest()[..12]
     );
     if let Some(replaced) = &plan.view().rules.replaced_digest {
-        writeln!(human, "DESTRUCTIVE: Replace the live Rules for project {}. This affects every tenant using its Rules.\nExisting Rules fingerprint: {}\nAuthorizing plan {} allows this replacement.", input.project, &replaced[..12], &plan.digest()[..12]).expect("String write");
+        writeln!(human, "DESTRUCTIVE: Replace the live Rules for project {}. This affects every tenant using its Rules.\nExisting Rules fingerprint: {}", input.project, &replaced[..12]).expect("String write");
+        if hint {
+            writeln!(
+                human,
+                "Authorizing plan {} allows this replacement.",
+                &plan.digest()[..12]
+            )
+            .expect("String write");
+        } else {
+            human.push_str("Answering y replaces them.\n");
+        }
     }
     if let Some(hosting) = hosting {
         writeln!(

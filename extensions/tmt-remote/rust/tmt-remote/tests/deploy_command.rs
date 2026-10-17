@@ -295,6 +295,56 @@ fn stale_short_changed_account_and_foreign_authorizations_have_zero_effects() {
     .unwrap();
     assert_eq!(done.json["record"]["run"]["state"], "complete");
 }
+#[test]
+fn interactive_foreign_rules_warning_names_y_while_plain_output_keeps_digest() {
+    let root = Root::new();
+    let layout = root.layout();
+    let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    store.persist(&DeployRecord::new(ID)).unwrap();
+    let extensions = plan();
+    let body = fixture("deploy_run", "rules-body.rules");
+    let foreign = fixture("deploy_run", "foreign.rules");
+    let request = request_for_foreign(&extensions, &body, &foreign);
+    let mut port = Fake::new(ACCOUNT);
+    let prepared =
+        tmt_remote::deploy_command::prepare_with_hosting(&request, &mut store, &mut port, None)
+            .unwrap();
+    let interactive = prepared.preview(&request, &mut store, None).unwrap();
+    assert!(interactive.human.contains("Answering y replaces them."));
+    assert!(!interactive.human.contains("Authorizing plan"));
+    let plain = execute(
+        &request,
+        &DeployCommandOptions::default(),
+        &mut store,
+        &mut port,
+        1,
+    )
+    .unwrap();
+    assert_eq!(interactive.json, plain.json);
+    assert_eq!(
+        plain.human.as_bytes(),
+        fixture("deploy_command", "foreign-plan-human.txt")
+    );
+    assert!(!plain.human.contains("Answering y replaces them."));
+    assert!(port.effects.is_empty());
+    port.rules = Some(foreign.clone());
+    let authorized = execute(
+        &request,
+        &DeployCommandOptions {
+            authorize: plain.json["planDigest"].as_str(),
+        },
+        &mut store,
+        &mut port,
+        2,
+    )
+    .unwrap();
+    assert!(authorized.human.contains(&format!(
+        "Authorizing plan {} allows this replacement.",
+        &plain.json["planDigest"].as_str().unwrap()[..12],
+    )));
+    assert!(!authorized.human.contains("Answering y replaces them."));
+}
+
 fn request_for_foreign<'a>(
     plan: &'a tmt_remote::deploy_plan::Plan,
     body: &'a [u8],
