@@ -3130,6 +3130,12 @@ describe('required CI gate', () => {
     // Both shards run the same steps (a YAML alias), so they cannot drift apart.
     expect(job('docker-e2e-shard-1')).toContain('steps: &docker-e2e-steps');
     expect(job('docker-e2e-shard-2')).toContain('steps: *docker-e2e-steps');
+    const dockerSteps = job('docker-e2e-shard-1').split('steps: &docker-e2e-steps')[1];
+    expect(dockerSteps).toContain('uses: actions/setup-node@v4');
+    expect(dockerSteps).toContain('node-version: 22.23.2');
+    expect(dockerSteps).toContain('run: node scripts/run-e2e.mjs');
+    expect(dockerSteps).not.toMatch(/setup-tooling|pnpm|corepack|Install dependencies/);
+
     // `Docker E2E`, the required check, is a gate over exactly the two shards.
     const e2eGate = job('docker-e2e');
     expect(e2eGate).toContain('name: Docker E2E\n');

@@ -66,6 +66,8 @@ Full native scope requires both shards (the first also runs adapter tests), scop
 component work requires the first, and no native selection requires neither.
 The shard guard rejects any retained scenario in zero or two shards. Actual Vitest
 and `e2e-shards.mjs` discovery cover the same retained files.
+The Docker jobs use pinned Node and the built-in-only wrapper on the host;
+pnpm activation and the frozen dependency install belong to the image, not the host.
 
 `Native package matrix` gates
 every selected native result and validates the event's `macos` classification:
