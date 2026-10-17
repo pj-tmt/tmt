@@ -220,6 +220,7 @@ test('a modified click keeps the link: no panel is opened', async ({ page }) => 
 test('open and close each start one View Transition; reduced motion and no support start none', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await wide(page);
   await mount(page);
   await countTransitions(page);
@@ -331,6 +332,7 @@ test('the transition follows the design: shared title .45s, panel in .35s, out .
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chromium', 'View Transitions are checked in Chromium');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await wide(page);
   await mount(page, 'few');
   await recordTransitions(page);
