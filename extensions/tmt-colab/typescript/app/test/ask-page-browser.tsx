@@ -1382,6 +1382,24 @@ export function questionGroup(
   emit();
 }
 
+/** A page whose answer block is the compact chip form, inline in running text. */
+export function chipPage(options: { count?: 1 | 2; darkPage?: boolean } = {}) {
+  const count = options.count ?? 2;
+  const first = `<tmt-question data-id="${id(131)}" data-kind="single" data-agent="Agent 1"><p data-question>Which list version?</p><span data-choice>One column</span><span data-choice>Side categories</span></tmt-question>`;
+  const second = `<tmt-question data-id="${id(132)}" data-kind="short" data-agent="Agent 1"><p data-question>Hide read pages?</p></tmt-question>`;
+  const block =
+    count === 1
+      ? first.replace('data-kind="single"', 'data-kind="single" data-form="chip"')
+      : `<tmt-questions data-id="${id(130)}" data-form="chip"><p data-title>Two list decisions</p>${first}${second}</tmt-questions>`;
+  current = {
+    ...current,
+    threads: [],
+    asks: [],
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><div id="host-text">The list must filter and show each page's state. The two versions differ in where the categories live ${block} and the details follow in the next paragraph of this very long sentence so that it wraps on a narrow screen.</div><p id="after-question">The page continues here.</p>`,
+  };
+  emit();
+}
+
 /** A page of review sections: the parent parser, the real quote owner and the real status coordinator. */
 export function review(
   options: {

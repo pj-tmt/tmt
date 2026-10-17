@@ -76,6 +76,8 @@ pub struct QuestionGroup {
     pub title: Option<String>,
     /// Question IDs, in document order.
     pub questions: Vec<String>,
+    /// The author opted into the compact inline form (`data-form="chip"`); otherwise the block.
+    pub chip: bool,
 }
 
 /// A review section the page shows: its heading is the thread anchor, and `questions` are the
@@ -210,6 +212,7 @@ pub fn codes() -> Vec<&'static str> {
     codes.extend(question::RULES.iter().map(|(code, _)| *code));
     codes.extend(group::RULES.iter().map(|(code, _)| *code));
     codes.extend(group::LABEL_CODES);
+    codes.extend(group::FORM_CODES);
     codes.push("review-page-limit");
     codes.extend(review::RULES.iter().map(|(code, _)| *code));
     // Not a rule of the group itself: a group that passed and shows nothing.

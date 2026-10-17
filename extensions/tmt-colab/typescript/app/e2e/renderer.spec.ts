@@ -1204,6 +1204,153 @@ test('question groups and split slot geometry admit only the current closed resp
   ]);
 });
 
+test('chip-form slots admit only the closed chip request and response', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          Object.assign(window, { chipPort: this.port1 });
+          const post = this.port1.postMessage.bind(this.port1);
+          this.port1.postMessage = (value: { type?: string }) => {
+            if (value.type === 'colab.render.questions')
+              Object.assign(window, { questionRequest: value });
+            if (value.type === 'colab.render.slots') Object.assign(window, { slotRequest: value });
+            post(value);
+          };
+        }
+      },
+    });
+  });
+  await mount(page, '<p>No admitted markup</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: {
+        handle: Pick<
+          Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>>,
+          'questions' | 'slots'
+        >;
+      };
+      chipPort: MessagePort;
+      questionRequest: { groups: unknown[] };
+      slotRequest: { renderId: string; requestId: string; slots: unknown[] };
+    };
+    const id = '80000000-0000-4000-8000-000000000011';
+    const group = '80000000-0000-4000-8000-000000000012';
+    const lone = '80000000-0000-4000-8000-000000000014';
+    const blocks = [
+      { id, title: 'Which heading?' },
+      { id: lone, title: 'Another?' },
+    ];
+    const groups = [
+      { id: group, title: 'Review', questions: [id], active: id, form: 'chip' as const },
+      { id: lone, title: null, questions: [lone], active: lone },
+    ];
+    // An unknown form is refused whole; the admitted chip form reaches the frame.
+    w.probe.handle.questions(blocks, [], [{ ...groups[0], form: 'inline' as 'chip' }, groups[1]]);
+    const refused = w.questionRequest === undefined;
+    w.probe.handle.questions(blocks, [], groups);
+    // A chip size on a block-form group, or alongside `before`, is not a request.
+    w.probe.handle.slots([{ id: lone, height: 10, chip: { width: 100, height: 20 } }]);
+    const blockRequest = w.slotRequest === undefined;
+    w.probe.handle.slots([{ id: group, height: 10, before: 5, chip: { width: 100, height: 20 } }]);
+    const mixedRequest = w.slotRequest === undefined;
+    w.probe.handle.slots([{ id: group, height: 0, chip: { width: 120.2, height: 24.5 } }]);
+    const request = w.slotRequest;
+    const placement = {
+      type: 'colab.render.slots',
+      renderId: request.renderId,
+      requestId: request.requestId,
+    };
+    const slot = {
+      id: group,
+      top: 100,
+      chip: { top: 40, left: 50, width: 121, height: 25 },
+      left: 24,
+      width: 200,
+    };
+    const geometry = () => document.getElementById('probe')!.dataset.slots;
+    const emit = (value: unknown) =>
+      w.chipPort.dispatchEvent(new MessageEvent('message', { data: value }));
+    const rejected = [];
+    for (const bad of [
+      { ...placement, slots: [{ id: group, top: 100 }] },
+      { ...placement, slots: [{ ...slot, chip: undefined }] },
+      { ...placement, slots: [{ ...slot, chip: { ...slot.chip, extra: 1 } }] },
+      { ...placement, slots: [{ ...slot, chip: { top: 1, left: 1, width: 1 } }] },
+      ...[0, -1, NaN, Infinity, 1000001].map((width) => ({
+        ...placement,
+        slots: [{ ...slot, chip: { ...slot.chip, width } }],
+      })),
+      ...[-1, NaN, 1000001].map((top) => ({
+        ...placement,
+        slots: [{ ...slot, chip: { ...slot.chip, top } }],
+      })),
+      { ...placement, slots: [{ ...slot, left: -1 }] },
+      { ...placement, slots: [{ ...slot, width: 0 }] },
+      {
+        ...placement,
+        slots: [
+          { id: group, top: 100, beforeTop: 20, descriptionHeight: 80, left: 24, width: 200 },
+        ],
+      },
+      { ...placement, slots: [{ ...slot, answer: true }] },
+    ]) {
+      emit(bad);
+      rejected.push(geometry());
+    }
+    emit({ ...placement, slots: [slot] });
+    return {
+      refused,
+      blockRequest,
+      mixedRequest,
+      groups: w.questionRequest.groups,
+      slots: request.slots,
+      rejected,
+      placed: geometry(),
+    };
+  });
+  expect(result.refused).toBe(true);
+  expect(result.blockRequest).toBe(true);
+  expect(result.mixedRequest).toBe(true);
+  expect(result.groups).toEqual([
+    {
+      id: '80000000-0000-4000-8000-000000000012',
+      title: 'Review',
+      questions: ['80000000-0000-4000-8000-000000000011'],
+      active: '80000000-0000-4000-8000-000000000011',
+      form: 'chip',
+    },
+    {
+      id: '80000000-0000-4000-8000-000000000014',
+      title: null,
+      questions: ['80000000-0000-4000-8000-000000000014'],
+      active: '80000000-0000-4000-8000-000000000014',
+    },
+  ]);
+  // The size is rounded up and clamped before it leaves the parent.
+  expect(result.slots).toEqual([
+    {
+      id: '80000000-0000-4000-8000-000000000012',
+      height: 0,
+      chip: { width: 121, height: 25 },
+    },
+  ]);
+  expect(result.rejected).toEqual(Array(result.rejected.length).fill('[]'));
+  expect(JSON.parse(result.placed!)).toEqual([
+    {
+      id: '80000000-0000-4000-8000-000000000012',
+      top: 100,
+      chip: { top: 40, left: 50, width: 121, height: 25 },
+      left: 24,
+      width: 200,
+    },
+  ]);
+});
+
 test('proposal slots admit only bounded current unique geometry and cap convergence', async ({
   page,
 }) => {

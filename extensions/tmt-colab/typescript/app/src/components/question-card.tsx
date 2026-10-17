@@ -39,6 +39,7 @@ export function QuestionCard({
   connectionPresentation,
   readOnly = false,
   descriptionHeight = 0,
+  titled = false,
   busy = false,
   recorded = false,
   error,
@@ -61,6 +62,9 @@ export function QuestionCard({
   connectionPresentation?: ComposerConnectionPresentation;
   readOnly?: boolean;
   descriptionHeight?: number;
+  /** Chip-form panel: the parent shows the admitted title as plain text and the page's own
+   * question text stays collapsed. A waiting card then has no band of its own: the panel's has it. */
+  titled?: boolean;
   busy?: boolean;
   recorded?: boolean;
   error?: string;
@@ -112,49 +116,55 @@ export function QuestionCard({
         }
       }}
     >
-      <NeedsYouBar
-        role="status"
-        tone={answer ? 'done' : 'needs'}
-        word={answer ? 'Answered' : 'Please answer'}
-        who={answer ? answer.deviceName : question.agent}
-        why={
-          answer
-            ? Number(answer.at) > 0 && Number.isFinite(Number(answer.at))
-              ? compactRelativeTime(Number(answer.at), now)
-              : 'time unknown'
-            : undefined
-        }
-        detail={
-          answer ? (
-            <span className="question-answer">
-              {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
-            </span>
-          ) : undefined
-        }
-        actions={
-          answer && !readOnly && !changing ? (
-            <BrowserAction
-              label="Change answer"
-              type="button"
-              variant="text"
-              disabled={disabled}
-              onActivate={(event) => {
-                if (event.isTrusted) {
-                  onDraft({ changing: true });
-                  queueMicrotask(() =>
-                    section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
-                  );
-                }
-              }}
-            />
-          ) : undefined
-        }
-      />
-      <div
-        className="question-description-space"
-        style={{ height: descriptionHeight }}
-        aria-hidden="true"
-      />
+      {(!titled || answer) && (
+        <NeedsYouBar
+          role="status"
+          tone={answer ? 'done' : 'needs'}
+          word={answer ? 'Answered' : 'Please answer'}
+          who={answer ? answer.deviceName : question.agent}
+          why={
+            answer
+              ? Number(answer.at) > 0 && Number.isFinite(Number(answer.at))
+                ? compactRelativeTime(Number(answer.at), now)
+                : 'time unknown'
+              : undefined
+          }
+          detail={
+            answer ? (
+              <span className="question-answer">
+                {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
+              </span>
+            ) : undefined
+          }
+          actions={
+            answer && !readOnly && !changing ? (
+              <BrowserAction
+                label="Change answer"
+                type="button"
+                variant="text"
+                disabled={disabled}
+                onActivate={(event) => {
+                  if (event.isTrusted) {
+                    onDraft({ changing: true });
+                    queueMicrotask(() =>
+                      section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
+                    );
+                  }
+                }}
+              />
+            ) : undefined
+          }
+        />
+      )}
+      {titled ? (
+        <p className="question-title">{question.title}</p>
+      ) : (
+        <div
+          className="question-description-space"
+          style={{ height: descriptionHeight }}
+          aria-hidden="true"
+        />
+      )}
       <div className="question-controls">
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (

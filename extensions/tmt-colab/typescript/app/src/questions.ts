@@ -30,6 +30,8 @@ export interface QuestionGroup {
   id: string;
   title: string | null;
   questions: string[];
+  /** `chip`: the author opted into the compact inline form (`data-form="chip"`); absent = block. */
+  form?: 'chip';
 }
 /** An admitted review section: the authored heading is its quote anchor. `questions` lists the
  * admitted questions inside it, in document order; answering all of them closes the section. */
@@ -84,6 +86,9 @@ export type QuestionFindingCode =
   | 'group-empty'
   | 'group-label-too-long'
   | 'group-label-control'
+  | 'group-form-invalid'
+  | 'question-form-invalid'
+  | 'question-form-member'
   | 'review-page-limit'
   | 'review-id-invalid'
   | 'review-id-duplicate'
@@ -204,6 +209,13 @@ const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) 
   ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
   ['group-label-control', hasControl],
 ];
+/** `data-form` is opt-in and has one value: `chip`. Anything else is a warning and the block form. */
+const formOf = (node: Element): 'chip' | 'invalid' | undefined =>
+  !node.hasAttribute('data-form')
+    ? undefined
+    : node.getAttribute('data-form') === 'chip'
+      ? 'chip'
+      : 'invalid';
 /** Every code the checks can report, for the vector coverage test. */
 export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   'question-page-limit',
@@ -212,6 +224,9 @@ export const QUESTION_FINDING_CODES: readonly QuestionFindingCode[] = [
   ...GROUP_RULES.map(([code]) => code),
   'group-empty',
   ...LABEL_RULES.map(([code]) => code),
+  'group-form-invalid',
+  'question-form-invalid',
+  'question-form-member',
   'review-page-limit',
   ...REVIEW_RULES.map(([code]) => code),
 ];
@@ -358,6 +373,15 @@ export function inspectQuestions(source: string): QuestionInspection {
         authoredLabel && !badLabel.length
           ? authoredLabel
           : `Q${questions.filter((question) => question.group === idOf(group)).length + 1}`;
+      // The group decides the form; a member's own attribute is ignored.
+      if (node.hasAttribute('data-form'))
+        findings.push({
+          element: 'tmt-question',
+          ordinal: index + 1,
+          id: authored(node),
+          severity: 'warning',
+          code: 'question-form-member',
+        });
     }
     const question: Question = {
       id,
@@ -424,16 +448,42 @@ export function inspectQuestions(source: string): QuestionInspection {
           severity: 'ignored',
           code: 'group-empty',
         });
-      else
+      else {
+        const form = formOf(node);
+        if (form === 'invalid')
+          findings.push({
+            element: 'tmt-questions',
+            ordinal: groupNodes.indexOf(node) + 1,
+            id: authored(node),
+            severity: 'warning',
+            code: 'group-form-invalid',
+          });
         groups.push({
           id: idOf(node),
           title: groupCandidates.get(node)!.title,
           questions: members.map((question) => question.id),
+          ...(form === 'chip' ? { form } : {}),
         });
+      }
     } else {
       const question = admittedNodes.get(node);
-      if (question && !question.group)
-        groups.push({ id: question.id, title: null, questions: [question.id] });
+      if (question && !question.group) {
+        const form = formOf(node);
+        if (form === 'invalid')
+          findings.push({
+            element: 'tmt-question',
+            ordinal: nodes.indexOf(node) + 1,
+            id: authored(node),
+            severity: 'warning',
+            code: 'question-form-invalid',
+          });
+        groups.push({
+          id: question.id,
+          title: null,
+          questions: [question.id],
+          ...(form === 'chip' ? { form } : {}),
+        });
+      }
     }
   }
   // Marker warnings in a structurally skipped subtree are also silent.

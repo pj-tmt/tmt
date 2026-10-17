@@ -60,7 +60,14 @@ fn every_case_gets_the_verdict_the_browser_gave() {
         let groups: Vec<Value> = report
             .groups
             .iter()
-            .map(|g| json!({"id": g.id, "title": g.title, "questions": g.questions}))
+            .map(|g| {
+                let mut group = json!({"id": g.id, "title": g.title, "questions": g.questions});
+                // Only an opted-in group carries `form`.
+                if g.chip {
+                    group["form"] = json!("chip");
+                }
+                group
+            })
             .collect();
         assert_eq!(
             case["admitted"]["groups"].as_array().unwrap(),

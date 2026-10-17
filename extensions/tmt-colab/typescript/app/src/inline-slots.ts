@@ -20,11 +20,15 @@ export function useInlineSlots({
   current.current = { renderer, host };
   useEffect(() => {
     if (state !== 'ready') return;
-    const nodes = [
-      ...(current.current.host.current?.parentElement?.querySelectorAll<HTMLElement>(
-        '[data-inline-slot]',
-      ) ?? []),
-    ];
+    const scope = current.current.host.current?.parentElement;
+    const nodes = [...(scope?.querySelectorAll<HTMLElement>('[data-inline-slot]') ?? [])];
+    // A chip-form group is two nodes: the chip the frame leaves a placeholder for, and the panel.
+    const chips = new Map(
+      [...(scope?.querySelectorAll<HTMLElement>('[data-inline-chip]') ?? [])].map((node) => [
+        node.dataset.inlineChip!,
+        node,
+      ]),
+    );
     let frame: number | undefined;
     let previous = '';
     const measure = () => {
@@ -37,6 +41,13 @@ export function useInlineSlots({
         )
         .map((node) => {
           const box = node.getBoundingClientRect();
+          const chip = chips.get(node.dataset.inlineSlot!)?.getBoundingClientRect();
+          if (chip)
+            return {
+              id: node.dataset.inlineSlot!,
+              height: Math.min(2000, Math.ceil(box.height)),
+              chip: { width: Math.ceil(chip.width), height: Math.ceil(chip.height) },
+            };
           const gap = [...node.querySelectorAll<HTMLElement>('.question-description-space')].find(
             (gap) => !gap.closest('[hidden]'),
           );
@@ -59,6 +70,7 @@ export function useInlineSlots({
       if (frame === undefined) frame = requestAnimationFrame(measure);
     });
     nodes.forEach((node) => observer.observe(node));
+    chips.forEach((node) => observer.observe(node));
     measure();
     return () => {
       observer.disconnect();

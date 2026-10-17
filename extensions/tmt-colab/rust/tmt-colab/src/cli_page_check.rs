@@ -120,6 +120,8 @@ fn message(code: &str) -> String {
         "group-empty" => "No question of this group is shown, so the group is ignored.".into(),
         "group-label-too-long" => format!("data-label is over {GROUP_LABEL_POINTS} characters; the tab shows Q<n> instead."),
         "group-label-control" => "data-label contains a control character; the tab shows Q<n> instead.".into(),
+        "group-form-invalid" | "question-form-invalid" => "data-form has one value, chip (lowercase); the block is shown as the full block.".into(),
+        "question-form-member" => "data-form on a question inside a group is ignored; put it on the tmt-questions group.".into(),
         "review-page-limit" => format!(
             "More than {REVIEW_PAGE} review sections on the page: the browser shows none of them. Keep at most {REVIEW_PAGE}."
         ),

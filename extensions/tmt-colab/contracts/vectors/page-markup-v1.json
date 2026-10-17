@@ -4575,6 +4575,214 @@
       ]
     },
     {
+    "name": "group-form-chip",
+    "scope": "parser",
+    "why": "A group with data-form=\"chip\" is admitted as the chip form.",
+    "source": [
+      "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\" data-form=\"chip\">",
+      "<p data-title>Decisions</p>",
+      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+      "  <p data-question>Question</p>",
+      "</tmt-question>",
+      "</tmt-questions>"
+    ],
+    "admitted": {
+      "questions": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "kind": "short",
+          "title": "Question",
+          "choices": [],
+          "other": false,
+          "agent": "",
+          "group": "10000000-0000-4000-8000-000000000100",
+          "label": "Q1"
+        }
+      ],
+      "groups": [
+        {
+          "id": "10000000-0000-4000-8000-000000000100",
+          "title": "Decisions",
+          "questions": [
+            "10000000-0000-4000-8000-000000000001"
+          ],
+          "form": "chip"
+        }
+      ]
+    },
+    "findings": []
+    },
+    {
+    "name": "lone-form-chip",
+    "scope": "parser",
+    "why": "A lone question with data-form=\"chip\" is the chip form of its internal group of one.",
+    "source": [
+      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"chip\">",
+      "  <p data-question>Question</p>",
+      "</tmt-question>"
+    ],
+    "admitted": {
+      "questions": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "kind": "short",
+          "title": "Question",
+          "choices": [],
+          "other": false,
+          "agent": "",
+          "group": null,
+          "label": null
+        }
+      ],
+      "groups": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "title": null,
+          "questions": [
+            "10000000-0000-4000-8000-000000000001"
+          ],
+          "form": "chip"
+        }
+      ]
+    },
+    "findings": []
+    },
+    {
+    "name": "group-form-invalid",
+    "scope": "parser",
+    "why": "Any data-form value other than chip on a group is a warning and the block form.",
+    "source": [
+      "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\" data-form=\"inline\">",
+      "<p data-title>Decisions</p>",
+      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\">",
+      "  <p data-question>Question</p>",
+      "</tmt-question>",
+      "</tmt-questions>"
+    ],
+    "admitted": {
+      "questions": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "kind": "short",
+          "title": "Question",
+          "choices": [],
+          "other": false,
+          "agent": "",
+          "group": "10000000-0000-4000-8000-000000000100",
+          "label": "Q1"
+        }
+      ],
+      "groups": [
+        {
+          "id": "10000000-0000-4000-8000-000000000100",
+          "title": "Decisions",
+          "questions": [
+            "10000000-0000-4000-8000-000000000001"
+          ]
+        }
+      ]
+    },
+    "findings": [
+      {
+        "element": "tmt-questions",
+        "ordinal": 1,
+        "id": "10000000-0000-4000-8000-000000000100",
+        "line": 1,
+        "severity": "warning",
+        "code": "group-form-invalid"
+      }
+    ]
+    },
+    {
+    "name": "question-form-invalid",
+    "scope": "parser",
+    "why": "The value is exact and lowercase: data-form=\"Chip\" on a lone question is a warning and the block form.",
+    "source": [
+      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"Chip\">",
+      "  <p data-question>Question</p>",
+      "</tmt-question>"
+    ],
+    "admitted": {
+      "questions": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "kind": "short",
+          "title": "Question",
+          "choices": [],
+          "other": false,
+          "agent": "",
+          "group": null,
+          "label": null
+        }
+      ],
+      "groups": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "title": null,
+          "questions": [
+            "10000000-0000-4000-8000-000000000001"
+          ]
+        }
+      ]
+    },
+    "findings": [
+      {
+        "element": "tmt-question",
+        "ordinal": 1,
+        "id": "10000000-0000-4000-8000-000000000001",
+        "line": 1,
+        "severity": "warning",
+        "code": "question-form-invalid"
+      }
+    ]
+    },
+    {
+    "name": "question-form-member",
+    "scope": "parser",
+    "why": "A group member carrying data-form is a warning; the group decides the form.",
+    "source": [
+      "<tmt-questions data-id=\"10000000-0000-4000-8000-000000000100\">",
+      "<p data-title>Decisions</p>",
+      "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-form=\"chip\">",
+      "  <p data-question>Question</p>",
+      "</tmt-question>",
+      "</tmt-questions>"
+    ],
+    "admitted": {
+      "questions": [
+        {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "kind": "short",
+          "title": "Question",
+          "choices": [],
+          "other": false,
+          "agent": "",
+          "group": "10000000-0000-4000-8000-000000000100",
+          "label": "Q1"
+        }
+      ],
+      "groups": [
+        {
+          "id": "10000000-0000-4000-8000-000000000100",
+          "title": "Decisions",
+          "questions": [
+            "10000000-0000-4000-8000-000000000001"
+          ]
+        }
+      ]
+    },
+    "findings": [
+      {
+        "element": "tmt-question",
+        "ordinal": 1,
+        "id": "10000000-0000-4000-8000-000000000001",
+        "line": 3,
+        "severity": "warning",
+        "code": "question-form-member"
+      }
+    ]
+    },
+    {
       "name": "group-label-empty-fallback",
       "scope": "parser",
       "why": "An empty optional label uses the same fallback as an absent label.",

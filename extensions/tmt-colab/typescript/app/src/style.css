@@ -1352,6 +1352,11 @@ footer {
   min-width: 0;
   pointer-events: none;
 }
+.question-chip-inline {
+  right: auto;
+  width: max-content;
+  padding: 0;
+}
 .question-inline .tmt-ui-tabs,
 .question-group-card {
   background: transparent;
@@ -1388,6 +1393,14 @@ footer {
 }
 .question-description-space {
   pointer-events: none;
+}
+.question-title {
+  margin: 0;
+  padding: 12px 16px 0;
+  background: var(--tmt-ui-surface-sheet);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
 }
 .question-group-footer:empty {
   display: none;

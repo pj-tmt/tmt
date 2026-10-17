@@ -64,6 +64,7 @@
             slotRequestId = '';
           const spacers = new Map();
           const beforeSpacers = new Map();
+          const chipSpacers = new Map();
           const vanished = new Set();
           let imageRequestId = '';
           const images = new Map();
@@ -234,6 +235,8 @@
             [data-colab-question]>[data-question]{margin:0!important;font:inherit!important;font-weight:500!important;color:inherit!important}
             [data-colab-question]>[data-question][data-colab-question-number]::before{content:attr(data-colab-question-number) " ";font-weight:400;color:color-mix(in srgb,currentColor 55%,transparent)}
             [data-colab-question-active="false"]{display:none!important}
+            [data-colab-chip]:not([hidden]){display:none!important}
+            [data-colab-chip-slot]{display:inline-block;vertical-align:middle;box-sizing:border-box}
             [data-colab-review]{display:block}
             [data-colab-review-closed="true"]{opacity:.55!important}
           `;
@@ -576,6 +579,92 @@
                 `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"]`,
               );
               const group = questionGroups.find((group) => group.id === slot.id);
+              if (group?.form === 'chip') {
+                // The block collapses to an inline placeholder the parent draws its chip over; the
+                // open panel's spacer follows the placeholder's containing block, so the text
+                // below reflows and nothing is overlaid.
+                const target = matches[0];
+                const chip = slot.chip;
+                if (innerScroll || matches.length !== 1 || !target || !chip) {
+                  chipSpacers.get(slot.id)?.remove();
+                  chipSpacers.delete(slot.id);
+                  spacers.get(slot.id)?.remove();
+                  spacers.delete(slot.id);
+                  continue;
+                }
+                let marker = chipSpacers.get(slot.id);
+                if (marker && (!marker.isConnected || marker.nextElementSibling !== target)) {
+                  marker.remove();
+                  chipSpacers.delete(slot.id);
+                  marker = undefined;
+                }
+                if (!marker) {
+                  marker = document.createElement('span');
+                  marker.dataset.colabChipSlot = '';
+                  marker.setAttribute('aria-hidden', 'true');
+                  target.before(marker);
+                  chipSpacers.set(slot.id, marker);
+                }
+                marker.style.width = `${chip.width}px`;
+                marker.style.height = `${chip.height}px`;
+                let block = marker.parentElement;
+                while (
+                  block &&
+                  block !== document.body &&
+                  block !== document.documentElement &&
+                  /^(inline|contents)/.test(getComputedStyle(block).display)
+                )
+                  block = block.parentElement;
+                const edge =
+                  block && block !== document.body && block !== document.documentElement
+                    ? block
+                    : marker;
+                let panel = spacers.get(slot.id);
+                if (panel && (!panel.isConnected || panel.previousElementSibling !== edge)) {
+                  panel.remove();
+                  spacers.delete(slot.id);
+                  panel = undefined;
+                }
+                if (!panel) {
+                  panel = document.createElement('div');
+                  panel.dataset.colabProposalSlot = '';
+                  panel.setAttribute('aria-hidden', 'true');
+                  edge.after(panel);
+                  spacers.set(slot.id, panel);
+                }
+                const panelHeight = `${slot.height}px`;
+                if (panel.style.minHeight !== panelHeight) panel.style.minHeight = panelHeight;
+                panel.style.display = 'block';
+                const box = marker.getBoundingClientRect();
+                const column = edge.getBoundingClientRect();
+                const style = edge === marker ? null : getComputedStyle(edge);
+                const inset = style
+                  ? [parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0]
+                  : [0, 0];
+                const width = column.width - inset[0] - inset[1];
+                const top = panel.getBoundingClientRect().top + scrollY;
+                if (
+                  box.width &&
+                  box.height &&
+                  width > 0 &&
+                  Number.isFinite(top) &&
+                  top >= 0 &&
+                  top <= 1000000
+                )
+                  positions.push({
+                    id: slot.id,
+                    top,
+                    chip: {
+                      top: box.top + scrollY,
+                      left: box.left + scrollX,
+                      width: box.width,
+                      height: box.height,
+                    },
+                    left: column.left + inset[0],
+                    width,
+                  });
+                continue;
+              }
               const active =
                 group && document.querySelector(`tmt-question[data-id="${group.active}"]`);
               const target = group ? active : matches[0];
@@ -725,6 +814,14 @@
                 if (group.title !== null) {
                   const groups = document.querySelectorAll(`tmt-questions[data-id="${group.id}"]`);
                   if (groups.length === 1) groups[0].setAttribute('data-colab-question-group', '');
+                }
+                if (group.form === 'chip') {
+                  const holder = document.querySelectorAll(
+                    group.title !== null
+                      ? `tmt-questions[data-id="${group.id}"]`
+                      : `tmt-question[data-id="${group.id}"]`,
+                  );
+                  if (holder.length === 1) holder[0].setAttribute('data-colab-chip', '');
                 }
                 for (const id of group.questions) {
                   const members = document.querySelectorAll(`tmt-question[data-id="${id}"]`);
@@ -1046,7 +1143,8 @@
               v.groups.every(
                 (group) =>
                   group &&
-                  Object.keys(group).length === 4 &&
+                  (Object.keys(group).length === 4 ||
+                    (Object.keys(group).length === 5 && group.form === 'chip')) &&
                   typeof group.id === 'string' &&
                   /^[0-9a-f-]{36}$/.test(group.id) &&
                   (group.title === null ||
@@ -1136,7 +1234,18 @@
                       Object.keys(s).includes('before') &&
                       Number.isInteger(s.before) &&
                       s.before >= 0 &&
-                      s.before <= 2000)) &&
+                      s.before <= 2000) ||
+                    (Object.keys(s).length === 3 &&
+                      s.chip &&
+                      typeof s.chip === 'object' &&
+                      !Array.isArray(s.chip) &&
+                      Object.keys(s.chip).length === 2 &&
+                      Number.isInteger(s.chip.width) &&
+                      s.chip.width >= 1 &&
+                      s.chip.width <= 1000 &&
+                      Number.isInteger(s.chip.height) &&
+                      s.chip.height >= 1 &&
+                      s.chip.height <= 200)) &&
                   typeof s.id === 'string' &&
                   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.id) &&
                   Number.isInteger(s.height) &&
@@ -1151,6 +1260,11 @@
                   beforeSpacers.get(id)?.remove();
                   beforeSpacers.delete(id);
                   vanished.delete(id);
+                }
+              for (const [id, marker] of chipSpacers)
+                if (!v.slots.some((s) => s.id === id)) {
+                  marker.remove();
+                  chipSpacers.delete(id);
                 }
               slots = v.slots;
               slotRequestId = v.requestId;
