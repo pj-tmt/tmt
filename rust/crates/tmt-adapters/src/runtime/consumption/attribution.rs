@@ -50,6 +50,26 @@ pub(super) fn model(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// The most a provider's service tier id may be: lowercase words joined by `_`.
+const MAX_TIER_BYTES: usize = 24;
+
+/// The provider's own tier id (`default`, `priority`), or None when it is not a
+/// plain lowercase id: an unrecognized shape is unknown, not a guess.
+pub(super) fn service_tier(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .filter(|tier| valid_service_tier(tier))
+        .map(str::to_owned)
+}
+
+pub(super) fn valid_service_tier(tier: &str) -> bool {
+    tier.len() <= MAX_TIER_BYTES
+        && tier.starts_with(|first: char| first.is_ascii_lowercase())
+        && tier
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+}
+
 pub(super) fn valid(rows: &[ModelUsage], total: Counts) -> bool {
     if rows.len() > MAX_MODELS {
         return false;
@@ -113,7 +133,14 @@ pub(super) fn add(
     }
 }
 
-type CodexEvidence = (Option<u64>, Option<String>, Option<Vec<ModelUsage>>);
+/// Cache-write counter, newest turn model, the increments since the previous
+/// read, and the service tier set by the newest settings event in the tail.
+type CodexEvidence = (
+    Option<u64>,
+    Option<String>,
+    Option<Vec<ModelUsage>>,
+    Option<String>,
+);
 
 /// TurnContextItem.model is the effective turn model. Rate-limit model aliases
 /// and last_token_usage are not substitutes for its cumulative counter delta.
@@ -128,6 +155,7 @@ pub(super) fn codex(
     let mut model_id = None;
     let mut context_turn = None;
     let mut newest_model = None;
+    let mut tier = None;
     let mut write = None;
     let mut counts = previous.map(|state| state.value.counts());
     let mut old_write = previous.and_then(|state| state.value.cache_write_tokens);
@@ -162,6 +190,12 @@ pub(super) fn codex(
                 model_id = None;
                 context_turn = None;
             }
+        } else if entry["type"] == "event_msg"
+            && entry["payload"]["type"] == "thread_settings_applied"
+        {
+            // A setting holds until the next one, so the newest event decides;
+            // an invalid newest value is unknown rather than the older one.
+            tier = service_tier(&entry["payload"]["thread_settings"]["service_tier"]);
         } else if entry["type"] == "event_msg" && entry["payload"]["type"] == "token_count" {
             let next = codex_counts(&entry)?;
             write = entry["payload"]["info"]["total_token_usage"]["cache_write_input_tokens"]
@@ -206,5 +240,5 @@ pub(super) fn codex(
             }
         }
     }
-    Some((write, newest_model, rows))
+    Some((write, newest_model, rows, tier))
 }

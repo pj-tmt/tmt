@@ -1,5 +1,5 @@
 {
-  "description": "Synthetic normalized Codex observations; core and Ops share this vector. Three observations carry rate-limit windows. The 21000 ms sample is open and must not replace the included seed watermark. No provider transcript content.",
+  "description": "Synthetic normalized Codex observations; core and Ops share this vector. Three observations carry rate-limit windows, the Codex credit balance and the service tier; they appear on `latest` only, never in a bucket or the rollup. The 21000 ms sample is open and must not replace the included seed watermark. No provider transcript content.",
   "observations": [
     {
       "sampleAtMs": 6000,
@@ -38,7 +38,14 @@
               "resetsAtMs": 90000000
             }
           ]
-        }
+        },
+        "credits": {
+          "observedAtMs": 10000,
+          "balance": "101.5",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "serviceTier": "default"
       }
     },
     {
@@ -63,7 +70,14 @@
               "resetsAtMs": 90000000
             }
           ]
-        }
+        },
+        "credits": {
+          "observedAtMs": 15000,
+          "balance": "100.25",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "serviceTier": "priority"
       }
     },
     {
@@ -88,7 +102,14 @@
               "resetsAtMs": 90000000
             }
           ]
-        }
+        },
+        "credits": {
+          "observedAtMs": 20000,
+          "balance": "99.75",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "serviceTier": "priority"
       }
     }
   ],
@@ -139,7 +160,14 @@
                   "resetsAtMs": 90000000
                 }
               ]
-            }
+            },
+            "credits": {
+              "observedAtMs": 15000,
+              "balance": "100.25",
+              "hasCredits": true,
+              "unlimited": false
+            },
+            "serviceTier": "priority"
           }
         },
         "windows": [
@@ -215,7 +243,14 @@
             "resetsAtMs": 90000000
           }
         ]
-      }
+      },
+      "credits": {
+        "observedAtMs": 20000,
+        "balance": "99.75",
+        "hasCredits": true,
+        "unlimited": false
+      },
+      "serviceTier": "priority"
     }
   },
   "expectedLiveDelta": {

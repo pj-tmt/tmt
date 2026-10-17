@@ -186,8 +186,15 @@ impl Document {
                 return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
             }
             // Optional evidence goes newest first, so a later addition never
-            // evicts what earlier documents already carried: limits, then
-            // attribution, then the cache-write counter.
+            // evicts what earlier documents already carried: credits and tier,
+            // then limits, then attribution, then the cache-write counter.
+            consumption.value.credits = None;
+            consumption.value.service_tier = None;
+            fields.insert("consumption".into(), consumption.document());
+            let document = Value::Object(fields.clone()).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(CONSUMPTION_STATE_VERSION, &document).ok();
+            }
             consumption.value.rate_limits = None;
             fields.insert("consumption".into(), consumption.document());
             let document = Value::Object(fields.clone()).to_string();

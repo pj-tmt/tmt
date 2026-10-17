@@ -1209,3 +1209,241 @@ fn claude_never_reports_rate_limits() {
             .contains_key("rateLimits")
     );
 }
+
+fn codex_credited(output: u64, timestamp: &str, credits: Value) -> String {
+    let mut limits = weekly_used(78.0);
+    if !credits.is_null() {
+        limits["credits"] = credits;
+    }
+    codex_limited(output, timestamp, limits)
+}
+
+fn credits_of(balance: &str) -> Value {
+    json!({"balance": balance, "has_credits": true, "unlimited": false})
+}
+
+/// The Codex settings event whose `service_tier` the driver reads.
+fn settings(tier: Value) -> String {
+    format!(
+        "{}\n",
+        json!({"timestamp": "2026-10-10T03:48:00.000Z", "type": "event_msg",
+               "payload": {"type": "thread_settings_applied", "thread_settings": {"service_tier": tier}}})
+    )
+}
+
+#[test]
+fn codex_credits_and_tier_follow_the_newest_evidence_and_never_disturb_the_counters() {
+    let root = TestDirectory::new();
+    let path = root.path.join("credits.jsonl");
+    // A recorded line from before the provider reported either has neither.
+    fs::write(&path, CODEX).unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    assert_eq!(
+        (&first.value.credits, &first.value.service_tier),
+        (&None, &None)
+    );
+
+    append(&path, &settings(json!("default")));
+    append(
+        &path,
+        &codex_credited(6_910_969, "2026-10-10T03:48:29.763Z", credits_of("100.5")),
+    );
+    let read = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    let credits = read.value.credits.clone().unwrap();
+    assert_eq!(credits.observed_at_ms, 1_791_604_109_763);
+    assert_eq!(credits.balance, "100.5");
+    assert!(credits.has_credits && !credits.unlimited);
+    assert_eq!(read.value.service_tier.as_deref(), Some("default"));
+    assert_eq!(read.value.output_tokens, 6_910_969);
+    assert!(read.value.valid());
+
+    // The same file read again is the same observation.
+    assert_eq!(
+        codex(&root.path, &path, Some(&read), NOW + 2),
+        Some(read.clone())
+    );
+
+    // The newest setting and the newest line win.
+    append(&path, &settings(json!("priority")));
+    append(
+        &path,
+        &codex_credited(6_910_970, "2026-10-10T04:10:00.000Z", credits_of("99.25")),
+    );
+    let moved = codex(&root.path, &path, Some(&read), NOW + 3).unwrap();
+    assert_eq!(moved.value.service_tier.as_deref(), Some("priority"));
+    assert_eq!(moved.value.credits.as_ref().unwrap().balance, "99.25");
+    assert_eq!(moved.value.sequence, read.value.sequence + 1);
+
+    // A setting written after the last counter still changes the tier, and the
+    // balance stays the one the newest counter line carried.
+    append(&path, &settings(json!("default")));
+    let switched = codex(&root.path, &path, Some(&moved), NOW + 4).unwrap();
+    assert_eq!(switched.value.service_tier.as_deref(), Some("default"));
+    assert_eq!(switched.value.credits, moved.value.credits);
+    assert_eq!(switched.value.output_tokens, moved.value.output_tokens);
+
+    // An unusable newest setting is unknown, never the older tier or `default`.
+    for bad in [
+        json!("Fast"),
+        json!("fast mode"),
+        json!(7),
+        json!(null),
+        json!(""),
+    ] {
+        append(&path, &settings(bad.clone()));
+        let unknown = codex(&root.path, &path, Some(&switched), NOW + 5).unwrap();
+        assert_eq!(unknown.value.service_tier, None, "{bad}");
+        assert!(unknown.value.valid() && !unknown.value.gap);
+        let kept = fs::metadata(&path).unwrap().len();
+        let line = settings(bad).len() as u64;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(kept - line)
+            .unwrap();
+    }
+
+    // Credits that stop appearing are absent; an invalid object costs only itself.
+    let kept = fs::metadata(&path).unwrap().len();
+    for credits in [
+        Value::Null,
+        credits_of("12e3"),
+        json!({"balance": 5, "has_credits": true, "unlimited": false}),
+        json!({"balance": "5", "has_credits": true}),
+    ] {
+        append(
+            &path,
+            &codex_credited(6_910_971, "2026-10-10T04:30:00.000Z", credits.clone()),
+        );
+        let rejected = codex(&root.path, &path, Some(&switched), NOW + 6).unwrap();
+        assert_eq!(rejected.value.credits, None, "{credits}");
+        assert_eq!(rejected.value.output_tokens, 6_910_971);
+        assert!(rejected.value.valid() && !rejected.value.gap);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(kept)
+            .unwrap();
+    }
+}
+
+#[test]
+fn the_first_codex_observation_reads_credits_and_the_tier_set_before_it() {
+    let root = TestDirectory::new();
+    let path = root.path.join("baseline.jsonl");
+    fs::write(&path, settings(json!("priority"))).unwrap();
+    append(
+        &path,
+        &codex_credited(6_910_969, "2026-10-10T03:48:29.763Z", credits_of("7")),
+    );
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    assert_eq!(first.value.service_tier.as_deref(), Some("priority"));
+    assert_eq!(first.value.credits.as_ref().unwrap().balance, "7");
+    // No settings event in the bounded tail means unknown.
+    fs::write(
+        &path,
+        codex_credited(6_910_969, "2026-10-10T03:48:29.763Z", credits_of("7")),
+    )
+    .unwrap();
+    let bare = codex(&root.path, &path, None, NOW).unwrap();
+    assert_eq!(bare.value.service_tier, None);
+    assert!(bare.value.credits.is_some());
+}
+
+#[test]
+fn credits_and_tier_appear_in_the_public_document_only_when_present() {
+    let root = TestDirectory::new();
+    let path = root.path.join("document.jsonl");
+    fs::write(&path, CODEX).unwrap();
+    let bare = codex(&root.path, &path, None, NOW).unwrap();
+    let document = bare.value.document();
+    assert!(!document.as_object().unwrap().contains_key("credits"));
+    assert!(!document.as_object().unwrap().contains_key("serviceTier"));
+
+    append(&path, &settings(json!("priority")));
+    append(
+        &path,
+        &codex_credited(6_910_969, "2026-10-10T03:48:29.763Z", credits_of("3.5")),
+    );
+    let document = codex(&root.path, &path, Some(&bare), NOW + 1)
+        .unwrap()
+        .value
+        .document();
+    assert_eq!(document["serviceTier"], "priority");
+    assert_eq!(
+        document["credits"],
+        json!({"observedAtMs": 1_791_604_109_763u64, "balance": "3.5", "hasCredits": true, "unlimited": false})
+    );
+
+    // A stored document with an unusable value is refused whole, as any other.
+    let mut state = codex(&root.path, &path, Some(&bare), NOW + 1).unwrap();
+    state.value.service_tier = Some("Priority".into());
+    assert!(!state.value.valid());
+    state.value.service_tier = Some("priority".into());
+    state.value.credits.as_mut().unwrap().balance = "3.5.1".into();
+    assert!(!state.value.valid());
+}
+
+#[test]
+fn credits_and_tier_are_the_first_optional_evidence_to_go_under_the_opaque_bound() {
+    use crate::runtime::driver_state;
+    use tmt_core::binding::session::DriverState;
+    let root = TestDirectory::new();
+    let path = root.path.join("bound.jsonl");
+    fs::write(&path, CODEX).unwrap();
+    let first = codex(&root.path, &path, None, NOW).unwrap();
+    append(&path, &settings(json!("priority")));
+    append(
+        &path,
+        &codex_credited(6_910_969, "2026-10-10T03:48:29.763Z", credits_of("100.5")),
+    );
+    let full = codex(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    let encoded = driver_state::after_observation(None, Some(full.clone()), None).unwrap();
+    assert_eq!(
+        driver_state::state_consumption(&encoded),
+        Some(full.clone()),
+        "a typical Codex state keeps credits, tier and limits in the opaque bound"
+    );
+
+    let (mut credits_lost_alone, mut limits_lost) = (false, false);
+    for length in 1..=118 {
+        let mut state = full.clone();
+        state.value.input_tokens = 4;
+        state.value.output_tokens = 0;
+        state.value.cached_input_tokens = 0;
+        state.value.cache_write_tokens = Some(0);
+        state.value.delta_by_model = Some(
+            (0..4)
+                .map(|i| ModelUsage {
+                    model_id: format!("model-{i}-{}", "x".repeat(length)),
+                    input_tokens: 1,
+                    output_tokens: 0,
+                    cached_input_tokens: 0,
+                    cache_write_tokens: Some(0),
+                })
+                .collect(),
+        );
+        let launch = driver_state::after_start(Some(&"m".repeat(128)), None, None).unwrap();
+        let bounded =
+            driver_state::after_observation(None, Some(state.clone()), Some(&launch)).unwrap();
+        assert!(bounded.document().len() <= DriverState::MAXIMUM_BYTES);
+        let restored = driver_state::state_consumption(&bounded).unwrap();
+        assert_eq!(restored.value.counts(), state.value.counts(), "{length}");
+        // Credits and tier go together, and before the limits they were added after.
+        assert_eq!(
+            restored.value.credits.is_some(),
+            restored.value.service_tier.is_some(),
+            "{length}"
+        );
+        if restored.value.rate_limits.is_none() {
+            assert!(restored.value.credits.is_none(), "{length}");
+        }
+        credits_lost_alone |=
+            restored.value.credits.is_none() && restored.value.rate_limits.is_some();
+        limits_lost |= restored.value.rate_limits.is_none();
+    }
+    assert!(credits_lost_alone, "credits and tier go before the limits");
+    assert!(limits_lost, "the sweep must reach the limits");
+}

@@ -353,6 +353,26 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   counter and are never summed. They are the first optional evidence omitted under
   the existing opaque-state size bound. `latest.consumption` carries them; buckets
   never do.
+- `consumption.credits` is `{observedAtMs,balance,hasCredits,unlimited}` from the
+  `rate_limits.credits` object of the same newest accepted Codex source line as the
+  counters. It is absent for Claude, when that line carries none and when any field is
+  invalid (never partial). `balance` is the provider's decimal text in its credit unit
+  (`[0-9]{1,15}` with an optional fraction of 1–12 digits). It stays text because it can
+  exceed what a JavaScript number holds exactly, and Core does no arithmetic on it.
+  `observedAtMs` is that line's own time; `hasCredits` and `unlimited` are the
+  provider's booleans. Credits describe the account, so seats on one account repeat
+  them: a consumer takes the newest `observedAtMs` and never sums them.
+- `consumption.serviceTier` is the provider's tier id (Codex reports `default` or
+  `priority`; lowercase letters and `_`, at most 24 bytes). Codex writes it in a
+  `thread_settings_applied` event, not on the counter line, so Core reads the newest
+  such event in the bounded tail it already reads for model attribution. It is the
+  setting in force at the accepted read, not a per-token attribution: an earlier
+  request may have run under another setting. It is absent for Claude, when the tail
+  holds no settings event and when the newest value is not a plain id; **absent means
+  unknown, never `default`**.
+- `credits` and `serviceTier` are optional evidence omitted before `rateLimits` under
+  the existing opaque-state size bound. `latest.consumption` and `resume.consumption`
+  carry them; history buckets and the rollup never do.
 - History buckets optionally add `cacheWriteTokens` and `byModel` with the same
   entry shape, containing **deltas for that bucket**, including all accepted
   model changes. Attribution is emitted only when it covers the whole counted
@@ -812,7 +832,8 @@ must use this public projection rather than inspect core state.
 Public `ls --json` also exposes the remembered driver's optional
 `resume.consumption`: cumulative completed-request input/output, cached input as
 a subset, optional cache-write and request/turn model attribution, optional Codex
-`rateLimits`, epoch/sequence, observation time and explicit completeness/gap.
+`rateLimits`, `credits`, `serviceTier`, epoch/sequence, observation time and explicit
+completeness/gap.
 It is separate from `resume.usage` (context size). Consumers baseline on first,
 epoch-change, gap or decreasing-counter observations; absent evidence is
 unavailable. Counter times are not heartbeats. Foreground sampling can expose accepted
