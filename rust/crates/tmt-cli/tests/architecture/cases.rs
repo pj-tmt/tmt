@@ -1734,7 +1734,10 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
             assert!(
                 policy::dependency_violations(&package(
                     "tmt-extension-state",
-                    vec![dependency("nix", kind, target, None)]
+                    vec![
+                        dependency("nix", kind, target, None),
+                        dependency("rusqlite", kind, target, None)
+                    ]
                 ))
                 .is_empty()
             );

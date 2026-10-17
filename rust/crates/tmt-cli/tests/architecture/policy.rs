@@ -148,7 +148,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "nix",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
-        "tmt-extension-state" => &["nix"],
+        "tmt-extension-state" => &["nix", "rusqlite"],
         // The shared background-startup handoff: process and signal plumbing and JSON records only.
         "tmt-extension-serve" => &["nix", "serde_json", "signal-hook"],
         // Wire primitives (canonical encodings, protocol bounds, strict JSON admission, typed frames)
