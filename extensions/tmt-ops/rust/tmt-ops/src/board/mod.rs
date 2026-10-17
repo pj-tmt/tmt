@@ -924,7 +924,7 @@ fn session(
                         .map_err(|error| error.message)
                         .map(|()| true),
                     (lane::Opening::HostAction(selection), Ok(config)) => app
-                        .open_host_action(config, selection, board_pane)
+                        .open_host_action(config, *selection, board_pane)
                         .map_err(|error| error.message)
                         .map(|()| true),
                     (lane::Opening::ThemePicker(squad), Ok(config)) => {
@@ -1043,7 +1043,9 @@ fn session(
             Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
             Effect::HostAction => submit(
                 app,
-                lane::Job::Open(lane::Opening::HostAction(app.host_action_selection())),
+                lane::Job::Open(lane::Opening::HostAction(Box::new(
+                    app.host_action_selection(),
+                ))),
             ),
             Effect::SaveSetting => {
                 if app.settings.as_mut().is_some_and(|overlay| overlay.save()) {
