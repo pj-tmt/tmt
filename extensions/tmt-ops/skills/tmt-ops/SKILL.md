@@ -946,7 +946,9 @@ is older than its refresh interval (at least 5 s) plus 10 s, the word is `stale`
 with the time of core's last event, such as `? stale 4m ago`; with refresh off,
 rows go stale and stay stale until you refresh. Stale and unknown never mean
 idle, and the age is never made up when core gives no time. A narrow cell clips
-the task first, then drops the age. The working and idle counts follow core
+the task first, then drops the age. Unread replies from an agent replace the
+activity words: the cell is `● N unread` and then the task state, such as
+`● 2 unread · review`, with only the `●` in the unread colour. The working and idle counts follow core
 activity, each agent once, and count a stale agent as unknown. In Overview's
 Squads view each TEAM glyph shows a waiting request (◆) first, otherwise core
 activity (`?` when stale or unknown); a task state never overrides it. Attention and

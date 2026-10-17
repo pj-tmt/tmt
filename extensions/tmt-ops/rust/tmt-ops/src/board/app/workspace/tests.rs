@@ -5033,3 +5033,146 @@ fn unknown_and_stale_glyphs_are_muted_and_only_waiting_is_orange() {
         );
     }
 }
+
+/// Gives `MEMBER` two unread replies from the viewer, as the unread scenes do.
+fn with_unread_replies(app: &mut App) {
+    let actor = app.view.as_ref().unwrap().me_id.clone().unwrap();
+    let items: Vec<_> = (1..=2)
+        .map(|index| {
+            json!({
+                "requestId":format!("unread-{index}"), "kind":"request", "sender":{"identityId":actor},
+                "recipientId":MEMBER, "recipientAcknowledged":true,
+                "final":{"status":"retained","submittedAtMs":100+index}
+            })
+        })
+        .collect();
+    app.home_leads
+        .test_results(&actor, json!({"items":items,"nextBefore":null}));
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+}
+
+/// Unread replies replace the activity words with `● N unread`, blue on the
+/// glyph only, and the task still follows. Without unread replies the cell
+/// keeps its activity form. The tree and Overview agree, in colour and without.
+#[test]
+fn unread_replies_replace_the_activity_words_and_keep_the_task() {
+    use crate::board::overview::monitor;
+    use tmt_cli_style::Role;
+    for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth,
+        };
+        let mut app = disagreeing_board(false, look);
+        assert!(painted_member_row(&app, 160, 36).contains("● working · blocked"));
+        with_unread_replies(&mut app);
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(
+            tree.contains("● 2 unread · blocked"),
+            "{depth:?} tree: {tree}"
+        );
+        assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Agents;
+        for (width, words) in [
+            (160, "● 2 unread · blocked"),
+            // The row's room clips the task first.
+            (82, "● 2 unread · bloc…"),
+            (60, "● 2 unread  "),
+        ] {
+            let screen = paint(&app, width, 36).join("\n");
+            assert!(screen.contains(words), "{depth:?} {width}: {screen}");
+            assert!(!screen.contains("● working"), "{depth:?} {width}: {screen}");
+        }
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let glyph = buffer
+            .content
+            .chunks(160)
+            .enumerate()
+            .find_map(|(y, row)| {
+                let symbols: Vec<_> = row.iter().map(|cell| cell.symbol()).collect();
+                (0..row.len())
+                    .find(|x| symbols[*x..].concat().starts_with("● 2 unread · blocked"))
+                    .map(|x| y * 160 + x)
+            })
+            .unwrap();
+        // Only the glyph is unread blue; the words are muted like the task.
+        assert_eq!(
+            buffer.content[glyph].fg,
+            look.role(Role::Unread).fg.unwrap_or_default()
+        );
+        assert_eq!(
+            buffer.content[glyph + 2].fg,
+            look.role(Role::Muted).fg.unwrap_or_default()
+        );
+        if depth != tmt_cli_style::Depth::None {
+            assert_ne!(buffer.content[glyph + 2].fg, buffer.content[glyph].fg);
+        }
+    }
+}
+
+/// The activity form leaves out a task that repeats its activity word. Unread
+/// replies replace that word, so the same task follows `● N unread`, wide and
+/// clipped, in the tree, the roster preview and Overview.
+#[test]
+fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
+    use crate::board::activity::Phase;
+    use crate::board::overview::monitor;
+    for (word, phase, waiting, glyph) in [
+        ("working", Phase::Working, false, "●"),
+        ("idle", Phase::Idle, false, "◌"),
+        ("waiting", Phase::Working, true, "◆"),
+    ] {
+        let mut app = disagreeing_board(waiting, crate::look::Look::default());
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot
+            .roster
+            .members
+            .get_mut(MEMBER)
+            .unwrap()
+            .activity
+            .phase = phase;
+        snapshot.roster.squads[0]
+            .member_states
+            .get_mut(MEMBER)
+            .unwrap()
+            .state = Some(word.into());
+        let target = OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        snapshot.rows.get_mut(&target).unwrap()["state"] = json!(word);
+        app.workspace_reconcile();
+        // Control: without unread replies the repeat is left out.
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(
+            tree.contains(&format!("{glyph} {word}")),
+            "{word} tree: {tree}"
+        );
+        assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
+
+        with_unread_replies(&mut app);
+        let unread = format!("● 2 unread · {word}");
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(tree.contains(&unread), "{word} tree: {tree}");
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        let roster = paint(&app, 160, 44).join("\n");
+        assert!(roster.contains(&unread), "{word} roster: {roster}");
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Agents;
+        // At 80 cells the STATE room is 16: the task is clipped, not dropped.
+        for (width, words) in [
+            (160, unread.clone()),
+            (80, format!("● 2 unread · {}…", &word[..2])),
+        ] {
+            let screen = paint(&app, width, 36).join("\n");
+            assert!(screen.contains(&words), "{word} {width}: {screen}");
+        }
+    }
+}

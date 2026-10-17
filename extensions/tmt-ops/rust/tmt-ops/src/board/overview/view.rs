@@ -485,22 +485,24 @@ fn state_width(row: u16, widest: usize) -> u16 {
 /// An agent's STATE cell within `width`: the same activity words and task
 /// colours as the agents tree.
 fn state_spans(app: &App, row: &OpsTreeRow, look: Look, width: u16) -> Vec<Span<'static>> {
-    // Unread replies replace the activity words; the colour is the glyph's alone.
-    let unread = app.unread_target(&row.target);
-    if let (Some(mark), Some(label)) = (state_cell::unread_mark(unread, look), unread.label()) {
-        return vec![
-            mark,
-            Span::styled(
-                format!(
-                    " {}",
-                    crate::board::view::fit(&label, usize::from(width).saturating_sub(2))
-                ),
-                look.role(Role::Muted),
-            ),
-        ];
-    }
     app.activity_label(row).map_or_else(
-        || vec![Span::styled("— unreported", look.role(Role::Muted))],
+        // Without activity, unread replies still replace the words.
+        || {
+            let unread = app.unread_target(&row.target);
+            match (state_cell::unread_mark(unread, look), unread.label()) {
+                (Some(mark), Some(label)) => vec![
+                    mark,
+                    Span::styled(
+                        format!(
+                            " {}",
+                            crate::board::view::fit(&label, usize::from(width).saturating_sub(2))
+                        ),
+                        look.role(Role::Muted),
+                    ),
+                ],
+                _ => vec![Span::styled("— unreported", look.role(Role::Muted))],
+            }
+        },
         |label| {
             let (primary, task) = crate::board::workspace::columns::activity_spans(
                 app,

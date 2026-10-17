@@ -63,6 +63,8 @@ pub struct Label {
     pub age: Option<String>,
     /// The core time `age` counts from, so a frame clock can follow it.
     pub at: Option<u64>,
+    /// The sanitized task state, even when it repeats the activity word: only
+    /// the painter knows which primary words it shows, so it removes a repeat.
     pub task: Option<String>,
 }
 
@@ -94,7 +96,7 @@ impl Member {
             .task
             .as_deref()
             .map(crate::board::notes::sanitize)
-            .filter(|task| !task.is_empty() && task != state);
+            .filter(|task| !task.is_empty());
         Label {
             state,
             age,
@@ -116,7 +118,8 @@ impl Label {
     }
 
     /// Fits `width` cells as the state words and the muted task text. The task
-    /// is cut first, then the age; the state word stays.
+    /// is cut first, then the age; the state word stays. A task that repeats
+    /// the state word is left out.
     pub fn fit(&self, width: usize) -> (String, Option<String>) {
         use unicode_width::UnicodeWidthStr;
         let word = self.word();
@@ -124,7 +127,7 @@ impl Label {
             Some(age) => format!("{word} {age}"),
             None => word.to_owned(),
         };
-        if let Some(task) = &self.task {
+        if let Some(task) = self.task.as_ref().filter(|task| *task != self.state) {
             let tail = if self.state == "unknown" {
                 format!(" {task}")
             } else {

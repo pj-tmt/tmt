@@ -86,8 +86,12 @@ actor; actor changes discard it. A member's count is `N+ unread` only when
 `submittedAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
-StateCell supplies `● N unread` before the source working/idle/waiting display;
-only the glyph uses the canonical `unread` role, with neutral count/words and
+StateCell supplies `● N unread` in place of the glyph and activity words
+(working/idle/waiting/stale/`?`); the member's task state still follows, as
+`● N unread · <task>`, and clips first in a narrow cell. Only the activity form
+leaves out a task that repeats its activity word; the unread form keeps it. One owner,
+`columns::activity_spans`, paints it in the tree, roster and Overview rows.
+Only the glyph uses the canonical `unread` role, with neutral count/words and
 unchanged text under NO_COLOR. TeamStrip retains lead-first UUID order and admits
 whole labels or its existing overflow mark. A visible unread squad reserves a
 14-cell TEAM column for a full two-digit lower-bound label and overflow mark;

@@ -405,7 +405,9 @@ pub fn task_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::st
 
 /// A member's STATE cell in `width` cells: the glyph, the activity words and
 /// the task state when it fits. Only the glyph carries request attention colour;
-/// the words stay neutral and only a blocked-type task is red.
+/// the words stay neutral and only a blocked-type task is red. Unread replies
+/// replace the glyph and the activity words with the shared unread mark
+/// (`● N unread`, blue on the glyph only); the task still follows.
 pub fn activity_spans(
     app: &crate::board::app::App,
     row: &OpsTreeRow,
@@ -420,6 +422,49 @@ pub fn activity_spans(
     use unicode_width::UnicodeWidthStr;
     if width == 0 {
         return (Vec::new(), None);
+    }
+    let task_span =
+        |text: String| Span::styled(text, table_style(app, selected, task_style(app, row)));
+    if let Some(unread) =
+        crate::board::state_cell::unread(app.unread_target(&row.target), app.look())
+    {
+        let mut used = 0;
+        let mut primary = Vec::new();
+        for span in unread.spans {
+            let room = width.saturating_sub(used);
+            let content = crate::board::view::fit(&span.content, span.content.width().min(room));
+            if content.is_empty() {
+                break;
+            }
+            used += content.width();
+            primary.push(Span::styled(
+                content,
+                table_style(app, selected, span.style),
+            ));
+        }
+        let room = width.saturating_sub(used);
+        // The unread words replace the activity word, so a task equal to that
+        // word still follows; only a repeat of the shown words is left out.
+        let shown: String = primary
+            .iter()
+            .skip(1)
+            .map(|span| span.content.as_ref())
+            .collect();
+        let shown = shown.trim();
+        let task = label
+            .task
+            .as_ref()
+            .filter(|task| *task != shown)
+            .and_then(|task| {
+                let tail = format!(" · {task}");
+                if tail.width() <= room {
+                    Some(tail)
+                } else {
+                    // Keep a clipped task while one character and its ellipsis fit.
+                    (room >= " · x…".width()).then(|| crate::board::view::fit(&tail, room))
+                }
+            });
+        return (primary, task.map(task_span));
     }
     let symbol = crate::board::state_cell::glyph(Some(label.state));
     // Unknown activity has no word: the glyph is the label's own `?`.
