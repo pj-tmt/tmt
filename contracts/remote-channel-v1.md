@@ -2610,11 +2610,12 @@ displays the captured account, target, changes, Rules/website deltas and asks on
 bytes: discovery, inventory and plan preparation are not repeated after the answer; live account
 and effect guards still run. No, EOF or cancellation while waiting makes no provider changes;
 decline/EOF exits zero. There is no `--yes` flag. A saved identical authorized digest continues
-without another question, including an unfinished run. A changed unfinished intent requires one
+without another question only while unfinished; a completed run asks again. A changed unfinished intent requires one
 new confirmation and retains its superseded outcomes. That explicit terminal decision may leave
 a known or possibly created unreleased Hosting Version untouched and unreleased, with the
 corresponding warning before confirmation; it never bypasses an unknown web-app/site/config
-creation. Already released content retains the existing observation/release checks. This exception
+creation. This exception requires a pending release; an attempted or completed release retains
+the ordinary supersession fences. This exception
 does not change non-interactive exact-digest authorization, the plan grammar, cause codes or
 same-digest create no-repeat/upload-origin fences. A private deployment record preserves the
 draft identity and saves run outcomes under a separate writer lock, publishing complete files

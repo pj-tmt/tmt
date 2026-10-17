@@ -613,7 +613,7 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
     };
     let confirmation = deploy_cli::may_prompt(
         Interaction::detect(args.json),
-        std::env::var_os("TMT_AGENT").is_some(),
+        std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty()),
         std::env::var_os("CI").is_some(),
     )
     .then_some(&mut confirm as &mut deploy_cli::PlanConfirmation<'_>);

@@ -683,8 +683,12 @@ mod cli_composition {
             Ok(Some(serde_json::to_vec(&json!({"version":1,"extension":"colab","backend":"firestore","declaration":declaration,"declarationDigest":digest,"artifact":read("colab.rules")})).unwrap()))
         }
     }
-    struct DeployCliProvider(deploy_port::Fake, usize);
-    impl DeployPort for &mut DeployCliProvider {
+    struct DeployCliProvider<const HOSTING: bool = false>(
+        deploy_port::Fake,
+        usize,
+        Option<tmt_remote::hosting::HostingInventory>,
+    );
+    impl<const HOSTING: bool> DeployPort for &mut DeployCliProvider<HOSTING> {
         fn account(&mut self) -> Result<String, DeployProviderError> {
             self.1 += 1;
             self.0.account()
@@ -704,7 +708,16 @@ mod cli_composition {
             self.0.apply(plan, step)
         }
     }
-    impl FirestoreCommandPort for &mut DeployCliProvider {
+    impl<const HOSTING: bool> FirestoreCommandPort for &mut DeployCliProvider<HOSTING> {
+        const SUPPORTS_HOSTING: bool = HOSTING;
+        fn hosting_inventory(
+            &mut self,
+            _: &str,
+        ) -> Result<tmt_remote::hosting::HostingInventory, deploy_run::DeployRefusal> {
+            self.2
+                .clone()
+                .ok_or(deploy_run::DeployRefusal::HostingUnavailable)
+        }
         fn login(&mut self) -> Result<(), tmt_remote::deploy_firestore::DeploySetupError> {
             self.1 += 1;
             Ok(())
@@ -742,11 +755,110 @@ mod cli_composition {
         deploy_cli::arguments(&matches)
     }
     #[test]
+    fn website_notice_uses_the_frozen_replacement_view_even_for_identical_foreign_files() {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        use tmt_remote::hosting::{self, HostingInventory, HostingLiveRelease, HostingManifest};
+        struct Source {
+            envelope: Vec<u8>,
+            bundle: Vec<u8>,
+        }
+        impl DeclarationSource for Source {
+            fn declaration(&mut self, _: &str) -> Result<Option<Vec<u8>>, DiscoveryRefusal> {
+                Ok(Some(self.envelope.clone()))
+            }
+            fn hosting_bundle(&mut self, _: &str) -> Result<Vec<u8>, DiscoveryRefusal> {
+                Ok(self.bundle.clone())
+            }
+        }
+        let mut envelope: serde_json::Value = serde_json::from_slice(
+            &DeployCliSource(0, true)
+                .declaration("colab")
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        let mut declaration: serde_json::Value =
+            serde_json::from_str(envelope["declaration"].as_str().unwrap()).unwrap();
+        let hash = |bytes: &[u8]| {
+            Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        let manifest = HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":hash(b"hello"),"length":5,"contentType":"text/html"}]})).unwrap();
+        declaration["hosting"] = serde_json::to_value(&manifest).unwrap();
+        let bytes = serde_json::to_vec(&declaration).unwrap();
+        envelope["declaration"] = json!(String::from_utf8(bytes.clone()).unwrap());
+        envelope["declarationDigest"] = json!(hash(&bytes));
+        let mut source = Source {
+            envelope: serde_json::to_vec(&envelope).unwrap(),
+            bundle: serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})).unwrap(),
+        };
+        let content = tmt_remote::deploy_discovery::discover(&mut source, &["colab"])
+            .unwrap()
+            .hosting
+            .unwrap();
+        for kind in ["foreign", "own", "absent", "empty"] {
+            let root = Root::new();
+            let layout = root.layout();
+            let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+            store.persist(&DeployRecord::new(ID)).unwrap();
+            drop(store);
+            let inventory = HostingInventory {
+                site_exists: kind != "absent",
+                site_app_id: None,
+                site_app_config: None,
+                web_apps: vec![],
+                live: matches!(kind, "foreign" | "own").then(|| HostingLiveRelease {
+                    version: "version-1".into(),
+                    deployment_id: (kind == "own").then(|| ID.into()),
+                    plan_digest_prefix: (kind == "own").then(|| "a".repeat(12)),
+                    content_digest: (kind == "own").then(|| content.live_digest()[..32].into()),
+                    files: content.live_files(),
+                    config: content.config().clone(),
+                }),
+            };
+            let view = hosting::deployment_view(&content, "demo-remote-1", ID, &inventory).unwrap();
+            assert_eq!(
+                view.replaces,
+                if kind == "foreign" { "foreign" } else { "none" }
+            );
+            let mut provider = DeployCliProvider::<true>(Fake::new(ACCOUNT), 0, Some(inventory));
+            let mut asked = false;
+            let mut no = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
+                asked = true;
+                assert_eq!(out.json["plan"]["hosting"]["replaces"], view.replaces);
+                assert!(
+                    out.human.contains(if kind == "own" {
+                        "Website files: no change."
+                    } else {
+                        "Website files: will be updated."
+                    }),
+                    "{kind}: {}",
+                    out.human
+                );
+                Ok(false)
+            };
+            deploy_cli::execute_with_confirmation(
+                &args(&[]).unwrap(),
+                &mut source,
+                &["colab"],
+                || Ok(&mut provider),
+                || Ok(layout.clone()),
+                || Ok(1),
+                Some(&mut no),
+            )
+            .unwrap();
+            assert!(asked);
+            assert!(provider.0.effects.is_empty());
+        }
+    }
+    #[test]
     fn interactive_yes_executes_only_the_displayed_snapshot_once() {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
         let mut shown = None;
         let mut prompt = |out: &tmt_remote::deploy_command::DeployCommandOutput| {
             assert!(shown.is_none());
@@ -777,7 +889,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
         let mut asked = 0;
         let mut no = |_: &tmt_remote::deploy_command::DeployCommandOutput| {
             asked += 1;
@@ -823,7 +935,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
         provider.0.owner_pending.insert(
             "sign-in:anonymous".into(),
             deploy_run::DeployOwnerAction::InitializeAuth,
@@ -864,11 +976,99 @@ mod cli_composition {
         );
     }
     #[test]
+    fn plain_same_digest_preview_keeps_unknown_effect_guidance() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        provider
+            .0
+            .faults
+            .insert("rules".into(), When::AfterEffectUnknown);
+        let mut yes = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(true);
+        let partial = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut yes),
+        )
+        .unwrap();
+        let effects = provider.0.effects.clone();
+        let before = deploy_record::read(&layout).unwrap();
+        let preview = deploy_cli::execute(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(2),
+        )
+        .unwrap();
+        assert_eq!(preview.json["planDigest"], partial.json["planDigest"]);
+        assert_eq!(preview.json["authorized"], false);
+        assert!(
+            preview.human.contains(
+                "Deployment could not be confirmed; some changes may already be applied."
+            )
+        );
+        assert_eq!(deploy_record::read(&layout).unwrap(), before);
+        assert_eq!(provider.0.effects, effects);
+    }
+    #[test]
+    fn completed_same_digest_asks_before_a_fresh_check() {
+        let root = Root::new();
+        let layout = root.layout();
+        let mut source = DeployCliSource(0, true);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
+        let mut yes = |_: &tmt_remote::deploy_command::DeployCommandOutput| Ok(true);
+        let completed = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(1),
+            Some(&mut yes),
+        )
+        .unwrap();
+        assert_eq!(completed.json["record"]["run"]["state"], "complete");
+        let before = deploy_record::read(&layout).unwrap();
+        let effects = provider.0.effects.clone();
+        let mut asked = false;
+        let mut no = |_: &tmt_remote::deploy_command::DeployCommandOutput| {
+            asked = true;
+            Ok(false)
+        };
+        let declined = deploy_cli::execute_with_confirmation(
+            &args(&[]).unwrap(),
+            &mut source,
+            &["colab"],
+            || Ok(&mut provider),
+            || Ok(layout.clone()),
+            || Ok(2),
+            Some(&mut no),
+        )
+        .unwrap();
+        assert!(
+            asked,
+            "a completed run is a fresh check, not a continuation"
+        );
+        assert_eq!(
+            declined.human,
+            "Not deployed. Nothing in your Firebase project changed.\n"
+        );
+        assert_eq!(deploy_record::read(&layout).unwrap(), before);
+        assert_eq!(provider.0.effects, effects);
+    }
+    #[test]
     fn interrupted_confirmation_saves_only_a_resumable_draft() {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
         let mut interrupted =
             |_: &tmt_remote::deploy_command::DeployCommandOutput| -> Result<bool, DeployCliError> {
                 Err(DeployCliError::Local(
@@ -895,7 +1095,7 @@ mod cli_composition {
         let root = Root::new();
         let layout = root.layout();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(Fake::new(ACCOUNT), 0, None);
         provider
             .0
             .faults
@@ -980,7 +1180,8 @@ mod cli_composition {
         let layout = root.layout();
         let before = deploy_record::read(&layout).unwrap();
         let mut source = DeployCliSource(0, false);
-        let provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let provider =
+            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None);
         let out = deploy_cli::execute(
             &args(&[]).unwrap(),
             &mut source,
@@ -1008,7 +1209,8 @@ mod cli_composition {
         store.persist(&DeployRecord::new(ID)).unwrap();
         drop(store);
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let mut provider =
+            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None);
         let preview = deploy_cli::execute(
             &args(&[]).unwrap(),
             &mut source,
@@ -1066,7 +1268,8 @@ mod cli_composition {
         store.persist(&DeployRecord::new(ID)).unwrap();
         drop(store);
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(deploy_port::Fake::new("owner@example.test"), 0);
+        let mut provider =
+            DeployCliProvider::<false>(deploy_port::Fake::new("owner@example.test"), 0, None);
         let preview = deploy_cli::execute(
             &args(&["--json"]).unwrap(),
             &mut source,
@@ -1142,7 +1345,7 @@ mod cli_composition {
     fn plan_only_a_then_plan_and_authorize_b_binds_only_b() {
         let root = Root::new();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(deploy_port::Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(deploy_port::Fake::new(ACCOUNT), 0, None);
         let request_a = args(&[]).unwrap();
         let plan_a = deploy_cli::execute(
             &request_a,
@@ -1204,7 +1407,7 @@ mod cli_composition {
     fn retained_target_conflict_precedes_provider_creation_and_preserves_the_record() {
         let root = Root::new();
         let mut source = DeployCliSource(0, true);
-        let mut provider = DeployCliProvider(deploy_port::Fake::new(ACCOUNT), 0);
+        let mut provider = DeployCliProvider::<false>(deploy_port::Fake::new(ACCOUNT), 0, None);
         let request = args(&[]).unwrap();
         let preview = deploy_cli::execute(
             &request,

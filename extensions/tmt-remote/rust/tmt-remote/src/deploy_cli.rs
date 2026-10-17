@@ -84,7 +84,7 @@ pub fn command() -> Command {
         name: "firestore", summary: "Plan or explicitly authorize Firestore sharing deployment",
         examples: &[tmt_cli_style::Example { command: "tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --json", note: "Read the exact plan without changing your Firebase project" }],
         outputs: tmt_cli_style::OutputModes::HumanAndJson,
-        details: "Needs the Firebase CLI and your own firebase login. At a terminal, review the changes and answer y/N. Rerunning the same approved deploy continues without another question. Agents, CI, --json and non-interactive input only print the plan unless --authorize names its digest (at least 12 characters); signing in alone never deploys. There is no --yes flag. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
+        details: "Needs the Firebase CLI and your own firebase login. At a terminal, review the changes and answer y/N. Rerunning the same unfinished approved deploy continues without another question. Agents, CI, --json and non-interactive input only print the plan unless --authorize names its digest (at least 12 characters); signing in alone never deploys. There is no --yes flag. The plan names any live Rules it will replace; authorizing that plan allows the destructive replacement. Each project keeps its own history on this machine; its region cannot change after authorization. Uses Firebase's free Spark plan; no paid features are set up.",
     })
         .arg(Arg::new("project").long("project"))
         .arg(Arg::new("region").long("region").required(true))
@@ -210,7 +210,7 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         &path,
         confirmation,
     )?;
-    if output.json["authorized"] == true
+    if output.json["declined"] != true
         && output.json["record"]["run"]["steps"]
             .as_array()
             .is_some_and(|steps| steps.iter().any(|step| step["state"] == "unknown"))
@@ -268,11 +268,6 @@ fn execute_prepared<P: FirestoreCommandPort>(
                         record_path.to_path_buf(),
                     )
                 })?;
-            website_changed = inventory.live.as_ref().is_none_or(|live| {
-                let mut files = live.files.clone();
-                files.sort_by(|a, b| a.path.cmp(&b.path));
-                files != composition.live_files() || live.config != *composition.config()
-            });
             let record = store.load_or_draft().map_err(DeployCliError::Local)?;
             provider.prepare_hosting(composition);
             let mut view = crate::hosting::deployment_view_for_app(
@@ -294,6 +289,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
                     record_path.to_path_buf(),
                 )
             })?;
+            website_changed = inventory.live.is_none() || view.replaces != "none";
             if let Some(checkpoint) = record
                 .run
                 .as_ref()
@@ -338,12 +334,10 @@ fn execute_prepared<P: FirestoreCommandPort>(
                 .map_err(|r| map(deploy_command::DeployCommandError::Refused(r)))?,
         )
     } else if let Some(confirm) = confirmation.filter(|_| !args.json) {
-        if prepared
-            .record()
-            .run
-            .as_ref()
-            .is_some_and(|r| r.plan_digest == prepared.plan().digest())
-        {
+        if prepared.record().run.as_ref().is_some_and(|r| {
+            r.state != crate::deploy_run::RunState::Complete
+                && r.plan_digest == prepared.plan().digest()
+        }) {
             continuing = true;
             Some(
                 crate::deploy_run::authorize(prepared.plan(), prepared.plan().digest())

@@ -2191,6 +2191,32 @@ fn interactive_supersession_requires_one_new_consent_and_keeps_unknown_app_fence
         deploy_cli::confirmation_notice(&next, &known, true, Some(true))
             .contains(deploy_cli::KNOWN_VERSION)
     );
+    for state in [
+        StepState::Unknown,
+        StepState::Building,
+        StepState::Done,
+        StepState::Adopted,
+    ] {
+        let mut released = known.clone();
+        released
+            .run
+            .as_mut()
+            .unwrap()
+            .steps
+            .iter_mut()
+            .find(|s| s.id == "hosting:release")
+            .unwrap()
+            .state = state.clone();
+        assert_eq!(
+            authorize_interactive(&next, &released),
+            Err(DeployRefusal::PreviousVersionStaged),
+            "release {state:?} retains the ordinary fence"
+        );
+        assert!(
+            !deploy_cli::confirmation_notice(&next, &released, true, Some(true))
+                .contains(deploy_cli::KNOWN_VERSION)
+        );
+    }
     for id in [
         "web-app:create",
         "hosting-site:create",

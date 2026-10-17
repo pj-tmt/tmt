@@ -290,9 +290,9 @@ without charging or making provider requests.
 ## Firestore deployment
 
 In the Firebase console, open Authentication and choose Get started. Then run
-`tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous --no-open`
+`tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`
 in a terminal, review the changes and answer y/N; rerun the same command after a partial result.
-The same approved digest continues without another question; changed unfinished work gets one
+The same unfinished approved digest continues without another question; changed unfinished work gets one
 confirmation and retains its earlier outcomes. An earlier known or possibly created unreleased
 website Version stays untouched; unknown web-app/site/config creation still requires observation.
 Agents, CI, `--json` and non-interactive input keep plan-only or explicit-digest authorization.

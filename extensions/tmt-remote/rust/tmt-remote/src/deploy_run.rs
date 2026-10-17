@@ -1406,15 +1406,22 @@ pub fn interactive_supersession_refusal(
     record: &DeployRecord,
 ) -> Option<DeployRefusal> {
     let previous = superseded_run(plan, record)?;
-    previous
+    if previous.steps.iter().any(|step| {
+        matches!(
+            step.id.as_str(),
+            "web-app:create" | "hosting-site:create" | "hosting-site:configure"
+        ) && (step.state == StepState::Unknown
+            || (step.id == "web-app:create" && step.state == StepState::Building))
+    }) {
+        return Some(DeployRefusal::PreviousCreateUnconfirmed);
+    }
+    if previous
         .steps
         .iter()
-        .any(|step| {
-            matches!(
-                step.id.as_str(),
-                "web-app:create" | "hosting-site:create" | "hosting-site:configure"
-            ) && (step.state == StepState::Unknown
-                || (step.id == "web-app:create" && step.state == StepState::Building))
-        })
-        .then_some(DeployRefusal::PreviousCreateUnconfirmed)
+        .any(|step| step.id == "hosting:release" && step.state == StepState::Pending)
+    {
+        None
+    } else {
+        supersession_refusal(plan, record)
+    }
 }
