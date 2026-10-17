@@ -35,6 +35,10 @@ on the document or scope `data-theme="light"`/`data-theme="dark"` on an island.
 A dark island on a light page needs dark foregrounds as well as dark surfaces.
 Every shared component is opaque, square and shadow-free; the product-owned annotation badge/pill exceptions are defined in [browser style](../gui-style.md#popover-composer). Semantic marks retain words.
 Links, essential edges, selection indicators and keyboard focus are separate.
+Control frames use `--tmt-ui-surface-rule`: action, chip/add/popup, field,
+outer toggle, command/copy and icon tooltip frames share the light rule. The
+toggle indicator keeps `--tmt-ui-color-edge`; selected indicators and keyboard
+focus retain their stronger roles. These frame choices do not change token values.
 
 `src/favicon.svg` owns the light/dark TMT tab icon. Site, Colab and Remote HTML
 embed data-URI copies; their tests decode those copies and compare the exact SVG
