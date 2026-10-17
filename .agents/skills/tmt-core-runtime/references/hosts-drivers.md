@@ -46,7 +46,8 @@ channels and the driver protocol. The owner map is in
   Public JSON and selection rules belong to the [host contract](../../../../contracts/driver-protocol-v1.md#capture-input-and-focus).
 - A handle has a primary host; a session probes, marks and clears each stored binding on that
   binding's own host. A `Host` states why it was chosen (`for_caller`, `for_server`,
-  `for_target`) and takes endpoints, never loose socket or pane strings.
+  `for_target`, `for_verified_caller`) and takes endpoints, never loose socket or pane strings.
+  The `_with` constructors take an injected runner and approve no driver (tmux only).
 - `HostKind` is pure data (token, `is_pane_id`, `is_target`). Evidence from another host is
   `Unknown`; presence groups by host and socket (`ServerSelector`). A stored host is `tmux` or
   `External(name)`, readable whether or not its driver is installed; a NULL fence host is
@@ -132,6 +133,17 @@ channels and the driver protocol. The owner map is in
   called. A removed or changed driver answers `Unavailable`, never proof of loss.
 - A driver's `caller` pane counts only when that pane's shell is an ancestor of the caller
   (`process::ancestry`); the nearest verified pane wins, otherwise the host is tmux.
+  Hooks and the caller-session worker use `Host::for_verified_caller` instead, which uses a
+  host only when the caller's locators name exactly that host. No locator keeps tmux
+  (outside any host), and tmux variables alone keep the tmux caller check. One named external
+  host must answer conclusively with the caller's pane (`Callers::conclusive`: a driver
+  error, a changed or unopenable approved executable or a non-text variable is not); anything
+  less refuses and never tries another host. Locators that name more than one host (tmux
+  variables beside a driver's, or two drivers' variables) refuse whatever the pane checks
+  say: mixed and nested host environments are unsupported for hooks. Launch the agent with
+  the other host's variables cleared; the hook never clears them itself. Supporting nesting
+  needs its own coherent proof of the hosts' order. An external caller's server must
+  already have a `host_servers` row (`RecordedHostServers` reads it and never records one).
   `Host::for_target` picks the host whose grammar reads the text. Only a definite answer is
   "not found"; a failing or late driver is `RECONCILIATION_FAILED`.
 - Prompt-first `send` maps `no_agent`/`unsupported` to raw input, `blocked` to

@@ -1070,4 +1070,271 @@ mod through_the_driver {
             Err(HostError::Evidence { .. })
         ));
     }
+
+    /// Fake tmux for a caller in pane `%1` of `/tmp/nest.sock`, server pid 1,
+    /// whose pane shell is `pane`; with `None` every tmux command fails, as
+    /// for stale variables. Driver calls run the fixture and `ps` is real.
+    #[derive(Clone)]
+    struct Nested {
+        pane: Option<u64>,
+    }
+
+    impl CommandRunner for Nested {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            if request.program != OsStr::new("tmux") {
+                return HostRunner.execute(request);
+            }
+            let format = request.args.last().unwrap().to_string_lossy();
+            let listing = request.args.iter().any(|arg| arg == "list-panes");
+            let stdout = match self.pane {
+                Some(_) if format.contains("#{socket_path}") && !listing => {
+                    ["%1", "/tmp/nest.sock", "1"].join("__TMT_CALLER_PANE_4f1c__")
+                }
+                Some(pane) if format == "#{pane_pid}" => pane.to_string(),
+                _ => {
+                    return Err(CommandError::new(CommandFailure::Exit {
+                        code: Some(1),
+                        signal: None,
+                    }));
+                }
+            };
+            Ok(CommandOutput {
+                stdout: stdout.into_bytes(),
+                stderr: Vec::new(),
+            })
+        }
+    }
+
+    enum Pane {
+        Shell(u64),
+        Missing,
+        Fails,
+        /// The approved executable changed after approval, so it is not run.
+        Changed(u64),
+        /// The caller variable is set but is not text a driver can be given.
+        NotText(u64),
+    }
+
+    enum TmuxEnv {
+        Full,
+        PaneOnly,
+        Absent,
+    }
+
+    /// Which host `for_verified_caller` picks for this caller: the fake
+    /// driver's answer, the tmux pane's shell and the tmux variables set.
+    fn chosen(pane: Pane, tmux: Option<u64>, env: TmuxEnv) -> Result<HostKind, HostError> {
+        let (pid, _) = live();
+        choose(pane, env, pid, Nested { pane: tmux }, false)
+    }
+
+    /// `chosen` for a caller `process_id`, observed through `runner`; with
+    /// `second`, another approved host's variable (whose pane is this test
+    /// process) is set too.
+    fn choose<R: CommandRunner + Clone>(
+        pane: Pane,
+        env: TmuxEnv,
+        process_id: u64,
+        runner: R,
+        second: bool,
+    ) -> Result<HostKind, HostError> {
+        use crate::host::{CallerEnvironment, Host};
+        use std::os::unix::ffi::OsStringExt;
+        let (pid, start) = live();
+        let mut answers = answers("fake", "fake-", Some("f{n}"));
+        answers[0].1["ok"]["callerEnv"] = json!(["FAKE_PANE_ID"]);
+        let installed = Installed::new("fake", answers);
+        installed.answer(
+            "server",
+            &json!({"ok": {"server": {"socket": SOCKET, "pid": pid, "startTime": start}}})
+                .to_string(),
+        );
+        let shell = |shell: u64| json!({"ok": {"pane": {"id": "fake-1", "socket": SOCKET, "shellPid": shell}}});
+        let caller = match pane {
+            Pane::Shell(pid) | Pane::Changed(pid) | Pane::NotText(pid) => shell(pid),
+            Pane::Missing => json!({"ok": {"pane": null}}),
+            Pane::Fails => json!({"error": {"code": "failed", "message": "host is wedged"}}),
+        };
+        installed.answer("caller", &caller.to_string());
+        let record = installed.approve().unwrap();
+        if matches!(pane, Pane::Changed(_)) {
+            let mut script = fs::read_to_string(&installed.executable).unwrap();
+            script.push_str("# changed after approval\n");
+            fs::write(&installed.executable, script).unwrap();
+        }
+        let value = if matches!(pane, Pane::NotText(_)) {
+            OsString::from_vec(vec![b'f', 0xff])
+        } else {
+            "f1".into()
+        };
+        let mut records = vec![record];
+        let mut driver_env: std::collections::BTreeMap<_, _> =
+            [("FAKE_PANE_ID".to_owned(), value)].into();
+        let other = second.then(|| {
+            let mut declared = super::answers("other", "other-", Some("o{n}"));
+            declared[0].1["ok"]["callerEnv"] = json!(["OTHER_PANE_ID"]);
+            let other = Installed::new("other", declared);
+            other.answer("caller", &shell(pid).to_string());
+            records.push(other.approve().unwrap());
+            driver_env.insert("OTHER_PANE_ID".to_owned(), "o1".into());
+            other
+        });
+        let environment = CallerEnvironment {
+            tmux: matches!(env, TmuxEnv::Full).then(|| "/tmp/nest.sock,1,0".into()),
+            pane: matches!(env, TmuxEnv::Full | TmuxEnv::PaneOnly).then(|| "%1".into()),
+            process_id,
+            driver_env,
+        };
+        let chosen = Host::for_verified_caller(&environment, runner, records, &mut Ids::default())
+            .map(|host| host.primary);
+        drop(other);
+        chosen
+    }
+
+    /// This test process and its parent: the caller's own pane shell and an
+    /// outer one.
+    fn ancestors() -> Vec<u64> {
+        crate::process::ancestry::chain(&UnixCommandRunner, u64::from(std::process::id()), soon())
+            .unwrap()
+    }
+
+    fn refused(result: Result<HostKind, HostError>) {
+        assert!(
+            matches!(result, Err(HostError::Unavailable(_))),
+            "{result:?}"
+        );
+    }
+
+    /// Refused because the locators name more than one host, not for a check.
+    fn ambiguous(result: Result<HostKind, HostError>) {
+        assert!(
+            matches!(&result, Err(HostError::Unavailable(reason)) if reason.contains("more than one host")),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn a_verified_caller_named_by_two_hosts_refuses_whatever_the_panes_say() {
+        let chain = ancestors();
+        // tmux variables plus the external driver's: every combination of a
+        // positive, negative or failing check on each side refuses.
+        for (inner, outer) in [(chain[0], chain[1]), (chain[1], chain[0])] {
+            for pane in [Pane::Shell(inner), Pane::Missing, Pane::Fails] {
+                for tmux in [Some(outer), Some(999_999), None] {
+                    let (label, pane) = match pane {
+                        Pane::Shell(pid) => ("positive", Pane::Shell(pid)),
+                        Pane::Missing => ("negative", Pane::Missing),
+                        _ => ("failing", Pane::Fails),
+                    };
+                    let result = chosen(pane, tmux, TmuxEnv::Full);
+                    assert!(
+                        matches!(&result, Err(HostError::Unavailable(reason)) if reason.contains("more than one host")),
+                        "external {label}, tmux {tmux:?}: {result:?}"
+                    );
+                }
+            }
+        }
+        // A partial tmux environment still names tmux.
+        ambiguous(chosen(
+            Pane::Shell(chain[0]),
+            Some(chain[1]),
+            TmuxEnv::PaneOnly,
+        ));
+        // Two approved external hosts whose variables are both set.
+        let (pid, _) = live();
+        let nested = Nested { pane: None };
+        ambiguous(choose(
+            Pane::Shell(chain[0]),
+            TmuxEnv::Absent,
+            pid,
+            nested,
+            true,
+        ));
+    }
+
+    #[test]
+    fn a_verified_caller_named_by_one_host_admits_only_that_hosts_proof() {
+        let chain = ancestors();
+        let only_external = chosen(Pane::Shell(chain[0]), None, TmuxEnv::Absent);
+        assert_eq!(only_external.unwrap(), HostKind::External(fake()));
+        // The named host's negative or failing check never tries tmux.
+        refused(chosen(Pane::Missing, Some(chain[0]), TmuxEnv::Absent));
+        refused(chosen(Pane::Fails, Some(chain[0]), TmuxEnv::Absent));
+        // A pane that is no ancestor of the caller is no proof either.
+        refused(chosen(Pane::Shell(999_999), None, TmuxEnv::Absent));
+        // An approved executable that changed, or a set variable that is not
+        // text, is not a verification.
+        refused(chosen(Pane::Changed(chain[0]), None, TmuxEnv::Absent));
+        refused(chosen(Pane::NotText(chain[0]), None, TmuxEnv::Absent));
+    }
+
+    #[test]
+    fn a_caller_without_external_locators_keeps_the_tmux_host() {
+        use crate::host::{CallerEnvironment, Host};
+        let caller = |tmux: bool| CallerEnvironment {
+            tmux: tmux.then(|| "/tmp/nest.sock,1,0".into()),
+            pane: tmux.then(|| "%1".into()),
+            process_id: u64::from(std::process::id()),
+            driver_env: Default::default(),
+        };
+        // tmux variables alone and no locators at all are unchanged: the
+        // built-in host, whose own caller check decides later.
+        for tmux in [true, false] {
+            let host = Host::for_verified_caller(
+                &caller(tmux),
+                Nested { pane: None },
+                Vec::new(),
+                &mut Ids::default(),
+            )
+            .unwrap();
+            assert_eq!(host.primary, HostKind::Tmux);
+        }
+    }
+
+    /// The probe itself, with no tmux involved: a driver that was not run, or
+    /// not given its set variable, leaves the answer inconclusive, while a
+    /// driver that ran and found no pane is a conclusive "no pane".
+    #[test]
+    fn an_unrun_or_ungiven_driver_leaves_the_caller_probe_inconclusive() {
+        use crate::host::CallerEnvironment;
+        use std::os::unix::ffi::OsStringExt;
+        let probe = |changed: bool, value: OsString| {
+            let mut declared = answers("fake", "fake-", Some("f{n}"));
+            declared[0].1["ok"]["callerEnv"] = json!(["FAKE_PANE_ID"]);
+            let installed = Installed::new("fake", declared);
+            installed.answer("caller", &json!({"ok": {"pane": null}}).to_string());
+            let drivers = Drivers::new(HostRunner, vec![installed.approve().unwrap()]);
+            if changed {
+                let mut script = fs::read_to_string(&installed.executable).unwrap();
+                script.push_str("# changed after approval\n");
+                fs::write(&installed.executable, script).unwrap();
+            }
+            let environment = CallerEnvironment {
+                tmux: None,
+                pane: None,
+                process_id: u64::from(std::process::id()),
+                driver_env: [("FAKE_PANE_ID".to_owned(), value)].into(),
+            };
+            let callers = drivers.callers(&environment, soon()).unwrap();
+            (callers.conclusive, callers.found.len(), installed.calls())
+        };
+        let (conclusive, found, calls) = probe(false, "f1".into());
+        assert!(conclusive && found == 0, "{calls:?}");
+        assert!(
+            calls.iter().any(|call| call.starts_with("caller")),
+            "{calls:?}"
+        );
+        let (conclusive, found, calls) = probe(true, "f1".into());
+        assert!(!conclusive && found == 0, "changed executable: {calls:?}");
+        assert!(
+            !calls.iter().any(|call| call.starts_with("caller")),
+            "{calls:?}"
+        );
+        let (conclusive, found, calls) = probe(false, OsString::from_vec(vec![b'f', 0xff]));
+        assert!(!conclusive && found == 0, "non-text variable: {calls:?}");
+        assert!(
+            !calls.iter().any(|call| call.starts_with("caller")),
+            "{calls:?}"
+        );
+    }
 }

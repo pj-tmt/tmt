@@ -2,7 +2,8 @@
 //! server-level store (Herdr, #479; schema 39). tmux keeps its ID in a server
 //! option instead. A restarted server is a new incarnation with a new ID.
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use std::{path::Path, time::Duration};
 
 use super::{
     Storage, StorageError,
@@ -63,6 +64,53 @@ impl Storage {
     }
 }
 
+/// Server IDs a bind already recorded, read without creating any: a hook
+/// observes state and never records a server. An unrecorded incarnation (a
+/// restarted or foreign server) is an error, so its caller refuses.
+pub struct RecordedHostServers<'a> {
+    database: &'a Path,
+}
+
+impl<'a> RecordedHostServers<'a> {
+    pub fn new(database: &'a Path) -> Self {
+        Self { database }
+    }
+}
+
+impl HostServerIds for RecordedHostServers<'_> {
+    type Error = StorageError;
+
+    fn server_id(&mut self, server: &HostServerIncarnation<'_>) -> Result<String, StorageError> {
+        let pid = i64::try_from(server.server_pid)
+            .map_err(|_| StorageError::new(StorageErrorCode::Unknown, "Invalid server PID"))?;
+        let mut connection =
+            Connection::open_with_flags(self.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(|error| classify(error, "Open recorded host servers read-only"))?;
+        connection
+            .busy_timeout(Duration::ZERO)
+            .map_err(|error| classify(error, "Disable recorded host server wait"))?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| classify(error, "Read recorded host servers"))?;
+        super::migrations::require_current(&transaction)?;
+        transaction
+            .query_row(
+                "SELECT server_id FROM host_servers WHERE host = ? AND socket_path = ?
+                 AND server_pid = ? AND server_start_time = ?",
+                params![
+                    server.host.as_str(),
+                    server.socket_path,
+                    pid,
+                    server.server_start_time
+                ],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read recorded host server"))?
+            .ok_or_else(|| StorageError::new(StorageErrorCode::Unknown, "Unrecorded host server"))
+    }
+}
+
 impl HostServerIds for Storage {
     type Error = StorageError;
 
@@ -115,6 +163,60 @@ mod tests {
             .unwrap();
         assert_eq!(seen, 1);
         storage.close().unwrap();
+    }
+
+    #[test]
+    fn recorded_servers_are_read_and_unrecorded_ones_refuse_without_a_row() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let recorded = storage.host_server_id(&herdr(41, "Tue 22:09"), 1).unwrap();
+        storage.close().unwrap();
+        let mut ids = RecordedHostServers::new(&database);
+        assert_eq!(ids.server_id(&herdr(41, "Tue 22:09")).unwrap(), recorded);
+        // A restart (same PID, another start) and another server are unrecorded.
+        assert!(ids.server_id(&herdr(41, "Tue 23:00")).is_err());
+        assert!(ids.server_id(&herdr(42, "Tue 22:09")).is_err());
+        let count: i64 = rusqlite::Connection::open(&database)
+            .unwrap()
+            .query_row("SELECT count(*) FROM host_servers", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn recorded_servers_read_beside_a_writer_and_change_no_schema() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let recorded = storage.host_server_id(&herdr(41, "Tue 22:09"), 1).unwrap();
+        storage.close().unwrap();
+        let schema = |connection: &rusqlite::Connection| -> (i64, i64) {
+            let version = connection
+                .query_row("PRAGMA schema_version", [], |row| row.get(0))
+                .unwrap();
+            let rows = connection
+                .query_row("SELECT count(*) FROM host_servers", [], |row| row.get(0))
+                .unwrap();
+            (version, rows)
+        };
+        // Another connection holds the write lock with an uncommitted row; a
+        // lookup that wanted to write would fail at once (no busy wait).
+        let writer = rusqlite::Connection::open(&database).unwrap();
+        let before = schema(&writer);
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        writer
+            .execute(
+                "INSERT INTO host_servers (server_id, host, socket_path, server_pid,
+                 server_start_time, first_seen_at_ms) VALUES (?, 'herdr', '/tmp/w.sock', 7, 'w', 1)",
+                ["44444444-4444-4444-8444-444444444444"],
+            )
+            .unwrap();
+        let mut ids = RecordedHostServers::new(&database);
+        assert_eq!(ids.server_id(&herdr(41, "Tue 22:09")).unwrap(), recorded);
+        assert!(ids.server_id(&herdr(41, "Tue 23:00")).is_err());
+        writer.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(schema(&writer), before);
     }
 
     #[test]
