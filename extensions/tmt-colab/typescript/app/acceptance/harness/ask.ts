@@ -142,8 +142,13 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
   await expect(page.getByTestId('selection-ask')).toBeVisible();
 }
 
-/** Find the shared field; the caller supplies the visible recipient mention in its draft. */
-export async function annotationInput(container: Locator, _agent: string) {
+/**
+ * Find the shared field once the agent directory has settled; the caller supplies the visible
+ * recipient mention in its draft. Fill only the field this returns: a fresh composer seeds its
+ * default mention when the directory resolves, and Playwright's fill (select all, then insert)
+ * would take that seed between its two steps and read `@agent @agent text`.
+ */
+export async function annotationInput(container: Locator, _agent?: string) {
   const input = container.getByRole('combobox', { name: 'Message', exact: true });
   await expect(input).toBeVisible();
   // Directory readiness is status-only. No hidden recipient selection is made here.
@@ -189,11 +194,11 @@ export async function composeChat(
 ): Promise<ComposedChat> {
   await openChat(page);
   const panel = page.getByTestId('chat-panel');
-  const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+  // The default mention seeds when the directory resolves; fill only after it has.
+  const input = await annotationInput(panel, agent.name);
   const draft = `@${agent.name} ${question}`;
   await input.fill(draft);
   await expect.poll(() => composerText(input)).toBe(draft);
-  await annotationInput(panel, agent.name);
   const turn = agent.received().length;
   return {
     delivered() {

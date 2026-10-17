@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { pageAction } from '../test/page-actions.js';
+import { annotationInput } from '../acceptance/harness/ask.js';
 import { destination, id } from '../test/ask-fixtures.js';
 import type { AgentDestination } from '../src/live-ask.js';
 const fixture = '/test/annotation-browser.tsx';
@@ -475,4 +476,36 @@ test('creator preference off keeps the one-off manual Ask action without changin
   await expect(input).toBeFocused();
   await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, commits: 0 });
+});
+
+test('a fill taken before the seed lands ends up behind it; a fill after the directory settles is exact', async ({
+  page,
+}) => {
+  // Playwright's fill on a contenteditable selects everything, then inserts. The default mention
+  // seeds when the directory resolves, so a seed landing between the two steps is kept.
+  let input = await mount(page, 'chat', { directory: 'park' });
+  await input.evaluate((node) => {
+    node.focus();
+    document.getSelection()!.selectAllChildren(node);
+  });
+  await run(page, 'releaseDirectory');
+  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await page.keyboard.insertText('@alpha Hello');
+  await expect(input).toHaveText('@alpha @alpha Hello', { useInnerText: true });
+
+  // annotationInput returns only once the directory has settled and the seed is in, so its
+  // field takes a whole fill: the selection covers the seed and the draft replaces it.
+  input = await mount(page, 'chat', { directory: 'park' });
+  let returned = false;
+  const ready = annotationInput(page.locator('body')).then((field) => {
+    returned = true;
+    return field;
+  });
+  await expect(page.locator('.annotation-hint').first()).toHaveText('Checking for agents…');
+  expect(returned).toBe(false);
+  await run(page, 'releaseDirectory');
+  const field = await ready;
+  await expect(field).toHaveText('@alpha ', { useInnerText: true });
+  await field.fill('@alpha Hello');
+  await expect(input).toHaveText('@alpha Hello', { useInnerText: true });
 });

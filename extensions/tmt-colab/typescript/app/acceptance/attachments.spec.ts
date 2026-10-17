@@ -8,6 +8,7 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { openReaderLink, pairBrowser, startDoor } from './harness/browser.js';
 import {
+  annotationInput,
   clientId,
   createPage,
   freePort,
@@ -146,7 +147,7 @@ test('files attached in Chat reach a second paired device, preview and download 
 
     await openChat(first);
     const panel = first.getByTestId('chat-panel');
-    const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+    const input = await annotationInput(panel);
     await input.fill('Three files');
     const chooser = first.waitForEvent('filechooser');
     await panel.getByRole('button', { name: text.messageAttach }).click();
@@ -540,7 +541,7 @@ test('a foreign write during an upload leaves a message attachment valid; a memb
     };
     const chip = mine.getByTestId('attachment-chip');
     const sendBig = async (message: string) => {
-      await mine.getByRole('combobox', { name: 'Message', exact: true }).fill(message);
+      await (await annotationInput(mine)).fill(message);
       const chooser = first.waitForEvent('filechooser');
       await mine.getByRole('button', { name: text.messageAttach }).click();
       await (await chooser).setFiles([big]);
@@ -598,7 +599,7 @@ test('export and attachment read return the same bytes as the browser, and say w
       await expect(files.getByTestId('file-row')).toHaveCount(2, { timeout: 30_000 });
       await openChat(first);
       const panel = first.getByTestId('chat-panel');
-      await panel.getByRole('combobox', { name: 'Message', exact: true }).fill('One file');
+      await (await annotationInput(panel)).fill('One file');
       const pick = first.waitForEvent('filechooser');
       await panel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
@@ -966,16 +967,14 @@ for (const surface of ['chat', 'thread'] as const)
         await selectInRenderer(page, '#quote');
         await page.getByTestId('selection-ask').click();
         const fresh = page.locator('.annotation-new');
-        await fresh
-          .getByRole('combobox', { name: 'Message', exact: true })
-          .fill('Start this thread.');
+        await (await annotationInput(fresh)).fill('Start this thread.');
         await fresh.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       }
       const panel =
         surface === 'chat'
           ? page.locator('.tmt-ui-drawer[data-panel=chat]')
           : page.getByTestId('comment-thread').first();
-      const input = panel.getByRole('combobox', { name: 'Message', exact: true });
+      const input = await annotationInput(panel);
       await input.fill('A posted image at the message edge.');
       const attachName = text.messageAttach;
       const posted = page.waitForEvent('filechooser');
