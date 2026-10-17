@@ -79,7 +79,7 @@ pub(super) fn render(
             |(tokens, partial)| format!(
                 "{}{}",
                 if partial { "~" } else { "" },
-                crate::source::tokens(tokens as f64)
+                crate::source::tokens(tokens)
             )
         )
     );

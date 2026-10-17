@@ -236,7 +236,7 @@ fn usage_number(usage: &HomeHeaderUsage<'_>, index: usize) -> String {
     usage.totals[index].map_or_else(
         || "–".into(),
         |reading| {
-            let number = crate::source::tokens(reading.tokens as f64);
+            let number = crate::source::tokens(reading.tokens);
             format!("{}{number}", if reading.partial { "~" } else { "" })
         },
     )

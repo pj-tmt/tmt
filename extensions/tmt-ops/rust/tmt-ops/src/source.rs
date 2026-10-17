@@ -208,7 +208,7 @@ pub(crate) fn render_value(value: &Value, format: Format, now_ms: u64) -> Option
     };
     let shown: fn(f64, u64) -> String = match format {
         Format::Text => return text(),
-        Format::Tokens => |number, _| tokens(number),
+        Format::Tokens => |number, _| tokens(number.round() as u128),
         Format::Age => |number, now_ms| age(now_ms as f64 - number),
         Format::Count => |number, _| count(number),
     };
@@ -217,33 +217,33 @@ pub(crate) fn render_value(value: &Value, format: Format, now_ms: u64) -> Option
         .or_else(text)
 }
 
-pub(crate) fn tokens(number: f64) -> String {
-    let number = number.max(0.0);
-    if number < 1_000.0 {
-        format!("{number:.0}")
-    } else if number < 999_500.0 {
-        format!("{:.0}k", number / 1_000.0)
-    } else {
-        format!("{:.1}M", number / 1_000_000.0)
+/// One token-count projection for meters, columns, charts and supplier estimates.
+pub(crate) fn tokens(value: u128) -> String {
+    if value < 1_000 {
+        return value.to_string();
     }
-}
-
-/// Compact token estimates and chart labels without losing integer precision.
-pub(crate) fn compact_tokens(value: u128) -> String {
-    let (scale, suffix) = if value >= 1_000_000_000 {
+    let (mut scale, mut suffix) = if value >= 1_000_000_000 {
         (1_000_000_000, "B")
     } else if value >= 1_000_000 {
         (1_000_000, "M")
-    } else if value >= 1_000 {
-        (1_000, "k")
     } else {
-        return value.to_string();
+        (1_000, "k")
     };
-    // Round half up using integers: source precision never depends on f64.
+    // Whole scaled values round half up; carry 1,000 into the next unit.
+    if scale < 1_000_000_000 && value >= scale * 1_000 - scale / 2 {
+        scale *= 1_000;
+        suffix = if scale == 1_000_000 { "M" } else { "B" };
+    }
     let whole = value / scale;
-    let tenths = ((value % scale) * 10 + scale / 2) / scale;
-    let rounded = whole * 10 + tenths;
-    format!("{}.{:01}{suffix}", rounded / 10, rounded % 10)
+    let remainder = value % scale;
+    if whole < 100 {
+        // Integer arithmetic keeps large source observations independent of f64.
+        let tenths = whole * 10 + (remainder * 10 + scale / 2) / scale;
+        if tenths < 1_000 {
+            return format!("{}.{:01}{suffix}", tenths / 10, tenths % 10);
+        }
+    }
+    format!("{}{suffix}", whole + u128::from(remainder >= scale / 2))
 }
 
 fn age(elapsed_ms: f64) -> String {
@@ -433,6 +433,39 @@ mod tests {
         ] {
             assert_eq!(bind(path).value(&bare, Format::Text, 0), None, "{path}");
         }
+    }
+
+    #[test]
+    fn token_counts_share_precision_rounding_and_large_integer_boundaries() {
+        for (value, expected) in [
+            (0, "0"),
+            (999, "999"),
+            (1_000, "1.0k"),
+            (18_200, "18.2k"),
+            (99_949, "99.9k"),
+            (99_950, "100k"),
+            (100_000, "100k"),
+            (340_000, "340k"),
+            (999_499, "999k"),
+            (999_500, "1.0M"),
+            (1_400_000, "1.4M"),
+            (120_000_000, "120M"),
+            (999_500_000, "1.0B"),
+            (u128::MAX, "340282366920938463463374607432B"),
+        ] {
+            assert_eq!(tokens(value), expected, "{value}");
+            if value < (1u128 << 53) {
+                assert_eq!(
+                    render_value(&json!(value as u64), Format::Tokens, 0),
+                    Some(expected.into()),
+                    "numeric bindings share the formatter"
+                );
+            }
+        }
+        assert_eq!(
+            render_value(&json!(-1), Format::Tokens, 0),
+            Some("0".into())
+        );
     }
 
     #[test]

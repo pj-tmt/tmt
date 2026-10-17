@@ -26,9 +26,7 @@ fn estimate(savings: &SavingsSummary, complete: bool) -> [Option<String>; 3] {
     };
     [
         amount(
-            savings
-                .tokens
-                .map(|n| crate::source::compact_tokens(u128::from(n))),
+            savings.tokens.map(|n| crate::source::tokens(u128::from(n))),
             savings.included,
         ),
         amount(
@@ -62,7 +60,7 @@ fn tokens(app: &App, identities: &[&str], complete: bool) -> Option<String> {
         format!(
             "{}{}",
             if partial { "~" } else { "" },
-            crate::source::compact_tokens(total)
+            crate::source::tokens(total)
         )
     })
 }

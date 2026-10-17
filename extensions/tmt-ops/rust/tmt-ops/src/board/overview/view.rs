@@ -441,7 +441,7 @@ fn squad_line(
             format!(
                 "{}{}",
                 if partial { "~" } else { "" },
-                crate::source::tokens(n as f64)
+                crate::source::tokens(n)
             )
         },
     );
@@ -529,9 +529,10 @@ fn agent_line(
     state.push(Span::raw(
         " ".repeat(usize::from(width).saturating_sub(used)),
     ));
-    let tokens = value
-        .tokens
-        .map_or_else(|| "—".into(), crate::source::tokens);
+    let tokens = value.tokens.map_or_else(
+        || "—".into(),
+        |tokens| crate::source::tokens(tokens.round() as u128),
+    );
     let pin = crate::board::workspace::render::pin_mark(&row.target, &snapshot.preferences, look);
     let name_width = 23usize.saturating_sub(pin.width());
     Line::from_iter(
