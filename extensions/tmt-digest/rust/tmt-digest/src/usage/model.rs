@@ -77,6 +77,20 @@ struct Point {
     to_ms: u64,
     tokens: Tokens,
     complete: bool,
+    /// The newest credits Core saw in the bucket, and the service tier of its
+    /// newest token-moving read; each None when Core observed none.
+    credits: Option<Credit>,
+    service_tier: Option<String>,
+}
+
+/// An account's credit balance as one bucket's newest provider line reported it.
+/// `balance` stays the provider's decimal text: it is never summed or rounded.
+#[derive(Clone, Debug, PartialEq)]
+struct Credit {
+    observed_at_ms: u64,
+    balance: String,
+    has_credits: bool,
+    unlimited: bool,
 }
 
 /// Rate limits as one seat's newest rollup bucket reported them.
@@ -194,6 +208,49 @@ fn models(bucket: &Value, totals: Tokens) -> Result<Option<Vec<ModelTotals>>, Er
     Ok(Some(parsed))
 }
 
+fn credit(value: &Value) -> Result<Option<Credit>, Error> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let read = || {
+        let balance = value["balance"].as_str().filter(|text| {
+            (1..=28).contains(&text.len())
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte == b'.')
+                && text.bytes().filter(|byte| *byte == b'.').count() <= 1
+                && !text.starts_with('.')
+                && !text.ends_with('.')
+        })?;
+        Some(Credit {
+            observed_at_ms: number(&value["observedAtMs"]).filter(|n| *n > 0)?,
+            balance: balance.to_owned(),
+            has_credits: value["hasCredits"].as_bool()?,
+            unlimited: value["unlimited"].as_bool()?,
+        })
+    };
+    read()
+        .map(Some)
+        .ok_or_else(|| invalid("consumption series"))
+}
+
+fn tier(value: &Value) -> Result<Option<String>, Error> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    value
+        .as_str()
+        .filter(|text| {
+            (1..=24).contains(&text.len())
+                && text.starts_with(|first: char| first.is_ascii_lowercase())
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+        })
+        .map(|text| Some(text.to_owned()))
+        .ok_or_else(|| invalid("consumption series"))
+}
+
 fn observed(value: &Value) -> Option<Observed> {
     let windows = value["windows"]
         .as_array()?
@@ -268,6 +325,8 @@ pub fn usage(
                 to_ms: number(&point["toMs"]).ok_or_else(|| invalid("consumption series"))?,
                 tokens: Tokens::read(point).ok_or_else(|| invalid("consumption series"))?,
                 complete: point["complete"] == true,
+                credits: credit(&point["credits"])?,
+                service_tier: tier(&point["serviceTier"])?,
             });
             if let Some(found) = point.get("rateLimits").and_then(observed)
                 && limits
@@ -460,6 +519,9 @@ fn seat_json(seat: &Seat) -> Value {
             row["fromMs"] = json!(point.from_ms);
             row["toMs"] = json!(point.to_ms);
             row["complete"] = json!(point.complete);
+            if let Some(tier) = &point.service_tier {
+                row["serviceTier"] = json!(tier);
+            }
             row
         }).collect::<Vec<_>>(),
         "coverage": {"coveredMs": seat.covered_ms, "windowMs": seat.window_ms,
@@ -608,6 +670,51 @@ pub struct Report {
     pub warnings: Vec<Value>,
 }
 
+/// The account's credit balance over the window: one point per series bucket in
+/// which a seat observed one, taken from the seat with the newest observation so
+/// seats on one account give one series and a balance is never summed. `serviceTiers`
+/// is the sorted set of tiers the seats reported for that bucket. A bucket nobody
+/// observed has no point, and nothing is carried into it. Null when no seat has any.
+fn credits(seats: &[Seat]) -> Value {
+    #[derive(Default)]
+    struct Bucket {
+        newest: Option<Credit>,
+        tiers: BTreeSet<String>,
+    }
+    let mut buckets = BTreeMap::<(u64, u64), Bucket>::new();
+    for point in seats.iter().flat_map(|seat| &seat.series) {
+        let bucket = buckets.entry((point.from_ms, point.to_ms)).or_default();
+        if let Some(tier) = &point.service_tier {
+            bucket.tiers.insert(tier.clone());
+        }
+        if let Some(credit) = &point.credits
+            && bucket
+                .newest
+                .as_ref()
+                .is_none_or(|held| credit.observed_at_ms > held.observed_at_ms)
+        {
+            bucket.newest = Some(credit.clone());
+        }
+    }
+    let points: Vec<Value> = buckets
+        .into_iter()
+        .filter_map(|((from_ms, to_ms), bucket)| {
+            bucket.newest.map(|credit| {
+                json!({
+                    "fromMs": from_ms, "toMs": to_ms, "balance": credit.balance,
+                    "observedAtMs": credit.observed_at_ms, "hasCredits": credit.has_credits,
+                    "unlimited": credit.unlimited, "serviceTiers": bucket.tiers,
+                })
+            })
+        })
+        .collect();
+    if points.is_empty() {
+        Value::Null
+    } else {
+        json!({"points": points})
+    }
+}
+
 pub fn document(report: &Report) -> Result<Value, Error> {
     let (usage, limits, unavailable) = usage_sections(&report.usage, report.as_of_ms)?;
     Ok(json!({
@@ -617,6 +724,7 @@ pub fn document(report: &Report) -> Result<Value, Error> {
         "usage": usage,
         "limits": limits,
         "limitsUnavailable": unavailable,
+        "credits": credits(&report.usage.seats),
         "exchange": report.exchange,
         "warnings": report.warnings,
     }))

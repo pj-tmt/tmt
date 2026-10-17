@@ -298,7 +298,14 @@
                           "resetsAtMs": 1800086460000
                         }
                       ]
-                    }
+                    },
+                    "credits": {
+                      "observedAtMs": 1799916000000,
+                      "balance": "120.5",
+                      "hasCredits": true,
+                      "unlimited": false
+                    },
+                    "serviceTier": "default"
                   },
                   {
                     "fromMs": 1799917200000,
@@ -324,7 +331,14 @@
                           "resetsAtMs": 1800086460000
                         }
                       ]
-                    }
+                    },
+                    "credits": {
+                      "observedAtMs": 1799919600000,
+                      "balance": "118.25",
+                      "hasCredits": true,
+                      "unlimited": false
+                    },
+                    "serviceTier": "priority"
                   }
                 ]
               }
@@ -367,7 +381,14 @@
                           "resetsAtMs": 1800086460000
                         }
                       ]
-                    }
+                    },
+                    "credits": {
+                      "observedAtMs": 1799916600000,
+                      "balance": "119.75",
+                      "hasCredits": true,
+                      "unlimited": false
+                    },
+                    "serviceTier": "priority"
                   }
                 ]
               }
@@ -560,7 +581,8 @@
                   "input": 2000,
                   "output": 300,
                   "cached": 1500,
-                  "complete": true
+                  "complete": true,
+                  "serviceTier": "default"
                 },
                 {
                   "fromMs": 1799917200000,
@@ -568,7 +590,8 @@
                   "input": 3000,
                   "output": 500,
                   "cached": 1500,
-                  "complete": true
+                  "complete": true,
+                  "serviceTier": "priority"
                 }
               ],
               "coverage": {
@@ -599,7 +622,8 @@
                   "input": 100,
                   "output": 20,
                   "cached": 0,
-                  "complete": false
+                  "complete": false,
+                  "serviceTier": "priority"
                 }
               ],
               "coverage": {
@@ -741,6 +765,33 @@
             "reason": "no_source"
           }
         ],
+        "credits": {
+          "points": [
+            {
+              "fromMs": 1799913600000,
+              "toMs": 1799917200000,
+              "balance": "119.75",
+              "observedAtMs": 1799916600000,
+              "hasCredits": true,
+              "unlimited": false,
+              "serviceTiers": [
+                "default",
+                "priority"
+              ]
+            },
+            {
+              "fromMs": 1799917200000,
+              "toMs": 1799920800000,
+              "balance": "118.25",
+              "observedAtMs": 1799919600000,
+              "hasCredits": true,
+              "unlimited": false,
+              "serviceTiers": [
+                "priority"
+              ]
+            }
+          ]
+        },
         "exchange": {
           "sinceMs": 1799913600000,
           "observedAtMs": 1800000060000,
@@ -884,7 +935,8 @@
       },
       "csv": {
         "usage": "id,name,retired,line,model,input,output,cached,coveredMs,windowMs,startsAtMs,complete,unavailable\n10000000-0000-4000-8000-000000000001,claude-seat,false,claude,claude-opus-5-5,1000,200,600,86400000,86400000,1799913600000,true,\n10000000-0000-4000-8000-000000000002,codex-a,false,gpt,gpt-6.1-sol,3000,500,2000,86400000,86400000,1799913600000,true,\n10000000-0000-4000-8000-000000000002,codex-a,false,gpt,gpt-6-astra,2000,300,1000,86400000,86400000,1799913600000,true,\n10000000-0000-4000-8000-000000000003,codex-b,false,unattributed,,100,20,0,43200000,86400000,1799917200000,false,\n10000000-0000-4000-8000-000000000005,retired-seat,true,claude,claude-sonnet-5-5,50,10,0,3600000,86400000,1799913600000,false,\n10000000-0000-4000-8000-000000000004,idle-seat,false,,,,,,,,,,no_evidence\n10000000-0000-4000-8000-000000000006,,false,,,,,,,,,,not_found\n",
-        "exchange": "senderId,sender,recipientId,recipient,kind,count,bytes\n,,10000000-0000-4000-8000-000000000001,claude-seat,talk,1,40\n10000000-0000-4000-8000-000000000001,claude-seat,10000000-0000-4000-8000-000000000002,codex-a,talk,3,300\n10000000-0000-4000-8000-000000000001,claude-seat,10000000-0000-4000-8000-000000000006,,ack,4,0\n10000000-0000-4000-8000-000000000002,codex-a,10000000-0000-4000-8000-000000000001,claude-seat,reply,2,120\n10000000-0000-4000-8000-000000000002,codex-a,10000000-0000-4000-8000-000000000001,claude-seat,result,1,80\n"
+        "exchange": "senderId,sender,recipientId,recipient,kind,count,bytes\n,,10000000-0000-4000-8000-000000000001,claude-seat,talk,1,40\n10000000-0000-4000-8000-000000000001,claude-seat,10000000-0000-4000-8000-000000000002,codex-a,talk,3,300\n10000000-0000-4000-8000-000000000001,claude-seat,10000000-0000-4000-8000-000000000006,,ack,4,0\n10000000-0000-4000-8000-000000000002,codex-a,10000000-0000-4000-8000-000000000001,claude-seat,reply,2,120\n10000000-0000-4000-8000-000000000002,codex-a,10000000-0000-4000-8000-000000000001,claude-seat,result,1,80\n",
+        "credits": "fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,serviceTiers\n1799913600000,1799917200000,119.75,1799916600000,true,false,default priority\n1799917200000,1799920800000,118.25,1799919600000,true,false,priority\n"
       }
     }
   ]

@@ -66,14 +66,16 @@ impl Since {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Table {
     Usage,
+    Credits,
     Exchange,
 }
 impl Table {
     pub fn parse(value: &str) -> Result<Self, String> {
         match value {
             "usage" => Ok(Self::Usage),
+            "credits" => Ok(Self::Credits),
             "exchange" => Ok(Self::Exchange),
-            _ => Err("Use usage or exchange".into()),
+            _ => Err("Use usage, credits or exchange".into()),
         }
     }
 }

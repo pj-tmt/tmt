@@ -20,6 +20,15 @@ const USAGE: &[&str] = &[
     "complete",
     "unavailable",
 ];
+const CREDITS: &[&str] = &[
+    "fromMs",
+    "toMs",
+    "balance",
+    "observedAtMs",
+    "hasCredits",
+    "unlimited",
+    "serviceTiers",
+];
 const EXCHANGE: &[&str] = &[
     "senderId",
     "sender",
@@ -60,6 +69,7 @@ fn row(cells: &[Value]) -> String {
 pub fn table(document: &Value, table: Table) -> Result<String, Error> {
     let (header, rows) = match table {
         Table::Usage => (USAGE, usage(document)),
+        Table::Credits => (CREDITS, credits(document)),
         Table::Exchange => (EXCHANGE, exchange(document)?),
     };
     Ok(header.join(",") + "\n" + &rows.concat())
@@ -125,6 +135,35 @@ fn usage(document: &Value) -> Vec<String> {
         rows.push(row(&cells));
     }
     rows
+}
+
+/// One row per point of the balance series; empty when no seat observed credits.
+/// `serviceTiers` is the point's tier set joined by spaces (empty: unknown).
+fn credits(document: &Value) -> Vec<String> {
+    let empty = Vec::new();
+    document["credits"]["points"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .map(|point| {
+            let tiers = point["serviceTiers"]
+                .as_array()
+                .unwrap_or(&empty)
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ");
+            row(&[
+                point["fromMs"].clone(),
+                point["toMs"].clone(),
+                point["balance"].clone(),
+                point["observedAtMs"].clone(),
+                point["hasCredits"].clone(),
+                point["unlimited"].clone(),
+                Value::String(tiers),
+            ])
+        })
+        .collect()
 }
 
 fn exchange(document: &Value) -> Result<Vec<String>, Error> {

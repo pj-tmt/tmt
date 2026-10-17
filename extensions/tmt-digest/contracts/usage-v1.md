@@ -1,6 +1,6 @@
 # Digest usage report contract v1
 
-`tmt digest usage report [--since 24h|7d|30d] (--json | --csv usage|exchange)`
+`tmt digest usage report [--since 24h|7d|30d] (--json | --csv usage|credits|exchange)`
 joins Core's public consumption, limit and exchange documents into one read for
 people and spreadsheets. `--since` defaults to `24h`; exactly one output is chosen.
 It is read-only: Digest keeps no usage store, collector or scheduler for it, and it
@@ -36,7 +36,10 @@ with Core's usual 15 seconds and 1 MiB per call:
   (Core's attribution as `{modelId,input,output,cached}`, or null when Core could
   not attribute the whole total), `lines` (the lines its tokens belong to, as `usage.lines[]`
   counts them: its models' families, or `unattributed`; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
-  and `coverage` `{coveredMs,windowMs,startsAtMs,complete,gap}`. `startsAtMs` is where
+  and `coverage` `{coveredMs,windowMs,startsAtMs,complete,gap}`. A `series[]` point also
+  carries `serviceTier` (the provider's tier id, such as `default` or `priority`) when
+  Core reports the tier of the seat's newest token-moving read in that bucket; absent is
+  unknown, never `default`. `startsAtMs` is where
   the seat's evidence begins inside the window: Core's `availableFromMs` for it (the
   start of its first rollup bucket with a successful read), but never before the
   window's own start. Earlier time was not recorded, and Core does not backfill it.
@@ -60,6 +63,17 @@ with Core's usual 15 seconds and 1 MiB per call:
 - `limitsUnavailable[]`: `{line,reason}` for each line whose seats reported no
   limits: `claude` is `no_source` (Core has no Claude limit source) and others are
   `not_observed`.
+- `credits`: the Codex credit balance over the window, `{points:[...]}`, or null when no
+  seat's series carries a balance (Claude has none). It reads the credits and tier that
+  Core's rollup keeps per bucket, at the series resolution (hourly for `24h`, daily for
+  `7d` and `30d`). A point is `{fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,
+  serviceTiers}` for a series bucket in which some seat observed a balance: the
+  observation with the newest `observedAtMs` among the seats, so seats on one account give
+  one series and a balance is never summed. `balance` is the provider's decimal text in its
+  credit unit. `serviceTiers` is the sorted set of tier ids seats reported for that bucket
+  (empty when none: unknown, never `default`). A bucket nobody observed has no point and
+  nothing is carried into it. Core carries no account id with credits, so seats on two
+  accounts would interleave in one series; `observedAtMs` shows it.
 - `exchange`: `sinceMs`, `observedAtMs`, `pairs[]` (`sender`, `recipient`, `kind`,
   `count`, `bytes`), and `bySender[]` / `byRecipient[]` (`participant`, `count`,
   `bytes`; most messages first, then UUID). A participant is `{id,name,retired}`;
@@ -81,6 +95,8 @@ JSON rows, so the two never disagree.
   One row per model of each seat (`line` from the model id; `unattributed` and an
   empty `model` when `byModel` is null), then one row per unavailable identity with
   only `id,name,retired,unavailable`.
+- `credits`: `fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,serviceTiers`, one row
+  per point (`serviceTiers` joined by spaces); only the header when `credits` is null.
 - `exchange`: `senderId,sender,recipientId,recipient,kind,count,bytes`, one row per
   pair; an unknown participant has empty cells. It fails with `EXCHANGE_UNAVAILABLE`
   when the flow could not be read.
@@ -92,4 +108,4 @@ use `--json` for them.
 ## Vector
 
 The frozen [usage report vector](vectors/usage-report-v1.json) pins the join: Core's
-documents in, this document and both tables out, with arithmetic written by hand.
+documents in, this document and the three tables out, with arithmetic written by hand.
