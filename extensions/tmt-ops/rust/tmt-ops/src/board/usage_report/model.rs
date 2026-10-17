@@ -61,6 +61,9 @@ pub struct Seat {
     pub series: Vec<u64>,
     pub covered_ms: u64,
     pub window_ms: u64,
+    /// Where the seat's evidence begins inside the window; None from a supplier
+    /// that does not report it.
+    pub starts_at_ms: Option<u64>,
     pub complete: bool,
 }
 
@@ -114,6 +117,8 @@ pub struct Warning {
 pub struct Report {
     pub since: Since,
     pub observed_at_ms: u64,
+    /// The start of the window, None when no identity could be read.
+    pub window_from_ms: Option<u64>,
     pub lines: Vec<Line>,
     pub seats: Vec<Seat>,
     pub unavailable: Vec<Unavailable>,
@@ -130,6 +135,14 @@ fn malformed() -> String {
 
 fn number(value: &Value) -> Result<u64, String> {
     value.as_u64().filter(|n| *n <= MAX).ok_or_else(malformed)
+}
+
+fn optional_number(value: &Value) -> Result<Option<u64>, String> {
+    if value.is_null() {
+        Ok(None)
+    } else {
+        number(value).map(Some)
+    }
 }
 
 fn text(value: &Value) -> Result<String, String> {
@@ -195,6 +208,7 @@ fn seat(value: &Value) -> Result<Seat, String> {
             .collect::<Result<_, String>>()?,
         covered_ms: number(&coverage["coveredMs"])?,
         window_ms: number(&coverage["windowMs"])?,
+        starts_at_ms: optional_number(&coverage["startsAtMs"])?,
         complete: coverage["complete"].as_bool().ok_or_else(malformed)?,
     })
 }
@@ -245,6 +259,7 @@ impl Report {
                 .and_then(Since::parse)
                 .ok_or_else(malformed)?,
             observed_at_ms: number(&document["observedAtMs"])?,
+            window_from_ms: optional_number(&document["window"]["fromMs"])?,
             lines: array(usage, "lines")?
                 .iter()
                 .map(|row| {

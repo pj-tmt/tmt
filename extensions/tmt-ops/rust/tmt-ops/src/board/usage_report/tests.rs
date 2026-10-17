@@ -109,6 +109,9 @@ fn malformed_documents_are_refused_and_additive_fields_ignored() {
         &|d| d["usage"]["lines"][0]["totals"]["input"] = json!(9_007_199_254_740_992u64)
     ));
     assert!(broken(&|d| d["usage"]["seats"][0]["series"] = json!("none")));
+    assert!(broken(
+        &|d| d["usage"]["seats"][0]["coverage"]["startsAtMs"] = json!("noon")
+    ));
     assert!(broken(&|d| d["limits"][1]["windowMinutes"] = json!(0)));
     assert!(broken(&|d| d["limits"][1]["usedPercent"] = json!("40")));
     assert!(broken(
@@ -139,7 +142,7 @@ const GOLDEN: [&str; 19] = [
     "                               IN      OUT   CACHED    TOTAL  COVERAGE",
     " codex-a              ▆█     5.0k      800     3.0k     5.8k",
     " claude-seat          ▆█     1.0k      200      600     1.2k",
-    " codex-b              ··      100       20        0      120  partial · 12h of 24h",
+    " codex-b              ··      100       20        0      120  partial · since 01-14 09:00",
     " retired-seat retired ··       50       10        0       60  partial · 1h of 24h",
     " idle-seat · no usage recorded in this window",
     " 10000000 · not found",
@@ -328,7 +331,10 @@ fn coverage_text_outranks_the_spark_when_both_do_not_fit() {
         .iter()
         .find(|row| row.trim_start().starts_with("codex-b"))
         .unwrap();
-    assert!(partial.ends_with("partial · 12h of 24h"), "{partial}");
+    assert!(
+        partial.ends_with("partial · since 01-14 09:00"),
+        "{partial}"
+    );
     assert!(
         !partial.contains('▁') && !partial.contains('█'),
         "{partial}"
@@ -338,8 +344,52 @@ fn coverage_text_outranks_the_spark_when_both_do_not_fit() {
         .iter()
         .find(|row| row.trim_start().starts_with("codex-b"))
         .unwrap();
-    assert!(partial.ends_with("partial · 12h of 24h"), "{partial}");
+    assert!(
+        partial.ends_with("partial · since 01-14 09:00"),
+        "{partial}"
+    );
     assert!(wide.iter().any(|row| row.contains('█')));
+}
+
+#[test]
+fn partial_coverage_names_where_it_began_when_that_is_inside_the_window() {
+    let partial = |report: &Report, seat: &str| {
+        texts(report, 148)
+            .into_iter()
+            .find(|row| row.trim_start().starts_with(seat))
+            .unwrap()
+    };
+    let report = report();
+    // codex-b was first recorded an hour into the window, on the day before the report.
+    let start = report.seats[2].starts_at_ms.unwrap();
+    assert_eq!(
+        Some(start),
+        report.window_from_ms.map(|from| from + 3_600_000)
+    );
+    assert!(partial(&report, "codex-b").ends_with("partial · since 01-14 09:00"));
+    // The same start on the report's own day is a time of day.
+    let mut today = report.clone();
+    today.observed_at_ms = start + 3_600_000;
+    assert!(partial(&today, "codex-b").ends_with("partial · since 09:00"));
+    // Evidence that starts with the window is partial by its gaps: covered of window.
+    assert!(partial(&report, "retired-seat").ends_with("partial · 1h of 24h"));
+    // A supplier that does not say where evidence began leaves the covered time.
+    let mut silent = report.clone();
+    silent.seats[2].starts_at_ms = None;
+    assert!(partial(&silent, "codex-b").ends_with("partial · 12h of 24h"));
+    let mut unread = report.clone();
+    unread.window_from_ms = None;
+    assert!(partial(&unread, "codex-b").ends_with("partial · 12h of 24h"));
+    // An older document without the field still parses.
+    let mut old = vector();
+    for seat in old["usage"]["seats"].as_array_mut().unwrap() {
+        seat["coverage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("startsAtMs");
+    }
+    let old = Report::parse(&old).unwrap();
+    assert!(old.seats.iter().all(|seat| seat.starts_at_ms.is_none()));
 }
 
 #[test]
@@ -704,6 +754,7 @@ fn fleet() -> Report {
             series,
             covered_ms: 86_400_000,
             window_ms: 86_400_000,
+            starts_at_ms: None,
             complete: true,
         });
     }

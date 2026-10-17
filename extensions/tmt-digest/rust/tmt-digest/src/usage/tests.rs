@@ -190,6 +190,35 @@ fn limits_of(five: Value) -> Value {
     model::document(&report).unwrap()["limits"].clone()
 }
 
+/// The report for `one_seat` after Core says its evidence begins at `available`.
+fn report_with_available(available: Value) -> Result<Value, crate::core::Error> {
+    let (mut totals, series, ids, labels) = one_seat(None);
+    totals["identities"][0]["windows"][0]["availableFromMs"] = available;
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage: model::usage(&totals, &series, &ids, &labels)?,
+        exchange: None,
+        warnings: vec![],
+    };
+    model::document(&report)
+}
+
+#[test]
+fn coverage_starts_where_core_first_recorded_the_seat_but_never_before_the_window() {
+    let start = |available: u64| {
+        let document = report_with_available(json!(available)).unwrap();
+        document["usage"]["seats"][0]["coverage"]["startsAtMs"].clone()
+    };
+    // Core kept history from before the window: evidence starts with the window.
+    assert_eq!(start(T - 3 * DAY), json!(T - DAY));
+    assert_eq!(start(T - DAY), json!(T - DAY));
+    // The seat was first recorded inside the window: that is where it starts.
+    assert_eq!(start(T - DAY / 4), json!(T - DAY / 4));
+    // A start that is not a number is a contradiction, not a guess.
+    assert!(report_with_available(json!("yesterday")).is_err());
+}
+
 #[test]
 fn pace_is_exact_at_the_edges_of_a_window() {
     let length = 300 * 60_000;

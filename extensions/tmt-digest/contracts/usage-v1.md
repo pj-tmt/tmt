@@ -36,8 +36,12 @@ with Core's usual 15 seconds and 1 MiB per call:
   (Core's attribution as `{modelId,input,output,cached}`, or null when Core could
   not attribute the whole total), `lines` (the lines its tokens belong to, as `usage.lines[]`
   counts them: its models' families, or `unattributed`; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
-  and `coverage` `{coveredMs,windowMs,complete,gap}`. Cached input is part of input;
-  total is input plus output. An incomplete bucket is a lower bound, not an error.
+  and `coverage` `{coveredMs,windowMs,startsAtMs,complete,gap}`. `startsAtMs` is where
+  the seat's evidence begins inside the window: Core's `availableFromMs` for it (the
+  start of its first rollup bucket with a successful read), but never before the
+  window's own start. Earlier time was not recorded, and Core does not backfill it.
+  Cached input is part of input; total is input plus output. An incomplete bucket is a
+  lower bound, not an error.
 - `usage.unavailable[]`: `{id,name,retired,reason}` for an identity with no
   evidence: `no_evidence` (found, no successful read in the rollup), `not_found`, or
   `read_failed` (its batch failed or contradicted itself; a warning says why).
@@ -73,7 +77,7 @@ Failure exits 1 and prints `{"version":1,"error":{code,message}}` on stdout with
 `--csv` prints one RFC 4180 table with a header and LF row ends. Its rows are the
 JSON rows, so the two never disagree.
 
-- `usage`: `id,name,retired,line,model,input,output,cached,coveredMs,windowMs,complete,unavailable`.
+- `usage`: `id,name,retired,line,model,input,output,cached,coveredMs,windowMs,startsAtMs,complete,unavailable`.
   One row per model of each seat (`line` from the model id; `unattributed` and an
   empty `model` when `byModel` is null), then one row per unavailable identity with
   only `id,name,retired,unavailable`.
