@@ -215,7 +215,9 @@ plan. Joint read-back alone saves a verified public configuration
 and same-project web.app entry with Complete; the remote-link producer consumes that type later.
 Site.appId selects a validated public app config after any recorded app identity. Fresh/existing
 unassociated sites use the same explicit appId-only configure step; nonempty associations are never
-repointed. Joint verification binds that association. The contract owns app selection, partial
+repointed. Joint verification binds that association.
+An omitted WebApp displayName is empty only inside an otherwise admitted app; malformed names refuse.
+The contract owns app selection, partial
 availability and the single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
 Installed Colab supplies its release declaration through the fixed public command; production never substitutes Remote fixture data.
 `remote_link` derives the strict public descriptor, canonical fragment and corruption checksum

@@ -782,6 +782,58 @@ function hostedFixture() {
   }
   return { f, state, calls, input, call };
 }
+test('Hosting inventory admits an omitted default WebApp display name without an effect', async () => {
+  const x = hostedFixture();
+  x.state.apps.push({
+    name: `projects/${PROJECT}/webApps/1:123:web:other`,
+    appId: '1:123:web:other',
+    projectId: PROJECT,
+    state: 'ACTIVE',
+  });
+  const observed = await execute(request('hosting-inventory', { project: PROJECT }), x.f);
+  assert.deepEqual(observed.webApps, [{ id: '1:123:web:other', displayName: '', state: 'ACTIVE' }]);
+  assert.equal((await x.call('observe-hosting', 'web-app')).state, 'absent');
+  assert.equal(x.calls.filter((c) => c.method !== 'GET').length, 0);
+});
+
+test('Hosting app adoption ignores an unrelated unnamed app and retains the exact selected identity', async () => {
+  const x = hostedFixture();
+  await x.call('apply-hosting', 'web-app');
+  x.state.apps.unshift({
+    name: `projects/${PROJECT}/webApps/1:123:web:other`,
+    appId: '1:123:web:other',
+    projectId: PROJECT,
+    state: 'ACTIVE',
+  });
+  const before = x.calls.filter((c) => c.method !== 'GET').length;
+  assert.equal((await x.call('apply-hosting', 'web-app')).state, 'done');
+  assert.equal(x.input.checkpoint.appId, '1:123:web:mine');
+  assert.equal(x.calls.filter((c) => c.method !== 'GET').length, before);
+});
+
+test('Hosting omitted-name admission still refuses malformed or foreign WebApps without effects', async () => {
+  const app = {
+    name: `projects/${PROJECT}/webApps/1:123:web:other`,
+    appId: '1:123:web:other',
+    projectId: PROJECT,
+    state: 'ACTIVE',
+  };
+  for (const value of [
+    ...[null, 0, false, [], {}].map((displayName) => ({ ...app, displayName })),
+    { ...app, projectId: 'other-project' },
+    { ...app, appId: null },
+    { ...app, name: `projects/other-project/webApps/1:123:web:other` },
+    { ...app, state: null },
+    null,
+    [],
+  ]) {
+    const x = hostedFixture();
+    x.state.apps.push(value);
+    await failure(() => execute(request('hosting-inventory', { project: PROJECT }), x.f), 'unknown');
+    assert.equal(x.calls.filter((c) => c.method !== 'GET').length, 0);
+  }
+});
+
 test('Hosting requires the supplied Rust content digest before any provider read', async () => {
   const valid = hostedFixture();
   assert.equal((await valid.call('observe-hosting', 'web-app')).state, 'absent');

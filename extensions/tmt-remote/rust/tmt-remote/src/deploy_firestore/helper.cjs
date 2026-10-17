@@ -535,14 +535,17 @@ async function execute(request, deps) {
     if (found.length > 256) fail('unknown');
     return found.map((a) => {
       if (
+        !a ||
+        typeof a !== 'object' ||
+        Array.isArray(a) ||
         a.projectId !== project ||
         typeof a.appId !== 'string' ||
-        typeof a.displayName !== 'string' ||
+        (a.displayName !== undefined && typeof a.displayName !== 'string') ||
         typeof a.state !== 'string'
       )
         fail('unknown');
       resource(a.name, `projects/${project}/webApps/`);
-      return { id: a.appId, displayName: a.displayName, state: a.state };
+      return { id: a.appId, displayName: a.displayName ?? '', state: a.state };
     });
   }
   async function publicConfig(appId) {
