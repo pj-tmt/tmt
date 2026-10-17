@@ -9,6 +9,7 @@ on:
       - '.github/workflows/native-release-bundle.yml'
       - '.github/workflows/native-release-upgrade.yml'
       - 'typescript/scripts/release-version-injection.*'
+      - 'typescript/scripts/release-declaration.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
   push:
@@ -19,6 +20,7 @@ on:
       - '.github/workflows/native-release-bundle.yml'
       - '.github/workflows/native-release-upgrade.yml'
       - 'typescript/scripts/release-version-injection.*'
+      - 'typescript/scripts/release-declaration.*'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
 
@@ -30,7 +32,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  declarations:
+    name: Capture injection minimum CLI selections
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      declarations: ${{ steps.capture.outputs.declarations }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Capture one selection per product for all four hosts
+        id: capture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CUT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node typescript/scripts/release-declaration.mjs all "$CUT_SHA"
+
   injection:
+    needs: declarations
     name: ${{ matrix.product }} injection (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -104,11 +129,13 @@ jobs:
         uses: ./.github/actions/inject-release-version
         with:
           product: ${{ matrix.product }}
+          declaration: ${{ toJSON(fromJSON(needs.declarations.outputs.declarations)[matrix.product]) }}
       - name: Build and prove the injected native archive
         env:
           PRODUCT: ${{ matrix.product }}
           TARGET: ${{ matrix.target }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          TMT_RELEASE_VERSION_STATE: ${{ runner.temp }}/release-version-state.json
         run: |
           set -euo pipefail
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
@@ -130,6 +157,7 @@ jobs:
         uses: ./.github/actions/inject-release-version
         with:
           product: ${{ matrix.product }}
+          declaration: ${{ toJSON(fromJSON(needs.declarations.outputs.declarations)[matrix.product]) }}
           phase: verify
       - uses: actions/upload-artifact@v4
         if: always()

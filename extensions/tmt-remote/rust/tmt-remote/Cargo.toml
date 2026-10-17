@@ -16,6 +16,7 @@ include = [
     "../../../../LICENSE",
     "../../../../rust/archive/NATIVE-INSTALL.md",
     "../../../../rust/target/native-notices/THIRD-PARTY-NOTICES.txt",
+    "../../../../rust/target/native-declaration/TMT-USES.json",
 ]
 
 [dependencies]

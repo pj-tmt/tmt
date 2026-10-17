@@ -29,3 +29,5 @@ export function readCutMetadata(
     assets: { name: string }[];
   }[];
 };
+
+export function readReleaseCatalog(input: { repository: string; token?: string }, execute?: Parameters<typeof readCutMetadata>[1]): ReturnType<typeof readCutMetadata>['releases'];

@@ -45,6 +45,13 @@ import { parseComponentMap } from './ci-scope.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET } from './plan-release-builds.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { retryReleaseRead } from './release-read-retry.mjs';
+import {
+  declaresMinimumCli,
+  declarationAncestry,
+  declarationSource,
+  readDeclarationMarker,
+  verifyDeclaration,
+} from './release-declaration.mjs';
 import { isAlphaVersion, publishedReleases, versionOfTag } from './release-versions.mjs';
 
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -100,12 +107,21 @@ export function convergeCliLatest({ api, tag, attempts = 3, wait = () => {} }) {
 }
 
 /** Publishes the draft with the product's flags. Returns the flags it applied. */
-export function publishDraft({ api, product, tag, released = true, wait = () => {} }) {
+export function publishDraft({
+  api,
+  product,
+  tag,
+  released = true,
+  wait = () => {},
+  declarationEvidence,
+}) {
   const missing = `there is no release ${tag}`;
   let absenceFailure;
+  let releases;
   const release = retryReleaseRead(
     () => {
       const listing = api.listReleases();
+      releases = listing;
       const found = listing.find(({ tag_name: name }) => name === tag);
       // Retry only a valid publication request whose successful listing omitted the tag.
       if (!found && publishBlocker({ release: found, product, tag, released }) === missing) {
@@ -129,6 +145,19 @@ export function publishDraft({ api, product, tag, released = true, wait = () => 
   );
   const blocker = publishBlocker({ release, product, tag, released });
   if (blocker) throw new Error(`Not publishing: ${blocker}.`);
+  if (declaresMinimumCli(product)) {
+    const evidence = declarationEvidence ?? {
+      map: declarationSource(release.target_commitish),
+      observeCli: declarationAncestry({ repository: process.env.GITHUB_REPOSITORY }),
+    };
+    verifyDeclaration({
+      ...evidence,
+      record: readDeclarationMarker(release.body),
+      product,
+      cut: release.target_commitish,
+      releases,
+    });
+  }
   const flags = publishFlags(product).map((flag) =>
     product === 'cli' && flag === '--latest=true' ? '--latest=false' : flag
   );

@@ -11,6 +11,7 @@
     "A private component may declare release:false, with or without a Cargo package; it owns files but gets no release. Binary targets require explicit package.metadata.dist.dist=false; library-only crates need no opt-out. A crate that inherits the workspace version keeps its Cargo.lock entry in the release of the component that owns rust/Cargo.toml, whoever owns the crate.",
     "releaseStatus: only with release:false; never means no released product contains this leaf and forbids releaseConsumers, parked means explicitly deferred publication. Absence means awaiting activation. This does not change CI selection.",
     "initialVersion: owner-approved first alpha seed; requiresCliSha: supporting CLI registration commit that must be in its newest published release before a first product cut.",
+    "uses: authored optional extension features; release-declaration.mjs generates requiresCli and TMT-USES.json from the captured cut, never from a source copy.",
     "bootstrapSha: first-release history boundary for the release cut (#1399); the last commit before the component existed, kept unchanged.",
     "predecessor names an exact historical product key. Published archives declare their own skills inventory; Ops requiresCliSha pins its supporting CLI registration; the first successor cut waits for a published CLI containing it."
   ],
@@ -46,6 +47,7 @@
       "release": true,
       "bootstrapSha": "e2aedb34b75ee551252a53174a0c377da27e12a9",
       "initialVersion": "0.1.0-alpha.1",
+      "uses": [],
       "requiresCliSha": "506abd65febb889144bfb84cbadf1932cc90f995"
     },
     "ops": {
@@ -67,6 +69,7 @@
         "e2eFiles": ["ops.e2e.test.ts", "ops-reminder.e2e.test.ts"]
       },
       "predecessor": "squad",
+      "uses": [],
       "requiresCliSha": "4dc1f918267d055d837cd568a88ff6c2a74efccc"
     },
     "browser-addon": {
@@ -166,6 +169,7 @@
       "release": true,
       "bootstrapSha": "b9ea8cdfe477a596934a59a5b7eb066fbe755ebb",
       "initialVersion": "0.1.0-alpha.1",
+      "uses": [],
       "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "tmt-remote": {
@@ -182,6 +186,7 @@
       "package": "tmt-remote",
       "bootstrapSha": "ffb5f32154f0f910d4b27287d5da70abbbc4f386",
       "initialVersion": "0.1.0-alpha.1",
+      "uses": [],
       "requiresCliSha": "ffea6da78361e5ea3df75b9da55fd0ea0c8a973d"
     },
     "driver-herdr": {

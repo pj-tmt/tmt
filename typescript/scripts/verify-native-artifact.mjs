@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { verifyDeclarationBytes, declaresMinimumCli } from './release-declaration.mjs';
+import { parseComponentMap } from './ci-scope.mjs';
 import { shipsSkills } from './component-skills.mjs';
 import {
   assertDependencyNotices,
@@ -28,6 +30,7 @@ const { values } = parseArgs({
     'app-dir': { type: 'string' },
     'schema-snapshot': { type: 'string' },
     'schema-evidence': { type: 'string' },
+    'version-state': { type: 'string' },
   },
 });
 for (const name of [
@@ -39,6 +42,7 @@ for (const name of [
   ...(values.product === 'cli' ? ['skill'] : []),
   ...(shipsSkills(values.product) ? ['skills'] : []),
   ...(values.product === 'colab' ? ['app-dir'] : []),
+  ...(declaresMinimumCli(values.product) ? ['version-state'] : []),
 ]) {
   assert(values[name], `--${name} is required`);
 }
@@ -110,6 +114,17 @@ function tree(root) {
 assertDependencyNotices(notices);
 
 await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
+  if (declaresMinimumCli(values.product)) {
+    const snapshot = JSON.parse(readBoundedFile(values['version-state'], 64 * 1024 * 1024));
+    assert(snapshot.declaration, 'Final extension archive needs frozen CLI metadata.');
+    assert.equal(snapshot.product, values.product);
+    assert.equal(snapshot.version, metadata.version);
+    verifyDeclarationBytes(
+      path.join(artifactRoot, 'TMT-USES.json'),
+      snapshot,
+      parseComponentMap(fs.readFileSync(path.join(sourceRoot, '.github/components.json'), 'utf8'))
+    );
+  }
   assert.equal(
     fs.readFileSync(path.join(artifactRoot, 'THIRD-PARTY-NOTICES.txt'), 'utf8'),
     notices,

@@ -1,3 +1,4 @@
+import { resolveDeclaration, gitDeclarationAncestry } from './release-declaration.mjs';
 // Plans release cuts without mutation. This module has no network/mutation interface.
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -384,6 +385,7 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
   if (!Array.isArray(metadata.releases)) throw new Error('Incomplete shadow metadata.');
   git(['merge-base', '--is-ancestor', cut, 'refs/remotes/origin/main']);
   const components = [];
+  const observeCli = gitDeclarationAncestry(git);
   for (const component of map.components) {
     if (component.release === false || !component.package) continue;
     const row = { product: component.name, cut, status: 'blocked' };
@@ -418,23 +420,7 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
       }
       if (!history.previous && (!component.bootstrapSha || !component.initialVersion))
         throw new Error('First cut needs bootstrapSha and an owner-approved initial version.');
-      if (
-        component.requiresCliSha &&
-        (!history.previous ||
-          (component.predecessor && !publishedReleases(metadata.releases, product).length))
-      ) {
-        const cli = publishedReleases(metadata.releases, 'cli')[0];
-        const reason = `First ${product} cut requires a published supporting CLI containing registration ${component.requiresCliSha}.`;
-        if (!cli) throw new Error(reason);
-        const cliSha = git(['rev-parse', '--verify', `refs/tags/${cli.tag_name}^{commit}`]).trim();
-        if (!SHA.test(cliSha)) throw new Error('Missing supporting CLI tag commit.');
-        try {
-          git(['merge-base', '--is-ancestor', component.requiresCliSha, cliSha]);
-        } catch (error) {
-          if (error.cause?.status !== 1) throw error;
-          throw new Error(`${reason} Newest published CLI ${cli.tag_name} predates registration.`);
-        }
-      }
+
       const previous = history.previous?.sha ?? component.bootstrapSha;
       if (!SHA.test(previous)) throw new Error('Missing previous product cut commit.');
       const previousVersion = history.highestVersion;
@@ -470,6 +456,14 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
         components.push(row);
         continue;
       }
+      const declaration = resolveDeclaration({
+        map,
+        product,
+        cut,
+        releases: metadata.releases,
+        observeCli,
+      });
+      if (declaration) row.declaration = declaration;
       const version =
         versions[product] ??
         (previousVersion ? nextAlphaVersion(previousVersion) : component.initialVersion);

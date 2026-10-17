@@ -12,6 +12,7 @@ export interface ReleaseObject {
   readonly tag_name: string;
   readonly target_commitish: string;
   readonly created_at: string;
+  readonly body?: string;
   readonly assets?: readonly ReleaseAsset[];
 }
 

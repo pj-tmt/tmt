@@ -19,6 +19,7 @@ import {
   type DraftRelease,
 } from '../../scripts/release-cut-live.mjs';
 import type { CutMetadata } from '../../scripts/release-cut.mjs';
+import { DECLARATION_SUPPORT } from '../../scripts/release-declaration.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { checkMigration, releaseCommits } from '../../scripts/publication-gates.mjs';
 import { readCargoWorkspace, type CargoWorkspace } from '../../scripts/cargo-workspace.mjs';
@@ -401,8 +402,10 @@ function fixture(activateExtensions = false) {
   const previous = commit('chore: initial fixture');
   command(['tag', 'v5.0.0-alpha.48']);
   command(['tag', 'tmt-ops-v0.1.0-alpha.14']);
+  const registry = JSON.parse(fixtureMap());
+  registry.components.ops.requiresCliSha = previous;
+  writeFileSync(join(root, '.github/components.json'), JSON.stringify(registry));
   if (activateExtensions) {
-    const registry = JSON.parse(fixtureMap());
     for (const product of ['remote', 'colab']) {
       registry.components[`tmt-${product}`] = {
         package: `tmt-${product}`,
@@ -465,7 +468,12 @@ function fixture(activateExtensions = false) {
     }),
     dispatch: vi.fn(),
   };
-  const git = vi.fn((args: string[]) => (args[0] === 'fetch' ? '' : command(args)));
+  // Map the fixed repository support commit into this fixture's minimal Git graph.
+  const git = vi.fn((args: string[]) =>
+    args[0] === 'fetch'
+      ? ''
+      : command(args.map((arg) => (arg === DECLARATION_SUPPORT ? previous : arg)))
+  );
   return { client, git, state, releases, cut, previous, commit, root, command };
 }
 
@@ -517,7 +525,7 @@ describe('live release cut lifecycle', () => {
     expect(f.command(['tag', '--list', 'tmt-remote-v*'])).toBe('');
     expect(f.command(['tag', '--list', 'tmt-colab-v*'])).toBe('');
   });
-  it('holds a first product cut until the newest published CLI contains its registration', async () => {
+  it('holds a first product cut until a published CLI contains its registration and declaration support', async () => {
     const f = fixture(true);
     const registry = JSON.parse(f.command(['show', 'HEAD:.github/components.json']));
     for (const product of ['remote', 'colab'])
@@ -540,7 +548,7 @@ describe('live release cut lifecycle', () => {
       expect(blocked.actions).toContainEqual({
         product,
         status: 'blocked',
-        reason: expect.stringContaining('predates registration'),
+        reason: expect.stringContaining('minimum-cli-unpublished'),
       });
     for (const product of ['remote', 'colab']) {
       expect(f.client.dispatch).not.toHaveBeenCalledWith(product, expect.anything());

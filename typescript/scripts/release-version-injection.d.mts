@@ -16,6 +16,7 @@ export interface VersionSnapshot {
   packages: string[];
   lock: string;
   hashes: Record<string, string>;
+  declaration?: import('./release-declaration.mjs').DeclarationRecord | null;
 }
 export function captureVersionState(input: {
   root: string;
@@ -26,6 +27,7 @@ export function captureVersionState(input: {
   tag?: string;
   cut: string;
   map: ComponentMap;
+  declaration?: import('./release-declaration.mjs').DeclarationRecord | null;
 }): VersionSnapshot;
 export function injectVersion(root: string, snapshot: VersionSnapshot): void;
 export function verifyVersionState(

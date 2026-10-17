@@ -18,7 +18,7 @@ describe('release gate parity inventory', () => {
   it('covers all three release entry points and every local reusable workflow with current evidence', () => {
     expect(checkReleaseParity(manifest(), { read })).toEqual({
       workflows: 8,
-      jobs: 28,
+      jobs: 29,
       publicationGates: 6,
     });
     expect(Object.keys(releaseInventory(read))).toContain('release-index-bootstrap.yml');
@@ -193,6 +193,7 @@ describe('release gate parity inventory', () => {
     };
     for (const [file, job] of [
       ['native-release-bundle.yml', 'prepare'],
+      ['native-release-prepare.yml', 'declaration'],
       ['native-release-prepare.yml', 'build'],
       ['native-release-prepare.yml', 'assemble'],
       ['native-release-prepare.yml', 'verify'],

@@ -88,6 +88,42 @@ function declarationList(value, label, parse) {
   });
 }
 
+/** Authored feature inputs, not a second parser for generated TMT-USES.json. */
+function parseUses(name, value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 8)
+    throw new Error(`components.${name}.uses needs at most eight features.`);
+  const features = new Set();
+  return value.map((use) => {
+    if (
+      !use ||
+      JSON.stringify(Object.keys(use).sort()) !==
+        JSON.stringify(['extension', 'feature', 'label', 'requires']) ||
+      !/^[a-z][a-z0-9-]{0,31}$/.test(use.feature) ||
+      features.has(use.feature) ||
+      typeof use.label !== 'string' ||
+      [...use.label].length < 1 ||
+      [...use.label].length > 48 ||
+      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(use.label) ||
+      !['ops', 'digest', 'remote', 'colab'].includes(use.extension) ||
+      [use.extension, `tmt-${use.extension}`].includes(name) ||
+      typeof use.requires !== 'string' ||
+      Buffer.byteLength(use.requires) > 64 ||
+      !/^>=(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(
+        use.requires
+      )
+    )
+      throw new Error(`Invalid authored feature in components.${name}.uses.`);
+    features.add(use.feature);
+    return {
+      feature: use.feature,
+      label: use.label,
+      extension: use.extension,
+      requires: use.requires,
+    };
+  });
+}
+
 function parseNeverShipped(name, value) {
   const label = `components.${name}.neverShippedPaths`;
   return declarationList(value, label, (entry) => ({
@@ -155,6 +191,7 @@ export function parseComponentMap(text, { historical = false } = {}) {
     bootstrapSha: component.bootstrapSha,
     initialVersion: component.initialVersion,
     requiresCliSha: component.requiresCliSha,
+    uses: parseUses(name, component.uses),
     predecessor: component.predecessor,
     releaseConsumers:
       component.releaseConsumers === undefined

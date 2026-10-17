@@ -28,13 +28,18 @@
     },
     "native-release-bundle.yml": {
       "check": {
-        "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:check"],
-        "sha256": "a586da7b1428271c19b0510e5f8fb366fb039421539a35c06f8804884923c72a",
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "id:check",
+          "id:declaration"
+        ],
+        "sha256": "73f0a88fbacf2ff2d09b4325958300b23f1825c00df22af0184ed37a75e529b9",
         "releaseOnly": "Admission re-reads a live draft and its failure/bundle markers immediately before building; those mutation races exist only in the allocated release pipeline."
       },
       "prepare": {
         "steps": ["uses:./.github/workflows/native-release-prepare.yml"],
-        "sha256": "eb461961f8ef7e5fe2087cebd55840725f5f46ec5f803a912b75e7041ccb305f",
+        "sha256": "1d64f3cc4df7dd250df4df9123617057806939f2c6ba39b5157e6db6ef2ea536",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -101,7 +106,7 @@
           "uses:actions/setup-node@v4",
           "name:Publish the draft under the product's policy"
         ],
-        "sha256": "f831a620811f86054f75228dad72061be35167cb415c0ef6acc6debc545d8173",
+        "sha256": "9c4e58ae27ac97f1fc60611c1e75d511b69cabf41c9ec8b7d4b842f25f3d6920",
         "releaseOnly": "Publishing the allocated immutable release is an authorized side effect that cannot happen in pre-merge verification."
       },
       "published": {
@@ -138,7 +143,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "b2b8e90a0ef010a4c9290aec49107cf3f77f357c5520de7a4327a1995ee55c65",
+        "sha256": "e4b37a9d82b83aff0ba75799d3c29960d606ac26f858278ab86cfeed20991ec8",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -169,7 +174,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "b45546be764e4166d775f234979709702bffcfdff1ff721abc734ebf14b36bbc",
+        "sha256": "70a7b981c022da1b058fbffbed2ef8151f8ce99546697da2bb039f4db30b600a",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -202,7 +207,7 @@
           "name:Capture the final CLI preparation report",
           "name:Retain the matching-host verification report"
         ],
-        "sha256": "828afd10a5d6b8c786cd214f039f28143fc05f5afd87386fa008d7087b50d818",
+        "sha256": "8a5e36b6fba79c00f5bf62d485bd27f823e5716efe42c760ec5d72d0c2bee508",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -281,6 +286,23 @@
             "coverage": "runtime"
           }
         ]
+      },
+      "declaration": {
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ],
+        "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:capture"],
+        "sha256": "717cd720d7b52af26888f175f20f53e629b1b98f9ded131721ce5db8a70cc1de"
       }
     },
     "native-release-upgrade.yml": {
