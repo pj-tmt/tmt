@@ -75,10 +75,52 @@
             <label id="opening-label" class="tmt-ui-field-label" for="opening"
               >Open a browser when pairing</label
             >
-            <select id="opening" class="settings-select" aria-labelledby="opening-label" disabled>
-              <option value="on">On</option>
-              <option value="off">Off</option>
-            </select>
+            <button
+              id="opening"
+              class="tmt-ui-menu-trigger settings-choice"
+              type="button"
+              aria-haspopup="listbox"
+              aria-controls="opening-options"
+              aria-expanded="false"
+              aria-labelledby="opening-label opening-choice-value"
+              value="on"
+              disabled
+            >
+              <span id="opening-choice-value" data-choice-value>On</span
+              ><span aria-hidden="true">▾</span>
+            </button>
+            <div
+              id="opening-options"
+              class="tmt-ui-menu-surface settings-options"
+              popover="auto"
+              role="listbox"
+              aria-labelledby="opening-label"
+            >
+              <button
+                class="tmt-ui-menu-item"
+                type="button"
+                role="option"
+                data-value="on"
+                aria-label="On"
+                aria-selected="false"
+                tabindex="-1"
+                disabled
+              >
+                On
+              </button>
+              <button
+                class="tmt-ui-menu-item"
+                type="button"
+                role="option"
+                data-value="off"
+                aria-label="Off"
+                aria-selected="false"
+                tabindex="-1"
+                disabled
+              >
+                Off
+              </button>
+            </div>
             <button class="tmt-ui-action" aria-describedby="controls-reason" type="submit" disabled>
               <span class="tmt-ui-action-label">Save browser opening</span>
             </button>
@@ -104,16 +146,64 @@
             <label id="limit-mode-label" class="tmt-ui-field-label" for="limit-mode"
               >Session limit</label
             >
-            <select
+            <button
               id="limit-mode"
-              class="settings-select"
-              aria-labelledby="limit-mode-label"
+              class="tmt-ui-menu-trigger settings-choice"
+              type="button"
+              aria-haspopup="listbox"
+              aria-controls="limit-mode-options"
+              aria-expanded="false"
+              aria-labelledby="limit-mode-label limit-mode-choice-value"
+              value="default"
               disabled
             >
-              <option value="default" disabled>Default (8, not configured)</option>
-              <option value="off">Off (unlimited)</option>
-              <option value="custom">Custom</option>
-            </select>
+              <span id="limit-mode-choice-value" data-choice-value>Default (8, not configured)</span
+              ><span aria-hidden="true">▾</span>
+            </button>
+            <div
+              id="limit-mode-options"
+              class="tmt-ui-menu-surface settings-options"
+              popover="auto"
+              role="listbox"
+              aria-labelledby="limit-mode-label"
+            >
+              <button
+                class="tmt-ui-menu-item"
+                type="button"
+                role="option"
+                data-value="default"
+                aria-label="Default (8, not configured)"
+                aria-selected="false"
+                tabindex="-1"
+                disabled
+              >
+                Default (8, not configured)
+              </button>
+              <button
+                class="tmt-ui-menu-item"
+                type="button"
+                role="option"
+                data-value="off"
+                aria-label="Off (unlimited)"
+                aria-selected="false"
+                tabindex="-1"
+                disabled
+              >
+                Off (unlimited)
+              </button>
+              <button
+                class="tmt-ui-menu-item"
+                type="button"
+                role="option"
+                data-value="custom"
+                aria-label="Custom"
+                aria-selected="false"
+                tabindex="-1"
+                disabled
+              >
+                Custom
+              </button>
+            </div>
             <div class="tmt-ui-field">
               <label id="limit-custom-label" class="tmt-ui-field-label" for="limit-custom"
                 >Positive integer</label

@@ -86,9 +86,16 @@ Colab's integrated app-routing acceptance remains Colab-owned.
 ## Settings page
 
 `/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
-Remote host metrics; its additional stylesheet owns only settings layout and native selects.
+Remote host metrics; its additional stylesheet owns settings layout and static listbox geometry.
+Button-triggered, named listboxes use native top-layer popovers with shared static menu CSS:
+arrow/Home/End/typeahead navigation, Enter/Space choice, Escape/Tab dismissal and trigger focus
+return. Choice changes stay local until Save; the display-only unset Default stays disabled.
+Enable sending and Revoke first reveal the admitted target’s consequence beside its row; only a
+second deliberate press creates an operation ID. Cancel/Escape has no effect and returns focus.
+Changed targets/access or another action clear the local confirmation without resetting drafts.
 The existing page and CSP owners remain unchanged. Remote's `management-page` owns admitted values,
-frozen intent/outcome and separate current-access state; `settings-page` binds forms without
+frozen intent/outcome and separate current-access state; `settings-controls` owns the two static
+listboxes, while `settings-page` binds forms and inline consequences without
 resetting unsent text during async failure/read refresh. Refresh retains the current device
 page; navigation focuses and refuses to leave an unsent device name until saved or restored,
 so only one bounded page of forms is retained. The separately generated

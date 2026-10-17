@@ -1,4 +1,4 @@
-/* Settings layout and native selects; shared CSS and Remote host metrics load first. */
+/* Settings layout and static choices; shared CSS and Remote host metrics load first. */
 .settings-page {
   margin-top: 32px;
   width: min(100% - 32px, 760px);
@@ -15,8 +15,10 @@
 .settings-page #warning {
   margin-top: 20px;
 }
-.settings-page .settings-select {
+.settings-page .settings-choice {
   box-sizing: border-box;
+  justify-content: space-between;
+  text-align: left;
   width: 100%;
   margin: 8px 0 20px;
   min-height: var(--tmt-ui-host-action-min-height);
@@ -27,11 +29,11 @@
   color: var(--tmt-ui-color-text);
   font: var(--tmt-ui-host-field-size)/var(--tmt-ui-host-field-line-height) var(--tmt-ui-font-body);
 }
-.settings-page .settings-select:disabled {
+.settings-page .settings-choice:disabled {
   background: var(--tmt-ui-surface-disabled);
   color: var(--tmt-ui-color-disabled-text);
 }
-.settings-page .settings-select:focus-visible {
+.settings-page .settings-choice:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
@@ -99,4 +101,19 @@
 .settings-page .change-feedback [data-original] {
   font: 12px/1.5 var(--tmt-ui-font-mono);
   overflow-wrap: anywhere;
+}
+
+.settings-options {
+  box-sizing: border-box;
+}
+.settings-options .tmt-ui-menu-item[aria-selected='true']::after {
+  content: '✓';
+}
+.settings-page .device-confirmation {
+  border-left: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  padding-left: 12px;
+  margin: 8px 0;
+}
+.settings-page .device-confirmation p {
+  margin: 8px 0;
 }
