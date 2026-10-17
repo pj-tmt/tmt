@@ -75,7 +75,8 @@ This projection reuses the command's existing observations; it adds no probe,
 subprocess, PID, session ID or address disclosure. It does not depend on optional
 working/idle telemetry in `session.activity` and grants no dispatch authority.
 The existing `address`, `driver`, `resume`, `session.activity` and human output
-retain their semantics. In particular, `driver` follows the existing address
+retain their semantics; `resume.observedModel` is defined in
+[the extension API](extension-api.md#last-observed-model). In particular, `driver` follows the existing address
 projection and can name a remembered harness even after its process ends or
 while offline; it is not verified current runtime evidence. Named or direct-pane
 inspection and storage-only `identity ls` do not gain `runningDriver`.

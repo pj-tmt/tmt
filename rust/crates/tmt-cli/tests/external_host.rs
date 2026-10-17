@@ -1947,3 +1947,177 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     assert_eq!(activity(&fixture)["state"], "idle");
     assert_eq!(captured(&fixture), 1);
 }
+
+fn observed_model(fixture: &Fixture) -> Value {
+    worker(&fixture.json(&["ls", "--json"]))["resume"]["observedModel"].clone()
+}
+
+/// `codex_event` reporting `model`.
+fn codex_model_event(event: &str, turn: Option<&str>, model: &str) -> Value {
+    let mut payload = codex_event(event, turn);
+    payload["model"] = model.into();
+    payload
+}
+
+/// The last observed model (#3207) changes only on an admitted Codex
+/// transition, through the real provider hook. A rejected event keeps it
+/// (a rejected Stop may still read its usage, so only the observation is
+/// compared), a subagent never supplies it, a start sets or clears it, and
+/// turn events never change `resume.model`.
+#[test]
+fn the_observed_model_follows_only_admitted_codex_events() {
+    register();
+    let fixture = Fixture::new("codex-observed-model");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let mut codex = Codex::start(&fixture, "codex-steps");
+    let mut run = |codex: &mut Codex, payload: Value| {
+        // A start prints its identity context; every other event prints nothing.
+        let (status, out, err) = codex.hook(payload.clone());
+        assert_eq!((status, err.as_str()), (0, ""), "{payload}");
+        if payload["hook_event_name"] != "SessionStart" {
+            assert_eq!(out, "", "{payload}");
+        }
+    };
+    let kept = |fixture: &Fixture,
+                codex: &mut Codex,
+                payload: Value,
+                run: &mut dyn FnMut(&mut Codex, Value)| {
+        let before = observed_model(fixture);
+        run(codex, payload.clone());
+        assert_eq!(observed_model(fixture), before, "{payload}");
+    };
+    let model = |fixture: &Fixture| observed_model(fixture)["model"].clone();
+    let resume_model =
+        |fixture: &Fixture| worker(&fixture.json(&["ls", "--json"]))["resume"]["model"].clone();
+
+    run(&mut codex, codex_model_event("SessionStart", None, "m0"));
+    assert_eq!(model(&fixture), "m0");
+    let started = observed_model(&fixture)["observedAtMs"].as_u64().unwrap();
+    assert!(started > 0);
+    // No admitted start: the interrupt is rejected and its model is not kept.
+    kept(
+        &fixture,
+        &mut codex,
+        codex_model_event("Interrupt", Some("a"), "x"),
+        &mut run,
+    );
+
+    run(
+        &mut codex,
+        codex_model_event("UserPromptSubmit", Some("a"), "m1"),
+    );
+    assert_eq!(model(&fixture), "m1");
+    assert!(observed_model(&fixture)["observedAtMs"].as_u64().unwrap() >= started);
+    kept(
+        &fixture,
+        &mut codex,
+        codex_model_event("UserPromptSubmit", Some("a"), "dup"),
+        &mut run,
+    );
+    kept(
+        &fixture,
+        &mut codex,
+        codex_model_event("Stop", Some("old"), "late"),
+        &mut run,
+    );
+    let mut other = codex_model_event("Stop", Some("a"), "other");
+    other["session_id"] = "s-2".into();
+    kept(&fixture, &mut codex, other, &mut run);
+    {
+        let mut replaced = Codex::start(&fixture, "replaced-steps");
+        kept(
+            &fixture,
+            &mut replaced,
+            codex_model_event("Stop", Some("a"), "replaced"),
+            &mut run,
+        );
+    }
+
+    // A subagent-marked prompt and Stop keep their activity decoding, but a
+    // child model never becomes the main session's.
+    let mut child = codex_model_event("UserPromptSubmit", Some("b"), "child");
+    child["agent_id"] = "agent-1".into();
+    kept(&fixture, &mut codex, child, &mut run);
+    assert_eq!(activity(&fixture)["state"], "working");
+    let mut child = codex_model_event("Stop", Some("b"), "child");
+    child["agent_type"] = Value::Null;
+    kept(&fixture, &mut codex, child, &mut run);
+    assert_eq!(activity(&fixture)["state"], "idle");
+
+    run(
+        &mut codex,
+        codex_model_event("UserPromptSubmit", Some("c"), "m2"),
+    );
+    assert_eq!(model(&fixture), "m2");
+    let mut child = codex_model_event("Interrupt", Some("c"), "child");
+    child["agent_id"] = Value::Null;
+    kept(&fixture, &mut codex, child, &mut run);
+    assert_eq!(activity(&fixture)["state"], "working");
+    run(&mut codex, codex_model_event("Interrupt", Some("c"), "m3"));
+    assert_eq!(model(&fixture), "m3");
+    assert_eq!(activity(&fixture)["state"], "idle");
+    kept(
+        &fixture,
+        &mut codex,
+        codex_model_event("Stop", Some("c"), "dup"),
+        &mut run,
+    );
+    kept(
+        &fixture,
+        &mut codex,
+        codex_model_event("Interrupt", Some("c"), "dup"),
+        &mut run,
+    );
+
+    // An admitted event without a valid model keeps the observation and its time.
+    kept(
+        &fixture,
+        &mut codex,
+        codex_model_event("UserPromptSubmit", Some("d"), "-x"),
+        &mut run,
+    );
+    assert_eq!(activity(&fixture)["state"], "working");
+    assert_eq!(
+        resume_model(&fixture),
+        "m0",
+        "turn events never change resume.model"
+    );
+
+    // A start without a model clears the observation and keeps resume.model.
+    let mut resumed = codex_event("SessionStart", None);
+    resumed.as_object_mut().unwrap().remove("model");
+    resumed["source"] = "resume".into();
+    run(&mut codex, resumed);
+    let listed = worker(&fixture.json(&["ls", "--json"])).clone();
+    assert!(
+        listed["resume"].get("observedModel").is_none(),
+        "{listed:#}"
+    );
+    assert_eq!(listed["resume"]["model"], "m0");
+    let mut cleared = codex_model_event("SessionStart", None, "m4");
+    cleared["source"] = "clear".into();
+    run(&mut codex, cleared);
+    assert_eq!(model(&fixture), "m4");
+    assert_eq!(resume_model(&fixture), "m4");
+}
+
+/// Claude reports a model only at SessionStart; `identity show` and
+/// `ls --json` project the same `resume` document.
+#[test]
+fn a_claude_start_records_its_observed_model_in_both_projections() {
+    register();
+    let fixture = Fixture::new("claude-observed-model");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let output = hook(&fixture, Some("f1"), true, "SessionStart", || {});
+    assert!(output.status.success(), "{output:?}");
+    let listed = worker(&fixture.json(&["ls", "--json"]))["resume"].clone();
+    assert_eq!(
+        listed["observedModel"]["model"], "claude-test",
+        "{listed:#}"
+    );
+    assert_eq!(listed["model"], "claude-test");
+    let shown = fixture.json(&["identity", "show", "worker", "--json"]);
+    assert_eq!(shown["resume"], listed, "{shown:#}");
+}

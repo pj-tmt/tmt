@@ -139,6 +139,21 @@ never used for request attribution. Claude variants retain the recorded assistan
 call or credential is needed. Missing or malformed model fields and missing cache-write attribution stay
 unknown. Existing legacy counter validation remains unchanged.
 
+## Observed model (#3207)
+
+`codex-prompt-submit.json` (its `model` and `permission_mode`, added here) and
+`codex-stop.json` are **schema-derived, not recordings**. They hold every required field
+of the `UserPromptSubmit` and `Stop` command inputs in the official codex-cli **0.160.0**
+source at commit `a956835d020762cb2b570053af06f643a11c0ecc`
+([`user-prompt-submit`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json),
+[`stop`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/hooks/schema/generated/stop.command.input.schema.json)),
+retrieved 2026-10-17. The prompt requires `session_id`, `turn_id`, `model`,
+`permission_mode`, `prompt`, `cwd`, `transcript_path` (`string | null`) and the constant
+`hook_event_name`. Stop requires the same without `prompt`, plus `stop_hook_active` and
+`last_assistant_message` (`string | null`). The values are placeholders, and no model was
+run. TMT reads the `model` of these turn events, and of `codex-interrupt.json`, as the
+observed model of an admitted transition; a subagent-marked payload never supplies one.
+
 ## Interrupted turn (#3207)
 
 `codex-interrupt.json` is **schema-derived, not a recording**. It holds the required

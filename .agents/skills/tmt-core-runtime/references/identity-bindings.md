@@ -141,12 +141,32 @@ delivery. They install and launch nothing.
 - Driver state is an opaque versioned document of at most 1 KiB that core stores and never
   parses. `RuntimeLifecycle::reads_state` names readable versions and
   `RuntimeRegistry::reconcile` drops what no registered driver can read. It holds resume
-  essentials only (model, opt-in usage, activity, consumption), never transcript content,
-  arguments or secrets. Bounded launch settings use separate metadata. Claude and Codex
-  share `runtime::driver_state` (v1 model, v2 usage, v3
-  activity, v4 consumption; a document without a newer field stays byte for byte).
-- The model comes only from a starting hook's `model` field; resume replays it only when
-  readable and a safe single argv value.
+  essentials only (model, opt-in usage, activity, consumption, last observed model), never
+  transcript content, arguments or secrets. Bounded launch settings use separate metadata.
+  Claude and Codex share `runtime::driver_state` (v1 model, v2 usage, v3 activity, v4
+  consumption, v5 last observed model; a document without a newer field stays byte for
+  byte). Under the 1 KiB bound the newest optional evidence goes first: the observed model,
+  then the consumption extras. After that eviction the document takes its legacy version.
+- **Downgrade.** Each reader is strict: an unknown key, version or value makes the whole
+  document unreadable. An older binary's hook then writes a fresh document over it, and the
+  model, usage, consumption and observed model are silently lost. Only a `tmt run` resume
+  reconciles an unreadable version and prints the discard. So a v5 document is a
+  compatibility risk for older binaries while an observed model is stored.
+- The resume model comes only from a starting hook's `model` field; resume replays it only
+  when readable and a safe single argv value. Turn events never change it.
+- The last observed model (`resume.observedModel`) is the model that an admitted event
+  reported:
+  - Codex `UserPromptSubmit`, `Stop` and main-agent `Interrupt` carry it. The decoder returns
+    it with the event as one `hook_protocol::ActivityObservation`, and `after_activity` stores
+    it only when `Activity::observe` admits the transition, inside the same commit CAS. A
+    rejected event keeps it. An admitted event without a valid model keeps it, with its time.
+    Usage-only observations neither set nor clear it.
+  - A subagent-marked payload (`agent_id` or `agent_type`, an explicit `null` included) never
+    supplies it, and its activity decoding is unchanged. A malformed model is no model, never
+    a rejected event. Claude turn events carry none.
+  - SessionStart is the explicit exception to the admitted-activity rule. A start of either
+    provider sets it from its own valid reported model, and clears it otherwise. The kept
+    resume model is not evidence, and caller discovery clears it.
 - One identity has one current runtime: only starting provider events replace the session, and
   a launch under another driver drops the previous driver's session and state.
 - A resume launch marks the exact session pending before the child starts. At exit the session
@@ -181,8 +201,9 @@ delivery. They install and launch nothing.
   the associated `resume.launch` metadata preset: exact executable, driver-extracted model
   and effort, and only `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`/`CLAUDE_MINI_PCT`. It never stores
   full argv. A starting admitted hook associates the preset with its exact launch owner and
-  provider session; unassociated presets cannot replace a driver executable. The last
-  observed model wins over launch settings; explicit resume model/effort and present env
+  provider session; unassociated presets cannot replace a driver executable. The resume
+  model that a starting hook reported (`resume.model`, not `resume.observedModel`) wins over
+  launch settings; explicit resume model/effort and present env
   values (including empty env) win. Conditional metadata updates fence replacement and clear.
   `resume --show` inspects the record; `--forget-launch` clears it without forgetting the
   session. Unnamed resume uses the shared verified caller selector, never a sole-name fallback.

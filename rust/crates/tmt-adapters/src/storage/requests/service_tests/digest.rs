@@ -1244,8 +1244,13 @@ fn arrival_context_uses_the_recorded_driver_usage_once_and_preserves_unknown() {
     held(&mut f, &target, &sender, "unknown-context");
     let db = rusqlite::Connection::open(&f.database).unwrap();
     let usage = crate::runtime::driver_state::Usage::new(182340, Some(200000), NOW_MS - 1).unwrap();
-    let state = crate::runtime::driver_state::after_start(Some("claude-sonnet"), Some(usage), None)
-        .unwrap();
+    let state = crate::runtime::driver_state::after_start(
+        Some("claude-sonnet"),
+        Some(usage),
+        None,
+        NOW_MS - 1,
+    )
+    .unwrap();
     db.execute("INSERT INTO identity_session_preferences(identity_id,remembered_harness,runtime_mode,provider_session_id,driver_state_version,driver_state) VALUES(?1,'claude','default','arrival-session',?2,?3)", rusqlite::params![target,state.version(),state.document()]).unwrap();
     held(&mut f, &target, &sender, "known-context");
     db.execute("UPDATE identity_session_preferences SET driver_state=NULL,driver_state_version=NULL WHERE identity_id=?",[&target]).unwrap();

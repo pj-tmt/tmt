@@ -399,6 +399,16 @@ impl RuntimeRegistry {
             .state_model(session.state.as_ref()?)
     }
 
+    /// The last observed model a remembered session's own driver recorded, if
+    /// it can read its state. It is a recorded fact, never the current model.
+    pub fn remembered_observed_model(
+        &self,
+        session: &RememberedSession,
+    ) -> Option<driver_state::ObservedModel> {
+        self.lifecycle(&session.harness)?
+            .state_observed_model(session.state.as_ref()?)
+    }
+
     /// The context usage a remembered session's own driver recorded, if it
     /// can read its state.
     pub fn remembered_usage(&self, session: &RememberedSession) -> Option<driver_state::Usage> {
@@ -1062,6 +1072,76 @@ mod tests {
         );
     }
 
+    /// Every decoded SessionStart source of both providers replaces the last
+    /// observed model with its own valid report, at the start's time, and
+    /// clears it without one; the resume model keeps its fallback.
+    #[test]
+    fn every_session_start_source_sets_or_clears_the_observed_model() {
+        use lifecycle::RuntimeLifecycle;
+        use tmt_core::binding::session::DriverState;
+        const NOW: u64 = 1_780_000_000_000;
+        let observed = |state: &DriverState| {
+            driver_state::state_observed_model(state)
+                .map(|observed| (observed.model, observed.observed_at_ms))
+        };
+        for (harness, lifecycle, fixture, sources) in [
+            (
+                "claude",
+                &claude::ClaudeLifecycle as &dyn RuntimeLifecycle,
+                include_str!("runtime/fixtures/claude-session-start.json"),
+                &["startup", "resume", "clear", "compact", "fork"][..],
+            ),
+            (
+                "codex",
+                &codex::CodexLifecycle,
+                include_str!("runtime/fixtures/codex-session-start.json"),
+                &["startup", "resume", "clear", "compact"][..],
+            ),
+        ] {
+            let mut payload: serde_json::Value = serde_json::from_str(fixture).unwrap();
+            for source in sources {
+                // A different prior observation for each case, distinct from
+                // the resume model, so a kept value cannot pass as new.
+                let prior = format!("prior-{harness}-{source}");
+                let seeded = DriverState::new(
+                    driver_state::OBSERVED_STATE_VERSION,
+                    &format!(r#"{{"model":"resume-m","observed":{{"model":"{prior}","observedAtMs":5}}}}"#),
+                )
+                .unwrap();
+                assert_eq!(observed(&seeded), Some((prior.clone(), 5)));
+                payload["source"] = (*source).into();
+                for (report, expected_model, expected_observed) in [
+                    (
+                        Some("reported-m"),
+                        "reported-m",
+                        Some(("reported-m".to_owned(), NOW)),
+                    ),
+                    (None, "resume-m", None),
+                    (Some("-not a slug"), "resume-m", None),
+                ] {
+                    let case = format!("{harness} {source} {report:?}");
+                    match report {
+                        Some(model) => payload["model"] = model.into(),
+                        None => {
+                            payload.as_object_mut().unwrap().remove("model");
+                        }
+                    }
+                    let event = lifecycle
+                        .decode(payload.to_string().as_bytes())
+                        .unwrap_or_else(|| panic!("{case}"));
+                    assert!(event.starting(), "{case}");
+                    let next = event.driver_state(Some(&seeded), NOW).unwrap();
+                    assert_eq!(observed(&next), expected_observed, "{case}");
+                    assert_eq!(
+                        driver_state::state_model(&next).as_deref(),
+                        Some(expected_model),
+                        "{case}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn documented_session_start_payloads_capture_the_model_and_resume_replays_it() {
         use lifecycle::RuntimeLifecycle;
@@ -1090,6 +1170,11 @@ mod tests {
                 .driver_state(None, NOW)
                 .expect("reported model is kept");
             assert_eq!(driver_state::state_model(&state).as_deref(), Some(model));
+            assert_eq!(
+                driver_state::state_observed_model(&state)
+                    .map(|observed| (observed.model, observed.observed_at_ms)),
+                Some((model.to_owned(), NOW))
+            );
             // Claude's documented resume start reports the context it re-sends;
             // Codex's start (source startup) reports none.
             assert_eq!(
@@ -1098,11 +1183,28 @@ mod tests {
                     .then(|| driver_state::Usage::new(182_340, None, NOW).unwrap())
             );
 
-            // A start without a model (Claude omits it after /clear) keeps it.
+            // A start without a model (Claude omits it after /clear) keeps the
+            // resume model, but observed nothing: the observed model clears.
             let unreported = fixture.replace(&format!(r#""model": "{model}","#), "");
             assert_ne!(unreported, fixture);
             let event = lifecycle.decode(unreported.as_bytes()).expect(harness);
-            assert_eq!(event.driver_state(Some(&state), NOW), Some(state.clone()));
+            let kept = event.driver_state(Some(&state), NOW + 1).unwrap();
+            assert_eq!(driver_state::state_model(&kept).as_deref(), Some(model));
+            assert_eq!(driver_state::state_observed_model(&kept), None);
+            // The rest stays, and the document takes its legacy version again.
+            assert_eq!(
+                lifecycle.state_usage(&kept),
+                (harness == "claude")
+                    .then(|| driver_state::Usage::new(182_340, None, NOW + 1).unwrap())
+            );
+            assert_eq!(
+                kept.version(),
+                if harness == "claude" {
+                    driver_state::USAGE_STATE_VERSION
+                } else {
+                    driver_state::MODEL_STATE_VERSION
+                }
+            );
             if harness == "codex" {
                 assert_eq!(event.driver_state(None, NOW), None, "nothing is guessed");
             }

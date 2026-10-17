@@ -517,6 +517,7 @@ fn activity_projection_requires_current_scope_and_runtime_evidence() {
             phase: ActivityPhase::Working,
             turn: None,
         },
+        None,
         10,
     );
     let project = |binding: &Binding, remembered: &RememberedSession, runtime| {

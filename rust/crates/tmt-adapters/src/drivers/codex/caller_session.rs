@@ -82,9 +82,10 @@ impl crate::runtime::lifecycle::LifecycleObservation for Observation {
     fn driver_state(
         &self,
         previous: Option<&tmt_core::binding::session::DriverState>,
-        _now_ms: u64,
+        now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        crate::runtime::driver_state::after_start(None, None, previous)
+        // Discovery reports no model, so it clears the observed one.
+        crate::runtime::driver_state::after_start(None, None, previous, now_ms)
     }
     fn propose(
         &self,

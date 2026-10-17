@@ -4,5 +4,7 @@
   "cwd": "/fixture",
   "prompt": "Fixture prompt",
   "turn_id": "fixture-turn",
-  "transcript_path": null
+  "transcript_path": null,
+  "model": "gpt-5.2-codex",
+  "permission_mode": "default"
 }

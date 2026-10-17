@@ -264,14 +264,14 @@ pub trait RuntimeLifecycle {
     fn decode_activity(
         &self,
         _payload: &[u8],
-    ) -> Option<tmt_core::binding::session::activity::Event> {
+    ) -> Option<super::hook_protocol::ActivityObservation> {
         None
     }
 
     /// Driver-owned persistence for a normalized admitted activity event.
     fn activity_state(
         &self,
-        _event: &tmt_core::binding::session::activity::Event,
+        _observation: &super::hook_protocol::ActivityObservation,
         _session: &ProviderSessionId,
         _process: &ProcessIncarnation,
         _previous: Option<&DriverState>,
@@ -418,6 +418,14 @@ pub trait RuntimeLifecycle {
 
     /// The context usage recorded in this driver's own state, for display only.
     fn state_usage(&self, _state: &DriverState) -> Option<super::driver_state::Usage> {
+        None
+    }
+
+    /// The last observed model recorded in this driver's own state.
+    fn state_observed_model(
+        &self,
+        _state: &DriverState,
+    ) -> Option<super::driver_state::ObservedModel> {
         None
     }
 

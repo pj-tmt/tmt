@@ -29,6 +29,24 @@ fn claude_file() -> (TestDirectory, std::path::PathBuf, State) {
     (root, path, state)
 }
 
+/// A start document as a pre-v5 binary wrote it: the resume model and any
+/// reported usage, without an observed model.
+fn legacy_start(
+    model: &str,
+    usage: Option<crate::runtime::driver_state::Usage>,
+) -> tmt_core::binding::session::DriverState {
+    let mut fields = serde_json::json!({ "model": model });
+    if let Some(usage) = usage {
+        fields["usage"] = usage.document();
+    }
+    let version = if usage.is_some() {
+        crate::runtime::driver_state::USAGE_STATE_VERSION
+    } else {
+        crate::runtime::driver_state::MODEL_STATE_VERSION
+    };
+    tmt_core::binding::session::DriverState::new(version, &fields.to_string()).unwrap()
+}
+
 #[test]
 fn recorded_claude_groups_count_once_and_hook_replays_do_not_advance() {
     let (root, path, first) = claude_file();
@@ -344,9 +362,10 @@ fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
             turn: Some(ProviderSessionId::new(&"t".repeat(width)).unwrap()),
         };
         let usage = driver_state::Usage::new(100, None, NOW).unwrap();
-        let old = driver_state::after_start(Some(&"m".repeat(width)), Some(usage), None).unwrap();
+        let old = legacy_start(&"m".repeat(width), Some(usage));
         let active =
-            driver_state::after_activity(Some(&old), &session, &process, &event, NOW).unwrap();
+            driver_state::after_activity(Some(&old), &session, &process, &event, None, NOW)
+                .unwrap();
         assert!(!consumption.value.gap && consumption.value.complete);
         let next =
             driver_state::after_observation(Some(usage), Some(consumption.clone()), Some(&active))
@@ -378,13 +397,13 @@ fn consumption_round_trips_with_activity_and_never_expands_the_one_kib_cap() {
                 turn: event.turn.clone(),
             };
             let ended =
-                driver_state::after_activity(Some(&next), &session, &process, &stop, NOW + 1)
+                driver_state::after_activity(Some(&next), &session, &process, &stop, None, NOW + 1)
                     .unwrap();
             assert_eq!(
                 driver_state::state_consumption(&ended),
                 driver_state::state_consumption(&next)
             );
-            let restarted = driver_state::after_start(None, None, Some(&ended)).unwrap();
+            let restarted = driver_state::after_start(None, None, Some(&ended), NOW + 2).unwrap();
             assert!(driver_state::state_consumption(&restarted).is_none());
             assert_eq!(restarted.version(), driver_state::MODEL_STATE_VERSION);
         }
@@ -903,7 +922,7 @@ fn bounded_attribution_round_trips_compactly_without_evicting_legacy_counter() {
             })
             .collect(),
     );
-    let launch = driver_state::after_start(Some(&"m".repeat(128)), None, None).unwrap();
+    let launch = legacy_start(&"m".repeat(128), None);
     let bounded = driver_state::after_observation(None, Some(huge.clone()), Some(&launch)).unwrap();
     assert!(bounded.document().len() <= tmt_core::binding::session::DriverState::MAXIMUM_BYTES);
     let restored = driver_state::state_consumption(&bounded)
@@ -967,7 +986,7 @@ fn rate_limits_survive_the_state_round_trip_and_are_the_first_optional_evidence_
                 })
                 .collect(),
         );
-        let launch = driver_state::after_start(Some(&"m".repeat(128)), None, None).unwrap();
+        let launch = legacy_start(&"m".repeat(128), None);
         let bounded =
             driver_state::after_observation(None, Some(state.clone()), Some(&launch)).unwrap();
         assert!(bounded.document().len() <= DriverState::MAXIMUM_BYTES);
@@ -1425,7 +1444,7 @@ fn credits_and_tier_are_the_first_optional_evidence_to_go_under_the_opaque_bound
                 })
                 .collect(),
         );
-        let launch = driver_state::after_start(Some(&"m".repeat(128)), None, None).unwrap();
+        let launch = legacy_start(&"m".repeat(128), None);
         let bounded =
             driver_state::after_observation(None, Some(state.clone()), Some(&launch)).unwrap();
         assert!(bounded.document().len() <= DriverState::MAXIMUM_BYTES);
@@ -1446,4 +1465,69 @@ fn credits_and_tier_are_the_first_optional_evidence_to_go_under_the_opaque_bound
     }
     assert!(credits_lost_alone, "credits and tier go before the limits");
     assert!(limits_lost, "the sweep must reach the limits");
+}
+
+#[test]
+fn the_observed_model_goes_before_consumption_extras_and_v4_round_trips() {
+    use crate::runtime::driver_state;
+    let (root, path, first) = claude_file();
+    append(&path, &claude_usage("a", json!("model-a"), json!(3)));
+    let next = claude(&root.path, &path, Some(&first), NOW + 1).unwrap();
+    let model = "m".repeat(128);
+    let v4 = driver_state::after_observation(
+        None,
+        Some(next.clone()),
+        Some(&legacy_start(&model, None)),
+    )
+    .unwrap();
+    assert_eq!(v4.version(), driver_state::CONSUMPTION_STATE_VERSION);
+    let again =
+        driver_state::after_observation(None, driver_state::state_consumption(&v4), Some(&v4))
+            .unwrap();
+    assert_eq!(again, v4, "a v4 document keeps its bytes");
+
+    let (mut kept, mut evicted_before_extras) = (false, false);
+    for width in 1..=118 {
+        let mut wide = next.clone();
+        wide.value.delta_by_model = Some(
+            (0..4)
+                .map(|i| ModelUsage {
+                    model_id: format!("model-{i}-{}", "x".repeat(width)),
+                    input_tokens: 1,
+                    output_tokens: 0,
+                    cached_input_tokens: 0,
+                    cache_write_tokens: Some(0),
+                })
+                .collect(),
+        );
+        wide.value.input_tokens = 4;
+        wide.value.output_tokens = 0;
+        wide.value.cached_input_tokens = 0;
+        wide.value.cache_write_tokens = Some(0);
+        assert!(driver_state::after_observation(None, Some(wide.clone()), None).is_some());
+        let observed = driver_state::after_start(Some(&model), None, None, NOW).unwrap();
+        let result =
+            driver_state::after_observation(None, Some(wide.clone()), Some(&observed)).unwrap();
+        let without =
+            driver_state::after_observation(None, Some(wide), Some(&legacy_start(&model, None)))
+                .unwrap();
+        assert!(
+            driver_state::state_consumption(&without).is_some(),
+            "{width}"
+        );
+        assert_eq!(
+            driver_state::state_consumption(&result),
+            driver_state::state_consumption(&without),
+            "{width}"
+        );
+        if driver_state::state_observed_model(&result).is_some() {
+            kept = true;
+            assert_eq!(result.version(), driver_state::OBSERVED_STATE_VERSION);
+        } else {
+            assert_eq!(result, without, "{width}");
+            evicted_before_extras |= driver_state::state_consumption(&without)
+                .is_some_and(|value| value.value.delta_by_model.is_some());
+        }
+    }
+    assert!(kept && evicted_before_extras);
 }
