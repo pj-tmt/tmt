@@ -926,7 +926,7 @@ the files it would change, then asks once; without a terminal it refuses unless
 `--yes` is given, changing nothing. `tmt setup claude` or `tmt setup codex` shows
 one agent's plan and asks for approval;
 noninteractive changes require explicit user-authorized `--yes`. It adds only
-owned start/end/prompt-submit hooks using the stable PATH launcher; `--remove` removes only
+owned start/end/prompt-submit/turn-end hooks using the stable PATH launcher; `--remove` removes only
 unchanged owned hooks. Do not install into the user's provider settings merely
 because a conversation lost context. Hooks restore bounded verified identity
 context and remember the session, not permission grants or arbitrary instructions.
@@ -944,10 +944,11 @@ require an existing exact thread mapping and never inherit the server's pane
 identity. Unmapped shared sessions get no context; a client disconnect is not a
 thread-ended signal. Setup does not approve provider hook trust on the user's behalf.
 
-Consented `tmt setup` includes the Stop hook by default, exposing
-`resume.usage` (context size) and
-optional `resume.consumption` in ls/identity JSON. `--no-usage` disables
-collection and preserves the choice; `--usage` enables it again. Inspect without
+Consented `tmt setup` includes the Stop hook by default, exposing `resume.usage`
+(context size) and optional `resume.consumption` in ls/identity JSON. It also keeps
+bounded final-response history locally for [`responses.recent`](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#recent-agent-responses):
+pane output, not a durable reply. `--no-usage` stops new collection and preserves
+the choice; `--usage` enables it again. Existing entries keep their expiry. Inspect without
 changes using `tmt setup [provider] --status`. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
@@ -989,11 +990,10 @@ never reset the batch deadline. tmux activity has second resolution, so quiet
 detection can take an extra second. It does not prove the input buffer is empty.
 
 `tmt config set exchange.retentionDays 90 --global` sets the duration for new
-requests only, from 1 through 3650 integer days. It uses `exchange.retentionDays`
-in the same global config file. Local overrides and local `config rm` are
-not supported for this key. Changing it never extends existing data or changes
-the reply acceptance window or observer timeout. Results remain available
-without reading current configuration.
+requests and captured recent responses, from 1 through 3650 integer days.
+Local overrides and local `config rm` are not supported for this global-only key.
+Changing it never extends existing data or changes the reply acceptance window
+or observer timeout. Results remain available without reading current configuration.
 
 Expired content is unavailable at its stored UTC deadline. Request/result
 operations perform bounded opportunistic cleanup; without an invocation there
