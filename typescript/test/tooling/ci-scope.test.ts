@@ -1098,6 +1098,8 @@ describe('component map', () => {
     }
     // Tests that name Ops without exercising its executable or sources.
     const namesOnly: Record<string, string> = {
+      'typescript/test/e2e/check-routing.e2e.test.ts':
+        'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/e2e/driver-consent.e2e.test.ts':
         'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/native/api.test.ts':

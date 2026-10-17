@@ -833,3 +833,27 @@ fn selected_socket_failure_never_falls_back_to_or_adopts_an_ambient_server() {
         );
     }
 }
+
+#[test]
+fn a_selected_server_empty_scope_reads_no_panes_or_metadata_writes() {
+    let runner = ScriptedRunner::default();
+    runner.push_output(marked_row().into_bytes(), Vec::new());
+    let tmux = Tmux::new(runner).on_socket("/tmp/private.sock");
+    let snapshot = tmux
+        .snapshot(OperationOptions {
+            pane_ids: Some(&[]),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(
+        snapshot.panes.is_empty(),
+        "an empty scope must not enumerate the server"
+    );
+    assert_eq!(snapshot.server.server_id, SERVER_ID);
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        &calls[0].args[..4],
+        ["-u", "-S", "/tmp/private.sock", "display-message"]
+    );
+}
