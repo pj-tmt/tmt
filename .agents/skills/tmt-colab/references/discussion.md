@@ -89,7 +89,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   ID namespace, one rule table shared with Rust). `reviews.ts` is pure: the fixed section comments,
   the canonical thread, the person-only closed rule, the derived state and `n / m`. `review-layer.tsx`
   associates each section's heading-anchored threads from the renderer's quote answer and owns the
-  parent bands; `components/review-card.tsx` presents them. `review-actions.ts` is the only writer:
+  parent bands; `components/review-card.tsx` presents them. Review cards and the question cards'
+  state line share one "needs you" band, `components/needs-you-bar.tsx`. `review-actions.ts` is the only writer:
   explicit Confirm (comment, then the person Resolve through `ThreadStatusCoordinator`), Needs
   change (comment, then the existing Ask), Reopen, and closing a section whose questions a trusted
   Send just answered. `AdmittedView` waits for the admitted fold before the next step. The frame

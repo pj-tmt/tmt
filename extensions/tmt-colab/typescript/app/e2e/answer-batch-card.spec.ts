@@ -37,7 +37,7 @@ async function recorded(page: Page, count: number) {
     .toBe(count);
 }
 
-test('empty and recorded groups keep the lone label and omit a zero count for several questions', async ({
+test('an empty group keeps the lone label and omits a zero count; a recorded answer folds Send away', async ({
   page,
 }) => {
   for (const count of [1, 3]) {
@@ -58,13 +58,15 @@ test('empty and recorded groups keep the lone label and omit a zero count for se
     await expect(
       card(page).getByRole('button', { name: 'Change answer', exact: true }),
     ).toBeVisible();
-    await expect(empty).toHaveText(emptyLabel);
-    await expect(empty).toBeDisabled();
+    // The folded answered line never has a Send next to it; Change answer brings it back.
+    await expect(empty).toHaveCount(0);
     expect((await run(page, 'proof')).sends).toHaveLength(0);
   }
 });
 
-test('a lone question keeps Send answer while its publication is in flight', async ({ page }) => {
+test('a lone question folds to its answered line, without Send, while its publication is in flight', async ({
+  page,
+}) => {
   const group = await mount(page, { count: 1 });
   const send = group.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true });
   await expect(send).toBeDisabled();
@@ -72,17 +74,15 @@ test('a lone question keeps Send answer while its publication is in flight', asy
   await expect(send).toBeEnabled();
   await run(page, 'pausePrepare');
   await send.click();
-  await expect(send).toBeDisabled();
-  await expect(send).toHaveText('Send answer');
   await recorded(page, 1);
-  expect((await run(page, 'proof')).sends).toHaveLength(0);
-  await run(page, 'resumePrepare');
-  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   await expect(
     card(page).getByRole('button', { name: 'Change answer', exact: true }),
   ).toBeVisible();
-  await expect(send).toBeDisabled();
-  await expect(send).toHaveText('Send answer');
+  await expect(send).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  await run(page, 'resumePrepare');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  await expect(send).toHaveCount(0);
 });
 
 test('three comments make one Ask per distinct recipient; only the canonical tab renders replies, including after reload', async ({
@@ -288,7 +288,7 @@ for (const recordBeforeFail of [false, true]) {
       await expect(card(page).locator('.question-answer')).toHaveText('Keep it');
     else {
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(card(page).locator('.question-state')).toContainText('Waiting for you');
+      await expect(card(page).locator('.needs-you-bar')).toContainText('Please answer');
     }
     await group.getByRole('button', { name: /^Send 1 answer/ }).click();
     await recorded(page, recordBeforeFail ? 4 : 3);
@@ -572,7 +572,7 @@ for (const [width, theme] of [
         'Could not confirm this answer. Your draft is kept for the next Send.',
       );
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(card(page).locator('.question-state')).toContainText('Waiting for you');
+      await expect(card(page).locator('.needs-you-bar')).toContainText('Please answer');
       await capture('comment-unconfirmed');
       await remount({ count: 3, darkPage }, { prepareFailures: 1 });
       await answerThree(page, group);

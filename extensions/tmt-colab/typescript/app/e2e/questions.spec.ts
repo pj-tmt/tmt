@@ -22,13 +22,13 @@ async function mount(page: Page, question = {}, options = {}) {
 async function send(page: Page) {
   const card = page.locator('.question-group-card');
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
-  await expect(card.locator('.question-state')).toContainText('answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered');
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
 }
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
-    await expect(card.locator('.question-state')).toContainText('Waiting for you');
+    await expect(card.locator('.needs-you-bar')).toContainText('Please answer');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Change it', { exact: true }).check();
       if (kind === 'multiple') await card.getByLabel('Keep it', { exact: true }).check();
@@ -128,7 +128,7 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 0,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.question-state')).toContainText('You answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
   await run(page, 'questionSibling', {
     body: `${prefix}Other reader answer\nPage: Live shared page`,
     sequence: '10',
@@ -144,12 +144,12 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 2,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.question-state')).toContainText('You answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
   await card.getByRole('button', { name: 'Change answer', exact: true }).click();
   await card.getByLabel('Change it', { exact: true }).check();
   await send(page);
   await expect(card.locator('.question-answer')).toContainText('Change it');
-  await expect(card.locator('.question-state')).toContainText('You answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
   const threads = await run(page, 'discussionProof');
   expect(
     threads.find((thread: { ref: { writer: string } }) => thread.ref.writer.endsWith('000002'))
@@ -159,6 +159,27 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     threads.find((thread: { comments: unknown[] }) => thread.comments.length === 2),
   ).toBeDefined();
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
+});
+
+test('an answered question folds to one line, focus moves to Change answer, and Send returns with it', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
+  const bar = card.locator('.needs-you-bar');
+  await expect(bar).toContainText('Answered · You');
+  await expect(bar.locator('.question-answer')).toHaveText('Keep it');
+  const change = bar.getByRole('button', { name: 'Change answer', exact: true });
+  await expect(change).toBeFocused();
+  // Nothing of the answer being written stays next to the folded line.
+  await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
+  await expect(card.getByRole('group', { name: 'Choose one' })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toHaveCount(0);
+  await change.click();
+  await expect(card.getByRole('group', { name: 'Choose one' })).toBeVisible();
+  await expect(card.getByRole('button', { name: /^Send answer/ })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toBeVisible();
 });
 
 for (const change of [false, true]) {
@@ -184,7 +205,7 @@ for (const change of [false, true]) {
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(change ? 2 : 1);
     await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
     expect(await run(page, 'discussionProof')).toEqual(recorded);
-    await expect(card.getByRole('button', { name: /^Send answer/ })).toBeDisabled();
+    await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
   });
 }
 
@@ -198,7 +219,7 @@ test('ordinary answer history growth keeps the inline card in window scrolling',
   for (let index = 0; index < 6; index++) {
     const oldHeight = await frame.evaluate((node) => node.getBoundingClientRect().height);
     await run(page, 'questionSibling', {
-      body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(4),
+      body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(12),
       sequence: String(index + 1),
       device: false,
       index,
@@ -358,9 +379,10 @@ for (const width of [1440, 390])
           await expect(surface).toHaveCSS('color-scheme', theme);
           await expect(surface).toHaveCSS('box-shadow', 'none');
         }
-        await expect(card.locator('.question-state')).toHaveCSS(
+        // The state line is the shared light band, not the sheet.
+        await expect(card.locator('.needs-you-bar')).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
         );
         await expect(card.locator('.question-group-footer')).toHaveCSS(
           'border-top-color',
@@ -433,13 +455,12 @@ for (const width of [1440, 390])
         await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
         const sendButton = card.getByRole('button', { name: /^Send answer/ });
         await expect(sendButton).toBeEnabled();
-        await expect(sendButton).toHaveCSS(
-          'background-color',
-          theme === 'dark' ? 'rgb(125, 207, 255)' : 'rgb(0, 107, 143)',
-        );
+        // Send is an inline text action, like the other needs-you actions.
+        await expect(sendButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        await expect(sendButton).toHaveCSS('text-decoration-line', 'underline');
         await expect(sendButton).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await sendButton.press('Tab');
         await page.keyboard.press('Shift+Tab');
@@ -454,7 +475,11 @@ for (const width of [1440, 390])
           'background-color',
           theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
-        await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toHaveCSS(
+        // Focus moved to the folded line's action; its resting colour is the text role.
+        const change = card.getByRole('button', { name: 'Change answer', exact: true });
+        await expect(change).toBeFocused();
+        await change.blur();
+        await expect(change).toHaveCSS(
           'color',
           theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
@@ -508,7 +533,7 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
         ),
     )
     .toBeGreaterThan(0);
-  await expect(card.locator('.question-state')).toContainText('Waiting for you');
+  await expect(card.locator('.needs-you-bar')).toContainText('Please answer');
   await expect(card.locator('.question-answer')).toHaveCount(0);
   await card.getByLabel('Keep it', { exact: true }).check();
   await expect(

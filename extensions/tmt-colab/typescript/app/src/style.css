@@ -1157,51 +1157,18 @@ footer {
 }
 /* A review section's parent-drawn band sits below the section, like a proposal card. */
 .review-inline .review-card {
-  border: 1px solid var(--c-rule);
-  border-radius: 0;
-  box-shadow: none;
   background: transparent;
   color: var(--c-text);
-  padding: 12px 16px;
+}
+.review-body {
   display: grid;
   gap: 8px;
 }
-.review-card header {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
+.review-body:not(:empty) {
+  padding: 8px 12px;
 }
-.review-state {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 6px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.review-section-title::before {
-  content: '· ';
-}
-.review-state svg,
-.review-mark {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-.review-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  line-height: 1;
-}
-.review-mark[data-tone='waiting'] {
-  color: var(--c-waiting);
-}
-.review-section-title,
-.review-detail,
 .review-recipient {
+  margin: 0;
   color: var(--c-muted);
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -1210,22 +1177,6 @@ footer {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.review-actions {
-  display: grid;
-  gap: 8px;
-}
-.review-buttons {
-  display: flex;
-  gap: 8px 20px;
-  flex-wrap: wrap;
-}
-/* A text action carries no frame, so its text starts at the content edge, also when it wraps. */
-.review-card .tmt-ui-action[data-variant='text'] {
-  padding-inline: 0;
-}
-.review-recipient {
-  margin: 0;
 }
 .review-field {
   display: grid;
@@ -1240,9 +1191,6 @@ footer {
   background: var(--c-sheet);
   border: 1px solid var(--c-rule);
   padding: 8px;
-}
-.review-card[data-review-state='closed'] header {
-  color: var(--c-muted);
 }
 .page-reviews {
   white-space: nowrap;
@@ -1407,9 +1355,13 @@ footer {
 .question-inline .tmt-ui-tabs,
 .question-group-card {
   background: transparent;
-  border: 1px solid var(--tmt-ui-color-edge);
+  border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+/* The group is only a focus anchor after a Send; its actions carry the visible focus. */
+.question-group-card:focus-visible {
+  outline: none;
 }
 .question-inline .tmt-ui-tab-panel {
   padding: 0;
@@ -1418,27 +1370,17 @@ footer {
   visibility: visible;
 }
 .question-inline .tmt-ui-tabs-header,
-.question-state,
 .question-controls {
   background: var(--tmt-ui-surface-sheet);
   pointer-events: auto;
 }
-.question-state {
-  margin: 0;
-  padding: 16px;
-  color: var(--tmt-ui-color-secondary);
-  font-size: 13px;
+.question-inline .needs-you-bar {
+  pointer-events: auto;
 }
 .question-controls {
   padding: 0 16px 16px;
   max-height: 1900px;
   overflow: auto;
-}
-.question-state-mark[data-tone='waiting'] {
-  color: var(--tmt-ui-color-waiting);
-}
-.question-state-mark[data-tone='working'] {
-  color: var(--tmt-ui-color-working);
 }
 .question-controls .rich-input-field {
   min-height: 2.5em;
@@ -1447,13 +1389,8 @@ footer {
 .question-description-space {
   pointer-events: none;
 }
-.question-controls > .tmt-ui-action[data-variant='primary']:not(:disabled) {
-  background: var(--tmt-ui-color-link);
-  border-color: var(--tmt-ui-color-link);
-  color: var(--tmt-ui-surface-sheet);
-}
-.question-inline .question-group-card .tmt-ui-tabs {
-  border: 0;
+.question-group-footer:empty {
+  display: none;
 }
 .question-group-footer {
   background: var(--tmt-ui-surface-sheet);
@@ -1472,11 +1409,7 @@ footer {
 }
 .question-group-send > .tmt-ui-action {
   margin-left: auto;
-}
-.question-group-send > .tmt-ui-action[data-variant='primary']:not(:disabled) {
-  background: var(--tmt-ui-color-link);
-  border-color: var(--tmt-ui-color-link);
-  color: var(--tmt-ui-surface-sheet);
+  padding-inline: 0;
 }
 .question-shared-ask {
   font-size: 13px;
@@ -1529,7 +1462,6 @@ footer {
   border: 1px solid var(--c-rule);
   padding: 8px;
 }
-.question-state,
 .question-answer {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

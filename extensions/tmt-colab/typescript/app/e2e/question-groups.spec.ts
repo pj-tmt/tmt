@@ -392,12 +392,10 @@ for (const width of [1440, 390])
         };
         await capture('waiting');
         await activeCard(page).getByLabel('Keep it', { exact: true }).check();
-        await expect(
-          group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }),
-        ).toHaveCSS(
-          'background-color',
-          theme === 'dark' ? 'rgb(125, 207, 255)' : 'rgb(0, 107, 143)',
-        );
+        // Send is an inline text action, like the other needs-you actions.
+        const send = group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ });
+        await expect(send).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        await expect(send).toHaveCSS('text-decoration-line', 'underline');
         await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
         await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
         await expect(
@@ -409,7 +407,7 @@ for (const width of [1440, 390])
         await expect(activeCard(page).getByTestId('ask-reply')).toContainText(
           'I read your answer in this thread.',
         );
-        await expect(activeCard(page).locator('.question-state')).toContainText('You answered');
+        await expect(activeCard(page).locator('.needs-you-bar')).toContainText('Answered · You');
         await expect
           .poll(async () => {
             const frame = page.frameLocator('#ask-page-fixture iframe');
