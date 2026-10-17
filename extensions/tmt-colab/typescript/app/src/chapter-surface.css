@@ -1,0 +1,59 @@
+.chapter-passage {
+  margin-top: 16px;
+  min-width: 0;
+}
+.chapter-passage-kicker,
+.chapter-passage-unavailable {
+  color: var(--c-muted);
+  font-size: 13px;
+}
+.chapter-passage-clip {
+  position: relative;
+  overflow: hidden;
+  max-height: 420px;
+}
+.chapter-passage-reply {
+  display: flow-root;
+}
+.chapter-passage-source {
+  position: relative;
+}
+.chapter-passage-source iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+.chapter-passage-controls {
+  position: relative;
+}
+.chapter-passage-controls .proposal-inline {
+  position: static;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+.chapter-passage-controls .question-inline {
+  position: relative;
+}
+.chapter-passage-controls .question-description-space {
+  display: none;
+}
+.chapter-passage-continue,
+.chapter-passage-next,
+.chapter-passage-unavailable button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-muted);
+  font: inherit;
+}
+.chapter-passage-continue:hover,
+.chapter-passage-next:hover,
+.chapter-passage-unavailable button:hover {
+  text-decoration: underline;
+}
+@media (max-width: 600px) {
+  .chapter-passage-clip {
+    max-height: 320px;
+  }
+}

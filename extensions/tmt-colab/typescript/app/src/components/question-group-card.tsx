@@ -58,8 +58,10 @@ export function QuestionGroupCard({
   connectionPresentation,
   onRecorded,
   onWorking,
+  pageUrl,
 }: {
   onWorking?(id: string, working: boolean): void;
+  pageUrl?: string;
   group: QuestionGroup;
   members: readonly Question[];
   selected: string;
@@ -252,7 +254,7 @@ export function QuestionGroupCard({
           answers,
           recipients: structuredClone(decision.agents),
           title,
-          url: location.href,
+          url: pageUrl ?? location.href,
         },
         asks,
       );
@@ -328,7 +330,7 @@ export function QuestionGroupCard({
       quote: canonical.thread.anchor?.exact ?? '',
       comment: canonical.comment.body,
       title,
-      url: location.href,
+      url: pageUrl ?? location.href,
       batch: {
         group: group.id,
         answers: answers.map(({ question, context }) => ({ question, context })),

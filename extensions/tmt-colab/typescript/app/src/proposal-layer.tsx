@@ -20,7 +20,7 @@ import { presentationOf } from './thread-status-presentation.js';
 import type { ThreadView } from './thread-records.js';
 import type { PageSnapshot, PageView, PageBinding } from './transport.js';
 import { text } from './strings.js';
-import { focusNeedsYouTarget, type NeedsYouCandidate } from './needs-you.js';
+import { focusNeedsYouTarget, proposalNeedsYou } from './needs-you.js';
 
 /** Parent-owned proposal presentation; the router wires admitted page and renderer ports. */
 export function useProposalLayer({
@@ -277,14 +277,7 @@ export function useProposalLayer({
   }
   const proposals = (view.threads ?? []).filter((thread) => thread.proposal && !thread.deleted);
   proposalContext.current = { discussionBlocked, snapshot, view, binding };
-  const navigation: NeedsYouCandidate[] = proposals.map((thread) => ({
-    kind: 'proposal',
-    state:
-      !thread.resolved && (!thread.decision || thread.decision.deleted) ? 'waiting' : 'settled',
-    id: thread.proposal!.proposalId,
-    title: thread.proposal!.title,
-    agent: thread.proposal!.proposer.label,
-  }));
+  const navigation = proposalNeedsYou(proposals);
   return {
     navigation,
     jump: (id: string) => {

@@ -25,8 +25,12 @@ export function useReviewLayer({
   slotPositions,
   questionThreads,
   onWorking,
+  passage,
+  pageUrl,
 }: {
   onWorking?(id: string, working: boolean): void;
+  passage?: { id?: string };
+  pageUrl?: string;
   reviews: readonly Review[];
   questions: readonly Question[];
   snapshot: PageSnapshot;
@@ -84,6 +88,7 @@ export function useReviewLayer({
     resolving,
     questions,
     onWorking,
+    pageUrl,
   });
   context.current = {
     view,
@@ -95,6 +100,7 @@ export function useReviewLayer({
     resolving,
     questions,
     onWorking,
+    pageUrl,
   };
   const admitted = useRef(new AdmittedView());
   const actions = useMemo(() => {
@@ -131,9 +137,9 @@ export function useReviewLayer({
         context.current.binding.current?.ask === ask,
       admitted: admitted.current,
       title: () => context.current.view.title || context.current.snapshot.title,
-      url: () => location.href,
+      url: () => context.current.pageUrl ?? location.href,
+      working: (id, working) => context.current.onWorking?.(id, working),
       changed: (id, outcome) => {
-        context.current.onWorking?.(id, outcome.state === 'working');
         setOutcomes((previous) => new Map(previous).set(id, outcome));
       },
     });
@@ -183,6 +189,7 @@ export function useReviewLayer({
                 if (node) targets.current.set(review.id, node);
                 else targets.current.delete(review.id);
               }}
+              hidden={passage && passage.id !== review.id}
               data-inline-review={review.id}
               data-inline-slot={review.id}
               className="proposal-inline review-inline"

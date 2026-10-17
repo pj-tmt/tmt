@@ -1,5 +1,7 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useState } from 'react';
+import { ChapterSurfaces } from './chapter-surfaces.js';
+import type { PageTransport } from './transport.js';
 import { RouterProvider } from '@tanstack/react-router';
 import { mountUrl } from './bootstrap.js';
 import { AppHeader, createAppRouter } from './router.js';
@@ -15,6 +17,7 @@ import { UpdateNotice } from './update-notice.js';
 export function MountedApp() {
   const [state, setState] = useState<'loading' | 'failed' | 'ready'>('loading');
   const [limit, setLimit] = useState<SessionLimitError>();
+  const [transport, setTransport] = useState<PageTransport>();
   const [router, setRouter] = useState<ReturnType<typeof createAppRouter> | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -34,6 +37,7 @@ export function MountedApp() {
           return;
         }
         mounted = next;
+        setTransport(next.transport);
         setRouter(createAppRouter(next.transport, next.space));
         setState('ready');
       } catch (error) {
@@ -64,8 +68,10 @@ export function MountedApp() {
   }, []);
   return (
     <>
-      {state === 'ready' && router ? (
-        <RouterProvider router={router} />
+      {state === 'ready' && router && transport ? (
+        <ChapterSurfaces transport={transport}>
+          <RouterProvider router={router} />
+        </ChapterSurfaces>
       ) : (
         <MountedNotice state={state} limit={limit} />
       )}

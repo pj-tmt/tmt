@@ -7,7 +7,7 @@ import type { ReviewState } from '../reviews.js';
 import { REVIEW_CHANGE_NOTE_BYTES, REVIEW_CONFIRM_NOTE_POINTS } from '../reviews.js';
 import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
-import { NeedsYouBar } from './needs-you-bar.js';
+import { PassageBar } from '../passage-navigation.js';
 
 /** Authenticated parent presentation of one review section. The callbacks own every effect; the
  * page's own HTML cannot render, press or fake any of this. */
@@ -105,7 +105,8 @@ export function ReviewCard({
       data-review-state={state.kind}
     >
       {state.kind === 'closed' ? (
-        <NeedsYouBar
+        <PassageBar
+          complete
           tone="done"
           word={text.reviewClosed}
           who={state.by}
@@ -113,14 +114,15 @@ export function ReviewCard({
           actions={actions}
         />
       ) : state.kind === 'changes' ? (
-        <NeedsYouBar
+        <PassageBar
+          complete
           tone="agent"
           word={text.reviewChanges}
           why={text.reviewWaitingFor(review.agent)}
           actions={actions}
         />
       ) : (
-        <NeedsYouBar
+        <PassageBar
           tone="needs"
           word={text.reviewAsk}
           who={review.agent}

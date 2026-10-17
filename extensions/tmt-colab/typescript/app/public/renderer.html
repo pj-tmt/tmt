@@ -158,16 +158,14 @@
           let heightTimer,
             height = 0,
             innerScroll = false;
-          function measureHeight() {
-            heightTimer = undefined;
-            if (stopped || !document.body) return;
+          function contentHeight() {
             const body = document.body,
               root = document.documentElement,
               rect = body.getBoundingClientRect(),
               margin = parseFloat(getComputedStyle(body).marginBottom) || 0;
             // Root scrollHeight is at least the frame viewport. Ignore that floor
             // so content can shrink; retain root overflow and body/absolute content.
-            const next = Math.max(
+            return Math.max(
               1,
               Math.ceil(
                 Math.max(
@@ -177,6 +175,11 @@
                 ),
               ),
             );
+          }
+          function measureHeight() {
+            heightTimer = undefined;
+            if (stopped || !document.body) return;
+            const next = contentHeight();
             if (next === height) return;
             height = next;
             parent.postMessage({ type: 'colab.render.height', renderId, height }, '*');
@@ -984,7 +987,7 @@
             if (target.kind === 'opening') {
               bounds = {
                 top: 0,
-                height: Math.min(1000000, Math.max(1, document.body.scrollHeight)),
+                height: Math.min(1000000, contentHeight()),
               };
             } else {
               const admitted =

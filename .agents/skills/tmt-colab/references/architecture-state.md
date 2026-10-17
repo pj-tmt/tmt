@@ -572,6 +572,21 @@ at (`prepareToday` before the router's own reset, `finishReturn` on `onRendered`
 Transition per open and close, through the router's `viewTransition`; it is not started under
 `prefers-reduced-motion` or without `document.startViewTransition`.
 
+`mounted-pages.ts` owns leases on one `Live`/Writer per mounted page; foreground
+admission still precedes borrowing. Passive chapters omit Subscribe, while a
+foreground borrower promotes that same binding. Last release joins connection,
+view and observation cleanup; a blocked or replaced binding is retired before
+reuse. `page-layers.ts` composes the existing question/review/reading owners for
+both surfaces. `passage-drafts.tsx` keeps draft-only state scoped to transport and
+page across frame/route retirement, without persisting or publishing it.
+`chapter-passages.ts` serializes three visible chapter acquisitions and joined
+replacement. `chapter-surfaces.tsx` holds parent controls above Today route
+replacement, retiring frames before parking a busy parent. `chapter-surface.tsx`
+selects and clips a passage and renders the shared controls below it; the existing
+action owners report lifetime separately from stale-outcome presentation fences.
+The [live-passage contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#live-chapter-passages-3540)
+owns selection, bounds and publication behavior.
+
 The list is the `/all` route ("All pages"). `home.tsx` renders it from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
 (`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`; the router merges its result

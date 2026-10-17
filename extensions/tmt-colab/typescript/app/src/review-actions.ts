@@ -77,6 +77,7 @@ export interface ReviewActionsOptions {
   title(): string;
   url(): string;
   changed(review: string, outcome: ReviewOutcome): void;
+  working?(id: string, active: boolean): void;
 }
 
 /**
@@ -116,6 +117,7 @@ export class ReviewActions {
     )
       return;
     this.#inFlight.add(review.id);
+    this.options.working?.(review.id, true);
     return {
       discussion,
       ask,
@@ -185,6 +187,7 @@ export class ReviewActions {
       changed({ state: step === 'closing' ? 'failed' : 'uncertain', step });
     } finally {
       this.#inFlight.delete(review.id);
+      this.options.working?.(review.id, false);
     }
   }
 
@@ -226,6 +229,7 @@ export class ReviewActions {
       changed({ state: recorded ? 'uncertain' : 'failed', step: 'recording' });
     } finally {
       this.#inFlight.delete(review.id);
+      this.options.working?.(review.id, false);
     }
   }
 
@@ -235,6 +239,7 @@ export class ReviewActions {
     const thread = this.options.thread(review.id);
     if (this.#inFlight.has(review.id) || !status || !thread || !resolvedByPerson(thread)) return;
     this.#inFlight.add(review.id);
+    this.options.working?.(review.id, true);
     this.options.changed(review.id, { state: 'working', step: 'reopening' });
     try {
       await status.change(thread, false);
@@ -243,6 +248,7 @@ export class ReviewActions {
       this.options.changed(review.id, { state: 'failed', step: 'reopening' });
     } finally {
       this.#inFlight.delete(review.id);
+      this.options.working?.(review.id, false);
     }
   }
 
@@ -277,6 +283,7 @@ export class ReviewActions {
       changed({ state: 'failed', step });
     } finally {
       this.#inFlight.delete(review.id);
+      this.options.working?.(review.id, false);
     }
   }
 }

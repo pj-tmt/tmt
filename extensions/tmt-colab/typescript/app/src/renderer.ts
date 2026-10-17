@@ -160,7 +160,7 @@ export async function mountRenderer(
     onSlots?(slots: AnchorPosition[]): void;
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
-    onPassage?(bounds: PassageBounds | null): void;
+    onPassage?(bounds: PassageBounds | null, checked?: boolean): void;
     images?: DocumentImageInput;
   },
 ): Promise<{
@@ -260,6 +260,7 @@ export async function mountRenderer(
   frame.style.height = `${lastHeight}px`;
   const fallback = () => {
     innerScroll = true;
+    options.onPassage?.(null, true);
     options.onSlots?.([]);
     pendingHeight = undefined;
     clearTimeout(heightTimer);
@@ -517,6 +518,7 @@ export async function mountRenderer(
       return;
     }
     if (value?.type === 'colab.render.passage') {
+      if (innerScroll) return;
       if (
         Object.keys(value).length !== 4 ||
         value.renderId !== snapshot.renderId ||
@@ -526,7 +528,7 @@ export async function mountRenderer(
         return;
       const bounds = value.bounds;
       if (bounds === null) {
-        options.onPassage?.(null);
+        options.onPassage?.(null, true);
         return;
       }
       if (
@@ -547,7 +549,7 @@ export async function mountRenderer(
         top + height > MAX_RENDER_HEIGHT
       )
         return;
-      options.onPassage?.({ top, height });
+      options.onPassage?.({ top, height }, true);
       return;
     }
     if (value?.type === 'colab.render.questions') {
@@ -1097,7 +1099,7 @@ export async function mountRenderer(
       if (stopped || !ready) return;
       if (target.kind !== 'opening' && !/^[0-9a-f-]{36}$/.test(target.id)) return;
       passageRequestId = crypto.randomUUID();
-      options.onPassage?.(null);
+      options.onPassage?.(null, false);
       channel.port1.postMessage({
         type: 'colab.render.passage',
         renderId: snapshot.renderId,

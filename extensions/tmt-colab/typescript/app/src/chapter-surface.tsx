@@ -1,0 +1,281 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { chapterTargets, selectChapterTarget, type ChapterTargetRef } from './chapter-passage.js';
+import type { ChapterPassages } from './chapter-passages.js';
+import { ConversationTurn } from './components/conversation-turn.js';
+import { MessageText } from './components/message-text.js';
+import { compactRelativeTime } from './display-time.js';
+import { PassageNavigation } from './passage-navigation.js';
+import { pendingNeedsYou, proposalNeedsYou } from './needs-you.js';
+import { usePageLayers } from './page-layers.js';
+import { inspectQuestions } from './questions.js';
+import { mountRenderer, type PassageBounds, type RenderState } from './renderer.js';
+import type { PageSnapshot, PageTransport, PageView } from './transport.js';
+import { text } from './strings.js';
+import './chapter-surface.css';
+const copy = text.today.passage;
+
+/** The mounted owner keeps this component alive while an admitted action settles. Its frame
+ * can retire independently; the ordinary page layers remain the sole action implementation. */
+export function ChapterSurface({
+  snapshot,
+  transport,
+  passages,
+  visible,
+  open,
+  url,
+  onCount,
+}: {
+  snapshot: PageSnapshot;
+  transport: PageTransport;
+  passages: ChapterPassages;
+  visible: boolean;
+  open(): void;
+  url: string;
+  onCount(count: number): void;
+}) {
+  const [view, setView] = useState<PageView>({ ...snapshot, ownData: snapshot.ownData ?? false });
+  const [failed, setFailed] = useState(false);
+  const binding = useRef(snapshot.binding);
+  binding.current = snapshot.binding;
+  useEffect(() => snapshot.binding?.subscribe(setView, () => setFailed(true)), [snapshot.binding]);
+  const host = useRef<HTMLDivElement>(null);
+  const clip = useRef<HTMLDivElement>(null);
+  const controls = useRef<HTMLDivElement>(null);
+  const replyBody = useRef<HTMLDivElement>(null);
+  const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
+  const [state, setState] = useState<RenderState | 'loading'>('loading');
+  const [bounds, setBounds] = useState<PassageBounds | null>(null);
+  const [passageUnavailable, setPassageUnavailable] = useState(false);
+  const onPassage = useCallback((value: PassageBounds | null, checked = false) => {
+    setBounds(value);
+    setPassageUnavailable(checked && value === null);
+  }, []);
+  const [clipped, setClipped] = useState(false);
+  const [selected, setSelected] = useState<ChapterTargetRef>();
+  const onWorking = useCallback(
+    (kind: string, id: string, working: boolean) => {
+      passages.working(snapshot.id, `${kind}:${id}`, working);
+    },
+    [passages, snapshot.id],
+  );
+  const layers = usePageLayers({
+    snapshot,
+    view,
+    transport,
+    binding,
+    host,
+    renderer,
+    state,
+    // Visibility never invalidates an action which already published its ordinary record.
+    discussionBlocked: failed || !!view.archived,
+    statusCoordinator: snapshot.binding?.status,
+    chapter: { selected, onWorking, controls, url },
+  });
+  const markup = useMemo(() => inspectQuestions(view.source), [view.source]);
+  const candidates = [
+    ...layers.reviewLayer.navigation,
+    ...layers.questionLayer.navigation,
+    ...layers.readingLayer.items.map((item) => ({
+      ...item,
+      kind: 'reading' as const,
+      agent: markup.readings.find((reading) => reading.id === item.id)?.agent ?? '',
+    })),
+  ];
+  const targets = chapterTargets(
+    candidates,
+    [...markup.reviews, ...markup.groups, ...markup.readings].map((item, order) => ({
+      id: item.id,
+      order,
+    })),
+  );
+  const target = selectChapterTarget(targets, selected);
+  const targetKind = target?.kind;
+  const targetId = target?.id;
+  useEffect(() => {
+    setSelected((previous) =>
+      previous?.id === targetId && previous?.kind === targetKind
+        ? previous
+        : targetId && targetKind
+          ? { kind: targetKind, id: targetId }
+          : undefined,
+    );
+  }, [targetId, targetKind]);
+  const ready = layers.reviewLayer.ready && layers.questionLayer.ready && layers.readingLayer.ready;
+  const pendingCount = ready
+    ? pendingNeedsYou([...proposalNeedsYou(view.threads ?? []), ...candidates]).length
+    : undefined;
+  useEffect(() => {
+    if (pendingCount !== undefined) onCount(pendingCount);
+  }, [onCount, pendingCount]);
+  const reply =
+    ready && !target
+      ? [...(view.asks ?? [])]
+          .filter((ask) => ask.reply !== undefined)
+          .sort((a, b) => b.issuedAt - a.issuedAt || a.operationId.localeCompare(b.operationId))[0]
+      : undefined;
+  useEffect(() => {
+    if (state === 'ready')
+      renderer.current?.passage(
+        targetKind && targetId ? { kind: targetKind, id: targetId } : { kind: 'opening' },
+      );
+  }, [targetKind, targetId, state]);
+  const imageInput = useRef({
+    binding: snapshot.binding?.files?.attachments,
+    descriptors: view.attachments ?? [],
+  });
+  imageInput.current = {
+    binding: snapshot.binding?.files?.attachments,
+    descriptors: view.attachments ?? [],
+  };
+  const imageDescriptors = JSON.stringify(view.attachments ?? []);
+  useEffect(() => {
+    renderer.current?.images(imageInput.current);
+  }, [imageDescriptors]);
+  const { onQuestionAnchors, onReadingAnchors } = layers;
+  const onSlots = layers.inlineSlots.onSlots;
+  useLayoutEffect(() => {
+    if (!visible || failed || passageUnavailable) return;
+    const controller = new AbortController();
+    const retire = () => {
+      controller.abort();
+      renderer.current?.destroy();
+      renderer.current = null;
+    };
+    const unframe = passages.frame(snapshot.id, retire);
+    setBounds(null);
+    setState('loading');
+    void mountRenderer(host.current!, view.source, {
+      signal: controller.signal,
+      onState: setState,
+      onSlots,
+      onQuestions: onQuestionAnchors,
+      onReadings: onReadingAnchors,
+      onPassage,
+    })
+      .then((handle) => {
+        if (controller.signal.aborted) handle.destroy();
+        else {
+          renderer.current = handle;
+          handle.images(imageInput.current);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFailed(true);
+      });
+    return () => {
+      retire();
+      unframe();
+    };
+  }, [
+    visible,
+    failed,
+    passageUnavailable,
+    onPassage,
+    passages,
+    snapshot.id,
+    view.source,
+    onSlots,
+    onQuestionAnchors,
+    onReadingAnchors,
+  ]);
+  useLayoutEffect(() => {
+    const node = clip.current;
+    if (!node || !bounds) {
+      setClipped(false);
+      return;
+    }
+    const measure = () =>
+      setClipped(
+        reply
+          ? Math.ceil(replyBody.current?.getBoundingClientRect().height ?? 0) > node.clientHeight
+          : node.clientHeight < bounds.height,
+      );
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    if (replyBody.current) observer.observe(replyBody.current);
+    measure();
+    return () => observer.disconnect();
+  }, [bounds, reply]);
+  const unavailable = passageUnavailable || failed || state === 'failed' || state === 'navigation';
+  const next = target && selectChapterTarget(targets, target, true);
+  const pending =
+    target &&
+    ({ review: 'waiting', answer: 'unanswered', reading: 'unread' } as const)[target.kind] ===
+      target.state;
+  const [now, setNow] = useState(0);
+  useEffect(() => setNow(Date.now()), [view.asks]);
+  return (
+    <section className="chapter-passage" hidden={!visible} data-chapter-passage={snapshot.id}>
+      {unavailable ? (
+        <p className="chapter-passage-unavailable">
+          {copy.unavailable} ·{' '}
+          <button type="button" onClick={open}>
+            {copy.open}
+          </button>
+        </p>
+      ) : (
+        <>
+          <p className="chapter-passage-kicker">
+            {target
+              ? copy.kinds[target.kind]
+              : reply
+                ? copy.reply(reply.agentName, compactRelativeTime(reply.issuedAt, now))
+                : copy.opening}
+          </p>
+          <div
+            ref={clip}
+            className="chapter-passage-clip"
+            style={{
+              height: reply ? undefined : (bounds?.height ?? 1),
+              visibility: !reply && !bounds ? 'hidden' : undefined,
+            }}
+          >
+            <div
+              ref={host}
+              className="chapter-passage-source"
+              style={{
+                transform: `translateY(-${bounds?.top ?? 0}px)`,
+                ...(reply ? { position: 'absolute', visibility: 'hidden', width: '100%' } : {}),
+              }}
+            />
+            {reply && (
+              <div ref={replyBody} className="chapter-passage-reply">
+                <ConversationTurn role="agent" author={reply.agentName} at={reply.issuedAt}>
+                  <pre>
+                    <MessageText value={reply.reply!} names={[reply.agentName]} />
+                  </pre>
+                </ConversationTurn>
+              </div>
+            )}
+          </div>
+          <div ref={controls} className="chapter-passage-controls" hidden={!target || !bounds}>
+            <PassageNavigation.Provider
+              value={
+                !pending &&
+                next &&
+                next.id !== target?.id && (
+                  <button
+                    type="button"
+                    className="chapter-passage-next"
+                    onClick={() => setSelected({ kind: next.kind, id: next.id })}
+                  >
+                    {copy.next}
+                  </button>
+                )
+              }
+            >
+              {layers.reviewLayer.inline}
+              {layers.questionLayer.inline}
+              {layers.readingLayer.inline}
+            </PassageNavigation.Provider>
+          </div>
+          {clipped && (
+            <button type="button" className="chapter-passage-continue" onClick={open}>
+              {copy.continue}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

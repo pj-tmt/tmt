@@ -26,6 +26,9 @@ export function usePageLayers({
   chapter,
 }: {
   chapter?: {
+    url: string;
+    controls: RefObject<HTMLDivElement | null>;
+    selected?: { kind: 'review' | 'answer' | 'reading'; id: string };
     onWorking(kind: 'review' | 'answer' | 'reading', id: string, working: boolean): void;
   };
   transport: PageTransport;
@@ -49,6 +52,8 @@ export function usePageLayers({
     host,
     state,
     source: view.source,
+    reserveSpace: !chapter,
+    scope: chapter?.controls,
     identity: `${(view.threads ?? [])
       .filter((thread) => thread.proposal && !thread.deleted)
       .map((thread) => thread.threadId)
@@ -67,6 +72,10 @@ export function usePageLayers({
     statusCoordinator,
     slotPositions: inlineSlots.positions,
     questionThreads: associatedQuestionThreads,
+    pageUrl: chapter?.url,
+    passage: chapter && {
+      id: chapter.selected?.kind === 'review' ? chapter.selected.id : undefined,
+    },
     onWorking: chapter && ((id, working) => chapter.onWorking('review', id, working)),
   });
   const readingLayer = useReadingLayer({
@@ -81,6 +90,9 @@ export function usePageLayers({
     slotPositions: inlineSlots.positions,
     readingIds: inlineSlots.readingIds,
     autoAdvance: !chapter,
+    passage: chapter && {
+      id: chapter.selected?.kind === 'reading' ? chapter.selected.id : undefined,
+    },
     onWorking: chapter && ((id, working) => chapter.onWorking('reading', id, working)),
   });
   const questionLayer = useQuestionLayer({
@@ -89,6 +101,10 @@ export function usePageLayers({
     reviews: reviewLayer.blocks,
     readings: readingLayer.blocks,
     onRecorded: reviewLayer.answered,
+    pageUrl: chapter?.url,
+    passage: chapter && {
+      id: chapter.selected?.kind === 'answer' ? chapter.selected.id : undefined,
+    },
     onWorking: chapter && ((id, working) => chapter.onWorking('answer', id, working)),
     snapshot,
     view,

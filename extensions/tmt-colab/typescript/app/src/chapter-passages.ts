@@ -119,7 +119,11 @@ export class ChapterPassages {
       this.#dirty = false;
       let waiting = false;
       for (const entry of this.#entries.values()) {
-        if (this.#visible(entry.id)) continue;
+        if (
+          this.#visible(entry.id) &&
+          !(entry.view.state === 'ready' && entry.controller.signal.aborted)
+        )
+          continue;
         if (entry.working.size) {
           await new Promise<void>((resolve) => entry.idle.add(resolve));
           this.#dirty = true;

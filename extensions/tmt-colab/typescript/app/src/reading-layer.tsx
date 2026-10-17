@@ -1,6 +1,6 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
-import { NeedsYouBar } from './components/needs-you-bar.js';
+import { PassageBar } from './passage-navigation.js';
 import { focusNeedsYouTarget } from './needs-you.js';
 import { compactRelativeTime } from './display-time.js';
 import { text } from './strings.js';
@@ -32,10 +32,12 @@ export function useReadingLayer({
   readingIds,
   onWorking,
   autoAdvance = true,
+  passage,
 }: {
   onWorking?(id: string, working: boolean): void;
   /** Chapter passages keep the completed reading until an explicit Next. */
   autoAdvance?: boolean;
+  passage?: { id?: string };
   readings: readonly Reading[];
   snapshot: PageSnapshot;
   view: PageView;
@@ -132,8 +134,8 @@ export function useReadingLayer({
         context.current.binding.current?.discussion === discussion,
       title: () => context.current.view.title || context.current.snapshot.title,
       admitted: admitted.current,
+      working: (id, working) => context.current.onWorking?.(id, working),
       changed: (id, outcome) => {
-        context.current.onWorking?.(id, outcome.state === 'working');
         setOutcomes((previous) => new Map(previous).set(id, outcome));
         if (outcome.state === 'settled' && context.current.autoAdvance) next(id);
       },
@@ -227,6 +229,7 @@ export function useReadingLayer({
           if (node) targets.current.set(reading.id, node);
           else targets.current.delete(reading.id);
         }}
+        hidden={passage && passage.id !== reading.id}
         data-inline-reading={reading.id}
         data-inline-slot={reading.id}
         className="proposal-inline reading-inline"
@@ -236,7 +239,8 @@ export function useReadingLayer({
         aria-label={text.readingSection(reading.title)}
         style={{ top: slot?.top ?? 0 }}
       >
-        <NeedsYouBar
+        <PassageBar
+          complete={read}
           tone={read ? 'done' : 'needs'}
           word={read ? text.readingWord : text.readingPleaseRead}
           who={read ? time : reading.agent}
@@ -246,11 +250,12 @@ export function useReadingLayer({
             readOnly ? undefined : (
               <>
                 {!read && activate(text.readingMark, () => void actions.mark(reading))}
-                {activate(
-                  text.readingNext,
-                  () => next(reading.id),
-                  !attached || !hasNext || outcome?.state === 'working',
-                )}
+                {!passage &&
+                  activate(
+                    text.readingNext,
+                    () => next(reading.id),
+                    !attached || !hasNext || outcome?.state === 'working',
+                  )}
                 {warning && (
                   <button
                     type="button"

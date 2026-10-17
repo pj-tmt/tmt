@@ -129,3 +129,19 @@ it('a source beyond the existing renderer limit is released and never retained a
   expect(oversized.release).toHaveBeenCalledOnce();
   await passages.dispose();
 });
+
+it('a hidden and immediately reopened chapter cannot reuse its aborted lease', async () => {
+  const first = lease('a');
+  const second = lease('a');
+  const acquire = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+  const passages = new ChapterPassages(acquire);
+  passages.update(['a'], new Set(['a']));
+  await passages.settled();
+  passages.update(['a'], new Set(), false);
+  passages.update(['a'], new Set(['a']));
+  await passages.settled();
+  expect(first.release).toHaveBeenCalledOnce();
+  expect(acquire).toHaveBeenCalledTimes(2);
+  expect(second.release).not.toHaveBeenCalled();
+  await passages.dispose();
+});
