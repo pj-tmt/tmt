@@ -520,13 +520,114 @@ it('reads the exact release-source ref through real Cargo metadata', async () =>
 }, 30_000);
 
 describe('live release cut lifecycle', () => {
+  it.each([695, 3000])(
+    'uses one P+2 catalogue with %i records for four proposed products',
+    async (count) => {
+      const f = fixture(true);
+      while (f.releases.length < count)
+        f.releases.push({
+          id: 100000 + f.releases.length,
+          tag_name: `history-${f.releases.length}`,
+          draft: false,
+          target_commitish: f.previous,
+          assets: [],
+        });
+      const execute = vi.fn((_command: string, args: string[]) => {
+        const path = args[1].replace('repos/pj-tmt/tmt/', '');
+        const field = (name: string) =>
+          args.find((arg) => arg.startsWith(`${name}=`))!.slice(name.length + 1);
+        if (path === 'git/ref/heads/main') return JSON.stringify({ object: { sha: f.cut } });
+        if (path.startsWith('releases?')) {
+          const page = Number(new URL(`https://fixture.invalid/${path}`).searchParams.get('page'));
+          const pages = Math.ceil(f.releases.length / 100);
+          return `HTTP/2.0 200 OK\nLink: <https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=${pages}>; rel="last"\n\n${JSON.stringify(f.releases.slice((page - 1) * 100, page * 100))}`;
+        }
+        if (path.startsWith('git/matching-refs/tags/')) return '[]';
+        if (path === 'releases')
+          return JSON.stringify(
+            f.client.draft({
+              tag: field('tag_name'),
+              cut: field('target_commitish'),
+              body: field('body'),
+              product: field('tag_name').startsWith('v') ? 'cli' : field('tag_name').split('-')[1],
+            })
+          );
+        if (new RegExp('^releases/[0-9]+$').test(path))
+          return JSON.stringify(f.client.release(Number(path.split('/')[1])));
+        if (path === 'actions/workflows/native-release.yml/dispatches') {
+          f.client.dispatch(field('inputs[product]'), field('inputs[tag]'));
+          return '';
+        }
+        throw new Error(`Unexpected cut request: ${path}`);
+      });
+      const client = createCutClient(
+        { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+        execute
+      );
+      const metadata = vi.spyOn(client, 'metadata');
+      const result = await runReleaseCuts({ ...f, client, live: true });
+      expect(result.actions.map((row) => row.status)).toEqual([
+        'created',
+        'created',
+        'created',
+        'created',
+      ]);
+      expect(metadata).toHaveBeenCalledTimes(1);
+      const catalogueGets = Math.ceil(count / 100) + 2;
+      expect(execute.mock.calls.filter(([, args]) => args[1].includes('/releases?'))).toHaveLength(
+        catalogueGets
+      );
+      expect(execute).toHaveBeenCalledTimes(catalogueGets + 1 + 4 * 5);
+      expect(f.client.release).toHaveBeenCalledTimes(4);
+      expect(f.client.dispatch).toHaveBeenCalledTimes(4);
+    }
+  );
+
+  it('captures one snapshot for every row and retains exact post-create verification', async () => {
+    const f = fixture(true);
+    const captured = structuredClone(f.state);
+    vi.mocked(f.client.metadata)
+      .mockImplementationOnce(() => captured)
+      .mockImplementation(() => {
+        throw new Error('Second catalogue read');
+      });
+    const result = await runReleaseCuts({ ...f, live: true });
+    expect(result.actions.map((row) => row.status)).toEqual([
+      'created',
+      'created',
+      'created',
+      'created',
+    ]);
+    expect(f.client.metadata).toHaveBeenCalledTimes(1);
+    expect(f.client.release).toHaveBeenCalledTimes(4);
+    expect(f.client.dispatch).toHaveBeenCalledTimes(4);
+    expect(captured.releases).toEqual(f.releases); // Returned creations advance the captured allocation view.
+  });
+
+  it('preserves an old held tagless high-version reservation from the one complete snapshot', async () => {
+    const f = fixture();
+    f.releases.push({
+      id: 999,
+      tag_name: 'v5.0.0-alpha.900',
+      draft: true,
+      target_commitish: f.previous,
+      assets: [{ name: 'publication-held.json' }],
+    });
+    const held = structuredClone(f.releases.at(-1));
+    const result = await runReleaseCuts({ ...f, live: true });
+    expect(result.actions[0]).toMatchObject({ status: 'created', tag: 'v5.0.0-alpha.901' });
+    expect(f.releases.find((release) => release.id === 999)).toEqual(held);
+    expect(f.client.metadata).toHaveBeenCalledTimes(1);
+    expect(f.command(['tag', '--list', 'v5.0.0-alpha.900'])).toBe('');
+  });
+
   it('bounds catalogue reads and REST work for five proposed products and a sixth unchanged row', async () => {
     const f = fixture(true, true);
     const actual = await vi.importActual<typeof import('../../scripts/cargo-workspace.mjs')>(
       '../../scripts/cargo-workspace.mjs'
     );
     vi.mocked(readCargoWorkspace).mockReturnValue(actual.readCargoWorkspace(f.root));
-    // Nine pages initially, ten after allocation; unrelated history adds no planner work.
+    // One nine-page catalogue; returned allocations do not trigger another catalogue read.
     while (f.releases.length < 900)
       f.releases.push({
         id: 1000 + f.releases.length,
@@ -583,11 +684,11 @@ describe('live release cut lifecycle', () => {
     ]);
     expect(f.client.draft).toHaveBeenCalledTimes(5);
     expect(f.client.dispatch).toHaveBeenCalledTimes(5);
-    expect(metadata).toHaveBeenCalledTimes(6); // Initial snapshot plus one immediately before each mutation.
+    expect(metadata).toHaveBeenCalledTimes(1); // One initial snapshot for all proposed rows.
     expect(execute.mock.calls.filter(([, args]) => args[1].includes('/releases?'))).toHaveLength(
-      70
+      11
     );
-    expect(execute).toHaveBeenCalledTimes(96);
+    expect(execute).toHaveBeenCalledTimes(37);
     expect(execute.mock.calls.length).toBeLessThan(180);
     expect(f.git.mock.calls.filter(([args]) => args[0] === 'for-each-ref')).toHaveLength(6);
     expect(
@@ -629,7 +730,7 @@ describe('live release cut lifecycle', () => {
     vi.mocked(f.client.main).mockReturnValue(later);
     f.state.cut = later;
     const blocked = await runReleaseCuts({ ...f, live: true });
-    expect(f.client.metadata).toHaveBeenCalledTimes(3); // Two proposed rows; blocked rows keep their first status.
+    expect(f.client.metadata).toHaveBeenCalledTimes(1); // Blocked and proposed rows share the captured snapshot.
     for (const [product, tag] of [
       ['cli', 'v5.0.0-alpha.49'],
       ['ops', 'tmt-ops-v0.1.0-alpha.15'],

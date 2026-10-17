@@ -113,6 +113,7 @@ function fakeApi(
       if (bytes === undefined) throw new Error('missing stored bytes');
       return bytes;
     },
+    readRelease: (tag) => api.listReleases().find((release) => release.tag_name === tag) ?? null,
     listReleases: () => {
       const listed = JSON.parse(JSON.stringify(mutable)) as typeof mutable;
       if (withheld > 0) {
@@ -495,6 +496,44 @@ describe('recordFailure', () => {
   });
 });
 
+describe('history-independent draft Check', () => {
+  it.each([3000, 6000])(
+    'checks the same exact draft with %i unrelated releases in two requests',
+    (count) => {
+      const selected = draft('tmt-ops-v0.1.0-alpha.122', ['release-publication.json'], {
+        id: count + 1,
+      });
+      const releases = [
+        ...Array.from({ length: count }, (_, index) =>
+          draft(`unrelated-${index}`, [], { id: index + 1 })
+        ),
+        selected,
+      ];
+      const byId = new Map(releases.map((release) => [release.id, release]));
+      const spawn = vi.fn((_command: string, args: readonly string[]) => {
+        let response;
+        if (args[1] === 'graphql')
+          response = {
+            data: {
+              repository: { release: { databaseId: selected.id, tagName: selected.tag_name } },
+            },
+          };
+        else if (args[1] === `repos/pj-tmt/tmt/releases/${selected.id}`)
+          response = byId.get(selected.id);
+        else throw new Error(`Unexpected catalogue access: ${args.join(' ')}`);
+        return { status: 0, stdout: JSON.stringify(response), stderr: '' };
+      });
+      const api = ghApi({ repository: 'pj-tmt/tmt', spawn });
+      expect(checkDraft({ api, tag: selected.tag_name })).toEqual({
+        todo: false,
+        awaiting: true,
+        reason: 'it already carries a bundle',
+      });
+      expect(spawn).toHaveBeenCalledTimes(2);
+    }
+  );
+});
+
 describe('ghApi', () => {
   const runner = (stdout: string, status = 0, stderr = '') => {
     const seen: string[][] = [];
@@ -676,7 +715,11 @@ describe('release-draft-assets.mjs', () => {
     mkdirSync(bin);
     writeExecutable(
       path.join(bin, 'gh'),
-      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['verification-failed.json'])]])}'\n`,
+      `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const release = ${JSON.stringify(draft('v5.0.0-alpha.9', ['verification-failed.json']))};
+process.stdout.write(JSON.stringify(args[1] === 'graphql' ? {data:{repository:{release:args.includes('tag='+release.tag_name) ? {databaseId:release.id,tagName:release.tag_name} : null}}} : release));
+`,
       0o755
     );
     const output = path.join(directory, 'output');
@@ -707,7 +750,10 @@ describe('release-draft-assets.mjs', () => {
     mkdirSync(bin);
     writeExecutable(
       path.join(bin, 'gh'),
-      `#!/bin/sh\necho '${JSON.stringify([[draft('v5.0.0-alpha.9', ['release-publication.json'])]])}'\n`,
+      `#!/usr/bin/env node
+const release = ${JSON.stringify(draft('v5.0.0-alpha.9', ['release-publication.json']))};
+process.stdout.write(JSON.stringify(process.argv[3] === 'graphql' ? {data:{repository:{release:{databaseId:release.id,tagName:release.tag_name}}}} : release));
+`,
       0o755
     );
     const output = path.join(directory, 'output');

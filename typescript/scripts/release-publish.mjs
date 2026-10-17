@@ -50,6 +50,7 @@ import {
   declarationAncestry,
   declarationSource,
   readDeclarationMarker,
+  readDeclarationReleases,
   verifyDeclaration,
 } from './release-declaration.mjs';
 import { isAlphaVersion, publishedReleases, versionOfTag } from './release-versions.mjs';
@@ -117,25 +118,13 @@ export function publishDraft({
 }) {
   const missing = `there is no release ${tag}`;
   let absenceFailure;
-  let releases;
   const release = retryReleaseRead(
     () => {
-      const listing = api.listReleases();
-      releases = listing;
-      const found = listing.find(({ tag_name: name }) => name === tag);
-      // Retry only a valid publication request whose successful listing omitted the tag.
+      const found = api.readRelease(tag);
+      // Only an absent exact identity is transient. No catalogue/dedupe fallback.
       if (!found && publishBlocker({ release: found, product, tag, released }) === missing) {
-        const newestDrafts = listing
-          .filter(({ draft }) => draft)
-          .sort(
-            (left, right) =>
-              String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')) ||
-              left.tag_name.localeCompare(right.tag_name)
-          )
-          .slice(0, 5)
-          .map(({ tag_name }) => tag_name);
         absenceFailure = new Error(
-          `Not publishing: ${missing}. The last listing contained ${listing.length} releases; newest draft tags: ${newestDrafts.join(', ') || 'none'}.`
+          `Not publishing: ${missing}. Exact tag discovery returned no release.`
         );
         throw absenceFailure;
       }
@@ -150,13 +139,17 @@ export function publishDraft({
       map: declarationSource(release.target_commitish),
       observeCli: declarationAncestry({ repository: process.env.GITHUB_REPOSITORY }),
     };
-    verifyDeclaration({
+    const context = {
       ...evidence,
       record: readDeclarationMarker(release.body),
       product,
       cut: release.target_commitish,
-      releases,
+    };
+    const releases = readDeclarationReleases({
+      ...context,
+      readRelease: (tag) => api.readRelease(tag),
     });
+    verifyDeclaration({ ...context, releases });
   }
   const flags = publishFlags(product).map((flag) =>
     product === 'cli' && flag === '--latest=true' ? '--latest=false' : flag

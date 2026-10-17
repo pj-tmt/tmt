@@ -143,10 +143,10 @@ export async function runReleaseCuts({
       continue;
     }
     try {
-      // A fresh bounded read precedes each component mutation. Other components progress independently.
-      const fresh = live ? client.metadata(cut) : metadata;
+      // release-cut workflow concurrency serializes allocators. Reuse the captured
+      // view plus our returned mutations; publication never frees a reserved number.
       const checked = await planReleaseCuts({
-        metadata: fresh,
+        metadata,
         map,
         workspace,
         git,
@@ -155,12 +155,12 @@ export async function runReleaseCuts({
       });
       if (checked.unavailable) throw new Error(checked.unavailable);
       const current = checked.components.find((item) => item.product === row.product);
-      if (!current) throw new Error('Component disappeared from fresh cut plan.');
+      if (!current) throw new Error('Component disappeared from the updated captured plan.');
       if (current.status !== 'proposed') {
         actions.push({ product: row.product, status: current.status, reason: current.reason });
         continue;
       }
-      // A concurrent publication changes the version/range. Do not create the stale proposal.
+      // Our earlier allocations must not change this product's captured proposal.
       assert.deepEqual(current, row, 'Release state changed; recompute the cut on the next run.');
       if (client.tagged(row.tag))
         throw new Error('Cut tag already exists; refusing an unverified source.');
@@ -168,6 +168,9 @@ export async function runReleaseCuts({
       if (live) {
         const created = client.draft({ product: row.product, tag: row.tag, cut, body });
         verifiedDraft(created, row, body);
+        metadata.releases.push(created);
+        // This exact-ID read proves the persisted identity/body/target before dispatch;
+        // it is not a second catalogue snapshot and does not reselect a frozen CLI.
         verifiedDraft(client.release(created.id), row, body);
         if (client.tagged(row.tag))
           throw new Error('Draft unexpectedly has a tag before publication.');

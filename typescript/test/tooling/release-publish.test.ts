@@ -141,6 +141,7 @@ describe('convergent CLI latest selection', () => {
     let latest = low.tag_name;
     const corrections: string[] = [];
     const api: PublishApi = {
+      readRelease: (tag) => releases.find((release) => release.tag_name === tag) ?? null,
       listReleases: () => releases,
       latestRelease: () => ({ tag_name: latest }),
       publish: () => {},
@@ -168,6 +169,7 @@ describe('convergent CLI latest selection', () => {
   });
   it('fails visibly after bounded disagreement and makes no publication rollback', () => {
     const api: PublishApi = {
+      readRelease: () => draft(TAG, [], { draft: false }),
       listReleases: () => [draft(TAG, [], { draft: false })],
       latestRelease: () => null,
       setLatest: () => {},
@@ -184,6 +186,7 @@ describe('publishDraft', () => {
     const published: { tag: string; flags: readonly string[] }[] = [];
     let latest: { tag_name: string } | null = null;
     const api: PublishApi = {
+      readRelease: (tag) => releases.find((release) => release.tag_name === tag) ?? null,
       listReleases: () => releases,
       latestRelease: () => latest,
       setLatest: (tag) => {

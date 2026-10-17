@@ -5,10 +5,10 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
-import { componentOfProduct } from './native-release-policy.mjs';
-import { publishedReleases, versionOfTag } from './release-versions.mjs';
+import { componentOfProduct, productOfTag } from './native-release-policy.mjs';
+import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
 import { ghCliAncestry } from './release-upgrade.mjs';
-import { readReleaseCatalog } from './release-cut-read.mjs';
+import { createReleaseReader } from './release-cut-read.mjs';
 import { withReleaseSourceAtRef } from './release-source-at-ref.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 import { readBoundedFile } from './native-artifact-policy.mjs';
@@ -159,6 +159,56 @@ export function resolveDeclaration({ map, product, cut, releases, observeCli }) 
   );
 }
 
+/** Frozen validation reads only the publications named by captured source/metadata. */
+export function readDeclarationReleases({ record, map, product, cut, readRelease }) {
+  if (!declaresMinimumCli(product)) return [];
+  declarationBytes({ record, map, product, cut });
+  const tags = new Set([
+    record.cli.tag,
+    ...(componentOfProduct(map, product).uses ?? []).map(
+      (use) => `tmt-${use.extension}-v${use.requires.slice(2)}`
+    ),
+  ]);
+  return [...tags].map((tag) => readRelease(tag)).filter((release) => release !== null);
+}
+
+/** Tagless preparation checks only tags containing both floors, oldest version first. */
+export function captureDeclaration({ map, product, cut, git, readRelease }) {
+  if (!declaresMinimumCli(product)) return null;
+  const containing = floors(map, product).map(
+    (floor) =>
+      new Set(git(['tag', '--contains', floor, '--list', 'v*']).trim().split('\n').filter(Boolean))
+  );
+  const candidates = [...containing[0]]
+    .filter((tag) => containing.every((tags) => tags.has(tag)))
+    .filter((tag) => productOfTag(tag) === 'cli' && minimumVersion(versionOfTag(tag, 'cli')))
+    .sort((left, right) => compareVersions(versionOfTag(left, 'cli'), versionOfTag(right, 'cli')));
+  const observeCli = gitDeclarationAncestry(git);
+  for (const tag of candidates) {
+    const cli = readRelease(tag);
+    if (cli === null || cli.draft !== false) continue;
+    const sha = supportingCli(cli, map, product, observeCli);
+    if (!sha) continue;
+    const record = {
+      schema: 1,
+      cut,
+      product,
+      cli: { tag, version: versionOfTag(tag, 'cli'), sha },
+    };
+    const releases = readDeclarationReleases({
+      record,
+      map,
+      product,
+      cut,
+      readRelease: (requested) => (requested === tag ? cli : readRelease(requested)),
+    });
+    return verifyDeclaration({ record, map, product, cut, releases, observeCli });
+  }
+  throw new Error(
+    `minimum-cli-unpublished: ${product} needs a published CLI containing both declaration floors.`
+  );
+}
+
 export function declarationMarker(record) {
   return record ? `\n<!-- ${MARKER}: ${JSON.stringify(record)} -->\n` : '';
 }
@@ -272,22 +322,26 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const extensions = products.filter(declaresMinimumCli);
       if (extensions.length) {
         const map = declarationSource(cut);
-        const releases = readReleaseCatalog({
+        const reader = createReleaseReader({
           repository: process.env.GITHUB_REPOSITORY,
           token: process.env.GH_TOKEN,
         });
         const observeCli = declarationAncestry({ repository: process.env.GITHUB_REPOSITORY });
-        const localAncestry = gitDeclarationAncestry((args) =>
-          runPackedCommand('git', args, { cwd: process.cwd(), env: process.env }).trimEnd()
-        );
+        const git = (args) =>
+          runPackedCommand('git', args, { cwd: process.cwd(), env: process.env }).trimEnd();
         for (const extension of extensions) {
-          const context = { map, product: extension, cut, releases };
+          const context = { map, product: extension, cut };
           const record = process.env.TMT_RELEASE_DECLARATION
             ? JSON.parse(process.env.TMT_RELEASE_DECLARATION)
             : tag
-              ? readDeclarationMarker(releases.find((release) => release.tag_name === tag)?.body)
-              : resolveDeclaration({ ...context, observeCli: localAncestry });
-          records[extension] = verifyDeclaration({ ...context, record, observeCli });
+              ? readDeclarationMarker(reader.byTag(tag)?.body)
+              : captureDeclaration({ ...context, git, readRelease: reader.byTag });
+          const releases = readDeclarationReleases({
+            ...context,
+            record,
+            readRelease: reader.byTag,
+          });
+          records[extension] = verifyDeclaration({ ...context, record, releases, observeCli });
         }
       }
       const value = JSON.stringify(product === 'all' ? records : (records[product] ?? null));

@@ -62,6 +62,20 @@ if (command === 'api') {
       else {for(const entry of state.indexTree) state.indexFiles[entry.path]=state.indexBlobs[entry.sha]; save(); reply({sha:body.sha});}
     } else fail('unexpected index call: ' + url);
   }
+  else if (url === 'graphql') {
+    if (state.listingFails) fail('HTTP 502: upstream unavailable');
+    const tag = args.find((arg) => arg.startsWith('tag=')).slice(4);
+    const releases = state.releaseListings?.length ? state.releaseListings.shift() : state.drafts.length ? state.drafts : state.published ? [state.published] : [];
+    const release = releases.find((row) => row.tag_name === tag);
+    fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
+    out({data:{repository:{release:release ? {databaseId:release.id,tagName:tag} : null}}});
+  }
+  else if (new RegExp('/releases/[0-9]+$').test(url)) {
+    const id = Number(url.split('/').at(-1));
+    const releases = state.drafts.length ? state.drafts : state.published ? [state.published] : [];
+    const release = releases.find((row) => row.id === id);
+    release ? out(release) : fail('HTTP 404');
+  }
   else if (args.includes('--paginate')) {
     if (state.listingFails) fail('HTTP 502: upstream unavailable');
     const releases = state.releaseListings?.length ? state.releaseListings.shift() : state.drafts.length ? state.drafts : state.published ? [state.published] : [];
@@ -241,32 +255,32 @@ describe('release-publish.mjs publish', () => {
     ]);
   });
 
-  it('lists again when a successful listing omits the draft, then publishes once', () => {
+  it('retries an absent exact draft identity, then publishes once', () => {
     const candidate = draft(TAG, ASSETS);
     const fixture = scenario({ drafts: [candidate], releaseListings: [[], [candidate]] });
     expect(fixture.run(publish)).toMatchObject({ status: 0, output: 'published=true\n' });
     const calls = fixture.calls();
     const edit = calls.findIndex(([command, sub]) => command === 'release' && sub === 'edit');
     expect(edit).toBeGreaterThan(0);
-    expect(calls.slice(0, edit).filter((args) => args.includes('--paginate'))).toHaveLength(2);
+    expect(calls.slice(0, edit).filter((args) => args[1] === 'graphql')).toHaveLength(2);
     expect(calls.filter(([command, sub]) => command === 'release' && sub === 'edit')).toHaveLength(
       1
     );
   });
 
-  it('does not turn a failed listing into absence or add retries beyond acquisition', () => {
+  it('does not turn failed exact discovery into absence or add retries beyond acquisition', () => {
     const fixture = scenario({ drafts: [draft(TAG, ASSETS)], listingFails: true });
     const result = fixture.run(publish);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('HTTP 502: upstream unavailable');
     expect(result.stderr).not.toContain(`there is no release ${TAG}`);
-    expect(fixture.calls().filter((args) => args.includes('--paginate'))).toHaveLength(3);
+    expect(fixture.calls().filter((args) => args[1] === 'graphql')).toHaveLength(3);
     expect(fixture.calls().some(([command, sub]) => command === 'release' && sub === 'edit')).toBe(
       false
     );
   });
 
-  it('refuses after three absent listings with diagnostics from the last snapshot', () => {
+  it('refuses after three absent exact identities without reading unrelated drafts', () => {
     const older = draft('tmt-ops-v0.1.0-alpha.2', ASSETS, { created_at: '2026-09-29T01:00:00Z' });
     const newer = draft('tmt-remote-v0.1.0-alpha.3', ASSETS, {
       created_at: '2026-09-30T01:00:00Z',
@@ -278,11 +292,9 @@ describe('release-publish.mjs publish', () => {
     const result = fixture.run(publish);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(`Not publishing: there is no release ${TAG}.`);
-    expect(result.stderr).toContain('last listing contained 3 releases');
-    expect(result.stderr).toContain(
-      'newest draft tags: tmt-remote-v0.1.0-alpha.3, tmt-ops-v0.1.0-alpha.2'
-    );
-    expect(fixture.calls().filter((args) => args.includes('--paginate'))).toHaveLength(3);
+    expect(result.stderr).toContain('Exact tag discovery returned no release.');
+    expect(result.stderr).not.toContain('newest draft tags:');
+    expect(fixture.calls().filter((args) => args[1] === 'graphql')).toHaveLength(3);
     expect(fixture.calls().some(([command, sub]) => command === 'release' && sub === 'edit')).toBe(
       false
     );
@@ -334,7 +346,7 @@ describe('release-publish.mjs publish', () => {
     const { run, calls, directory } = scenario({
       drafts: [
         draft(tag, ASSETS, { target_commitish: cut, body: declarationMarker(record) }),
-        release({ target_commitish: cut }),
+        release({ id: 2, target_commitish: cut }),
       ],
       tagCommit: cut,
       sourceRoot: source,
@@ -371,7 +383,7 @@ describe('release-publish.mjs publish', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Not publishing:');
     expect(result.stderr).toContain(message);
-    expect(calls().filter((args) => args.includes('--paginate'))).toHaveLength(1);
+    expect(calls().filter((args) => args[1] === 'graphql')).toHaveLength(1);
     expect(result.output).toBe('');
     expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
   });
@@ -394,7 +406,7 @@ describe('release-publish.mjs publish', () => {
       const result = run(['publish', '--product', 'cli', '--tag', tag]);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(`Not publishing: ${tag} is not an alpha release`);
-      expect(calls().filter((args) => args.includes('--paginate'))).toHaveLength(1);
+      expect(calls().filter((args) => args[1] === 'graphql')).toHaveLength(1);
       expect(result.output).toBe('');
       expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
     }
@@ -409,7 +421,7 @@ describe('release-publish.mjs publish', () => {
     const parked = path.join(fake.directory, 'components.json');
     writeFileSync(parked, JSON.stringify(map));
     const result = fake.run([...publish, '--components', parked]);
-    expect(fake.calls().filter((args) => args.includes('--paginate'))).toHaveLength(1);
+    expect(fake.calls().filter((args) => args[1] === 'graphql')).toHaveLength(1);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('cli is not released (release: false');
     expect(fake.calls().some(([, sub]) => sub === 'edit')).toBe(false);

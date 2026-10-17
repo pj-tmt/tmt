@@ -177,16 +177,35 @@ not authorize Docker, release dispatch, publication or hosted deployment.
 ## Cut and source tooling
 
 `release-cut.mjs` is the pure planner; `release-cut-live.mjs` owns bounded REST
-catalog acquisition, draft creation and native dispatch. Capture main once,
-export its tracked tree, fetch locked dependencies with the pinned acquisition
-toolchain, then read the map and offline Cargo graph at that cut. Recheck the
-complete catalog immediately before each component mutation; incomplete metadata
-or history fails closed. First releases need a map-owned reviewed bootstrap boundary and
-seed. Cut, injection and Project evidence share native policy's component-to-product mapping. Notes link exactly the releasable first-parent commits in the published
+catalog acquisition, draft creation and native dispatch. Capture main and one
+consistent complete catalogue once, export the tracked tree, fetch locked dependencies
+with the pinned acquisition toolchain, then read the map and offline Cargo graph at
+that cut. The workflow's single-flight `release-cut` concurrency group serializes
+allocators. Replanning uses the captured view plus returned draft creations; no
+per-row catalogue read occurs. An exact-ID read still verifies each created draft's
+persisted identity, target and body before dispatch. Incomplete metadata or history
+fails closed. First releases need a map-owned reviewed bootstrap boundary and seed. Cut, injection and Project evidence share native policy's component-to-product mapping. Notes link exactly the releasable first-parent commits in the published
 ancestor range through the shared component attribution (a non-conventional subject on a
 released component is releasable under `Other changes`; see
 [PR titles](native-release.md#conventional-pr-titles)); parser/renderer pins
 are developer dependencies, not runtime owners.
+
+The cut remains O(P): a quiet P-page read costs P+2 requests, with three attempts
+sharing 60 requests / 90 seconds and a maximum of 58 pages (5,800 releases).
+The live coordinator retains its separate 180-request / 180-second shared budget.
+**File the allocation-index work before the catalogue reaches 3,000 releases.**
+No recent-window truncation is safe yet: old held/tagless drafts still reserve
+versions. A future early-terminating scan must prove equivalence for allocated
+ancestor selection, including non-main cuts and failed drafts, or use a reviewed index.
+
+Check and the final publish guard resolve only the requested tag's database ID
+through GraphQL, because the REST tag endpoint excludes tagless drafts, then GET
+that ID through REST. The shared reader checks identity/tag and record shape, rejects
+GraphQL errors, and bounds all exact discovery/reads to 60 requests / 90 seconds.
+Missing, inaccessible or changed evidence never becomes a partial catalogue or a
+publication permission. Broader publication history gates, CLI latest convergence,
+upgrade-history discovery, and attachment/hold/failure operations retain their existing
+history reads in this stage.
 
 `cargo-workspace.mjs::readCargoWorkspace(root, {runner})` owns offline locked
 format-version-1 metadata acquisition, with no Git logic or handwritten manifest
