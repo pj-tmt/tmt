@@ -75,9 +75,8 @@ after capability discovery, by exact identity UUID. Each session projects at mos
 ten provider-final captures, oldest capture first without a timestamp sort. It
 stably merges the exchange and capture heads by their literal times, exchange
 first on ties; ordering within each source is preserved through clock rollback.
-Neutral `agent · pane output · time` headers and a muted `… truncated` caption
-separate these observations from replies. Pending, unsupported/failed and
-observed-empty reads remain distinct. A failed read says `Recent pane output unavailable`;
+Neutral `agent · pane output · time` headers use the exchange age wording, including `ago`; a muted `… truncated` caption
+separate these observations from replies. Pending and observed-empty pane reads add no line; unsupported/failed reads remain distinct. A failed read says `Recent pane output unavailable`;
 an empty conversation requires both sources observed empty. Pane text creates no
 request-source, reply, acknowledgment or annotation authority. The existing
 UUID/revision/cancellation fences reject obsolete reads, and the shared viewport

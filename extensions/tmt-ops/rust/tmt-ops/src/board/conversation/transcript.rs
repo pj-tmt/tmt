@@ -109,7 +109,10 @@ impl Session {
                     if item.ended_ms == 0 {
                         "—".into()
                     } else {
-                        crate::requests::age(crate::status::now_ms(), item.ended_ms)
+                        super::exchange::age_stamp(&crate::requests::age(
+                            crate::status::now_ms(),
+                            item.ended_ms,
+                        ))
                     }
                 })
                 .collect(),
@@ -133,7 +136,11 @@ impl Session {
     pub(super) fn has_pane_output(&self) -> bool {
         self.transcript_context.enabled
             && (!self.transcript_context.exchanges_observed
-                || !matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
+                || match &self.pane_output {
+                    Observation::Pending => false,
+                    Observation::Unavailable => true,
+                    Observation::Observed(items) => !items.is_empty(),
+                })
     }
 
     pub(super) fn merge_pane_output(
@@ -150,7 +157,8 @@ impl Session {
             output_ages,
         } = &self.transcript_context;
         if !enabled
-            || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty())
+            || (matches!(&self.pane_output, Observation::Pending)
+                || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
                 && (*exchanges_observed || self.reply.is_some() || !self.outgoing.is_empty())
         {
             return RenderedTranscript {
@@ -274,15 +282,9 @@ impl Session {
                 true,
             );
         }
-        if !matches!(self.pane_output, Observation::Observed(_)) {
+        if matches!(self.pane_output, Observation::Unavailable) {
             append(
-                Line::styled(
-                    match self.pane_output {
-                        Observation::Pending => "Loading recent pane output…",
-                        _ => "Recent pane output unavailable",
-                    },
-                    look.role(Role::Muted),
-                ),
+                Line::styled("Recent pane output unavailable", look.role(Role::Muted)),
                 vec![],
                 None,
                 true,

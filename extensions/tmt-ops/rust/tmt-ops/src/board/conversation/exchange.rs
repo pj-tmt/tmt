@@ -122,13 +122,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .reply
         .as_ref()
         .map_or("—", |reply| reply.age.as_str());
-    let stamp = if age == "–" {
-        "—".into()
-    } else if age == "now" || age == "—" {
-        age.into()
-    } else {
-        format!("{age} ago")
-    };
+    let stamp = age_stamp(age);
     let stamp = if session.change != Change::Current {
         format!("{stamp} · End follows")
     } else {
@@ -287,4 +281,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     state.reply_hits = hits;
     state.response_area = Some(body);
+}
+
+/// Shared exchange/pane-output age wording; unknown and current stay unqualified.
+pub(super) fn age_stamp(age: &str) -> String {
+    match age {
+        "–" => "—".into(),
+        "now" | "—" => age.into(),
+        _ => format!("{age} ago"),
+    }
 }

@@ -724,7 +724,8 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
                 "Digest shows status details"
             );
         } else if tab == OpsTab::Overview {
-            assert!(text.contains("Loading recent pane output"), "{text}");
+            assert!(text.contains("Exchange history unavailable"), "{text}");
+            assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
                 "an unrelated outgoing result is not the incoming question"
@@ -987,9 +988,9 @@ fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(screen.contains("1–2 / 2"), "{screen}");
+        assert!(screen.contains("1–1 / 1"), "{screen}");
         assert!(screen.contains("Exchange history unavailable"));
-        assert!(screen.contains("Loading recent pane output"));
+        assert!(!screen.contains("Loading recent pane output"));
     }
 }
 
@@ -1162,26 +1163,94 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
         },
         ..Default::default()
     };
-    for (observation, text) in [
-        (Observation::Pending, "Loading recent pane output…"),
-        (Observation::Unavailable, "Recent pane output unavailable"),
-    ] {
-        session.pane_output = observation;
-        session.rendered = None;
-        assert!(session.has_pane_output());
-        session.prepare(60, Look::default(), &Default::default());
-        let rendered = session.rendered.as_ref().unwrap();
-        assert_eq!(
-            rendered
-                .mapped
-                .lines
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>(),
-            [text]
-        );
-        assert!(session.response_key_at(0).is_none());
-    }
+    assert!(
+        !session.has_pane_output(),
+        "pending adds no visible pane state"
+    );
+    session.update(Some(reply("known", "known exchange")));
+    session.prepare(60, Look::default(), &Default::default());
+    let pending_lines: Vec<_> = session
+        .rendered
+        .as_ref()
+        .unwrap()
+        .mapped
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        pending_lines
+            .iter()
+            .any(|line| line.contains("known exchange"))
+    );
+    assert!(
+        !pending_lines
+            .iter()
+            .any(|line| line.contains("recent pane output"))
+    );
+    session.pane_output = Observation::Observed(vec![]);
+    session.rendered = None;
+    session.prepare(60, Look::default(), &Default::default());
+    assert_eq!(
+        pending_lines,
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        "pending and observed-empty add nothing to known exchanges"
+    );
+    session.update(None);
+    session.prepare(60, Look::default(), &Default::default());
+    let empty_lines: Vec<_> = session
+        .rendered
+        .as_ref()
+        .unwrap()
+        .mapped
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        empty_lines
+            .iter()
+            .any(|line| line.contains("(no response in loaded history)")),
+        "{empty_lines:?}"
+    );
+    assert!(
+        !empty_lines
+            .iter()
+            .any(|line| line.contains("Exchange history unavailable"))
+    );
+    session = Session {
+        transcript_context: transcript::Context {
+            enabled: true,
+            name: "alpha".into(),
+            exchanges_observed: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    session.pane_output = Observation::Unavailable;
+    assert!(session.has_pane_output());
+    session.prepare(60, Look::default(), &Default::default());
+    assert_eq!(
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["Recent pane output unavailable"]
+    );
+    assert!(session.response_key_at(0).is_none());
     session.pane_output = Observation::Observed(vec![]);
     assert!(!session.has_pane_output());
     session.transcript_context.exchanges_observed = false;
@@ -1300,4 +1369,43 @@ fn overview_pane_bodies_use_the_same_single_gutter_width_as_exchanges() {
         !session.prepare_exchange(30, Look::default(), &Default::default()),
         "unchanged mixed content uses its render cache"
     );
+}
+
+#[test]
+fn pane_output_uses_the_exchange_header_time_format() {
+    use crate::board::recent_responses::{Item, Observation};
+    for (age, expected) in [
+        ("now", "now"),
+        ("–", "—"),
+        ("—", "—"),
+        ("1m", "1m ago"),
+        ("6h", "6h ago"),
+    ] {
+        assert_eq!(exchange::age_stamp(age), expected);
+    }
+    crate::status::with_now_ms(30_000_000, || {
+        let app = workspace_fixture();
+        let row = json!({"id":"11111111-1111-4111-8111-111111111111","name":"alpha"});
+        let mut session = Session {
+            pane_output: Observation::Observed(vec![Item {
+                text: "pane body".into(),
+                ended_ms: 8_400_000,
+                truncated: false,
+            }]),
+            ..Default::default()
+        };
+        session.transcript_context(&app, &row);
+        session.prepare(60, Look::default(), &Default::default());
+        assert!(
+            session
+                .rendered
+                .as_ref()
+                .unwrap()
+                .mapped
+                .lines
+                .iter()
+                .any(|line| line.width() == 60
+                    && line.to_string().trim_end() == "alpha · pane output · 6h ago")
+        );
+    });
 }
