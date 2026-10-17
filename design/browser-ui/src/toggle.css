@@ -7,7 +7,7 @@
   font: inherit;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
   opacity: 1;

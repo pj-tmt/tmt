@@ -18,7 +18,7 @@
   box-sizing: border-box;
   gap: 4px;
   padding: 0 2px 0 6px;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
@@ -40,7 +40,7 @@
   padding: 0 8px;
   color: inherit;
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-rule-width) dashed var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) dashed var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   font: inherit;
   cursor: pointer;
@@ -75,7 +75,7 @@
   font-size: var(--tmt-ui-header-wordmark-size);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
 }

@@ -325,7 +325,7 @@ svg.tmt-ui-mark {
   box-sizing: border-box;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   padding: var(--tmt-ui-host-field-padding);
   font: var(--tmt-ui-host-field-size)/var(--tmt-ui-host-field-line-height) var(--tmt-ui-font-body);
@@ -365,7 +365,7 @@ svg.tmt-ui-mark {
     var(--tmt-ui-host-action-font);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
   opacity: 1;
@@ -474,7 +474,7 @@ svg.tmt-ui-mark {
 .tmt-ui-icon-action-control:disabled:not([data-variant='text']) {
   color: var(--tmt-ui-color-disabled-text);
   background: var(--tmt-ui-surface-disabled);
-  border-color: var(--tmt-ui-color-edge);
+  border-color: var(--tmt-ui-surface-rule);
 }
 .tmt-ui-icon-action-tooltip {
   pointer-events: none;
@@ -499,7 +499,7 @@ svg.tmt-ui-mark {
   box-sizing: border-box;
   overflow-wrap: anywhere;
   padding: var(--tmt-ui-host-field-padding);
-  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   box-shadow: none;
@@ -519,7 +519,7 @@ svg.tmt-ui-mark {
   font: inherit;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
   opacity: 1;
@@ -646,7 +646,7 @@ svg.tmt-ui-mark {
   padding: var(--tmt-ui-command-padding);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-command);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
 }
@@ -691,7 +691,7 @@ svg.tmt-ui-mark {
   max-width: 10rem;
   color: var(--tmt-ui-color-text);
   background: transparent;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
   font: 13px/1.5 var(--tmt-ui-font-body);
@@ -1184,7 +1184,7 @@ svg.tmt-ui-mark {
   box-sizing: border-box;
   gap: 4px;
   padding: 0 2px 0 6px;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
@@ -1206,7 +1206,7 @@ svg.tmt-ui-mark {
   padding: 0 8px;
   color: inherit;
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-rule-width) dashed var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) dashed var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   font: inherit;
   cursor: pointer;
@@ -1241,7 +1241,7 @@ svg.tmt-ui-mark {
   font-size: var(--tmt-ui-header-wordmark-size);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
 }

@@ -47,7 +47,7 @@
 .tmt-ui-icon-action-control:disabled:not([data-variant='text']) {
   color: var(--tmt-ui-color-disabled-text);
   background: var(--tmt-ui-surface-disabled);
-  border-color: var(--tmt-ui-color-edge);
+  border-color: var(--tmt-ui-surface-rule);
 }
 .tmt-ui-icon-action-tooltip {
   pointer-events: none;
@@ -72,7 +72,7 @@
   box-sizing: border-box;
   overflow-wrap: anywhere;
   padding: var(--tmt-ui-host-field-padding);
-  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-action-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   box-shadow: none;
