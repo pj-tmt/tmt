@@ -45,6 +45,76 @@ function everyTable(sandbox: Sandbox) {
 }
 
 describe('public local extension API', () => {
+  it('reads recent pane output by UUID without renewing or acknowledging anything', async () => {
+    await withSandbox(async (sandbox) => {
+      const id = await identity(sandbox, 'Recent');
+      const capabilities = await api(sandbox, 'capabilities', {});
+      expect(capabilities.body.operations).toContain('responses.recent');
+      const now = Date.now();
+      const database = new Database(sandbox.database);
+      try {
+        const insert = database.prepare(
+          'INSERT INTO recent_responses(identity_id,text,ended_ms,provider,truncated,session_id,expires_ms) VALUES(?,?,?,?,?,?,?)'
+        );
+        insert.run(id, 'same text', now, 'claude', 0, 'session-one', now + 86400000);
+        insert.run(id, 'same text', now - 1, 'codex', 0, null, now + 86400000);
+        insert.run(id, 'expired', now - 1000, 'claude', 0, null, now - 1);
+      } finally {
+        database.close();
+      }
+      const before = everyTable(sandbox);
+      const response = await api(sandbox, 'responses.recent', { identityId: id });
+      expect(response.status).toBe(0);
+      expect(response.body).toEqual({
+        identityId: id,
+        items: [
+          { text: 'same text', endedMs: now - 1, provider: 'codex', truncated: false },
+          {
+            text: 'same text',
+            endedMs: now,
+            provider: 'claude',
+            truncated: false,
+            sessionId: 'session-one',
+          },
+        ],
+      });
+      expect(
+        (await api(sandbox, 'responses.recent', { identityId: id, limit: 1 })).body.items
+      ).toEqual([response.body.items[0]]);
+      expect(everyTable(sandbox)).toEqual(before);
+      for (const limit of [0, 11, null, 1.5]) {
+        const invalid = await api(sandbox, 'responses.recent', { identityId: id, limit });
+        expect(invalid.status).toBe(1);
+        expect(invalid.body.error.code).toBe('API_INPUT_INVALID');
+      }
+      const unknown = randomUUID();
+      expect((await api(sandbox, 'responses.recent', { identityId: unknown })).body).toEqual({
+        identityId: unknown,
+        items: [],
+      });
+      const removed = await runCli(sandbox, ['rm', 'Recent', '--force', '--json']);
+      expect(removed.status).toBe(0);
+      expect((await api(sandbox, 'responses.recent', { identityId: id })).body).toEqual({
+        identityId: id,
+        items: [],
+      });
+      const successor = await identity(sandbox, 'Recent');
+      expect(successor).not.toBe(id);
+      expect((await api(sandbox, 'responses.recent', { identityId: successor })).body).toEqual({
+        identityId: successor,
+        items: [],
+      });
+      const retired = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          retired.prepare('SELECT count(*) AS n FROM recent_responses WHERE identity_id=?').get(id)
+        ).toEqual({ n: 0 });
+      } finally {
+        retired.close();
+      }
+    });
+  });
+
   it('renames a previewed UUID atomically and shares the CLI rename owner', async () => {
     await withSandbox(async (sandbox) => {
       const id = await identity(sandbox, 'Alice');

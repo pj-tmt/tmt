@@ -1,0 +1,89 @@
+{
+  "description": "Synthetic local pane-output vector. Text is untrusted display data, never a request result. Equal text represents distinct committed turns.",
+  "identityId": "11111111-1111-4111-8111-111111111111",
+  "nowMs": 10000,
+  "captures": [
+    {
+      "text": "same final text",
+      "endedMs": 1000,
+      "provider": "claude",
+      "sessionId": "fixture-session",
+      "retentionDays": 1
+    },
+    {
+      "text": "same final text",
+      "endedMs": 1000,
+      "provider": "claude",
+      "sessionId": "fixture-session",
+      "retentionDays": 1
+    },
+    {
+      "text": "last\r\nline\n",
+      "endedMs": 999,
+      "provider": "codex",
+      "sessionId": "fixture-session",
+      "retentionDays": 2
+    }
+  ],
+  "request": {
+    "version": 1,
+    "operation": "responses.recent",
+    "input": {
+      "identityId": "11111111-1111-4111-8111-111111111111"
+    }
+  },
+  "resource": {
+    "identityId": "11111111-1111-4111-8111-111111111111",
+    "items": [
+      {
+        "text": "last\r\nline\n",
+        "endedMs": 999,
+        "provider": "codex",
+        "truncated": false,
+        "sessionId": "fixture-session"
+      },
+      {
+        "text": "same final text",
+        "endedMs": 1000,
+        "provider": "claude",
+        "truncated": false,
+        "sessionId": "fixture-session"
+      },
+      {
+        "text": "same final text",
+        "endedMs": 1000,
+        "provider": "claude",
+        "truncated": false,
+        "sessionId": "fixture-session"
+      }
+    ]
+  },
+  "expiry": {
+    "nowMs": 86401000,
+    "items": [
+      {
+        "text": "last\r\nline\n",
+        "endedMs": 999,
+        "provider": "codex",
+        "truncated": false,
+        "sessionId": "fixture-session"
+      }
+    ]
+  },
+  "unknownIdentityResource": {
+    "identityId": "22222222-2222-4222-8222-222222222222",
+    "items": []
+  },
+  "limits": {
+    "default": 10,
+    "minimum": 1,
+    "maximum": 10,
+    "utf8TextBytes": 8192,
+    "outOfRangeCode": "API_INPUT_INVALID"
+  },
+  "olderCore": {
+    "operationPresent": false,
+    "meaning": "unavailable",
+    "fallback": "none"
+  }
+}

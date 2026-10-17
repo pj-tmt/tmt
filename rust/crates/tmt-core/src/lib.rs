@@ -20,6 +20,7 @@ pub mod operation;
 pub mod profile;
 pub mod repository_id;
 pub mod request;
+pub mod responses;
 pub mod retention;
 pub mod room;
 pub mod settings;

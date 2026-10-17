@@ -66,6 +66,7 @@ struct Payload {
     source: Option<String>,
     /// `string | null`; read only for a turn end (#519), under `CODEX_HOME`.
     transcript_path: Option<String>,
+    last_assistant_message: Option<serde_json::Value>,
 }
 
 pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
@@ -105,6 +106,11 @@ pub fn decode_turn(bytes: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
     Some(crate::runtime::lifecycle::TurnEnd {
         session: ProviderSessionId::new(&payload.session_id).ok()?,
         transcript: payload.transcript_path.map(Into::into),
+        final_text: payload
+            .last_assistant_message
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .and_then(tmt_core::responses::FinalText::new),
     })
 }
 
