@@ -185,6 +185,41 @@ mod tests {
     }
 
     #[test]
+    fn recorded_servers_read_beside_a_writer_and_change_no_schema() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let recorded = storage.host_server_id(&herdr(41, "Tue 22:09"), 1).unwrap();
+        storage.close().unwrap();
+        let schema = |connection: &rusqlite::Connection| -> (i64, i64) {
+            let version = connection
+                .query_row("PRAGMA schema_version", [], |row| row.get(0))
+                .unwrap();
+            let rows = connection
+                .query_row("SELECT count(*) FROM host_servers", [], |row| row.get(0))
+                .unwrap();
+            (version, rows)
+        };
+        // Another connection holds the write lock with an uncommitted row; a
+        // lookup that wanted to write would fail at once (no busy wait).
+        let writer = rusqlite::Connection::open(&database).unwrap();
+        let before = schema(&writer);
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        writer
+            .execute(
+                "INSERT INTO host_servers (server_id, host, socket_path, server_pid,
+                 server_start_time, first_seen_at_ms) VALUES (?, 'herdr', '/tmp/w.sock', 7, 'w', 1)",
+                ["44444444-4444-4444-8444-444444444444"],
+            )
+            .unwrap();
+        let mut ids = RecordedHostServers::new(&database);
+        assert_eq!(ids.server_id(&herdr(41, "Tue 22:09")).unwrap(), recorded);
+        assert!(ids.server_id(&herdr(41, "Tue 23:00")).is_err());
+        writer.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(schema(&writer), before);
+    }
+
+    #[test]
     fn only_hosts_without_their_own_store_are_recorded() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();

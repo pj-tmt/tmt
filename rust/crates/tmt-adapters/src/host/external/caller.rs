@@ -28,6 +28,14 @@ pub struct ExternalCaller {
     pub depth: usize,
 }
 
+/// What the approved drivers proved about the caller. `conclusive` is false
+/// when a driver failed or refused, or the ancestry could not be read: a
+/// pane it did not report may still be the nearest.
+pub(crate) struct Callers {
+    pub found: Vec<ExternalCaller>,
+    pub conclusive: bool,
+}
+
 impl<R: CommandRunner> Drivers<R> {
     /// Every approved host whose declared variables the caller's environment
     /// sets and whose pane core verifies, nearest first. A driver that fails
@@ -37,9 +45,10 @@ impl<R: CommandRunner> Drivers<R> {
         &self,
         environment: &CallerEnvironment,
         deadline: Instant,
-    ) -> Result<Vec<ExternalCaller>, HostError> {
+    ) -> Result<Callers, HostError> {
         let mut chain = None;
         let mut found = Vec::new();
+        let mut conclusive = true;
         for record in self.records() {
             let Some(capabilities) = record.capabilities.host() else {
                 continue;
@@ -60,11 +69,16 @@ impl<R: CommandRunner> Drivers<R> {
             };
             let pane = match process.call::<CallerResponse>(CallerRequest { env }, deadline) {
                 Ok(Ok(CallerResponse { pane: Some(pane) })) => pane,
+                Ok(Ok(CallerResponse { pane: None })) => continue,
                 Err(error) => {
                     unless_cleanup_failed(error)?;
+                    conclusive = false;
                     continue;
                 }
-                Ok(_) => continue,
+                Ok(Err(_)) => {
+                    conclusive = false;
+                    continue;
+                }
             };
             if chain.is_none() {
                 chain = match ancestry::chain(self.runner(), environment.process_id, deadline) {
@@ -72,7 +86,12 @@ impl<R: CommandRunner> Drivers<R> {
                     Err(ancestry::AncestryError::Command(error)) if error.cleanup_failed() => {
                         return Err(driver_process(&process, error));
                     }
-                    Err(_) => return Ok(Vec::new()),
+                    Err(_) => {
+                        return Ok(Callers {
+                            found: Vec::new(),
+                            conclusive: false,
+                        });
+                    }
                 };
             }
             let Some(depth) = chain
@@ -89,7 +108,7 @@ impl<R: CommandRunner> Drivers<R> {
             });
         }
         found.sort_by_key(|caller| caller.depth);
-        Ok(found)
+        Ok(Callers { found, conclusive })
     }
 
     /// An explicit target's pane ID on the caller's server of `host`, or on

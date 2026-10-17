@@ -365,34 +365,57 @@ impl<R: CommandRunner + Clone> Host<R> {
         }
     }
 
-    /// A hook or discovery caller's host, verified rather than assumed: the
-    /// approved drivers serve an external caller, whose server ID must be one
-    /// a bind recorded (`ids` never records one). An approved driver's caller
-    /// variables without a verified pane refuse; they never fall back to tmux.
+    /// A hook or discovery caller's host: the one host its locators name,
+    /// verified, never a fallback. No locator keeps tmux (outside any host);
+    /// tmux variables alone keep the tmux caller check. One named external
+    /// host must answer conclusively with the caller's pane. Locators naming
+    /// more than one host (mixed or nested hosts, unsupported) refuse whatever
+    /// the pane checks say. The external server ID must be one a bind
+    /// recorded (`ids` never records one).
     pub fn for_verified_caller<I: HostServerIds>(
         environment: &CallerEnvironment,
         runner: R,
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
         ids: &mut I,
     ) -> Result<Self, HostError> {
-        let host = Self::for_caller_with_drivers(environment, runner, records);
-        match host.primary {
-            HostKind::Tmux if !environment.driver_env.is_empty() && !environment.names_tmux() => {
-                Err(HostError::Unavailable(
-                    "no approved driver verified the caller's pane".into(),
-                ))
-            }
-            HostKind::Tmux => Ok(host),
-            HostKind::External(name) => {
-                host.resolve_servers(ids)?;
-                match host.external.resolved() {
-                    Some(_) => Ok(host),
-                    None => Err(HostError::Evidence {
-                        driver: name.as_str().to_owned(),
-                        reason: "the caller's server was not resolved",
-                    }),
-                }
-            }
+        let unverified =
+            |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
+        // A set variable names its host even when it is not valid text.
+        let mut named: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                record.capabilities.host().is_some_and(|host| {
+                    host.caller_env
+                        .iter()
+                        .any(|name| environment.driver_env.contains_key(name))
+                })
+            })
+            .map(|record| record.name.clone())
+            .collect();
+        named.dedup();
+        let builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
+        match (environment.names_tmux(), named.len()) {
+            (_, 0) => return Ok(builtin),
+            (false, 1) => {}
+            _ => return Err(unverified("the caller's locators name more than one host")),
+        }
+        let callers = builtin
+            .external
+            .callers(environment, Instant::now() + Duration::from_secs(1))?;
+        let [external] = <[ExternalCaller; 1]>::try_from(callers.found)
+            .ok()
+            .filter(|_| callers.conclusive)
+            .ok_or_else(|| unverified("no approved driver verified the caller's pane"))?;
+        let name = external.host;
+        let host = Self::of(HostKind::External(name), runner).with_drivers(records);
+        host.external.set_caller(external);
+        host.resolve_servers(ids)?;
+        match host.external.resolved() {
+            Some(_) => Ok(host),
+            None => Err(HostError::Evidence {
+                driver: name.as_str().to_owned(),
+                reason: "the caller's server was not resolved",
+            }),
         }
     }
 
@@ -467,6 +490,7 @@ impl<R: CommandRunner> Host<R> {
             .external
             .callers(environment, deadline)
             .ok()?
+            .found
             .into_iter()
             .next()?;
         let tmux = environment

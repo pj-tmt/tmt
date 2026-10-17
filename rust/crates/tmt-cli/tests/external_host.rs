@@ -1436,6 +1436,18 @@ fn hook(
     event: &str,
     running: impl FnOnce(),
 ) -> Output {
+    hook_with(fixture, pane, &[], provider, event, running)
+}
+
+/// `hook` with `extra` variables in the provider's environment.
+fn hook_with(
+    fixture: &Fixture,
+    pane: Option<&str>,
+    extra: &[(&str, &str)],
+    provider: bool,
+    event: &str,
+    running: impl FnOnce(),
+) -> Output {
     let tmt = fixture.command_in(pane, &[]);
     let program = if provider {
         let claude = fixture.root.join("bin/claude");
@@ -1469,6 +1481,7 @@ fn hook(
             tmt.get_envs()
                 .filter_map(|(name, value)| value.map(|value| (name, value))),
         )
+        .envs(extra.iter().copied())
         .current_dir(&fixture.root)
         .stdin(Stdio::null())
         .spawn()
@@ -1622,4 +1635,18 @@ fn a_hook_outside_any_host_pane_stays_silent() {
     assert!(output.stdout.is_empty(), "{output:?}");
     assert!(output.stderr.is_empty(), "{output:?}");
     assert!(fixture.calls().is_empty(), "{:?}", fixture.calls());
+}
+
+/// Mixed or nested hosts are unsupported: tmux variables beside an approved
+/// driver's caller variables name two hosts, so the hook refuses even though
+/// the external pane verifies.
+#[test]
+fn a_hook_whose_locators_name_two_hosts_refuses() {
+    register();
+    let fixture = Fixture::new("hook-two-hosts");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let tmux = [("TMUX", "/tmp/tmt-outer.sock,1,0"), ("TMUX_PANE", "%1")];
+    let output = hook_with(&fixture, Some("f1"), &tmux, true, "SessionStart", || {});
+    assert_hook_refused(&fixture, &output);
 }
