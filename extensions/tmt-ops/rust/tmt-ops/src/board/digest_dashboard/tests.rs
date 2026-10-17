@@ -1711,5 +1711,42 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
         assert!(shown.contains("Status observed: 2m ago (11:40)"), "{shown}");
         assert!(shown.contains("Stats observed: 3m ago (11:39)"), "{shown}");
         assert!(!shown.contains("1791600000000 ms"));
+        app.frame_clocks.borrow_mut().retain(|surface| {
+            matches!(
+                surface,
+                crate::board::view::ClockSurface::DigestDetails { .. }
+            )
+        });
+        assert_eq!(
+            app.frame_clocks.borrow().len(),
+            1,
+            "Details owns one visible clock surface"
+        );
+        let before = crate::board::view::time_marks(&app, 1_791_600_120_000);
+        let after = crate::board::view::time_marks(&app, 1_791_600_180_000);
+        assert_ne!(
+            before, after,
+            "idle age changes invalidate the frame without a new read"
+        );
+        assert!(after[0].contains("Status observed: 3m ago (11:40)"));
+        let mut policy = app.digest_panels();
+        policy.set_side_shown(false).unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .preferences
+            .digest_panels = Some(crate::config::PanelSetting::configured(policy));
+        paint(&mut app, 160, 44);
+        assert!(
+            !app.frame_clocks.borrow().iter().any(|surface| matches!(
+                surface,
+                crate::board::view::ClockSurface::DigestDetails { .. }
+            )),
+            "hidden Details has no clock registration"
+        );
     });
 }
