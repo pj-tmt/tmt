@@ -70,8 +70,8 @@ impl Store {
     /// A tick appends at most a few rows a minute; the next `maintain` enforces retention.
     pub fn record_decision(&mut self, decision: &Decision) -> Result<(), Error> {
         decision.validate()?;
-        self.0
-            .execute(
+        self.write(|tx| {
+            tx.execute(
                 "INSERT INTO decisions(at_ms,identity_id,interval_ms,flush_count,rule,held,oldest_age_ms,outcome) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
                 params![
                     decision.at_ms as i64,
@@ -85,48 +85,49 @@ impl Store {
                 ],
             )
             .map_err(io)?;
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Records in `(from, through]`, oldest first. A store older than decision
     /// records has none.
-    pub fn decisions(&self, from: u64, through: u64) -> Result<Vec<Decision>, Error> {
+    pub fn decisions(&mut self, from: u64, through: u64) -> Result<Vec<Decision>, Error> {
         if from > through || through > MAX {
             return Err(invalid("Invalid decision window"));
         }
-        let present: Option<u64> = self
-            .0
-            .query_row(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='decisions'",
-                [],
-                |r| number(r, 0),
-            )
-            .optional()
-            .map_err(io)?;
-        if present.is_none() {
-            return Ok(vec![]);
-        }
-        let mut statement = self
-            .0
-            .prepare(&format!(
-                "SELECT {COLUMNS} FROM decisions WHERE at_ms>?1 AND at_ms<=?2 ORDER BY at_ms,id"
-            ))
-            .map_err(io)?;
-        let rows = statement
-            .query_map(params![from as i64, through as i64], raw)
-            .map_err(io)?;
-        let mut decisions = vec![];
-        for row in rows {
-            decisions.push(decode(row.map_err(io)?)?);
-        }
-        Ok(decisions)
+        self.read(|tx| {
+            let present: Option<u64> = tx
+                .query_row(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='decisions'",
+                    [],
+                    |r| number(r, 0),
+                )
+                .optional()
+                .map_err(io)?;
+            if present.is_none() {
+                return Ok(vec![]);
+            }
+            let mut statement = tx
+                .prepare(&format!(
+                    "SELECT {COLUMNS} FROM decisions WHERE at_ms>?1 AND at_ms<=?2 ORDER BY at_ms,id"
+                ))
+                .map_err(io)?;
+            let rows = statement
+                .query_map(params![from as i64, through as i64], raw)
+                .map_err(io)?;
+            let mut decisions = vec![];
+            for row in rows {
+                decisions.push(decode(row.map_err(io)?)?);
+            }
+            Ok(decisions)
+        })
     }
 
     /// The member's newest stored record: a tick writes a decision only when it
     /// differs, so a state that persists across ticks stays one row.
-    pub fn last_decision(&self, id: &str) -> Result<Option<Decision>, Error> {
-        self.0
-            .query_row(
+    pub fn last_decision(&mut self, id: &str) -> Result<Option<Decision>, Error> {
+        self.read(|tx| {
+        tx.query_row(
                 &format!("SELECT {COLUMNS} FROM decisions WHERE identity_id=?1 ORDER BY at_ms DESC,id DESC LIMIT 1"),
                 [id],
                 raw,
@@ -135,5 +136,6 @@ impl Store {
             .map_err(io)?
             .map(decode)
             .transpose()
+        })
     }
 }

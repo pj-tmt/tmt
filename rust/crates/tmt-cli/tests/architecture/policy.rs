@@ -98,7 +98,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-invoke",
             "serde", // content-free settlement DTOs, not Core domain ownership
             "serde_json",
-            "rusqlite", // private Digest history; never the Core database
+            "rusqlite",            // private Digest history; never the Core database
+            "tmt-extension-state", // private history transactions only
             "toml_edit",
             "nix",
             // One anonymous, bounded GET of the public price file; no token, cookie or API.

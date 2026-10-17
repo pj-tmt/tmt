@@ -2590,6 +2590,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tmt-cli-style",
+ "tmt-extension-state",
  "tmt-invoke",
  "toml_edit",
  "ureq",

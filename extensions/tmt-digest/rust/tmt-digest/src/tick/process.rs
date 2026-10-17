@@ -148,7 +148,7 @@ impl TickProcess {
         };
         let key = (rule, outcome, oldest);
         let id = row.identity_id.as_str();
-        let known = match (self.decided.get(id), &self.history) {
+        let known = match (self.decided.get(id), &mut self.history) {
             (Some(known), _) => Some(*known),
             (None, Some(store)) => match store.last_decision(id) {
                 Ok(last) => {

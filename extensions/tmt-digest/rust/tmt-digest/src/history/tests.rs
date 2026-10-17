@@ -50,18 +50,20 @@ fn restart_deduplication_atomic_rollback_and_read_only_projection() {
             .unwrap(),
         json!({"method":METHOD,"window":"lifetime","fromMs":start,"throughMs":start+200,"estimatedInputTokensAvoided":2700,"avoidedSeparateDeliveries":2,"complete":true,"gap":null,"cost":null,"percent":null})
     );
-    store.0.execute_batch("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'fixture write failure'); END;").unwrap();
+    store.write(|tx| tx.execute_batch("CREATE TRIGGER fail_event BEFORE INSERT ON events BEGIN SELECT RAISE(ABORT,'fixture write failure'); END;").map_err(io)).unwrap();
     assert!(
         store
             .record(ID, &event(8, start + 250, &[None]), start + 300)
             .is_err()
     );
     assert_eq!(store.cursor(ID).unwrap(), Some(7));
-    store.0.execute_batch("DROP TRIGGER fail_event").unwrap();
+    store
+        .write(|tx| tx.execute_batch("DROP TRIGGER fail_event").map_err(io))
+        .unwrap();
     drop(store);
     let file = fixture.0.join("digest/history/history.sqlite");
     let before = fs::read(&file).unwrap();
-    let read = Store::open(&fixture.0, false).unwrap().unwrap();
+    let mut read = Store::open(&fixture.0, false).unwrap().unwrap();
     assert_eq!(read.cursor(ID).unwrap(), Some(7));
     assert_eq!(
         read.status_built_in(ID, Window::Lifetime, start + 200, Some(12))
@@ -152,9 +154,12 @@ fn raw_retention_and_capacity_eviction_preserve_lifetime_totals() {
         .unwrap();
     store.checkpoint(ID, start + 20, 3, 1).unwrap();
     {
-        let tx = store.0.transaction().unwrap();
-        prune(&tx, start + 20, 0).unwrap();
-        tx.commit().unwrap();
+        store
+            .write(|tx| {
+                prune(tx, start + 20, 0).unwrap();
+                Ok(())
+            })
+            .unwrap();
     }
     assert_eq!(
         store
@@ -181,8 +186,9 @@ fn raw_retention_and_capacity_eviction_preserve_lifetime_totals() {
     store.checkpoint(ID, start + RETENTION + DAY, 5, 2).unwrap();
     assert_eq!(
         store
-            .0
-            .query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+            .read(|tx| tx
+                .query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+                .map_err(io))
             .unwrap(),
         0
     );
@@ -214,7 +220,9 @@ fn clock_rollback_and_store_admission_never_create_zero_evidence() {
             .unwrap()["gap"],
         "clock_discontinuity"
     );
-    store.0.pragma_update(None, "user_version", 4).unwrap();
+    store
+        .write(|tx| tx.pragma_update(None, "user_version", 4).map_err(io))
+        .unwrap();
     drop(store);
     assert!(Store::open(&fixture.0, true).is_err());
     let before = fs::read(fixture.0.join("digest/history/history.sqlite")).unwrap();
@@ -240,20 +248,25 @@ fn capacity_failure_rolls_back_event_cursor_and_lifetime_totals() {
     let mut store = fixture.store();
     store.baseline(ID, 1000, 1, 0).unwrap();
     let pages: u64 = store
-        .0
-        .pragma_query_value(None, "page_count", |r| number(r, 0))
+        .read(|tx| {
+            tx.pragma_query_value(None, "page_count", |r| number(r, 0))
+                .map_err(io)
+        })
         .unwrap();
     store
-        .0
-        .pragma_update(None, "max_page_count", pages as i64)
+        .write(|tx| {
+            tx.pragma_update(None, "max_page_count", pages as i64)
+                .map_err(io)
+        })
         .unwrap();
     let batch = event(2, 1100, &vec![Some(12345); 512]);
     assert!(store.record(ID, &batch, 1200).is_err());
     assert_eq!(store.cursor(ID).unwrap(), Some(1));
     assert_eq!(
         store
-            .0
-            .query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+            .read(|tx| tx
+                .query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+                .map_err(io))
             .unwrap(),
         0
     );
@@ -312,8 +325,9 @@ fn public_history_overflow_collection_is_idempotent_and_never_delivers() {
     );
     assert_eq!(
         store
-            .0
-            .query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+            .read(|tx| tx
+                .query_row("SELECT COUNT(*) FROM events", [], |r| number(r, 0))
+                .map_err(io))
             .unwrap(),
         1
     );
@@ -434,7 +448,7 @@ fn decisions_round_trip_in_time_order_inside_an_open_closed_window() {
     for row in &rows {
         store.record_decision(row).unwrap();
     }
-    let at = |from, through| -> Vec<u64> {
+    let mut at = |from, through| -> Vec<u64> {
         store
             .decisions(from, through)
             .unwrap()
@@ -447,7 +461,7 @@ fn decisions_round_trip_in_time_order_inside_an_open_closed_window() {
     assert_eq!(store.decisions(0, 100).unwrap()[0], rows[1]);
     // A read-only open sees the same rows.
     drop(store);
-    let reader = Store::open(&fixture.0, false).unwrap().unwrap();
+    let mut reader = Store::open(&fixture.0, false).unwrap().unwrap();
     assert_eq!(reader.decisions(0, 100).unwrap().len(), 7);
     // Every rule round-trips through its name, and the auto ones are auto rows without an interval.
     for rule in [Rule::AutoIdlePoint, Rule::AutoHold, Rule::AutoCap] {
@@ -468,7 +482,7 @@ fn a_store_from_before_decision_records_lists_none_and_never_gains_them_on_read(
     old.execute_batch("DROP TABLE decisions; PRAGMA user_version=2;")
         .unwrap();
     drop(old);
-    let reader = Store::open(&fixture.0, false).unwrap().unwrap();
+    let mut reader = Store::open(&fixture.0, false).unwrap().unwrap();
     assert!(reader.decisions(0, 100).unwrap().is_empty());
     drop(reader);
     // The next tick adds the table and the new schema version.
@@ -482,7 +496,7 @@ fn a_store_from_before_decision_records_lists_none_and_never_gains_them_on_read(
 #[test]
 fn an_inconsistent_decision_is_refused_and_a_corrupt_row_fails_the_read() {
     let fixture = Fixture::new();
-    let store = fixture.store();
+    let mut store = fixture.store();
     let refused = |row: Decision| {
         let mut other = Store::open(&fixture.0, true).unwrap().unwrap();
         other.record_decision(&row).is_err()
@@ -509,10 +523,10 @@ fn an_inconsistent_decision_is_refused_and_a_corrupt_row_fails_the_read() {
     stranger.identity_id = "worker".into();
     assert!(refused(stranger));
     assert!(store.decisions(0, 100).unwrap().is_empty());
-    store
-        .0
-        .execute("INSERT INTO decisions(at_ms,identity_id,flush_count,rule,held,oldest_age_ms,outcome) VALUES(5,?1,10,'sometimes',1,1,'delivered')", [ID])
-        .unwrap();
+    store.write(|tx| {
+        tx.execute("INSERT INTO decisions(at_ms,identity_id,flush_count,rule,held,oldest_age_ms,outcome) VALUES(5,?1,10,'sometimes',1,1,'delivered')", [ID]).map_err(io)?;
+        Ok(())
+    }).unwrap();
     assert!(store.decisions(0, 100).is_err());
 }
 
@@ -547,11 +561,9 @@ fn decisions_keep_thirty_days_and_yield_to_a_full_budget_oldest_first() {
             Some("delivered"),
         ))
         .unwrap();
-    {
-        let tx = store.0.transaction().unwrap();
-        prune(&tx, start + RETENTION + 7, 2 * decision::ROW_BYTES).unwrap();
-        tx.commit().unwrap();
-    }
+    store
+        .write(|tx| prune(tx, start + RETENTION + 7, 2 * decision::ROW_BYTES))
+        .unwrap();
     let kept: Vec<u64> = store
         .decisions(0, MAX)
         .unwrap()
@@ -591,13 +603,12 @@ fn decisions_never_exceed_their_row_cap_whatever_the_flapping() {
     let fixture = Fixture::new();
     let mut store = fixture.store();
     let start = 40 * DAY;
-    {
-        let tx = store.0.transaction().unwrap();
+    store.write(|tx| {
         for n in 0..decision::MAX_ROWS + 5 {
             tx.execute("INSERT INTO decisions(at_ms,identity_id,interval_ms,flush_count,rule,held,oldest_age_ms) VALUES(?1,?2,20000,10,'not_due',1,1)", params![(start + n) as i64, ID]).unwrap();
         }
-        tx.commit().unwrap();
-    }
+        Ok(())
+    }).unwrap();
     store.maintain(start + decision::MAX_ROWS + 5).unwrap();
     let kept = store.decisions(0, MAX).unwrap();
     assert_eq!(kept.len() as u64, decision::MAX_ROWS);
@@ -618,7 +629,7 @@ fn settlements_and_coverage_are_read_back_for_a_window_without_changing_the_stor
         .record(ID, &event(3, start + 30, &[Some(1), Some(2)]), start + 40)
         .unwrap();
     store.checkpoint(ID, start + 40, 3, 2).unwrap();
-    let times = |from: u64, through: u64| -> Vec<u64> {
+    let mut times = |from: u64, through: u64| -> Vec<u64> {
         store
             .settlements(from, through)
             .unwrap()
@@ -641,11 +652,9 @@ fn settlements_and_coverage_are_read_back_for_a_window_without_changing_the_stor
         (start, start + 40, None)
     );
     // A recorded gap inside the window is named.
-    {
-        let tx = store.0.transaction().unwrap();
-        add_gap(&tx, ID, start + 5, start + 15, "missing_deliveries").unwrap();
-        tx.commit().unwrap();
-    }
+    store
+        .write(|tx| add_gap(tx, ID, start + 5, start + 15, "missing_deliveries"))
+        .unwrap();
     assert_eq!(
         store.coverage(start, start + 40).unwrap()[ID]
             .gap
@@ -676,4 +685,173 @@ fn a_refused_window_names_every_accepted_value_and_each_one_parses_back() {
         ["24h", "7d", "lifetime"],
         "the CLI lists the windows in this order"
     );
+}
+
+#[test]
+fn a_history_writer_waits_for_the_admitted_transaction_and_keeps_both_changes() {
+    use std::{sync::mpsc, time::Duration};
+
+    let fixture = Fixture::new();
+    let mut waiting = fixture.store();
+    let file = fixture.0.join("digest/history/history.sqlite");
+    // Open both connections before taking a lock: closing another descriptor for
+    // this inode while SQLite owns a POSIX lock could invalidate the fixture.
+    let mut blocker = Connection::open(&file).unwrap();
+    let held = blocker
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    held.execute("INSERT INTO members(id,started,through,cursor,counter,raw_from) VALUES('other',1000,1000,1,0,1000)", []).unwrap();
+    let (sent, received) = mpsc::channel();
+    let (ready, started) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        ready.send(()).unwrap();
+        let result = waiting.baseline(ID, 1000, 2, 0);
+        sent.send(result).unwrap();
+        waiting
+    });
+    started.recv_timeout(Duration::from_secs(5)).unwrap();
+    let early = received.recv_timeout(Duration::from_millis(300));
+    let waited = matches!(early, Err(mpsc::RecvTimeoutError::Timeout));
+    held.commit().unwrap();
+    let result = match early {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            received.recv_timeout(Duration::from_secs(5)).unwrap()
+        }
+        Err(error) => panic!("writer exited without a result: {error}"),
+    };
+    let mut store = worker.join().unwrap();
+    assert!(waited, "writer must wait for the admitted transaction");
+    result.unwrap();
+    assert_eq!(store.cursor(ID).unwrap(), Some(2));
+    assert_eq!(store.cursor("other").unwrap(), Some(1));
+}
+
+#[test]
+fn adopting_history_keeps_its_schema_budget_and_rollback_durability() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    store
+        .read(|tx| {
+            assert_eq!(
+                tx.pragma_query_value(None, "journal_mode", |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "delete"
+            );
+            assert_eq!(
+                tx.pragma_query_value(None, "synchronous", |r| number(r, 0))
+                    .unwrap(),
+                2
+            );
+            assert_eq!(
+                tx.pragma_query_value(None, "max_page_count", |r| number(r, 0))
+                    .unwrap(),
+                PAGES
+            );
+            assert_eq!(
+                tx.pragma_query_value(None, "user_version", |r| number(r, 0))
+                    .unwrap(),
+                3
+            );
+            assert_eq!(
+                tx.query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema WHERE name='_tmt_state_migrations'",
+                    [],
+                    |r| number(r, 0)
+                )
+                .unwrap(),
+                0
+            );
+            Ok(())
+        })
+        .unwrap();
+    store.baseline(ID, 1000, 1, 0).unwrap();
+    drop(store);
+    let file = fixture.0.join("digest/history/history.sqlite");
+    let before = fs::read(&file).unwrap();
+    let mut read = Store::open(&fixture.0, false).unwrap().unwrap();
+    assert_eq!(read.cursor(ID).unwrap(), Some(1));
+    let error = read
+        .write::<()>(|_| panic!("a read-only store must never enter a write callback"))
+        .unwrap_err();
+    assert_eq!(error.code, "DIGEST_HISTORY_INVALID");
+    drop(read);
+    assert_eq!(fs::read(&file).unwrap(), before);
+    assert_eq!(
+        fs::read_dir(fixture.0.join("digest/history"))
+            .unwrap()
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_blocked_rollback_commit_keeps_the_timeout_consequence_and_never_replays() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    store.baseline(ID, 1000, 1, 0).unwrap();
+    let file = fixture.0.join("digest/history/history.sqlite");
+    let mut blocker = Connection::open(&file).unwrap();
+    let held = blocker.transaction().unwrap();
+    assert_eq!(
+        held.query_row("SELECT cursor FROM members WHERE id=?1", [ID], |r| number(
+            r, 0
+        ))
+        .unwrap(),
+        1
+    );
+    let mut calls = 0;
+    let error = store
+        .write(|tx| {
+            calls += 1;
+            tx.execute("UPDATE members SET cursor=2 WHERE id=?1", [ID])
+                .map_err(io)?;
+            Ok(())
+        })
+        .unwrap_err();
+    held.commit().unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(error.code, "DIGEST_HISTORY_IO");
+    assert!(
+        error.message.contains("commit write timed out"),
+        "{}",
+        error.message
+    );
+    assert!(
+        error.message.contains("the change may not be saved"),
+        "{}",
+        error.message
+    );
+    assert!(
+        error.message.ends_with("Retry: tmt digest tick"),
+        "{}",
+        error.message
+    );
+    assert_eq!(store.cursor(ID).unwrap(), Some(1));
+}
+
+#[test]
+fn decision_and_settlement_reads_never_take_the_write_lock() {
+    let fixture = Fixture::new();
+    let mut writer = fixture.store();
+    writer.baseline(ID, 1_000, 1, 0).unwrap();
+    let recorded = decision(2_000, Rule::NotDue, None);
+    writer.record_decision(&recorded).unwrap();
+    // Admit every connection before holding the lock, so closing a newly opened
+    // descriptor cannot invalidate a same-process POSIX lock in the fixture.
+    let mut reader = Store::open(&fixture.0, false).unwrap().unwrap();
+    let mut blocker = Connection::open(fixture.0.join("digest/history/history.sqlite")).unwrap();
+    let held = blocker
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    for store in [&mut writer, &mut reader] {
+        assert_eq!(
+            store.decisions(0, 3_000).unwrap().as_slice(),
+            std::slice::from_ref(&recorded)
+        );
+        assert_eq!(store.last_decision(ID).unwrap(), Some(recorded.clone()));
+        assert!(store.settlements(0, 3_000).unwrap().is_empty());
+        assert_eq!(store.coverage(0, 3_000).unwrap()[ID].started, 1_000);
+    }
+    held.rollback().unwrap();
 }

@@ -1865,51 +1865,56 @@ fn refuses(
 }
 
 #[test]
-fn adapters_share_state_only_in_the_config_owner() {
-    for kind in ["dev", "build"] {
+fn state_consumers_stay_in_config_and_digest_history() {
+    for (consumer, owner, outside) in [
+        ("tmt-adapters", "config/document.rs", "storage.rs"),
+        ("tmt-digest", "history/store.rs", "status.rs"),
+    ] {
+        for kind in ["dev", "build"] {
+            assert!(
+                !policy::dependency_violations(&package(
+                    consumer,
+                    vec![dependency("tmt-extension-state", kind, None, None)]
+                ))
+                .is_empty()
+            );
+        }
         assert!(
             !policy::dependency_violations(&package(
-                "tmt-adapters",
-                vec![dependency("tmt-extension-state", kind, None, None)]
+                consumer,
+                vec![dependency(
+                    "tmt-extension-state",
+                    "normal",
+                    Some("cfg(unix)"),
+                    None
+                )]
             ))
             .is_empty()
         );
+        assert!(
+            policy::dependency_violations(&package(
+                consumer,
+                vec![dependency("tmt-extension-state", "normal", None, None)]
+            ))
+            .is_empty()
+        );
+        assert_exact(
+            &[syntax(
+                consumer,
+                owner,
+                "use tmt_extension_state::Document;",
+            )],
+            &[],
+        );
+        assert!(
+            !policy::source_violations(&[syntax(
+                consumer,
+                outside,
+                "use tmt_extension_state::Store;"
+            )])
+            .is_empty()
+        );
     }
-    assert!(
-        !policy::dependency_violations(&package(
-            "tmt-adapters",
-            vec![dependency(
-                "tmt-extension-state",
-                "normal",
-                Some("cfg(unix)"),
-                None
-            )]
-        ))
-        .is_empty()
-    );
-    assert!(
-        policy::dependency_violations(&package(
-            "tmt-adapters",
-            vec![dependency("tmt-extension-state", "normal", None, None)]
-        ))
-        .is_empty()
-    );
-    assert_exact(
-        &[syntax(
-            "tmt-adapters",
-            "config/document.rs",
-            "use tmt_extension_state::Document;",
-        )],
-        &[],
-    );
-    assert!(
-        !policy::source_violations(&[syntax(
-            "tmt-adapters",
-            "storage.rs",
-            "use tmt_extension_state::Store;"
-        )])
-        .is_empty()
-    );
 }
 
 #[test]
