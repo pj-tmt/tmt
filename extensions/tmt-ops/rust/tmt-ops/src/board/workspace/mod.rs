@@ -89,6 +89,15 @@ pub struct OpsVisibility {
 }
 
 impl OpsVisibility {
+    fn unrestricted(&self, roster: &OpsRoster, preferences: &OpsPreferences) -> bool {
+        self.scope.is_empty()
+            && (self.reveal_hidden
+                || !roster
+                    .squads
+                    .iter()
+                    .any(|squad| preferences.hidden.contains(&squad.room_id)))
+    }
+
     /// Admission for view totals uses the same room visibility as the tree.
     /// Unassigned identities remain visible only outside an explicit scope;
     /// a hidden membership never turns its agent into a Common pool member.
@@ -97,13 +106,7 @@ impl OpsVisibility {
         roster: &'a OpsRoster,
         preferences: &OpsPreferences,
     ) -> Option<BTreeSet<&'a String>> {
-        if self.scope.is_empty()
-            && (self.reveal_hidden
-                || !roster
-                    .squads
-                    .iter()
-                    .any(|squad| preferences.hidden.contains(&squad.room_id)))
-        {
+        if self.unrestricted(roster, preferences) {
             return None;
         }
         let mut visible: BTreeSet<_> = roster
@@ -445,6 +448,15 @@ impl OpsWorkspace {
         preferences: &OpsPreferences,
     ) -> (usize, usize) {
         let query = self.query.to_lowercase();
+        // A complete, unrestricted All view admits every acquired identity,
+        // including the proven Common pool; no membership scan is needed.
+        if query.is_empty()
+            && self.filter == AgentsFilter::All
+            && roster.complete()
+            && self.visibility.unrestricted(roster, preferences)
+        {
+            return (roster.members.len(), roster.members.len());
+        }
         let mut total = BTreeSet::new();
         let mut matched = BTreeSet::new();
         let mut admit = |member: &'a OpsMember, group_matches: bool| {

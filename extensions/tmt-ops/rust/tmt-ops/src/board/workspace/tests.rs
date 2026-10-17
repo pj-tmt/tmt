@@ -310,9 +310,15 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
             },
         ] {
             for filter in [AgentsFilter::All, AgentsFilter::Pinned] {
-                for squad_pin in [false, true] {
+                for (squad_pin, hide_room) in
+                    [(false, false), (false, true), (true, false), (true, true)]
+                {
                     let preferences = OpsPreferences {
-                        hidden: ["room".into()].into(),
+                        hidden: if hide_room {
+                            ["room".into()].into()
+                        } else {
+                            Default::default()
+                        },
                         pinned: if squad_pin {
                             ["second".into()].into()
                         } else {
@@ -350,7 +356,7 @@ fn search_counts_match_expanded_rows_across_visibility_pins_and_partial_rosters(
                         assert_eq!(
                             workspace.search_counts(&roster, &preferences),
                             (identities(query), identities("")),
-                            "{observation:?} {visibility:?} {filter:?} pin={squad_pin} query={query}"
+                            "{observation:?} {visibility:?} {filter:?} pin={squad_pin} hidden={hide_room} query={query}"
                         );
                     }
                 }
