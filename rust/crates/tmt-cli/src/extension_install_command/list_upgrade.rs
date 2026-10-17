@@ -245,7 +245,7 @@ pub(super) fn listing(
             row["cli"] = cli.to_json();
             if !cli.compatible() {
                 notes.push(format!(
-                    "requires TMT {} or newer (running {}); run tmt upgrade",
+                    "requires tmt {} or newer (running {}); run tmt upgrade",
                     cli.minimum, cli.running
                 ));
             }
@@ -458,9 +458,10 @@ fn exists(path: &Path) -> io::Result<bool> {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
-        "requires TMT {} or newer (running {}); run tmt upgrade",
+        "requires tmt {} or newer (running {}); run tmt upgrade",
         &[""],
-        &[("{}", "5.0.0")],
+        // The version subject is prose; the run clause is the command to parse.
+        &[("requires tmt {}", "requires CLI version"), ("{}", "5.0.0")],
     ),
     crate::cli_style_tests::HintSpec::core(
         "move or remove {}, then install the managed one with: tmt extension install {name} --yes --prefix {prefix}",

@@ -1106,7 +1106,7 @@ describe('tmt extension install surface', () => {
       expect(observed.uses).toHaveLength(1);
       const human = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix]);
       expect(human.status).toBe(0);
-      expect(human.stdout.match(/requires TMT 999\.0\.0/g)).toHaveLength(1);
+      expect(human.stdout.match(/requires tmt 999\.0\.0/g)).toHaveLength(1);
       expect(human.stdout).toContain('run tmt upgrade');
       expect(human.stdout).toContain('Board needs the Ops extension');
       expect(readFileSync(receiptPath).equals(before)).toBe(true);
