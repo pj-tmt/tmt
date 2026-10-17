@@ -1,16 +1,18 @@
-import { useCallback, useMemo, useRef, type RefObject } from 'react';
+import { PassageDraftScope } from './passage-drafts.js';
+import { createElement, useCallback, useMemo, useRef, type RefObject } from 'react';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useReviewLayer } from './review-layer.js';
 import { useReadingLayer } from './reading-layer.js';
-import type { PageBinding, PageSnapshot, PageView } from './transport.js';
+import type { PageBinding, PageSnapshot, PageView, PageTransport } from './transport.js';
 import type { ThreadView } from './thread-records.js';
 import type { mountRenderer, QuestionAnchor, ReviewAnchor, RenderState } from './renderer.js';
 import type { ComposerConnectionPresentation } from './router.js';
 
 /** One composition owns admitted state and actions for page and chapter surfaces alike. */
 export function usePageLayers({
+  transport,
   snapshot,
   view,
   binding,
@@ -22,6 +24,7 @@ export function usePageLayers({
   connectionPresentation,
   readingHint,
 }: {
+  transport: PageTransport;
   snapshot: PageSnapshot;
   view: PageView;
   binding: RefObject<PageBinding | undefined>;
@@ -101,9 +104,23 @@ export function usePageLayers({
   return {
     readings,
     inlineSlots,
-    reviewLayer,
+    reviewLayer: {
+      ...reviewLayer,
+      inline: createElement(
+        PassageDraftScope,
+        { transport, pageId: snapshot.id },
+        reviewLayer.inline,
+      ),
+    },
     readingLayer,
-    questionLayer,
+    questionLayer: {
+      ...questionLayer,
+      inline: createElement(
+        PassageDraftScope,
+        { transport, pageId: snapshot.id },
+        questionLayer.inline,
+      ),
+    },
     onQuestionAnchors,
     onReadingAnchors,
   };

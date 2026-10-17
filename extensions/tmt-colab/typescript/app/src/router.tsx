@@ -1335,6 +1335,7 @@ function Page() {
     onQuestionAnchors,
     onReadingAnchors,
   } = usePageLayers({
+    transport,
     snapshot,
     view,
     binding,

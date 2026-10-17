@@ -1,3 +1,4 @@
+import { usePassageDraft } from '../passage-drafts.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { Review } from '../questions.js';
@@ -35,10 +36,10 @@ export function ReviewCard({
   children?: ReactNode;
 }) {
   const id = useId();
-  const [noting, setNoting] = useState(false);
-  const [note, setNote] = useState('');
-  const [changing, setChanging] = useState(false);
-  const [change, setChange] = useState('');
+  const [noting, setNoting] = usePassageDraft(`review:${review.id}:noting`, false);
+  const [note, setNote] = usePassageDraft(`review:${review.id}:note`, '');
+  const [changing, setChanging] = usePassageDraft(`review:${review.id}:changing`, false);
+  const [change, setChange] = usePassageDraft(`review:${review.id}:change`, '');
   const [now, setNow] = useState(0);
   const closedAt = state.kind === 'closed' ? state.at : undefined;
   useEffect(() => setNow(Date.now()), [closedAt]);
@@ -49,7 +50,7 @@ export function ReviewCard({
     setNote('');
     setChanging(false);
     setChange('');
-  }, [outcome]);
+  }, [outcome, setNoting, setNote, setChanging, setChange]);
   const working = outcome?.state === 'working';
   const busy = disabled || working;
   const closed = state.kind === 'closed';

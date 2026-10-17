@@ -1,3 +1,4 @@
+import { usePassageDraft } from '../passage-drafts.js';
 import { BrowserAction, BrowserChips, BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
 import type { AnchorPosition } from '../renderer.js';
@@ -77,17 +78,26 @@ export function QuestionGroupCard({
   /** Called after an explicit Send recorded answers, with the recorded comments. */
   onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [recipientState, setRecipientState] = useState<{
+  const [drafts, setDrafts] = usePassageDraft<Record<string, Draft>>(
+    `answer:${group.id}:drafts`,
+    {},
+  );
+  const [recipientState, setRecipientState] = usePassageDraft<{
     recipients: AgentDestination[];
     initialized: boolean;
-  }>({ recipients: [], initialized: false });
+  }>(`answer:${group.id}:recipients`, { recipients: [], initialized: false });
   const recipients = recipientState.recipients;
   const [query, setQuery] = useState('');
   const [sending, setSending] = useState<readonly string[]>([]);
   const busy = useRef(false);
-  const [error, setError] = useState<string>();
-  const [failures, setFailures] = useState<MessageSendFailure[]>([]);
+  const [error, setError] = usePassageDraft<string | undefined>(
+    `answer:${group.id}:error`,
+    undefined,
+  );
+  const [failures, setFailures] = usePassageDraft<MessageSendFailure[]>(
+    `answer:${group.id}:failures`,
+    [],
+  );
   const [focusReply, setFocusReply] = useState<{ id: string; placement?: AnchorPosition }>();
   const [focusChange, setFocusChange] = useState(false);
   const section = useRef<HTMLDivElement>(null);
@@ -131,7 +141,7 @@ export function QuestionGroupCard({
       for (const question of verified) next[question.id] = emptyDraft();
       return next;
     });
-  }, [members, associated]);
+  }, [members, associated, setDrafts]);
   useEffect(() => {
     if (!focusReply || focusReply.id !== selected || !attached || !selectors.has(selected)) return;
     // A tab change retires the old description band. Focus after the slot owner
