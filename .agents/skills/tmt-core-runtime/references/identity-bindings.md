@@ -167,6 +167,11 @@ delivery. They install and launch nothing.
   flag; null keeps the driver default; flagless resume does not rewrite it.
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;
   ordering relies on that provider contract) and, for Codex, its first-party turn ID.
+  A Codex `Interrupt` with its turn ID also ends that turn as idle, through the same turn-end
+  fences; it is activity only (no usage, consumption source or response is read), and one
+  without a valid turn ID or with `agent_id`/`agent_type` is not decoded as activity (its
+  turn-end routing stays silent and writes no activity). Claude has no interrupt
+  hook, so an interrupted Claude turn stays working until its next event.
   `binding::session::activity` owns the transitions; SessionStart resets activity, duplicates
   never renew timestamps, timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
@@ -307,7 +312,13 @@ including the owned channel app-server. Definitions use a stable absolute TMT co
 and `--discover-launch`, with no identity, process or session coordinates; launch
 lookup occurs inside the supervised worker using the existing verified caller binding.
 Codex trusts exact hook definition hashes: approval remains user-owned through `/hooks`.
-TMT never approves trust, enables disabled hooks or writes Codex settings. Exact setup
+TMT never approves or bypasses trust, enables disabled hooks or writes Codex settings.
+The driver's activity-only events (`RuntimeLifecycle::activity_events`, Codex `Interrupt`)
+are observed with the lifecycle hooks, in setup and in launch composition, independent of
+the Stop usage consent. Whether a definition runs follows Codex's hook trust policy: an
+ordinary unmanaged definition runs only after the user trusts it in `/hooks`. TMT never
+grants or bypasses that trust; while Codex skips the definition, the last admitted
+activity stays unchanged. Exact setup
 observers in eligible user/system `hooks.json` or explicit invocation sources remain
 the only recorder; missing Stop observation is activity-only. Non-empty inline hooks
 in user/system `config.toml` or `requirements.toml` use the original command fallback

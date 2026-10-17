@@ -841,11 +841,17 @@ remembered harness. The linked contract owns presence and omission semantics.
 The public `ls --json` identity rows expose `session.activity`:
 `{"state":"unknown","sinceMs":null,"lastActivityMs":null,"providers":{}}`.
 Working/idle are the last admitted main-turn start/end from TMT's synchronous
-setup-written provider hooks, while core process evidence can establish ended.
+provider hooks, written by `tmt setup` or composed by a `tmt run` launch, while core
+process evidence can establish ended.
 Missing proof gives unknown. Timestamps are local accepted observation times;
 `lastActivityMs` is not a heartbeat and has no stalled threshold. Provider-only
 extras are currently empty. The Stop hook included in consented `tmt setup`
-supplies end events. `--no-usage` disables collection and preserves that choice;
+supplies end events. For Codex, an interrupted turn ends through its turn-correlated
+`Interrupt` hook, which is activity only and installed with the lifecycle hooks. It runs
+as Codex's hook trust policy allows: an ordinary unmanaged definition runs only after the
+user trusts it in `/hooks`, and TMT never grants or bypasses that trust. While Codex skips
+it, the last admitted activity stays unchanged. `--no-usage` disables usage and
+response collection (not this activity observer) and preserves that choice;
 `--usage` re-enables it. Legacy recorded lifecycle-only installs remain disabled
 until explicitly enabled. `tmt setup [provider] --status` reports the installed
 collection state without changing it. Absent end events never cause an inferred
