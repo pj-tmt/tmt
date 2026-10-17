@@ -3135,6 +3135,33 @@ describe('required CI gate', () => {
     expect(dockerSteps).toContain('node-version: 22.23.2');
     expect(dockerSteps).toContain('run: node scripts/run-e2e.mjs');
     expect(dockerSteps).not.toMatch(/setup-tooling|pnpm|corepack|Install dependencies/);
+    for (const name of ['docker-e2e-shard-1', 'docker-e2e-shard-2']) {
+      expect(job(name).match(/^ {4}runs-on: (.+)$/gm)).toEqual(['    runs-on: ubuntu-latest']);
+    }
+    const builder = steps(job('docker-e2e-shard-1')).find((step) =>
+      step.body.includes('id: e2e-mirror-builder')
+    )!;
+    expect(builder.body).toContain('cleanup: false');
+    expect(builder.body).toContain(
+      'docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435'
+    );
+    expect(builder.body).toContain('version: v0.29.1');
+    expect(builder.body).toContain(
+      'image=mirror.gcr.io/moby/buildkit:buildx-stable-1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea'
+    );
+    const workflows = new URL('../../../.github/workflows/', import.meta.url);
+    for (const file of readdirSync(workflows).filter((name) => /\.ya?ml$/.test(name))) {
+      const disabled = steps(readFileSync(new URL(file, workflows), 'utf8')).filter((step) =>
+        /cleanup:\s*false/.test(step.body)
+      );
+      expect(
+        disabled.map((step) => step.name),
+        file
+      ).toEqual(file === 'ci.yml' ? ['Set up Buildx only for an admitted archive'] : []);
+    }
+    expect(readFileSync(new URL('../../scripts/run-e2e.mjs', import.meta.url), 'utf8')).toContain(
+      "await run('docker', ['image', 'rm', '--force', image]"
+    );
 
     // `Docker E2E`, the required check, is a gate over exactly the two shards.
     const e2eGate = job('docker-e2e');

@@ -68,6 +68,7 @@ The shard guard rejects any retained scenario in zero or two shards. Actual Vite
 and `e2e-shards.mjs` discovery cover the same retained files.
 The Docker jobs use pinned Node and the built-in-only wrapper on the host;
 pnpm activation and the frozen dependency install belong to the image, not the host.
+Only the hosted `ubuntu-latest` E2E mirror builder uses `cleanup: false`, delegating its build-resource lifetime to job-VM disposal; the fallback and any persistent runner retain default cleanup.
 
 `Native package matrix` gates
 every selected native result and validates the event's `macos` classification:
