@@ -690,11 +690,14 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         // Actions is the final entry; preceding preference choices may grow.
         fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
         await fixture.waitForCapture(
-          (screen) => screen.includes('Checklist') && screen.includes('Esc closes'),
+          (screen) =>
+            !screen.includes('Workspace settings') && screen.includes('Enter runs · Esc closes'),
           shell.pane
         );
-        // The action menu owns Up/Down; move to its final Checklist entry.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
+        // Checklist can be below the viewport until the action menu scrolls to it.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down')]);
+        await fixture.waitForCapture((screen) => /›\s*Checklist\b/.test(screen), shell.pane);
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('No checklist yet'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Tab', 'Tab', 'Enter']);
         await fixture.waitForCapture((screen) => screen.includes('Create item'), shell.pane);
