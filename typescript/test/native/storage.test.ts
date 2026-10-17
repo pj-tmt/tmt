@@ -122,6 +122,10 @@ function expectNativeSchema(
     { version: 53, name: 'retain checklist settlement order and delivery inputs' },
     { version: 54, name: 'keep a 30-day five-minute consumption rollup' },
     { version: 55, name: 'retain recent provider-final responses' },
+    {
+      version: 56,
+      name: 'keep the last credit balance and service tier per consumption rollup bucket',
+    },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
