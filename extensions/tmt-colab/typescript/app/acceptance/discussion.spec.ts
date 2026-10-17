@@ -904,7 +904,7 @@ test('answer blocks publish verified normal annotations and keep changes and age
     await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
     await card.getByLabel('Keep it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
-    await expect(card.locator('.question-state')).toContainText('answered');
+    await expect(card.locator('.needs-you-bar')).toContainText('Answered');
     await until(() => agent.received().length === 1, 'first question answer');
     const first = agent.received()[0];
     expect(first.identityId).toBe(agent.id);

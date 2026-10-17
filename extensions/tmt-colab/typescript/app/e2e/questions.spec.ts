@@ -22,13 +22,13 @@ async function mount(page: Page, question = {}, options = {}) {
 async function send(page: Page) {
   const card = page.locator('.question-group-card');
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
-  await expect(card.locator('.question-state')).toContainText('answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered');
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
 }
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
-    await expect(card.locator('.question-state')).toContainText('Waiting for you');
+    await expect(card.locator('.needs-you-bar')).toContainText('Please answer');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Change it', { exact: true }).check();
       if (kind === 'multiple') await card.getByLabel('Keep it', { exact: true }).check();
@@ -128,7 +128,7 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 0,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.question-state')).toContainText('You answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
   await run(page, 'questionSibling', {
     body: `${prefix}Other reader answer\nPage: Live shared page`,
     sequence: '10',
@@ -144,12 +144,12 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 2,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.question-state')).toContainText('You answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
   await card.getByRole('button', { name: 'Change answer', exact: true }).click();
   await card.getByLabel('Change it', { exact: true }).check();
   await send(page);
   await expect(card.locator('.question-answer')).toContainText('Change it');
-  await expect(card.locator('.question-state')).toContainText('You answered');
+  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
   const threads = await run(page, 'discussionProof');
   expect(
     threads.find((thread: { ref: { writer: string } }) => thread.ref.writer.endsWith('000002'))
@@ -358,9 +358,10 @@ for (const width of [1440, 390])
           await expect(surface).toHaveCSS('color-scheme', theme);
           await expect(surface).toHaveCSS('box-shadow', 'none');
         }
-        await expect(card.locator('.question-state')).toHaveCSS(
+        // The state line is the shared light band, not the sheet.
+        await expect(card.locator('.needs-you-bar')).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
         );
         await expect(card.locator('.question-group-footer')).toHaveCSS(
           'border-top-color',
@@ -433,13 +434,12 @@ for (const width of [1440, 390])
         await card.getByLabel('Other answer', { exact: true }).fill('Try a clearer heading.');
         const sendButton = card.getByRole('button', { name: /^Send answer/ });
         await expect(sendButton).toBeEnabled();
-        await expect(sendButton).toHaveCSS(
-          'background-color',
-          theme === 'dark' ? 'rgb(125, 207, 255)' : 'rgb(0, 107, 143)',
-        );
+        // Send is an inline text action, like the other needs-you actions.
+        await expect(sendButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        await expect(sendButton).toHaveCSS('text-decoration-line', 'underline');
         await expect(sendButton).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await sendButton.press('Tab');
         await page.keyboard.press('Shift+Tab');
@@ -508,7 +508,7 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
         ),
     )
     .toBeGreaterThan(0);
-  await expect(card.locator('.question-state')).toContainText('Waiting for you');
+  await expect(card.locator('.needs-you-bar')).toContainText('Please answer');
   await expect(card.locator('.question-answer')).toHaveCount(0);
   await card.getByLabel('Keep it', { exact: true }).check();
   await expect(

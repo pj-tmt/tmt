@@ -34,7 +34,7 @@ test('a waiting section offers Confirm and Needs change, and the head counts it'
 }) => {
   const card = await mount(page, { sections: 2 });
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
-  await expect(card.getByText('Waiting for your confirmation')).toBeVisible();
+  await expect(card.getByText('Please confirm')).toBeVisible();
   await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeEnabled();
   await expect(card.getByRole('button', { name: 'Needs change…', exact: true })).toBeEnabled();
   await expect(card.getByText('Goes to @Agent 1')).toBeVisible();
@@ -199,7 +199,7 @@ test('an archived page shows section state and count but no controls', async ({ 
   await expect(card).toHaveAttribute('data-review-state', 'closed');
   await run(page, 'archive');
   await expect(card.getByRole('button', { name: 'Reopen' })).toHaveCount(0);
-  await expect(card.locator('.review-state strong')).toHaveText('Closed');
+  await expect(card.locator('.needs-you-bar strong')).toHaveText('Closed');
   await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
 });
 
@@ -257,7 +257,7 @@ test('a group inside a section closes it only when every question is answered', 
   await group.getByRole('tab', { name: /Q1/ }).click();
   await active.getByLabel('Your answer', { exact: true }).fill('First answer.');
   await group.getByRole('button', { name: /^Send/ }).press('Enter');
-  await expect(group.locator('.question-state').first()).toContainText('answered');
+  await expect(group.locator('.needs-you-bar').first()).toContainText('Answered');
   // One of two answered: the section stays open and nothing was resolved.
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
   expect((await run(page, 'proof')).actions).toEqual([]);
@@ -385,67 +385,62 @@ for (const [width, theme] of [
         });
         expect(box, `band ${index + 1}`).toEqual({ inside: true, clipped: false });
       }
-      // The panel frame is the shared light rule with no fill (the page surface shows through),
-      // the waiting mark is the attention-coloured ◆, and a wrapped action starts at the content edge.
+      // The shared needs-you look: no frame, a light fill band while the section needs a person or an
+      // agent, only the waiting ◆ in the attention colour, and a settled line without its fill.
       const look = await page.evaluate(() => {
         const probe = document.createElement('i');
         document.body.append(probe);
-        const resolve = (property: 'borderColor' | 'color', token: string) => {
+        const resolve = (property: 'backgroundColor' | 'color', token: string) => {
           probe.style[property] = `var(${token})`;
-          probe.style.borderStyle = 'solid';
           return getComputedStyle(probe)[property];
         };
-        const rule = resolve('borderColor', '--tmt-ui-surface-rule');
+        const band = resolve('backgroundColor', '--tmt-ui-surface-mention-agent');
         const waiting = resolve('color', '--tmt-ui-color-waiting');
+        const secondary = resolve('color', '--tmt-ui-color-secondary');
         probe.remove();
-        const edge = (card: Element) => {
-          const style = getComputedStyle(card);
-          return (
-            card.getBoundingClientRect().left +
-            parseFloat(style.borderLeftWidth) +
-            parseFloat(style.paddingLeft)
-          );
-        };
         return [...document.querySelectorAll('.review-card')].map((card) => {
-          const style = getComputedStyle(card);
-          const actions = [...card.querySelectorAll('.review-buttons button, header > button')].map(
-            (button) => button.getBoundingClientRect(),
+          const bar = card.querySelector('.needs-you-bar')!;
+          const style = getComputedStyle(bar);
+          const frame = getComputedStyle(card);
+          const actions = [...bar.querySelectorAll('.needs-you-actions button')].map((button) =>
+            button.getBoundingClientRect(),
           );
           const first = actions[0];
+          const edge = bar.getBoundingClientRect().left + parseFloat(style.paddingLeft);
+          const mark = bar.querySelector('.needs-you-mark')!;
           return {
-            rule,
+            band,
             waiting,
-            border: style.borderTopColor,
+            secondary,
+            frame: [frame.borderTopWidth, frame.borderLeftWidth],
             fill: style.backgroundColor,
-            mark: card.querySelector('.review-mark')?.textContent,
-            markColor: card.querySelector('.review-mark')
-              ? getComputedStyle(card.querySelector('.review-mark')!).color
-              : undefined,
+            color: style.color,
+            mark: mark.textContent,
+            markColor: getComputedStyle(mark).color,
             // Offsets of every action that sits on a later line than the first one.
             wrapped: actions
               .filter((rect) => first && rect.top > first.top + 1)
-              .map((rect) => Math.abs(rect.left - edge(card))),
-            // The only action of a closed section starts at the edge when it is on its own line.
-            own: card.querySelector('header > button')
-              ? Math.abs(
-                  card.querySelector('header > button')!.getBoundingClientRect().left - edge(card),
-                )
-              : undefined,
+              .map((rect) => Math.abs(rect.left - edge)),
+            // Where the actions start, as an offset from the text edge, when they have a line of their own.
+            own: first && first.top > bar.getBoundingClientRect().top + 12 ? first.left - edge : 0,
           };
         });
       });
       for (const [index, band] of look.entries()) {
-        expect(band.border, `band ${index + 1} frame`).toBe(band.rule);
-        expect(band.fill, `band ${index + 1} fill`).toBe('rgba(0, 0, 0, 0)');
+        expect(band.frame, `band ${index + 1} has no frame`).toEqual(['0px', '0px']);
         for (const offset of band.wrapped)
           expect(offset, `band ${index + 1} wrapped action`).toBeLessThanOrEqual(1);
+        expect(band.own, `band ${index + 1} own-line action`).toBeLessThanOrEqual(1);
       }
-      expect(look[0].mark).toBe('◆');
+      // Section 1 waits for the reader, 2 waits for the agent, 3 is settled.
+      expect(look.map((band) => band.mark)).toEqual(['◆', '◇', '✓']);
+      expect(look[0].fill).toBe(look[0].band);
       expect(look[0].markColor).toBe(look[0].waiting);
-      expect(look[1].mark).toBeUndefined();
-      expect(look[2].mark).toBeUndefined();
-      // At 390 the closed section's Reopen no longer fits beside its status: it sits at the edge.
-      if (width === 390) expect(look[2].own).toBeLessThanOrEqual(1);
+      expect(look[1].fill).toBe(look[1].band);
+      expect(look[1].markColor).toBe(look[1].secondary);
+      expect(look[1].color).toBe(look[1].secondary);
+      expect(look[2].fill).toBe('rgba(0, 0, 0, 0)');
+      expect(look[2].color).toBe(look[2].secondary);
       const closed = frame(page).locator('tmt-review').nth(2);
       const style = await closed.evaluate((node) => {
         const text = node.querySelector('p')!;

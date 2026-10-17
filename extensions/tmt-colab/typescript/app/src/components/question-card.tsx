@@ -16,6 +16,7 @@ import { ArchivedDraft } from '../annotation-input.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
 import { compactRelativeTime } from '../display-time.js';
+import { NeedsYouBar } from './needs-you-bar.js';
 
 export interface QuestionDraft {
   choices: string[];
@@ -111,22 +112,37 @@ export function QuestionCard({
         }
       }}
     >
-      <p className="question-state" role="status">
-        <span
-          className="question-state-mark"
-          data-tone={answer ? 'working' : 'waiting'}
-          aria-hidden="true"
-        >
-          {answer ? '✓' : '◆'}
-        </span>{' '}
-        {answer
-          ? `${answer.deviceName} answered · ${
-              Number(answer.at) > 0 && Number.isFinite(Number(answer.at))
-                ? compactRelativeTime(Number(answer.at), now)
-                : 'time unknown'
-            }`
-          : `Waiting for you${question.agent ? ` · from ${question.agent}` : ''}`}
-      </p>
+      <NeedsYouBar
+        role="status"
+        tone={answer ? 'done' : 'needs'}
+        word={answer ? 'Answered' : 'Please answer'}
+        who={answer ? answer.deviceName : question.agent}
+        why={
+          answer
+            ? Number(answer.at) > 0 && Number.isFinite(Number(answer.at))
+              ? compactRelativeTime(Number(answer.at), now)
+              : 'time unknown'
+            : undefined
+        }
+        actions={
+          answer && !readOnly && !changing ? (
+            <BrowserAction
+              label="Change answer"
+              type="button"
+              variant="text"
+              disabled={disabled}
+              onActivate={(event) => {
+                if (event.isTrusted) {
+                  onDraft({ changing: true });
+                  queueMicrotask(() =>
+                    section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
+                  );
+                }
+              }}
+            />
+          ) : undefined
+        }
+      />
       <div
         className="question-description-space"
         style={{ height: descriptionHeight }}
@@ -134,27 +150,9 @@ export function QuestionCard({
       />
       <div className="question-controls">
         {answer && (
-          <>
-            <p className="question-answer">
-              {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
-            </p>
-            {!readOnly && !changing && (
-              <BrowserAction
-                label="Change answer"
-                type="button"
-                variant="text"
-                disabled={disabled}
-                onActivate={(event) => {
-                  if (event.isTrusted) {
-                    onDraft({ changing: true });
-                    queueMicrotask(() =>
-                      section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
-                    );
-                  }
-                }}
-              />
-            )}
-          </>
+          <p className="question-answer">
+            {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
+          </p>
         )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (

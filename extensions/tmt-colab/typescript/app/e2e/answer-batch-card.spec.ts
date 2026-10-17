@@ -288,7 +288,7 @@ for (const recordBeforeFail of [false, true]) {
       await expect(card(page).locator('.question-answer')).toHaveText('Keep it');
     else {
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(card(page).locator('.question-state')).toContainText('Waiting for you');
+      await expect(card(page).locator('.needs-you-bar')).toContainText('Please answer');
     }
     await group.getByRole('button', { name: /^Send 1 answer/ }).click();
     await recorded(page, recordBeforeFail ? 4 : 3);
@@ -572,7 +572,7 @@ for (const [width, theme] of [
         'Could not confirm this answer. Your draft is kept for the next Send.',
       );
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(card(page).locator('.question-state')).toContainText('Waiting for you');
+      await expect(card(page).locator('.needs-you-bar')).toContainText('Please answer');
       await capture('comment-unconfirmed');
       await remount({ count: 3, darkPage }, { prepareFailures: 1 });
       await answerThree(page, group);

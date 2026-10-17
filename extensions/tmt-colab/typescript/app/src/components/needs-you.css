@@ -1,0 +1,39 @@
+/* One light band for every "needs you" component: no frame, only the mark takes the attention
+   colour, and a settled line fades to neutral text without its fill. */
+.needs-you-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 16px;
+  padding: 8px 12px;
+  background: var(--tmt-ui-surface-mention-agent);
+  color: var(--tmt-ui-color-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.needs-you-bar[data-tone='agent'],
+.needs-you-bar[data-tone='done'] {
+  color: var(--tmt-ui-color-secondary);
+}
+.needs-you-bar[data-tone='done'] {
+  background: transparent;
+}
+.needs-you-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.needs-you-bar[data-tone='needs'] .needs-you-mark {
+  color: var(--tmt-ui-color-waiting);
+}
+.needs-you-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+/* A text action carries no frame, so its text starts at the content edge, also when it wraps. */
+.needs-you-actions .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
+  font-size: inherit;
+}

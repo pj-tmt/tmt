@@ -459,7 +459,7 @@ export function QuestionGroupCard({
               label={`${sendLabel} · to ${audience || 'thread only'}`}
               visibleLabel={sendLabel}
               type="button"
-              variant="primary"
+              variant="text"
               busy={!!sending.length || resolvingDefaults}
               disabled={
                 disabled ||

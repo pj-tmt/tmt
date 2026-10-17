@@ -1,5 +1,4 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { Check, Diamond } from 'lucide-react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { Review } from '../questions.js';
 import type { ReviewOutcome } from '../review-actions.js';
@@ -7,6 +6,7 @@ import type { ReviewState } from '../reviews.js';
 import { REVIEW_CHANGE_NOTE_BYTES, REVIEW_CONFIRM_NOTE_POINTS } from '../reviews.js';
 import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
+import { NeedsYouBar } from './needs-you-bar.js';
 
 /** Authenticated parent presentation of one review section. The callbacks own every effect; the
  * page's own HTML cannot render, press or fake any of this. */
@@ -53,21 +53,49 @@ export function ReviewCard({
   const working = outcome?.state === 'working';
   const busy = disabled || working;
   const closed = state.kind === 'closed';
-  const status =
-    state.kind === 'closed'
-      ? text.reviewClosed
-      : state.kind === 'changes'
-        ? text.reviewChanges
-        : text.reviewWaiting;
-  const detail =
-    state.kind === 'closed'
-      ? [
-          state.by ? text.reviewClosedBy(state.by) : undefined,
-          now && state.at && Number.isFinite(Number(state.at))
-            ? compactRelativeTime(Number(state.at), now)
-            : undefined,
-        ].filter(Boolean)
-      : [];
+  const action = (label: string, onActivate: () => void, options: { disabled?: boolean } = {}) => (
+    <BrowserAction
+      key={label}
+      type="button"
+      variant="text"
+      label={label}
+      disabled={options.disabled ?? busy}
+      onActivate={(event) => {
+        if (event.isTrusted) onActivate();
+      }}
+    />
+  );
+  const actions = readOnly
+    ? undefined
+    : closed
+      ? action(text.reviewReopen, reopen)
+      : changing
+        ? [
+            action(text.reviewChangeSend, () => requestChange(change), {
+              disabled: busy || !change.trim(),
+            }),
+            action(
+              text.reviewCancel,
+              () => {
+                setChanging(false);
+                setChange('');
+              },
+              { disabled: working },
+            ),
+          ]
+        : [
+            action(text.reviewConfirm, () => confirm(noting ? note : '')),
+            !noting && action(text.reviewAddNote, () => setNoting(true)),
+            action(text.reviewNeedsChange, () => {
+              setNoting(false);
+              setNote('');
+              setChanging(true);
+            }),
+          ];
+  const closedAgo =
+    state.kind === 'closed' && now && state.at && Number.isFinite(Number(state.at))
+      ? compactRelativeTime(Number(state.at), now)
+      : undefined;
   return (
     <section
       className="review-card"
@@ -75,145 +103,80 @@ export function ReviewCard({
       data-review-id={review.id}
       data-review-state={state.kind}
     >
-      <header>
-        <span className="review-state">
-          {closed ? (
-            <Check aria-hidden />
-          ) : state.kind === 'changes' ? (
-            <Diamond aria-hidden />
-          ) : (
-            <span className="review-mark" data-tone="waiting" aria-hidden="true">
-              ◆
-            </span>
-          )}
-          <strong>{status}</strong>
-          <span className="review-section-title">{review.title}</span>
-        </span>
-        {detail.length > 0 && <span className="review-detail">{detail.join(' · ')}</span>}
-        {!readOnly && closed && (
-          <BrowserAction
-            type="button"
-            variant="text"
-            label={text.reviewReopen}
-            disabled={busy}
-            onActivate={(event) => {
-              if (event.isTrusted) reopen();
-            }}
-          />
-        )}
-      </header>
-      {state.kind !== 'waiting' && state.note && <p className="review-note">{state.note}</p>}
-      {!readOnly && !closed && (
-        <div className="review-actions">
-          {noting && (
-            <div className="review-field">
-              <label htmlFor={`${id}-note`}>{text.reviewNoteLabel}</label>
-              <input
-                id={`${id}-note`}
-                value={note}
-                disabled={busy}
-                maxLength={REVIEW_CONFIRM_NOTE_POINTS * 2}
-                onChange={(event) => setNote(event.target.value)}
-              />
-            </div>
-          )}
-          {changing && (
-            <div className="review-field">
-              <label htmlFor={`${id}-change`}>{text.reviewChangeLabel}</label>
-              <textarea
-                id={`${id}-change`}
-                value={change}
-                disabled={busy}
-                rows={3}
-                maxLength={REVIEW_CHANGE_NOTE_BYTES}
-                onChange={(event) => setChange(event.target.value)}
-              />
-            </div>
-          )}
-          <div className="review-buttons">
-            {!changing && (
-              <>
-                <BrowserAction
-                  type="button"
-                  variant="primary"
-                  label={text.reviewConfirm}
-                  disabled={busy}
-                  onActivate={(event) => {
-                    if (event.isTrusted) confirm(noting ? note : '');
-                  }}
-                />
-                {!noting && (
-                  <BrowserAction
-                    type="button"
-                    variant="text"
-                    label={text.reviewAddNote}
-                    disabled={busy}
-                    onActivate={(event) => {
-                      if (event.isTrusted) setNoting(true);
-                    }}
-                  />
-                )}
-                <BrowserAction
-                  type="button"
-                  variant="text"
-                  label={text.reviewNeedsChange}
-                  disabled={busy}
-                  onActivate={(event) => {
-                    if (!event.isTrusted) return;
-                    setNoting(false);
-                    setNote('');
-                    setChanging(true);
-                  }}
-                />
-              </>
-            )}
-            {changing && (
-              <>
-                <BrowserAction
-                  type="button"
-                  variant="primary"
-                  label={text.reviewChangeSend}
-                  disabled={busy || !change.trim()}
-                  onActivate={(event) => {
-                    if (event.isTrusted) requestChange(change);
-                  }}
-                />
-                <BrowserAction
-                  type="button"
-                  variant="text"
-                  label={text.reviewCancel}
-                  disabled={working}
-                  onActivate={(event) => {
-                    if (!event.isTrusted) return;
-                    setChanging(false);
-                    setChange('');
-                  }}
-                />
-              </>
-            )}
+      {state.kind === 'closed' ? (
+        <NeedsYouBar
+          tone="done"
+          word={text.reviewClosed}
+          who={state.by}
+          why={[closedAgo, state.note && `“${state.note}”`].filter(Boolean).join(' · ')}
+          actions={actions}
+        />
+      ) : state.kind === 'changes' ? (
+        <NeedsYouBar
+          tone="agent"
+          word={text.reviewChanges}
+          why={text.reviewWaitingFor(review.agent)}
+          actions={actions}
+        />
+      ) : (
+        <NeedsYouBar
+          tone="needs"
+          word={text.reviewAsk}
+          who={review.agent}
+          why={review.title}
+          actions={actions}
+        />
+      )}
+      <div className="review-body">
+        {state.kind === 'changes' && state.note && <p className="review-note">{state.note}</p>}
+        {!readOnly && !closed && noting && (
+          <div className="review-field">
+            <label htmlFor={`${id}-note`}>{text.reviewNoteLabel}</label>
+            <input
+              id={`${id}-note`}
+              value={note}
+              disabled={busy}
+              maxLength={REVIEW_CONFIRM_NOTE_POINTS * 2}
+              onChange={(event) => setNote(event.target.value)}
+            />
           </div>
+        )}
+        {!readOnly && !closed && changing && (
+          <div className="review-field">
+            <label htmlFor={`${id}-change`}>{text.reviewChangeLabel}</label>
+            <textarea
+              id={`${id}-change`}
+              value={change}
+              disabled={busy}
+              rows={3}
+              maxLength={REVIEW_CHANGE_NOTE_BYTES}
+              onChange={(event) => setChange(event.target.value)}
+            />
+          </div>
+        )}
+        {!readOnly && !closed && (
           <p className="review-recipient">
             {recipient ? text.reviewTo(recipient) : text.reviewNoRecipient}
           </p>
-        </div>
-      )}
-      {outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
-      {/* A failure that predates the section closing says nothing about a closed section. */}
-      {outcome?.state === 'failed' && outcome.step === 'reopening' && (
-        <p role="alert">{text.reviewReopenFailed}</p>
-      )}
-      {outcome?.state === 'failed' && outcome.step !== 'reopening' && !closed && (
-        <p role="alert">
-          {outcome.step === 'closing' ? text.reviewCommentKept : text.reviewFailed}
-        </p>
-      )}
-      {outcome?.state === 'uncertain' && !closed && <p role="status">{text.reviewUncertain}</p>}
-      {outcome?.state === 'settled' && outcome.warnings && outcome.warnings.length > 0 && (
-        <p role="status">
-          {text.threadNotNotified(outcome.warnings.map((name) => `@${name}`).join(', '))}
-        </p>
-      )}
-      {children}
+        )}
+        {outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
+        {/* A failure that predates the section closing says nothing about a closed section. */}
+        {outcome?.state === 'failed' && outcome.step === 'reopening' && (
+          <p role="alert">{text.reviewReopenFailed}</p>
+        )}
+        {outcome?.state === 'failed' && outcome.step !== 'reopening' && !closed && (
+          <p role="alert">
+            {outcome.step === 'closing' ? text.reviewCommentKept : text.reviewFailed}
+          </p>
+        )}
+        {outcome?.state === 'uncertain' && !closed && <p role="status">{text.reviewUncertain}</p>}
+        {outcome?.state === 'settled' && outcome.warnings && outcome.warnings.length > 0 && (
+          <p role="status">
+            {text.threadNotNotified(outcome.warnings.map((name) => `@${name}`).join(', '))}
+          </p>
+        )}
+        {children}
+      </div>
     </section>
   );
 }
