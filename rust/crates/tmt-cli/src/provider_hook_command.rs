@@ -299,6 +299,7 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
         let binding = stored.entry.binding.as_ref().ok_or(())?;
         let pane = &binding.pane_id;
         let EndpointProbe::Live(snapshot) = Host::for_server_with(&binding.server, runner.clone())
+            .with_drivers(tmt_adapters::host::external::approved())
             .probe(
                 &binding.server,
                 OperationOptions {
@@ -319,7 +320,13 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
         (stored, snapshot, process)
     } else {
         let environment = CallerEnvironment::current();
-        let panes = Host::for_caller_with(&environment, runner.clone());
+        let panes = Host::for_verified_caller(
+            &environment,
+            runner.clone(),
+            tmt_adapters::host::external::approved(),
+            &mut tmt_adapters::storage::RecordedHostServers::new(&paths.database),
+        )
+        .map_err(|_| ())?;
         let Some(pane) = panes.caller_pane(&environment).map_err(|_| ())? else {
             return if Instant::now() < deadline {
                 Ok(Caller::Unobserved)

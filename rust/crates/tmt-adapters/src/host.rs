@@ -365,6 +365,37 @@ impl<R: CommandRunner + Clone> Host<R> {
         }
     }
 
+    /// A hook or discovery caller's host, verified rather than assumed: the
+    /// approved drivers serve an external caller, whose server ID must be one
+    /// a bind recorded (`ids` never records one). An approved driver's caller
+    /// variables without a verified pane refuse; they never fall back to tmux.
+    pub fn for_verified_caller<I: HostServerIds>(
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+        ids: &mut I,
+    ) -> Result<Self, HostError> {
+        let host = Self::for_caller_with_drivers(environment, runner, records);
+        match host.primary {
+            HostKind::Tmux if !environment.driver_env.is_empty() && !environment.names_tmux() => {
+                Err(HostError::Unavailable(
+                    "no approved driver verified the caller's pane".into(),
+                ))
+            }
+            HostKind::Tmux => Ok(host),
+            HostKind::External(name) => {
+                host.resolve_servers(ids)?;
+                match host.external.resolved() {
+                    Some(_) => Ok(host),
+                    None => Err(HostError::Evidence {
+                        driver: name.as_str().to_owned(),
+                        reason: "the caller's server was not resolved",
+                    }),
+                }
+            }
+        }
+    }
+
     pub fn for_server_with(server: &ServerEvidence, runner: R) -> Self {
         let host = Self::of(server.host, runner);
         if let HostKind::External(_) = server.host {
