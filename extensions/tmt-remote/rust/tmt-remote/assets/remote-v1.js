@@ -461,12 +461,19 @@ function agents(value) {
 	return rows.map((value) => {
 		const row = record(value);
 		valid$6(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		const activity = row.activity;
+		const observedAtMs = row.observedAtMs;
 		return {
 			id: row.id,
 			name: row.name,
 			presence: row.presence,
 			...Object.hasOwn(row, "delivery") ? { delivery: row.delivery } : {},
-			...row.runningDriver === "claude" || row.runningDriver === "codex" ? { runningDriver: row.runningDriver } : {}
+			...row.runningDriver === "claude" || row.runningDriver === "codex" ? { runningDriver: row.runningDriver } : {},
+			...activity !== null && typeof activity === "object" && !Array.isArray(activity) && "state" in activity && "sinceMs" in activity && (activity.state === "working" || activity.state === "idle" || activity.state === "unknown" || activity.state === "ended") && (activity.sinceMs === null || typeof activity.sinceMs === "number" && Number.isSafeInteger(activity.sinceMs) && activity.sinceMs >= 0) ? { activity: {
+				state: activity.state,
+				sinceMs: activity.sinceMs
+			} } : {},
+			...typeof observedAtMs === "number" && Number.isSafeInteger(observedAtMs) && observedAtMs >= 0 ? { observedAtMs } : {}
 		};
 	});
 }
