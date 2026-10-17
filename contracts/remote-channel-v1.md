@@ -1931,8 +1931,15 @@ creation: an appId-only PATCH, never a repoint of a nonempty association. Displa
 aid, not ownership proof; an arbitrary sole foreign app is never selected. The Site association
 supports same-origin Firebase SDK configuration; reserved `/__/` paths remain unrewritten.
 Ownership requires Remote's deployment/plan labels and full observed gzip-file/config identity;
-labels alone cannot adopt a release. The whole plan digest covers foreign Rules and Hosting
-replacement fingerprints; changed foreign state invalidates consent.
+labels alone cannot adopt a release. Rust `hosting` alone hashes compact UTF-8 JSON with
+`files` then `config`: path-sorted rows with fields `path`, `hash`, `status` in that order,
+plus config with recursively sorted object keys (array order retained). The first 32 lowercase
+hex characters of its SHA-256 are the content label. The adapter captures the digest with prepared
+content and supplies it to the private helper for labels/read-back; the helper never recomputes it.
+This adds no frozen plan or record field. Old helper sorted-JSON labels remain foreign and are
+not migrated or adopted.
+The whole plan digest covers foreign Rules and Hosting replacement fingerprints; changed foreign
+state invalidates consent.
 
 Declared Hosting refuses before login when the lazy provider factory does not support the
 complete lifecycle. Executable steps create only the named app/site, associate the site when listed,

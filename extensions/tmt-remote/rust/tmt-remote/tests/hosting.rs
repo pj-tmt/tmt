@@ -162,6 +162,38 @@ fn bundle_must_be_the_complete_exact_canonical_manifest_inventory() {
     }
     assert!(HostingBundle::parse(&m, b"{\"version\":1,\"version\":1}").is_err());
 }
+#[test]
+fn owned_content_identity_ignores_provider_config_object_key_order() {
+    let content = compose(&[bundle()]).unwrap().unwrap();
+    let mut config = content.config().clone();
+    config.sort_all_objects();
+    assert_ne!(
+        serde_json::to_vec(&config).unwrap(),
+        serde_json::to_vec(content.config()).unwrap(),
+        "control changes key order only"
+    );
+    let inventory = HostingInventory {
+        site_exists: true,
+        site_app_id: None,
+        site_app_config: None,
+        web_apps: vec![],
+        live: Some(HostingLiveRelease {
+            version: "version-1".into(),
+            deployment_id: Some(ID.into()),
+            plan_digest_prefix: Some("a".repeat(12)),
+            content_digest: Some(content.live_digest()[..32].into()),
+            files: content.live_files(),
+            config,
+        }),
+    };
+    assert_eq!(
+        hosting::deployment_view(&content, "demo-remote-1", ID, &inventory)
+            .unwrap()
+            .replaces,
+        "none"
+    );
+}
+
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 #[test]
 fn site_creation_web_app_choice_and_foreign_fingerprint_are_named_in_the_plan() {

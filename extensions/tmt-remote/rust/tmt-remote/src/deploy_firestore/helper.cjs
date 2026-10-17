@@ -127,6 +127,7 @@ function validate(request) {
           'project',
           'deployment',
           'planDigest',
+          'contentDigest',
           'hosting',
           'checkpoint',
           'steps',
@@ -183,6 +184,8 @@ function validate(request) {
   if (request.operation.endsWith('-hosting')) {
     if (
       !/^[0-9a-f]{64}$/.test(i.planDigest) ||
+      typeof i.contentDigest !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(i.contentDigest) ||
       !/^[0-9a-f-]{36}$/.test(i.deployment) ||
       !i.hosting ||
       !i.checkpoint ||
@@ -630,7 +633,7 @@ async function execute(request, deps) {
       hash: f.gzipDigest,
       status: 'ACTIVE',
     }));
-    const contentDigest = sha(stable({ files, config: h.content.config }));
+    const contentDigest = i.contentDigest;
     const labels = {
       'tmt-deployment': i.deployment,
       'tmt-plan': i.planDigest.slice(0, 12),

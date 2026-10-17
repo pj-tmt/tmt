@@ -494,8 +494,7 @@ pub fn deployment_view_for_app(
         {
             return Err(HostingRefusal::Inventory);
         }
-        let content = json!({"files":&files,"config":live.config});
-        let digest = sha256_hex(&serde_json::to_vec(&content).expect("content serializes"));
+        let digest = content_digest(&files, &live.config);
         let own = live.deployment_id.as_deref() == Some(deployment_id)
             && live.content_digest.as_deref() == Some(&digest[..32])
             && live.plan_digest_prefix.as_deref().is_some_and(|p| {
@@ -586,9 +585,17 @@ impl HostingComposition {
             .collect()
     }
     pub fn live_digest(&self) -> String {
-        sha256_hex(
-            &serde_json::to_vec(&json!({"files": self.live_files(), "config": self.config}))
-                .expect("content serializes"),
-        )
+        content_digest(&self.live_files(), &self.config)
     }
+}
+
+/// Files have canonical path order; config object key order is provider-independent.
+/// Rust field order deliberately differs from the old helper's sorted-key hash.
+fn content_digest(files: &[HostingLiveFile], config: &Value) -> String {
+    let mut config = config.clone();
+    config.sort_all_objects();
+    sha256_hex(
+        &serde_json::to_vec(&json!({"files": files, "config": config}))
+            .expect("content serializes"),
+    )
 }

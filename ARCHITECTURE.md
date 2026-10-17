@@ -560,7 +560,7 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 `extensions/tmt-remote` builds `tmt remote`. Fixed public Core JSON calls use absolute
 `TMT_EXECUTABLE` via `tmt-invoke`. Remote owns `<dataRoot>/remote/` via
 [state leaf](#shared-extension-state-layout). Core delegates restart if replaced Remote was running;
-Remote owns listener, state and [lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
+Remote owns listener/state/[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
 Bundle: pages/CSS/SDK/wordlist, no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [Contract](contracts/remote-channel-v1.md) owns wire, pairing, sessions, operations, settings authority,
@@ -577,10 +577,10 @@ otherwise public CLI/SDK/`tmt-extension-objects`, never Remote state files.
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync`: COUNT/read limits; Colab cursors; no Core state/carrier. Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md): channels/backends/quotas.
-Deploy: frozen consent/`--details`/history, Rules/Hosting fences; record readiness.
-[Module rules](.agents/skills/tmt-remote/references/architecture-internals.md);
+Deploy: `hosting` hash; frozen consent/`--details`/history, Rules/Hosting fences; record readiness.
+[Modules](.agents/skills/tmt-remote/references/architecture-internals.md);
 [door/discovery](.agents/skills/tmt-remote/references/door-and-discovery.md): lifecycle/status/management.
-[Background start](contracts/extension-serve-v1.md).
+[Background](contracts/extension-serve-v1.md).
 
 ## Colab extension
 
