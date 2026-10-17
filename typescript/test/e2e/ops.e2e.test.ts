@@ -113,8 +113,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
             header.slice(0, 75)
           ) &&
           rule.slice(77).startsWith('── Common pool ') &&
-          /^[ \t]+├   Ben[ \t]+— unreported[ \t]/m.test(screen) &&
-          /^[ \t]+└   worker[ \t]+— unreported[ \t]/m.test(screen)
+          /^[ \t]+├   Ben[ \t]+— unknown[ \t]/m.test(screen) &&
+          /^[ \t]+└   worker[ \t]+— unknown[ \t]/m.test(screen)
         );
       }, shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);

@@ -5289,7 +5289,7 @@ describe('verified former-board switching', () => {
                   /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+NOW[ \t]*$/m
                 );
                 expect(screen).toMatch(
-                  /^   Ben[ \t]+product[ \t]+\? unreported[ \t]+—[ \t]+—[ \t]*$/m
+                  /^   Ben[ \t]+product[ \t]+— unknown[ \t]+—[ \t]+—[ \t]*$/m
                 );
                 expect(screen).toMatch(/Agents[ \t]+Squads[ \t]+\/ Search/);
                 expect(screen).not.toContain('Needs you');
@@ -5313,7 +5313,7 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () =>
                 expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
-                  /^[ \t]+└   Ben[ \t]+— unreported · lead[ \t]+—[ \t]+0\/0[ \t]*$/m
+                  /^[ \t]+└   Ben[ \t]+— unknown · lead[ \t]+—[ \t]+0\/0[ \t]*$/m
                 ),
               { timeout: 5000, interval: 50 }
             );
