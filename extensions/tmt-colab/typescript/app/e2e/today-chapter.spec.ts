@@ -74,6 +74,23 @@ test('a wide chapter click opens a right panel over a held Today', async ({ page
   await expect(panel(page)).toHaveCSS('box-shadow', 'none');
 });
 
+test('the held Today does not read the reading details again', async ({ page }) => {
+  await wide(page);
+  await mount(page, 'readings');
+  const reads = () =>
+    page.evaluate(async () => {
+      const fixture = '/test/today-browser.tsx';
+      return (await import(/* @vite-ignore */ fixture)).readingDetailReads();
+    });
+  await expect.poll(reads).toHaveLength(1);
+  await link(page, 'Reading for the release').click();
+  await expect(panel(page)).toBeVisible();
+  await expect(held(page).locator('.today-chapters')).toBeVisible();
+  // The right column the reading links sit in is not drawn, and nothing is read for it.
+  await expect(held(page).locator('.today-readings')).toBeHidden();
+  expect(await reads()).toHaveLength(1);
+});
+
 test('the held Today marks the open chapter with a rule and shows no cut-off column', async ({
   page,
 }) => {

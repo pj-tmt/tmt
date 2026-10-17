@@ -1,5 +1,5 @@
 import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { holdSpace, openChapter, prepareToday } from './chapter.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
@@ -148,9 +148,6 @@ function Chapter({
 
 export function Today() {
   const space = todayRoute.useLoaderData();
-  const { transport } = rootRoute.useRouteContext();
-  // The panel over Today shows this same list, so it paints at once.
-  useLayoutEffect(() => holdSpace(transport, space), [transport, space]);
   return <TodayView space={space} />;
 }
 
@@ -164,8 +161,15 @@ export function TodayView({
   held?: { scroll: number; open: string };
 }) {
   const router = useRouter();
+  const { transport } = rootRoute.useRouteContext();
   const { pages, hints } = useHomeSpace(space);
-  const readingDetails = useTodayReadings(space);
+  // The held copy hides the column the reading links sit in, so it reads none.
+  const noPages = useMemo(() => ({ ...space, pages: [] }), [space]);
+  const readingDetails = useTodayReadings(held ? noPages : space);
+  // The panel over Today shows this same list, so it paints at once.
+  useLayoutEffect(() => {
+    if (!held) holdSpace(transport, space);
+  }, [held, transport, space]);
   useSpaceTitle(held ? undefined : space.title, text.product);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages]);
