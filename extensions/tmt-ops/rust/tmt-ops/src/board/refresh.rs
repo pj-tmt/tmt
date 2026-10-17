@@ -940,6 +940,9 @@ fn load(
         });
     };
     let listed = timing::measure(trace, "identity_references", || core.json(&["ls"]));
+    // When core's activity observation reached the board: the age of this read
+    // decides whether the board may still show it as current.
+    let listed_at = Instant::now();
     let references = super::inventory::Inventory::from_listed(&squads, &listed);
     let mut attention = BTreeMap::new();
     let mut deferred = None;
@@ -952,7 +955,7 @@ fn load(
             leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
             timing::measure(trace, "all_view", || {
-                all_view(core, config, &squads, &tabs, me.clone(), &listed)
+                all_view(core, config, &squads, &tabs, me.clone(), &listed, listed_at)
             })?
         } else if tabs::user_name(&key).is_some() {
             member_view(core, tmux, config, &squads, &tabs, me.clone(), &key)?
@@ -1217,11 +1220,13 @@ fn all_view(
     tabs: &[String],
     me: Option<crate::me::Me>,
     listed: &Result<Value, crate::core::SquadError>,
+    listed_at: Instant,
 ) -> Result<(View, BTreeMap<String, Attention>), crate::core::SquadError> {
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let (loaded, home, home_rate) =
+    let (loaded, mut home, home_rate) =
         super::home::load(core, config, squads, tabs, me.as_ref(), listed)?;
+    home.workspace.read_at = listed.is_ok().then_some(listed_at);
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         history_pending: false,
@@ -1734,9 +1739,17 @@ esac
                     .unwrap()
                     .0
             } else {
-                all_view(&core, &config, &squads, &tabs, None, &core.json(&["ls"]))
-                    .unwrap()
-                    .0
+                all_view(
+                    &core,
+                    &config,
+                    &squads,
+                    &tabs,
+                    None,
+                    &core.json(&["ls"]),
+                    Instant::now(),
+                )
+                .unwrap()
+                .0
             };
             let mut listed = crate::ls_tab_document(&core, &mut config, name)
                 .unwrap()
@@ -3106,10 +3119,18 @@ esac
                     .bindings;
                 assert_eq!(leads_bindings["ctrl-r"].verb, leads);
                 assert!(!leads_bindings.contains_key("f5"));
-                let all_bindings = all_view(&core, &config, &[], &[], None, &core.json(&["ls"]))
-                    .unwrap()
-                    .0
-                    .bindings;
+                let all_bindings = all_view(
+                    &core,
+                    &config,
+                    &[],
+                    &[],
+                    None,
+                    &core.json(&["ls"]),
+                    Instant::now(),
+                )
+                .unwrap()
+                .0
+                .bindings;
                 assert_eq!(all_bindings["ctrl-r"].verb, all);
                 assert!(!all_bindings.contains_key("f5"));
             }

@@ -86,8 +86,12 @@ actor; actor changes discard it. A member's count is `N+ unread` only when
 `submittedAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
 observed zero renders no unread state, even when older replies are possible.
 
-StateCell supplies `● N unread` before the source working/idle/waiting display;
-only the glyph uses the canonical `unread` role, with neutral count/words and
+StateCell supplies `● N unread` in place of the glyph and activity words
+(working/idle/waiting/stale/`?`); the member's task state still follows, as
+`● N unread · <task>`, and clips first in a narrow cell. Only the activity form
+leaves out a task that repeats its activity word; the unread form keeps it. One owner,
+`columns::activity_spans`, paints it in the tree, roster and Overview rows.
+Only the glyph uses the canonical `unread` role, with neutral count/words and
 unchanged text under NO_COLOR. TeamStrip retains lead-first UUID order and admits
 whole labels or its existing overflow mark. A visible unread squad reserves a
 14-cell TEAM column for a full two-digit lower-bound label and overflow mark;
@@ -342,7 +346,10 @@ effective view, Details and usage-control keys remain reachable.
 
 Shared board modules own visual elements once. `section_rule` owns neutral rules
 and right-side counts; `team_strip` owns lead-first glyphs; `state_cell` owns
-attention glyph roles; `filter_bar` composes `chip_group` selectors and the idle
+attention glyph roles; `activity` owns the one typed projection of core's
+`session.activity`, the STATE words (`Label`) and the agent `Tally`, and
+`workspace::columns::activity_spans`/`paint_activity` own every member STATE
+cell's spans, task colour and state-cell areas; `filter_bar` composes `chip_group` selectors and the idle
 search field; `key_hints` owns fitted effective-key hints. `spark_row` owns admitted
 trends, numeric headings, totals, shares, optional quota tracks and drawn-width
 time axes. `chip_group` owns option padding, selection and clipped option hits;
@@ -351,7 +358,11 @@ job tracks and their more hint, `key_value` owns aligned metric values, and
 `divider` owns joined band separators. Overview adapts acquired
 observations and owns effects. These painters perform no acquisition or
 view-specific projection, and later Agents placements reuse the same modules.
-Only ◆ and ✗ carry attention color; state words and other marks remain neutral.
+Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
+and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle
+counts tally core activity once per identity and count a stale read as unknown;
+Overview TEAM glyphs use the same activity label (request attention first, never
+a task state). Needs-you counts stay task and request facts.
 
 One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the

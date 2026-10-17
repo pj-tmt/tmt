@@ -377,6 +377,157 @@ pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::s
         .map_or_else(|| look.role(role), |color| look.named(color))
 }
 
+/// The activity glyph: only a request that waits on the user uses attention
+/// colour; the `?` of stale or unknown activity is muted.
+pub fn activity_style(app: &crate::board::app::App, state: &str) -> ratatui::style::Style {
+    app.look().role(match state {
+        "waiting" => Role::Waiting,
+        "stale" | "unknown" => Role::Muted,
+        _ => Role::Text,
+    })
+}
+
+/// The secondary task state is muted; only a blocked-type (`✗`) task is red.
+/// `◆` and `✗` are the board's only attention colours, so no authored task
+/// colour applies here.
+pub fn task_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::style::Style {
+    let task = row
+        .activity
+        .as_ref()
+        .and_then(|member| member.task.as_deref());
+    app.look()
+        .role(if crate::board::state_cell::glyph(task) == "✗" {
+            Role::Blocked
+        } else {
+            Role::Muted
+        })
+}
+
+/// A member's STATE cell in `width` cells: the glyph, the activity words and
+/// the task state when it fits. Only the glyph carries request attention colour;
+/// the words stay neutral and only a blocked-type task is red. Unread replies
+/// replace the glyph and the activity words with the shared unread mark
+/// (`● N unread`, blue on the glyph only); the task still follows.
+pub fn activity_spans(
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    label: &crate::board::activity::Label,
+    width: usize,
+    selected: bool,
+) -> (
+    Vec<ratatui::text::Span<'static>>,
+    Option<ratatui::text::Span<'static>>,
+) {
+    use ratatui::text::Span;
+    use unicode_width::UnicodeWidthStr;
+    if width == 0 {
+        return (Vec::new(), None);
+    }
+    let task_span =
+        |text: String| Span::styled(text, table_style(app, selected, task_style(app, row)));
+    if let Some(unread) =
+        crate::board::state_cell::unread(app.unread_target(&row.target), app.look())
+    {
+        let mut used = 0;
+        let mut primary = Vec::new();
+        for span in unread.spans {
+            let room = width.saturating_sub(used);
+            let content = crate::board::view::fit(&span.content, span.content.width().min(room));
+            if content.is_empty() {
+                break;
+            }
+            used += content.width();
+            primary.push(Span::styled(
+                content,
+                table_style(app, selected, span.style),
+            ));
+        }
+        let room = width.saturating_sub(used);
+        // The unread words replace the activity word, so a task equal to that
+        // word still follows; only a repeat of the shown words is left out.
+        let shown: String = primary
+            .iter()
+            .skip(1)
+            .map(|span| span.content.as_ref())
+            .collect();
+        let shown = shown.trim();
+        let task = label
+            .task
+            .as_ref()
+            .filter(|task| *task != shown)
+            .and_then(|task| {
+                let tail = format!(" · {task}");
+                if tail.width() <= room {
+                    Some(tail)
+                } else {
+                    // Keep a clipped task while one character and its ellipsis fit.
+                    (room >= " · x…".width()).then(|| crate::board::view::fit(&tail, room))
+                }
+            });
+        return (primary, task.map(task_span));
+    }
+    let symbol = crate::board::state_cell::glyph(Some(label.state));
+    // Unknown activity has no word: the glyph is the label's own `?`.
+    let unknown = label.state == "unknown";
+    let (head, task) = label.fit(if unknown {
+        width
+    } else {
+        width.saturating_sub(symbol.width() + 1)
+    });
+    let words = if unknown {
+        String::new()
+    } else {
+        format!(" {head}")
+    };
+    let room = width.saturating_sub(symbol.width());
+    let words = crate::board::view::fit(&words, words.width().min(room));
+    let mut primary = vec![Span::styled(
+        symbol,
+        table_style(app, selected, activity_style(app, label.state)),
+    )];
+    if !words.is_empty() {
+        primary.push(Span::styled(
+            words,
+            table_style(app, selected, app.look().role(Role::Text)),
+        ));
+    }
+    (
+        primary,
+        task.map(|task| Span::styled(task, table_style(app, selected, task_style(app, row)))),
+    )
+}
+
+/// Paints a member's STATE words into `cell` and records their areas as state
+/// cells, so selection keeps their colours. Returns the painted width.
+pub fn paint_activity(
+    buffer: &mut ratatui::buffer::Buffer,
+    app: &crate::board::app::App,
+    row: &OpsTreeRow,
+    label: &crate::board::activity::Label,
+    cell: ratatui::layout::Rect,
+    selected: bool,
+) -> u16 {
+    use ratatui::layout::Rect;
+    let (primary, task) = activity_spans(app, row, label, usize::from(cell.width), selected);
+    let width = primary.iter().map(|span| span.width()).sum::<usize>() as u16;
+    let task_width = task.as_ref().map_or(0, |task| {
+        (task.width() as u16).min(cell.width.saturating_sub(width))
+    });
+    let mut states = app.workspace_state_cells.borrow_mut();
+    if width > 0 {
+        states.push(Rect::new(cell.x, cell.y, width, 1));
+    }
+    if task_width > 0 {
+        states.push(Rect::new(cell.x + width, cell.y, task_width, 1));
+    }
+    tmt_tui::components::strip::paint_left(
+        buffer,
+        cell,
+        ratatui::text::Line::from_iter(primary.into_iter().chain(task)),
+    );
+    width + task_width
+}
+
 pub fn table_style(
     app: &crate::board::app::App,
     selected: bool,
@@ -664,6 +815,7 @@ mod tests {
             state: None,
             presence: None,
             usage: None,
+            activity: None,
             count: None,
             observation: crate::board::workspace::OpsObservation::Complete,
         };

@@ -85,7 +85,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
             && app.error.is_none()
             && let Some(view) = &app.view
         {
-            return crate::board::home::summary_of(view, width, app.look());
+            return crate::board::home::summary_of(app, view, width, app.look());
         }
         let status = if app.error.is_some() || snapshot.roster.observation == OpsObservation::Stale
         {
@@ -433,6 +433,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     },
                     Field::State => {
                         let group = !matches!(row.target, OpsTarget::Member { .. });
+                        if let Some(label) = app.activity_label(row) {
+                            paint_member_state(frame, app, row, &label, cell, selected, style);
+                            continue;
+                        }
                         let state = if group {
                             format!(
                                 "{} {}",
@@ -628,6 +632,38 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     };
     app.scrolls
         .show_table(frame, Pane::Rows, body, rows.len(), look, paint_rows);
+}
+
+/// A member's STATE cell: the activity words, then the task state, then the role.
+fn paint_member_state(
+    frame: &mut Frame,
+    app: &App,
+    row: &super::OpsTreeRow,
+    label: &crate::board::activity::Label,
+    cell: Rect,
+    selected: bool,
+    style: ratatui::style::Style,
+) {
+    let used = super::columns::paint_activity(frame.buffer_mut(), app, row, label, cell, selected);
+    let role = if row.lead {
+        "lead"
+    } else if matches!(row.target, OpsTarget::Member { room_id: None, .. }) {
+        "agent"
+    } else {
+        "member"
+    };
+    // The role is the least important part: it shows only when it fits whole.
+    // After a bare unknown `?` it follows like a task state, with no separator.
+    let bare = label.state == "unknown" && used == 1;
+    let role = format!("{}{role}", if bare { " " } else { " · " });
+    let role_width = unicode_width::UnicodeWidthStr::width(role.as_str()) as u16;
+    if used + role_width <= cell.width {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(cell.x + used, cell.y, role_width, 1),
+            Line::styled(role, style),
+        );
+    }
 }
 
 fn agents_controls(
@@ -1014,6 +1050,12 @@ fn roster_preview(
                 let raw = snapshot.rows.get(&row.target);
                 for (field, slot) in &slots {
                     let cell = Rect::new(slot.x, y, slot.width, 1).intersection(viewport);
+                    if *field == RosterField::State
+                        && let Some(label) = app.activity_label(&row)
+                    {
+                        columns::paint_activity(frame.buffer_mut(), app, &row, &label, cell, false);
+                        continue;
+                    }
                     let text = match field {
                         RosterField::Member => safe(&member.name),
                         RosterField::State => format!(

@@ -7,13 +7,15 @@ use crate::{
 use ratatui::{layout::Rect, text::Line};
 
 /// The strips outside the body, held in the view like the body's sections.
-pub(crate) fn summary_of(view: &View, width: u16, look: Look) -> Line<'static> {
+/// Its working/idle counts follow the board's activity stale rule.
+pub(crate) fn summary_of(app: &App, view: &View, width: u16, look: Look) -> Line<'static> {
     let home = view.home.as_ref().expect("a home view has a model");
     super::bar::summary_in(
         &mut view.derived.borrow_mut().home.summary,
         home,
         width,
         look,
+        app.activity_stale(std::time::Instant::now()),
     )
 }
 

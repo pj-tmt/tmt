@@ -133,6 +133,25 @@ existing files are left untouched. In-memory acquired values and provider,
 usage-history and back caches retain their independent owners. Paint/input
 perform no I/O and loading data never grants recipient or action authority.
 
+## Provider activity freshness
+
+Core's public `session.activity` reaches the board only through the worker's
+global `ls` read; room, usage and history reads never feed it. The workspace
+snapshot keeps `read_at`, the instant that read returned, beside the activity
+it carried. Two clocks stay separate: core's `sinceMs`/`lastActivityMs` say when
+core admitted a transition (not a heartbeat), and `read_at` says how old the
+board's copy is. A member's activity is stale when the roster observation is not
+complete (a failed reload marks it stale at once) or when the read is older than
+`activity::stale_after`, `max(refresh interval, 5 s) + 10 s`: 15 s by default and
+with refresh off, 70 s for a 60 s interval. `OpsWorkspaceSnapshot::activity_stale`
+is the one decision for STATE cells, counters and TEAM glyphs; the Overview scene
+cache keys on it. Only a successful global read renews `read_at`; the change
+cursor, labels and other reads never do, and refresh off is never turned on to
+stay fresh. Stale never becomes idle. Painting a label or TEAM glyph records
+`ClockSurface::ActivityStale` (the deadline) and `ActivityAge` (each shown age's
+core time), so ages and the stale switch repaint from held values with no row
+rescan, timer, subprocess or reader.
+
 ## Load timing trace
 
 `TMT_OPS_TIMING_TRACE` enables board-only diagnostic JSON Lines. Unset, empty or

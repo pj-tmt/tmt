@@ -226,6 +226,7 @@ fn pinned_large_case(look: crate::look::Look) -> crate::board::app::App {
                 waiting: state == "blocked",
                 presence: Some(true),
                 usage: None,
+                activity: Default::default(),
             },
         );
         let squad = &mut home.workspace.roster.squads[0];

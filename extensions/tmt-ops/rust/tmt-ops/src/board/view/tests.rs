@@ -679,8 +679,10 @@ fn painted_at(
     (cell.fg, cell.bg, cell.modifier)
 }
 
+// A member's task state ignores an authored token: only an exact `blocked`
+// (the `✗` state) is red, and pattern or waiting states stay muted.
 #[test]
-fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
+fn member_task_states_are_red_only_when_blocked_whatever_the_projected_token() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     use crate::board::workspace::OpsTarget;
     for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
@@ -756,11 +758,11 @@ fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
                                 cells.concat()
                             )
                         });
-                    let token = if state == "waiting" {
-                        look.role(Role::Waiting)
+                    let token = look.role(if state == "blocked" {
+                        Role::Blocked
                     } else {
-                        look.named("review")
-                    };
+                        Role::Muted
+                    });
                     let expected = if selected {
                         look.selection().patch(look.row_span(true, token, false))
                     } else {

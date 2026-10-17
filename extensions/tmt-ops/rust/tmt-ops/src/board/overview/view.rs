@@ -199,7 +199,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         10
     };
-    let paint = |frame: &mut Frame, slot: Rect, index: usize| match index {
+    // `widest` is the widest agent STATE cell of the list.
+    let paint = |frame: &mut Frame, slot: Rect, index: usize, widest: usize| match index {
         0 => {
             for hit in filter_bar::paint(
                 frame.buffer_mut(),
@@ -234,8 +235,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             Line::styled(
                 if agents {
                     format!(
-                        " {:<23} {:<11} {:<12} {:>7}   NOW",
-                        "AGENT", "SQUAD", "STATE", "TOK 1h"
+                        " {:<23} {:<11} {:<state$} {:>7}   NOW",
+                        "AGENT",
+                        "SQUAD",
+                        "STATE",
+                        "TOK 1h",
+                        state = usize::from(state_width(slot.width, widest))
                     )
                 } else {
                     format!(
@@ -281,11 +286,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 return;
             };
             let mut line = if agents {
-                agent_line(app, snapshot, row, look)
+                agent_line(app, snapshot, row, look, state_width(slot.width, widest))
             } else {
                 let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
                     return;
                 };
+                // Its TEAM glyphs follow core activity and the stale rule.
+                app.admit_activity_clock(None);
                 squad_line(
                     app,
                     squad,
@@ -307,25 +314,30 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 line.style = look.selection();
                 let mut x = 0;
                 for span in &mut line.spans {
-                    let state = if agents {
-                        (37..49).contains(&x)
+                    // An agent's STATE words keep their own colours, as in the tree.
+                    let keep = if agents {
+                        (AGENT_STATE_X
+                            ..AGENT_STATE_X + usize::from(state_width(slot.width, widest)))
+                            .contains(&x)
                     } else {
                         (13..13 + team_width).contains(&x)
+                            && matches!(span.content.as_ref(), "◆" | "✗")
                     };
-                    span.style = look.row_span(
-                        true,
-                        span.style,
-                        state && matches!(span.content.as_ref(), "◆" | "✗"),
-                    );
+                    span.style = look.row_span(true, span.style, keep);
                     x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
                 }
             }
             strip::paint_left(frame.buffer_mut(), slot, line);
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(
-                    slot.x.saturating_add(if agents { 37 } else { 13 }),
+                    slot.x
+                        .saturating_add(if agents { AGENT_STATE_X as u16 } else { 13 }),
                     slot.y,
-                    if agents { 12 } else { team_width as u16 },
+                    if agents {
+                        state_width(slot.width, widest)
+                    } else {
+                        team_width as u16
+                    },
                     1,
                 )
                 .intersection(slot),
@@ -339,6 +351,21 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
         _ => (),
     };
+    // STATE grows only as much as the widest cell of the list needs. Every
+    // list row counts, so the header and TOK/NOW stay fixed while rows scroll.
+    let widest = if agents {
+        rows.iter()
+            .map(|row| {
+                state_spans(app, row, look, STATE_MAX)
+                    .iter()
+                    .map(Span::width)
+                    .sum::<usize>()
+            })
+            .max()
+            .unwrap_or(0)
+    } else {
+        0
+    };
     for y in 0..header_height {
         paint(
             frame,
@@ -348,6 +375,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 usize::from(y)
             },
+            widest,
         );
     }
     app.scrolls.show_list(
@@ -362,6 +390,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     frame,
                     Rect::new(viewport.x, viewport.y + y, viewport.width, 1),
                     LIST_HEADER_ROWS + offset + usize::from(y),
+                    widest,
                 );
             }
         },
@@ -437,69 +466,114 @@ fn squad_line(
     ));
     Line::from(spans)
 }
+/// Where an agent row's STATE words start.
+const AGENT_STATE_X: usize = 37;
+
+/// The widest agent STATE cell the column ever gives room for.
+const STATE_MAX: u16 = 32;
+
+/// The agent STATE column is as wide as the widest cell of the list needs, 12
+/// cells at least. It never takes more than the row has after the tokens and
+/// at least 16 cells of the NOW summary, nor more than `STATE_MAX`.
+fn state_width(row: u16, widest: usize) -> u16 {
+    let room = row
+        .saturating_sub(AGENT_STATE_X as u16 + 1 + 7 + 3 + 16)
+        .clamp(12, STATE_MAX);
+    u16::try_from(widest).unwrap_or(u16::MAX).clamp(12, room)
+}
+
+/// An agent's STATE cell within `width`: the same activity words and task
+/// colours as the agents tree.
+fn state_spans(app: &App, row: &OpsTreeRow, look: Look, width: u16) -> Vec<Span<'static>> {
+    app.activity_label(row).map_or_else(
+        // Without activity, unread replies still replace the words.
+        || {
+            let unread = app.unread_target(&row.target);
+            match (state_cell::unread_mark(unread, look), unread.label()) {
+                (Some(mark), Some(label)) => vec![
+                    mark,
+                    Span::styled(
+                        format!(
+                            " {}",
+                            crate::board::view::fit(&label, usize::from(width).saturating_sub(2))
+                        ),
+                        look.role(Role::Muted),
+                    ),
+                ],
+                _ => vec![Span::styled("— unreported", look.role(Role::Muted))],
+            }
+        },
+        |label| {
+            let (primary, task) = crate::board::workspace::columns::activity_spans(
+                app,
+                row,
+                &label,
+                usize::from(width),
+                false,
+            );
+            primary.into_iter().chain(task).collect()
+        },
+    )
+}
+
 fn agent_line(
     app: &App,
     snapshot: &crate::board::workspace::observe::OpsWorkspaceSnapshot,
     row: &OpsTreeRow,
     look: Look,
+    width: u16,
 ) -> Line<'static> {
     let value = monitor::values(app, snapshot, row);
-    let unread = app.unread_target(&row.target);
-    let state = if monitor::waits(snapshot, row) {
-        Some("waiting")
-    } else {
-        row.state.as_deref()
-    };
+    let mut state = state_spans(app, row, look, width);
+    let used = state.iter().map(Span::width).sum::<usize>();
+    state.push(Span::raw(
+        " ".repeat(usize::from(width).saturating_sub(used)),
+    ));
     let tokens = value
         .tokens
         .map_or_else(|| "—".into(), crate::source::tokens);
     let pin = crate::board::workspace::render::pin_mark(&row.target, &snapshot.preferences, look);
     let name_width = 23usize.saturating_sub(pin.width());
-    Line::from(vec![
-        Span::raw(" "),
-        pin,
-        Span::styled(
-            crate::board::view::fit(
-                &crate::board::workspace::render::safe(&row.title),
-                name_width,
+    Line::from_iter(
+        [
+            Span::raw(" "),
+            pin,
+            Span::styled(
+                crate::board::view::fit(
+                    &crate::board::workspace::render::safe(&row.title),
+                    name_width,
+                ),
+                look.role(Role::Text),
             ),
-            look.role(Role::Text),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            crate::board::view::fit(value.squad.as_deref().unwrap_or("—"), 11),
-            look.role(Role::Muted),
-        ),
-        Span::raw(" "),
-        state_cell::unread_mark(unread, look).unwrap_or_else(|| state_cell::mark(state, look)),
-        Span::raw(" "),
-        Span::styled(
-            crate::board::view::fit(
-                &unread
-                    .label()
-                    .unwrap_or_else(|| state_cell::word(state, look).content.into_owned()),
-                10,
+            Span::raw(" "),
+            Span::styled(
+                crate::board::view::fit(value.squad.as_deref().unwrap_or("—"), 11),
+                look.role(Role::Muted),
             ),
-            look.role(Role::Muted),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            format!(
-                "{}   ",
-                tmt_cli_style::grid::fit(
-                    &tokens,
-                    7,
-                    tmt_cli_style::grid::Align::Right,
-                    tmt_cli_style::grid::Truncate::End
-                )
+            Span::raw(" "),
+        ]
+        .into_iter()
+        .chain(state)
+        .chain([
+            Span::raw(" "),
+            Span::styled(
+                format!(
+                    "{}   ",
+                    tmt_cli_style::grid::fit(
+                        &tokens,
+                        7,
+                        tmt_cli_style::grid::Align::Right,
+                        tmt_cli_style::grid::Truncate::End
+                    )
+                ),
+                look.role(Role::Muted),
             ),
-            look.role(Role::Muted),
-        ),
-        Span::styled(
-            crate::board::workspace::render::safe(&monitor::summary_text(
-                snapshot.rows.get(&row.target),
-            )),
-            look.role(Role::Muted),
-        ),
-    ])
+            Span::styled(
+                crate::board::workspace::render::safe(&monitor::summary_text(
+                    snapshot.rows.get(&row.target),
+                )),
+                look.role(Role::Muted),
+            ),
+        ]),
+    )
 }

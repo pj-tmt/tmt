@@ -104,13 +104,29 @@ pub fn load(
         })
         .collect::<Result<_, SquadError>>()?;
     let mut home = model(order, &acquired);
-    home.workspace =
-        super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(&squads, &acquired, listed);
+    home.observe(
+        super::workspace::observe::OpsWorkspaceSnapshot::from_acquired(&squads, &acquired, listed),
+    );
     home.workspace.configure(config)?;
     let settings = config.token_rate("")?;
     home.windows = settings.windows;
     home.window = settings.window.available(home.windows);
     Ok((public, home, inputs))
+}
+
+impl Home {
+    /// Holds the workspace and counts working/idle agents from its core
+    /// activity, each identity once however many squads it is in.
+    fn observe(&mut self, workspace: super::workspace::observe::OpsWorkspaceSnapshot) {
+        let mut tally = super::activity::Tally::default();
+        let failed = workspace.roster.observation != super::workspace::OpsObservation::Complete;
+        for member in workspace.roster.members.values() {
+            tally.add(member.activity, failed);
+        }
+        self.summary.working = tally.working;
+        self.summary.idle = tally.idle;
+        self.workspace = workspace;
+    }
 }
 
 fn section(key: &str, filter: Option<&str>) -> Section {

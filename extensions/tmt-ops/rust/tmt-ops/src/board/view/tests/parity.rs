@@ -56,6 +56,7 @@ fn workspace_board(config: &Config, document: &Value) -> App {
                 waiting,
                 presence: None,
                 usage: None,
+                activity: Default::default(),
             },
         );
         snapshot.rows.insert(

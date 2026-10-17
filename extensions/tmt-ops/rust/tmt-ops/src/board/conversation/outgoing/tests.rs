@@ -537,8 +537,15 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
         draw(&app);
         let state = app.conversation.borrow();
         let session = state.sessions.values().next().unwrap();
+        // A failed roster read makes core activity stale itself; other
+        // failures keep the activity and mark the read stale.
+        let expected = if source == "roster" {
+            "worker stale · working"
+        } else {
+            "worker working · stale"
+        };
         assert!(
-            session.agent_mark.contains("worker working · stale"),
+            session.agent_mark.contains(expected),
             "{source}: {}",
             session.agent_mark
         );
@@ -780,4 +787,41 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
         app.conversation.borrow().sessions[&identity].text,
         "New exact question"
     );
+}
+
+#[test]
+fn header_and_status_show_core_activity_even_when_the_task_disagrees() {
+    use crate::board::app::workspace::tests::{MEMBER, ROOM};
+    for (waiting, words) in [(false, "working · blocked"), (true, "waiting · blocked")] {
+        let mut app = crate::board::app::workspace::tests::board();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        let membership = snapshot.roster.squads[0]
+            .member_states
+            .get_mut(MEMBER)
+            .unwrap();
+        membership.state = Some("blocked".into());
+        membership.waiting = waiting;
+        let target = crate::board::workspace::OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        snapshot.rows.get_mut(&target).unwrap()["state"] = json!("blocked");
+        app.workspace_reconcile();
+        let fake = Fake::new(json!({"requestId":"req-mismatch","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "one explicit message");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let screen = draw(&app);
+        assert!(
+            screen.contains(&format!("{words} · product")),
+            "header: {screen}"
+        );
+        let state = app.conversation.borrow();
+        let mark = &state.sessions.values().next().unwrap().agent_mark;
+        assert!(mark.ends_with(&format!("worker {words}")), "status: {mark}");
+        assert!(
+            !mark.contains("✗"),
+            "the task never picks the status glyph: {mark}"
+        );
+    }
 }

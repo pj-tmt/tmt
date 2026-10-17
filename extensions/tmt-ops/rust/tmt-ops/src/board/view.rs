@@ -172,7 +172,7 @@ pub(in crate::board) fn render_frame(
             .filter(|view| !app.loading() && view.home.is_some())
             .map_or_else(
                 || header::summary_line(app),
-                |view| super::home::summary_of(view, summary.width, look),
+                |view| super::home::summary_of(app, view, summary.width, look),
             )
     };
     let summary_area =

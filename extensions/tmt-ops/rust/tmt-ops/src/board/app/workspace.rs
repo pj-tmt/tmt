@@ -45,6 +45,56 @@ impl App {
     pub(in crate::board) fn workspace_snapshot(&self) -> Option<&OpsWorkspaceSnapshot> {
         Some(&self.view.as_ref()?.home.as_ref()?.workspace)
     }
+    /// See `OpsWorkspaceSnapshot::activity_stale`; the effective refresh
+    /// interval comes from the shown view, and it is never turned on here.
+    pub(in crate::board) fn activity_stale(&self, now: std::time::Instant) -> bool {
+        self.workspace_snapshot().is_none_or(|snapshot| {
+            snapshot.activity_stale(self.view.as_ref().and_then(|view| view.refresh), now)
+        })
+    }
+    /// Admits the activity clocks a painted STATE label or counter needs: the
+    /// stale deadline while the read is fresh, and the core time an age counts
+    /// from. No timer runs; the frame loop compares these marks.
+    pub(in crate::board) fn admit_activity_clock(&self, at: Option<u64>) {
+        use crate::board::view::ClockSurface;
+        let deadline = self.workspace_snapshot().and_then(|snapshot| {
+            snapshot.activity_deadline(self.view.as_ref().and_then(|view| view.refresh))
+        });
+        let mut clocks = self.frame_clocks.borrow_mut();
+        if let Some(deadline) = deadline
+            && !clocks
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::ActivityStale(_)))
+        {
+            clocks.push(ClockSurface::ActivityStale(deadline));
+        }
+        if let Some(at) = at
+            && !clocks
+                .iter()
+                .any(|clock| matches!(clock, ClockSurface::ActivityAge(known) if *known == at))
+        {
+            clocks.push(ClockSurface::ActivityAge(at));
+        }
+    }
+    /// The one STATE cell label of a painted member row; group rows have none.
+    pub(in crate::board) fn activity_label(
+        &self,
+        row: &OpsTreeRow,
+    ) -> Option<crate::board::activity::Label> {
+        let label =
+            self.activity_label_at(row, std::time::Instant::now(), crate::status::now_ms())?;
+        self.admit_activity_clock(label.at);
+        Some(label)
+    }
+    pub(in crate::board) fn activity_label_at(
+        &self,
+        row: &OpsTreeRow,
+        now: std::time::Instant,
+        now_ms: u64,
+    ) -> Option<crate::board::activity::Label> {
+        let member = row.activity.as_ref()?;
+        Some(member.label(self.activity_stale(now), now_ms))
+    }
     pub(in crate::board) fn digest_window(&self) -> crate::config::DigestWindow {
         self.workspace_snapshot()
             .map_or(crate::config::DigestWindow::default(), |snapshot| {

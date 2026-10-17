@@ -20,6 +20,9 @@ type BindingSources = BTreeMap<String, String>;
 #[derive(Debug, Default)]
 pub(crate) struct OpsWorkspaceSnapshot {
     pub roster: OpsRoster,
+    /// When the global core read behind `roster` returned. The board loader
+    /// sets it; only hand-built test snapshots have none (no age limit).
+    pub read_at: Option<std::time::Instant>,
     pub shell_counts: ShellCounts,
     pub hidden_count: usize,
     pub hidden_attention: ShellCounts,
@@ -49,6 +52,8 @@ fn member(row: &Value) -> Option<OpsMember> {
             _ => None,
         },
         usage: None, // Source-provided formatted usage stays in the row projection.
+        // Only the global core observation supplies activity (see `from_acquired`).
+        activity: Default::default(),
     })
 }
 
@@ -61,6 +66,29 @@ fn pool_row(row: &Value) -> Value {
 }
 
 impl OpsWorkspaceSnapshot {
+    /// When this snapshot's provider activity goes stale by read age; `None`
+    /// when the roster read is not complete (stale now) or when it has no read
+    /// time (only hand-built test snapshots, which never age).
+    pub(crate) fn activity_deadline(
+        &self,
+        refresh: Option<std::time::Duration>,
+    ) -> Option<std::time::Instant> {
+        (self.roster.observation == OpsObservation::Complete)
+            .then_some(self.read_at?)
+            .map(|read| read + crate::board::activity::stale_after(refresh))
+    }
+    /// The one stale decision for STATE cells and counters: the roster read
+    /// failed, or it is older than `activity::stale_after`. Never idle.
+    pub(crate) fn activity_stale(
+        &self,
+        refresh: Option<std::time::Duration>,
+        now: std::time::Instant,
+    ) -> bool {
+        self.roster.observation != OpsObservation::Complete
+            || self
+                .activity_deadline(refresh)
+                .is_some_and(|deadline| now > deadline)
+    }
     pub(crate) fn set_preferences(&mut self, preferences: OpsPreferences) {
         self.hidden_count = self
             .roster
@@ -175,7 +203,8 @@ impl OpsWorkspaceSnapshot {
                 if row["retired"] == true {
                     continue;
                 }
-                if let Some(identity) = member(row) {
+                if let Some(mut identity) = member(row) {
+                    identity.activity = crate::board::activity::ObservedActivity::of(row);
                     result.rows.insert(
                         OpsTarget::Member {
                             room_id: None,
@@ -286,6 +315,11 @@ fn observed_member_row(row: &Value, observed: Option<&Value>) -> Value {
         .unwrap_or_else(|| Value::String("unknown".into()));
     projected["pane"] = observed
         .and_then(|row| row.get("pane"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    // Provider activity is the global row's too; a roster row never supplies it.
+    projected["session"] = observed
+        .and_then(|row| row.get("session"))
         .cloned()
         .unwrap_or(Value::Null);
     projected

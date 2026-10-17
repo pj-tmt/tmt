@@ -1,4 +1,4 @@
-//! StateCell: the state glyph owns attention colour; its words stay neutral.
+//! StateCell: the state glyph owns attention colour; `activity::Label` owns the words.
 use crate::look::Look;
 use ratatui::text::Span;
 use tmt_cli_style::Role;
@@ -10,7 +10,7 @@ pub(in crate::board) fn glyph(state: Option<&str>) -> &'static str {
         Some("blocked") => "✗",
         Some("review") => "◐",
         Some("idle") => "◌",
-        Some("offline") => "○",
+        Some("offline" | "ended") => "○",
         _ => "?",
     }
 }
@@ -24,13 +24,6 @@ pub(in crate::board) fn mark(state: Option<&str>, look: Look) -> Span<'static> {
         }),
     )
 }
-pub(in crate::board) fn word(state: Option<&str>, look: Look) -> Span<'static> {
-    Span::styled(
-        crate::board::notes::sanitize(state.unwrap_or("unreported")),
-        look.role(Role::Muted),
-    )
-}
-
 /// The same unread mark on tables, strips and global attention.
 pub(in crate::board) fn unread_mark(
     count: super::unread::Count,
@@ -53,27 +46,26 @@ pub(in crate::board) fn unread(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::text::Line;
-    fn line(state: Option<&str>, _: Option<&str>, look: Look) -> Line<'static> {
-        Line::from(vec![mark(state, look), Span::raw(" "), word(state, look)])
-    }
     #[test]
     fn only_attention_marks_use_attention_roles() {
         let look = Look::new(tmt_cli_style::Theme::default());
         for state in [
             Some("working"),
             Some("idle"),
+            Some("ended"),
             Some("waiting"),
             Some("blocked"),
             None,
         ] {
-            let row = line(state, None, look);
-            assert_eq!(row.spans[2].style, look.role(Role::Muted));
-            if !matches!(state, Some("waiting" | "blocked")) {
-                assert_eq!(row.spans[0].style, look.role(Role::Muted));
-            }
+            let role = match state {
+                Some("waiting") => Role::Waiting,
+                Some("blocked") => Role::Blocked,
+                _ => Role::Muted,
+            };
+            assert_eq!(mark(state, look).style, look.role(role));
         }
-        assert_eq!(line(None, None, look).to_string(), "? unreported");
+        assert_eq!(glyph(Some("ended")), "○");
+        assert_eq!(glyph(None), "?");
     }
 }
 

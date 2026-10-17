@@ -47,6 +47,16 @@ pub(super) struct State {
     pub pane: Option<Rect>,
 }
 
+#[cfg(test)]
+impl State {
+    /// The active conversation's agent status mark, for integrated board tests.
+    pub(in crate::board) fn active_agent_mark(&self) -> Option<&str> {
+        self.sessions
+            .get(self.active.as_ref()?)
+            .map(|session| session.agent_mark.as_str())
+    }
+}
+
 struct Rendered {
     width: usize,
     look: Look,
@@ -516,6 +526,24 @@ fn render_target(
             Span::styled(hint, look.role(Role::Dim)),
         ])
     });
+    // One activity-first label feeds both the header and the conversation
+    // status; a target without a member row keeps its task state.
+    let tree = app.workspace_rows();
+    let tree_row = tree
+        .get(app.selected)
+        .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
+    let (status_state, state_words) = tree_row
+        .and_then(|row| app.activity_label(row))
+        .map_or_else(
+            || {
+                let task = sanitize(row["state"].as_str().unwrap_or("unknown"));
+                (task.clone(), task)
+            },
+            |label| {
+                let (head, task) = label.fit(usize::MAX);
+                (label.state.to_owned(), head + task.as_deref().unwrap_or(""))
+            },
+        );
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
@@ -523,7 +551,8 @@ fn render_target(
     session.update(reply);
     session.agent_observed(
         row["name"].as_str().unwrap_or("unknown agent"),
-        row["state"].as_str().unwrap_or("unknown"),
+        &status_state,
+        &state_words,
         app.loading()
             || app.error.is_some()
             || app.workspace_snapshot().is_some_and(|snapshot| {
@@ -542,10 +571,6 @@ fn render_target(
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
     session.correlate_loaded(app, &name);
     session.transcript_context(app, row);
-    let tree = app.workspace_rows();
-    let tree_row = tree
-        .get(app.selected)
-        .filter(|row| RowTarget::Workspace(row.target.clone()) == target);
     let values = tree_row
         .zip(app.workspace_snapshot())
         .map(|(row, snapshot)| super::overview::monitor::values(app, snapshot, row));
@@ -617,11 +642,7 @@ fn render_target(
         Line::styled(text, look.role(role))
     };
     let runtime_known = runtime != "–" || model != "–";
-    let state_text = format!(
-        "{} · {} · {role}",
-        sanitize(row["state"].as_str().unwrap_or("unknown")),
-        sanitize(&squad)
-    );
+    let state_text = format!("{state_words} · {} · {role}", sanitize(&squad));
     let state_text = if !full && !runtime_known {
         super::view::fit(
             &state_text,

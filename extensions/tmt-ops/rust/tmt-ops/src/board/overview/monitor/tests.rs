@@ -226,6 +226,7 @@ fn board() -> App {
                 waiting,
                 presence: Some(true),
                 usage: None,
+                activity: Default::default(),
             },
         );
         snapshot.roster.squads[0].members.push(id.into());
@@ -447,16 +448,21 @@ fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
                 assert!(index < rows.len());
                 assert!(hit.x + hit.width <= width && hit.y < height);
                 assert!(ys.insert(hit.y));
-                let state =
-                    crate::board::state_cell::word(rows[index].state.as_deref(), app.look());
-                assert!(!state.content.is_empty());
+                let label = app.activity_label(&rows[index]).expect("a member row");
+                assert!(!label.state.is_empty());
                 if hit.width >= 60 {
+                    // The shared STATE words stay neutral text; only the glyph
+                    // carries attention colour. Unknown activity has no word, so
+                    // its task follows the glyph: red only when blocked.
+                    let role = match (label.state, label.task.as_deref()) {
+                        ("unknown", Some("blocked")) => tmt_cli_style::Role::Blocked,
+                        ("unknown", _) => tmt_cli_style::Role::Muted,
+                        _ => tmt_cli_style::Role::Text,
+                    };
                     assert_eq!(
                         buffer[(hit.x + 39, hit.y)].fg,
-                        app.look()
-                            .role(tmt_cli_style::Role::Muted)
-                            .fg
-                            .unwrap_or_default()
+                        app.look().role(role).fg.unwrap_or_default(),
+                        "{label:?}"
                     );
                 }
             }
@@ -649,14 +655,17 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
         "global waiting must not be attributed to this unobserved membership"
     );
     assert_eq!(scene.waiting, 1);
-    assert!(
+    // The TEAM glyph shows the identity's global core activity (unknown in
+    // this fixture), never the global waiting request.
+    assert_eq!(
         scene.squads[0]
             .members
             .iter()
             .find(|(id, _)| id == MEMBER)
             .unwrap()
             .1
-            .is_none()
+            .as_deref(),
+        Some("unknown")
     );
     assert!(
         snapshot.roster.shell_counts().waiting > 0,

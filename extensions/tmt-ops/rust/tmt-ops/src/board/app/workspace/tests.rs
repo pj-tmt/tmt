@@ -38,6 +38,10 @@ pub(in crate::board) fn board() -> App {
                     waiting: false,
                     presence: Some(true),
                     usage: None,
+                    activity: crate::board::activity::ObservedActivity {
+                        phase: crate::board::activity::Phase::Working,
+                        ..Default::default()
+                    },
                 },
             )]
             .into(),
@@ -448,6 +452,14 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
             waiting: false,
             presence: Some(true),
             usage: None,
+            activity: crate::board::activity::ObservedActivity {
+                phase: if ordinal == 0 {
+                    crate::board::activity::Phase::Idle
+                } else {
+                    crate::board::activity::Phase::Working
+                },
+                ..Default::default()
+            },
         };
         home.workspace.roster.members.insert(id.clone(), member);
         let room = if squads == 0 {
@@ -534,6 +546,11 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             let member = snapshot.roster.members.get_mut(MEMBER).unwrap();
             member.state = state.map(str::to_owned);
             member.presence = presence;
+            member.activity.phase = match state {
+                Some("idle") => crate::board::activity::Phase::Idle,
+                Some("working") => crate::board::activity::Phase::Working,
+                _ => crate::board::activity::Phase::Unknown,
+            };
             snapshot.roster.squads[0]
                 .member_states
                 .get_mut(MEMBER)
@@ -543,7 +560,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             snapshot.shell_counts = snapshot.roster.shell_counts();
             let row = painted_member_row(&app, 100, 24);
             assert!(
-                row.contains("worker") && row.contains(state.unwrap_or("unreported")),
+                row.contains("worker") && row.contains(state.unwrap_or("? member")),
                 "{row}"
             );
             let counts = &app.workspace_snapshot().unwrap().shell_counts;
@@ -2447,6 +2464,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                         waiting: false,
                         presence: Some(true),
                         usage: None,
+                        activity: Default::default(),
                     },
                 );
                 home.workspace.roster.squads[0].members.push(id.clone());
@@ -2915,18 +2933,38 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 })
                                 .cloned()
                                 .unwrap();
+                            // Core's activity words stay neutral; the blocked task
+                            // text right after them carries the attention colour.
+                            let row_text = (hit.x..hit.x + hit.width)
+                                .map(|x| buffer[(x, hit.y)].symbol())
+                                .collect::<String>();
+                            // The task may be whole or clipped with an ellipsis.
+                            let after = row_text
+                                .split_once("● working")
+                                .map_or("", |(_, after)| after);
+                            let task = if after.starts_with(" · blocked") {
+                                " · blocked".chars().count()
+                            } else if after.starts_with(" · b") {
+                                after.chars().take_while(|c| *c != '…').count() + 1
+                            } else {
+                                0
+                            } as u16;
                             for x in hit.x..hit.x + hit.width {
                                 let cell = &buffer[(x, hit.y)];
-                                let state = app
+                                // The first state area on the row holds the activity words.
+                                let in_task = app
                                     .workspace_state_cells
                                     .borrow()
                                     .iter()
-                                    .any(|area| area.contains((x, hit.y).into()));
+                                    .find(|area| area.y == hit.y)
+                                    .is_some_and(|area| {
+                                        (area.right()..area.right() + task).contains(&x)
+                                    });
                                 if depth != tmt_cli_style::Depth::None {
                                     assert_eq!(cell.bg, look.selection().bg.unwrap());
                                     assert_eq!(
                                         cell.fg,
-                                        look.role(if state {
+                                        look.role(if in_task {
                                             tmt_cli_style::Role::Blocked
                                         } else {
                                             tmt_cli_style::Role::Text
@@ -3111,19 +3149,23 @@ fn roster_preview_click_selects_the_exact_membership_and_invalidates_old_hits() 
 }
 
 #[test]
-fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_are_neutral() {
+fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
     use tmt_cli_style::{Base, Depth, Role, Theme};
+    let mut shown_tasks = 0;
     for base in [Base::Tmt, Base::TmtLight] {
         let look = crate::look::Look {
             theme: Theme::new(base),
             depth: Depth::TrueColor,
         };
+        // The task state follows core's activity words. Only a blocked task is
+        // red; a waiting task is muted, because only the glyph carries orange.
+        // A task named like the activity is omitted.
         for (state, role) in [
-            ("working", Role::Text),
-            ("idle", Role::Text),
-            ("offline", Role::Text),
-            ("waiting", Role::Waiting),
-            ("blocked", Role::Blocked),
+            ("working", None),
+            ("idle", Some(Role::Muted)),
+            ("offline", Some(Role::Muted)),
+            ("waiting", Some(Role::Muted)),
+            ("blocked", Some(Role::Blocked)),
         ] {
             for selected in [false, true] {
                 let mut app = board();
@@ -3173,14 +3215,20 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
                 let painted_state = (state_area.x..state_area.right())
                     .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
                     .collect::<String>();
-                assert!(
-                    painted_state.contains(state),
-                    "the whole state word is visible: {painted_state}"
-                );
+                assert_eq!(painted_state, "● working", "core activity leads the cell");
                 let painted_row = (hit.x..hit.x + hit.width)
                     .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
                     .collect::<String>();
                 assert!(painted_row.contains("worker"));
+                // A narrow cell cuts the task first; it is never painted for "working".
+                let shown = painted_row.contains(&format!("● working · {state}"));
+                assert!(role.is_some() || !shown, "{painted_row}");
+                shown_tasks += usize::from(shown);
+                let task = if shown {
+                    format!(" · {state}").chars().count() as u16
+                } else {
+                    0
+                };
                 for x in hit.x..hit.x + hit.width {
                     if terminal.backend().buffer()[(x, hit.y)]
                         .symbol()
@@ -3189,12 +3237,12 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
                     {
                         continue;
                     }
+                    let in_task = (state_area.right()..state_area.right() + task).contains(&x);
                     assert_eq!(
                         terminal.backend().buffer()[(x, hit.y)].fg,
-                        look.role(if state_area.contains((x, hit.y).into()) {
-                            role
-                        } else {
-                            Role::Text
+                        look.role(match role {
+                            Some(role) if in_task => role,
+                            _ => Role::Text,
                         })
                         .fg
                         .unwrap(),
@@ -3204,6 +3252,7 @@ fn default_attention_colors_stay_in_the_painted_state_word_while_other_states_ar
             }
         }
     }
+    assert!(shown_tasks > 0, "some frame shows the task text");
 }
 
 #[test]
@@ -4546,6 +4595,584 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
             for column in before_state_x..148 {
                 assert_eq!(before[(column, before_y)], after[(column, after_y)]);
             }
+        }
+    }
+}
+
+#[test]
+fn activity_goes_stale_after_the_read_age_limit_and_never_becomes_idle() {
+    use crate::board::activity::Phase;
+    use std::time::{Duration, Instant};
+    let base = Instant::now();
+    for (refresh, limit) in [
+        (Some(Duration::from_secs(5)), Duration::from_secs(15)),
+        (Some(Duration::from_secs(2)), Duration::from_secs(15)),
+        (Some(Duration::from_secs(60)), Duration::from_secs(70)),
+        // Refresh off: the 5 s floor; the board never turns refresh back on.
+        (None, Duration::from_secs(15)),
+    ] {
+        let mut app = board();
+        app.view.as_mut().unwrap().refresh = refresh;
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.read_at = Some(base);
+        let rows = app.workspace_rows();
+        let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
+        assert_eq!(
+            row.activity.as_ref().unwrap().activity.phase,
+            Phase::Working
+        );
+        let at = |offset: Duration| app.activity_label_at(row, base + offset, 0).unwrap().state;
+        assert_eq!(at(limit), "working", "{refresh:?} at the limit");
+        assert_eq!(at(limit + Duration::from_millis(1)), "stale", "{refresh:?}");
+        assert_eq!(
+            app.view.as_ref().unwrap().refresh,
+            refresh,
+            "refresh is unchanged"
+        );
+    }
+    // A failed reload marks the roster stale at once, whatever the read age.
+    let mut app = board();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.read_at = Some(base);
+    snapshot.roster.observation = OpsObservation::Stale;
+    let rows = app.workspace_rows();
+    let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
+    assert_eq!(app.activity_label_at(row, base, 0).unwrap().state, "stale");
+    assert!(app.activity_stale(base));
+}
+
+#[test]
+fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows() {
+    use crate::board::view::ClockSurface;
+    use std::time::{Duration, Instant};
+    let read = Instant::now();
+    let mut app = board();
+    app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.read_at = Some(read);
+    snapshot
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity
+        .since_ms = Some(1_000);
+    // Collapse the tree and select the squad: only its roster preview paints
+    // the member, which the tree rows no longer hold.
+    app.workspace.expanded.clear();
+    let room = OpsTarget::Squad(ROOM.into());
+    let index = app
+        .workspace_rows()
+        .iter()
+        .position(|row| row.target == room)
+        .unwrap();
+    app.select(index);
+    assert!(
+        app.workspace_rows()
+            .iter()
+            .all(|row| row.activity.is_none())
+    );
+    crate::status::with_now_ms(61_000, || paint(&app, 160, 36));
+    let clocks = app.frame_clocks.borrow();
+    let deadline = read + Duration::from_secs(15);
+    assert!(
+        clocks
+            .iter()
+            .any(|clock| matches!(clock, ClockSurface::ActivityStale(at) if *at == deadline))
+    );
+    assert!(
+        clocks
+            .iter()
+            .any(|clock| matches!(clock, ClockSurface::ActivityAge(1_000)))
+    );
+    drop(clocks);
+    let _no_commands = crate::runner::forbid_commands();
+    let at = crate::board::view::time_marks(&app, 61_000);
+    assert_eq!(at, crate::board::view::time_marks(&app, 61_500));
+    assert_ne!(
+        at,
+        crate::board::view::time_marks(&app, 121_000),
+        "the minute age moves"
+    );
+    // The stale switch follows the recorded deadline alone.
+    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(
+        Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .unwrap(),
+    )];
+    assert_eq!(crate::board::view::time_marks(&app, 0), ["true"]);
+    *app.frame_clocks.borrow_mut() = vec![ClockSurface::ActivityStale(
+        Instant::now() + Duration::from_secs(3600),
+    )];
+    assert_eq!(crate::board::view::time_marks(&app, 0), ["false"]);
+}
+
+#[test]
+fn counters_state_and_status_turn_stale_together() {
+    use crate::board::overview::monitor;
+    use std::time::{Duration, Instant};
+    let read = |app: &mut App, at: Option<Instant>, observation: OpsObservation| {
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.read_at = at;
+        snapshot.roster.observation = observation;
+    };
+    let mut app = board();
+    app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
+    let status = |app: &App| {
+        app.conversation
+            .borrow()
+            .active_agent_mark()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let overview = |app: &mut App| {
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Squads;
+        // Squads view: a frame that shows the counters but no member STATE cell.
+        let screen = paint(app, 160, 36).join("\n");
+        let summary = monitor::scene(app, app.workspace_snapshot().unwrap())
+            .summary
+            .clone();
+        app.shell.tab = OpsTab::Agents;
+        (screen, summary)
+    };
+    for (case, at, observation) in [
+        ("fresh", Some(Instant::now()), OpsObservation::Complete),
+        (
+            "aged",
+            Instant::now().checked_sub(Duration::from_secs(16)),
+            OpsObservation::Complete,
+        ),
+        ("failed", Some(Instant::now()), OpsObservation::Stale),
+    ] {
+        read(&mut app, at, observation);
+        let (screen, summary) = overview(&mut app);
+        let row = painted_member_row(&app, 160, 36);
+        let mark = status(&app);
+        // The TEAM glyph is the counter this frame shows for the member.
+        let team = screen
+            .lines()
+            .find(|line| line.starts_with("   product "))
+            .unwrap_or_default()
+            .to_owned();
+        if case == "fresh" {
+            assert!(team.contains("product   ●"), "{case}: {team}");
+            assert_eq!((summary.working, summary.unknown_activity), (1, 0));
+            assert!(
+                row.contains("● working") && mark.ends_with("worker working"),
+                "{row} / {mark}"
+            );
+        } else {
+            assert!(team.contains("product   ?"), "{case}: {team}");
+            assert_eq!(
+                (summary.working, summary.unknown_activity),
+                (0, 1),
+                "{case}"
+            );
+            assert!(
+                row.contains("? stale") && !row.contains("idle"),
+                "{case}: {row}"
+            );
+            assert!(mark.contains("worker stale"), "{case}: {mark}");
+        }
+    }
+}
+
+#[test]
+fn a_zero_width_state_cell_paints_nothing_and_records_no_area() {
+    let app = board();
+    let rows = app.workspace_rows();
+    let row = rows.iter().find(|row| row.activity.is_some()).unwrap();
+    let label = app.activity_label(row).unwrap();
+    let (primary, task) =
+        crate::board::workspace::columns::activity_spans(&app, row, &label, 0, false);
+    assert!(primary.is_empty() && task.is_none());
+    app.workspace_state_cells.borrow_mut().clear();
+    let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 10, 1));
+    let used = crate::board::workspace::columns::paint_activity(
+        &mut buffer,
+        &app,
+        row,
+        &label,
+        Rect::new(0, 0, 0, 1),
+        false,
+    );
+    assert_eq!(used, 0);
+    assert!(app.workspace_state_cells.borrow().is_empty());
+}
+
+/// One board where core says working but the squad task says blocked, with
+/// or without a request waiting on the user.
+fn disagreeing_board(waiting: bool, look: crate::look::Look) -> App {
+    let mut app = board();
+    app.view.as_mut().unwrap().look = look;
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.squad_looks.clear();
+    let membership = snapshot.roster.squads[0]
+        .member_states
+        .get_mut(MEMBER)
+        .unwrap();
+    membership.state = Some("blocked".into());
+    membership.waiting = waiting;
+    let target = OpsTarget::Member {
+        room_id: Some(ROOM.into()),
+        identity_id: MEMBER.into(),
+    };
+    snapshot.rows.get_mut(&target).unwrap()["state"] = json!("blocked");
+    app.workspace_reconcile();
+    app
+}
+
+#[test]
+fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
+    use crate::board::overview::monitor;
+    use tmt_cli_style::Role;
+    for (waiting, words) in [
+        (false, "● working · blocked"),
+        (true, "◆ waiting · blocked"),
+    ] {
+        let look = crate::look::Look::default();
+        let mut app = disagreeing_board(waiting, look);
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(tree.contains(words), "tree: {tree}");
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Agents;
+        let overview = paint(&app, 160, 36).join("\n");
+        assert!(overview.contains(words), "overview: {overview}");
+        // Counters follow core activity, never the task or the request.
+        let scene = monitor::scene(&app, app.workspace_snapshot().unwrap());
+        assert_eq!(scene.summary.working, 1);
+        assert_eq!(scene.summary.unknown_activity, 0);
+        // Only the glyph carries request attention colour; the words stay text.
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let glyph = buffer
+            .content
+            .chunks(160)
+            .enumerate()
+            .find_map(|(y, row)| {
+                let symbols: Vec<_> = row.iter().map(|cell| cell.symbol()).collect();
+                (0..row.len())
+                    .find(|x| symbols[*x..].concat().starts_with(words))
+                    .map(|x| y * 160 + x)
+            })
+            .unwrap();
+        let glyph_role = if waiting { Role::Waiting } else { Role::Text };
+        assert_eq!(buffer.content[glyph].fg, look.role(glyph_role).fg.unwrap());
+        assert_eq!(
+            buffer.content[glyph + 2].fg,
+            look.role(Role::Text).fg.unwrap()
+        );
+    }
+}
+
+#[test]
+fn overview_state_keeps_the_task_by_width_and_without_colour() {
+    use crate::board::overview::monitor;
+    for (depth, width, words) in [
+        (tmt_cli_style::Depth::TrueColor, 160, "● working · blocked"),
+        (tmt_cli_style::Depth::TrueColor, 82, "● working · block…"),
+        (tmt_cli_style::Depth::TrueColor, 60, "● working "),
+        (tmt_cli_style::Depth::None, 160, "● working · blocked"),
+    ] {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth,
+        };
+        let mut app = disagreeing_board(false, look);
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Agents;
+        let screen = paint(&app, width, 36).join("\n");
+        assert!(screen.contains(words), "{depth:?} {width}: {screen}");
+        if width == 60 {
+            assert!(!screen.contains("· bl"), "a narrow row cuts the task first");
+        }
+    }
+}
+
+/// The Overview STATE width a painted screen shows: from `STATE` to `TOK 1h`
+/// on the header, less the one gap and the right-aligned token cell's pad.
+fn overview_state_width(screen: &[String]) -> usize {
+    let header = screen
+        .iter()
+        .find(|line| line.contains("STATE") && line.contains("TOK 1h"))
+        .expect("the agents header");
+    header.find("TOK 1h").unwrap() - header.find("STATE").unwrap() - 2
+}
+
+/// The STATE column is as wide as the widest cell of the list, at least 12 cells
+/// and within the row's room after the tokens and 16 NOW cells (at most 32).
+/// TOK and NOW start right after it, in colour and without.
+#[test]
+fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
+    use crate::board::overview::monitor;
+    let long = "reviewing-the-release-plan-now";
+    for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth,
+        };
+        for (task, width, expected, words) in [
+            // A short label keeps the 12-cell minimum.
+            (None, 160, 12, "● working"),
+            // A longer label widens to its own width, not to the room.
+            (Some("blocked"), 160, 19, "● working · blocked"),
+            (Some("blocked"), 300, 19, "● working · blocked"),
+            // The room after the tokens and 16 NOW cells bounds it.
+            (Some("blocked"), 82, 18, "● working · block…"),
+            (Some("blocked"), 60, 12, "● working "),
+            // A label longer than the column stops at 32 cells.
+            (Some(long), 160, 32, "● working · reviewing-the-relea…"),
+            (Some(long), 90, 26, "● working · reviewing-the…"),
+        ] {
+            let mut app = match task {
+                None => board(),
+                Some(_) => disagreeing_board(false, look),
+            };
+            app.view.as_mut().unwrap().look = look;
+            if let Some(task) = task.filter(|task| *task != "blocked") {
+                let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                snapshot.roster.squads[0]
+                    .member_states
+                    .get_mut(MEMBER)
+                    .unwrap()
+                    .state = Some(task.into());
+                let target = OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: MEMBER.into(),
+                };
+                snapshot.rows.get_mut(&target).unwrap()["state"] = json!(task);
+                app.workspace_reconcile();
+            }
+            app.shell.tab = OpsTab::Overview;
+            app.overview_view = monitor::View::Agents;
+            let screen = paint(&app, width, 36);
+            let case = format!("{depth:?} {task:?} {width}");
+            assert_eq!(
+                overview_state_width(&screen),
+                expected,
+                "{case}: {screen:#?}"
+            );
+            // The row's tokens start right after the column and its one gap.
+            let row = screen
+                .iter()
+                .find(|line| line.contains(words))
+                .unwrap_or_else(|| panic!("{case}: {screen:#?}"));
+            let state = row.find("● ").unwrap();
+            let after = row[state..].chars().skip(expected).collect::<String>();
+            assert!(after.starts_with("       —   "), "{case}: {row:?}");
+        }
+    }
+}
+
+#[test]
+fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
+    use crate::board::overview::monitor;
+    use std::time::{Duration, Instant};
+    let look = crate::look::Look::default();
+    for (read, glyph, state) in [
+        (Some(Instant::now()), "●", "working"),
+        (
+            Instant::now().checked_sub(Duration::from_secs(16)),
+            "?",
+            "stale",
+        ),
+    ] {
+        let mut app = disagreeing_board(false, look);
+        app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .read_at = read;
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Squads;
+        let scene = monitor::scene(&app, app.workspace_snapshot().unwrap());
+        let member = scene.squads[0]
+            .members
+            .iter()
+            .find(|(id, _)| id == MEMBER)
+            .unwrap();
+        assert_eq!(
+            member.1.as_deref(),
+            Some(state),
+            "the blocked task never wins"
+        );
+        let screen = paint(&app, 160, 36).join("\n");
+        let team = screen
+            .lines()
+            .find(|line| line.starts_with("   product "))
+            .unwrap();
+        assert!(team.contains(&format!("product   {glyph}")), "{team}");
+        assert!(!team.contains('✗'), "{team}");
+    }
+}
+
+#[test]
+fn unknown_and_stale_glyphs_are_muted_and_only_waiting_is_orange() {
+    use tmt_cli_style::Role;
+    let app = board();
+    for (state, role) in [
+        ("unknown", Role::Muted),
+        ("stale", Role::Muted),
+        ("waiting", Role::Waiting),
+        ("working", Role::Text),
+        ("idle", Role::Text),
+        ("ended", Role::Text),
+    ] {
+        assert_eq!(
+            crate::board::workspace::columns::activity_style(&app, state),
+            app.look().role(role),
+            "{state}"
+        );
+    }
+}
+
+/// Gives `MEMBER` two unread replies from the viewer, as the unread scenes do.
+fn with_unread_replies(app: &mut App) {
+    let actor = app.view.as_ref().unwrap().me_id.clone().unwrap();
+    let items: Vec<_> = (1..=2)
+        .map(|index| {
+            json!({
+                "requestId":format!("unread-{index}"), "kind":"request", "sender":{"identityId":actor},
+                "recipientId":MEMBER, "recipientAcknowledged":true,
+                "final":{"status":"retained","submittedAtMs":100+index}
+            })
+        })
+        .collect();
+    app.home_leads
+        .test_results(&actor, json!({"items":items,"nextBefore":null}));
+    app.overview_rows.borrow_mut().clear();
+    app.workspace_reconcile();
+}
+
+/// Unread replies replace the activity words with `● N unread`, blue on the
+/// glyph only, and the task still follows. Without unread replies the cell
+/// keeps its activity form. The tree and Overview agree, in colour and without.
+#[test]
+fn unread_replies_replace_the_activity_words_and_keep_the_task() {
+    use crate::board::overview::monitor;
+    use tmt_cli_style::Role;
+    for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+        let look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth,
+        };
+        let mut app = disagreeing_board(false, look);
+        assert!(painted_member_row(&app, 160, 36).contains("● working · blocked"));
+        with_unread_replies(&mut app);
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(
+            tree.contains("● 2 unread · blocked"),
+            "{depth:?} tree: {tree}"
+        );
+        assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Agents;
+        for (width, words) in [
+            (160, "● 2 unread · blocked"),
+            // The row's room clips the task first.
+            (82, "● 2 unread · bloc…"),
+            (60, "● 2 unread  "),
+        ] {
+            let screen = paint(&app, width, 36).join("\n");
+            assert!(screen.contains(words), "{depth:?} {width}: {screen}");
+            assert!(!screen.contains("● working"), "{depth:?} {width}: {screen}");
+        }
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let glyph = buffer
+            .content
+            .chunks(160)
+            .enumerate()
+            .find_map(|(y, row)| {
+                let symbols: Vec<_> = row.iter().map(|cell| cell.symbol()).collect();
+                (0..row.len())
+                    .find(|x| symbols[*x..].concat().starts_with("● 2 unread · blocked"))
+                    .map(|x| y * 160 + x)
+            })
+            .unwrap();
+        // Only the glyph is unread blue; the words are muted like the task.
+        assert_eq!(
+            buffer.content[glyph].fg,
+            look.role(Role::Unread).fg.unwrap_or_default()
+        );
+        assert_eq!(
+            buffer.content[glyph + 2].fg,
+            look.role(Role::Muted).fg.unwrap_or_default()
+        );
+        if depth != tmt_cli_style::Depth::None {
+            assert_ne!(buffer.content[glyph + 2].fg, buffer.content[glyph].fg);
+        }
+    }
+}
+
+/// The activity form leaves out a task that repeats its activity word. Unread
+/// replies replace that word, so the same task follows `● N unread`, wide and
+/// clipped, in the tree, the roster preview and Overview.
+#[test]
+fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
+    use crate::board::activity::Phase;
+    use crate::board::overview::monitor;
+    for (word, phase, waiting, glyph) in [
+        ("working", Phase::Working, false, "●"),
+        ("idle", Phase::Idle, false, "◌"),
+        ("waiting", Phase::Working, true, "◆"),
+    ] {
+        let mut app = disagreeing_board(waiting, crate::look::Look::default());
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot
+            .roster
+            .members
+            .get_mut(MEMBER)
+            .unwrap()
+            .activity
+            .phase = phase;
+        snapshot.roster.squads[0]
+            .member_states
+            .get_mut(MEMBER)
+            .unwrap()
+            .state = Some(word.into());
+        let target = OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        };
+        snapshot.rows.get_mut(&target).unwrap()["state"] = json!(word);
+        app.workspace_reconcile();
+        // Control: without unread replies the repeat is left out.
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(
+            tree.contains(&format!("{glyph} {word}")),
+            "{word} tree: {tree}"
+        );
+        assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");
+
+        with_unread_replies(&mut app);
+        let unread = format!("● 2 unread · {word}");
+        let tree = painted_member_row(&app, 160, 36);
+        assert!(tree.contains(&unread), "{word} tree: {tree}");
+        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+        app.workspace_reconcile();
+        let roster = paint(&app, 160, 44).join("\n");
+        assert!(roster.contains(&unread), "{word} roster: {roster}");
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Agents;
+        // At 80 cells the STATE room is 16: the task is clipped, not dropped.
+        for (width, words) in [
+            (160, unread.clone()),
+            (80, format!("● 2 unread · {}…", &word[..2])),
+        ] {
+            let screen = paint(&app, width, 36).join("\n");
+            assert!(screen.contains(&words), "{word} {width}: {screen}");
         }
     }
 }

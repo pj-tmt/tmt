@@ -74,6 +74,7 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
             waiting: false,
             presence: None,
             usage: None,
+            activity: Default::default(),
         },
     );
     snapshot.roster.membership_complete = true;
@@ -549,6 +550,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
             waiting: false,
             presence: Some(true),
             usage: None,
+            activity: Default::default(),
         },
     );
     snapshot.roster.squads.push(OpsSquad {
@@ -1186,6 +1188,7 @@ fn digest_all_time_keeps_both_collection_dates_visible_at_narrow_widths() {
                 waiting: false,
                 presence: None,
                 usage: None,
+                activity: Default::default(),
             },
         );
         let mut document = savings_document();
@@ -1334,6 +1337,7 @@ fn capture_savings_packet() {
                                 waiting: false,
                                 presence: Some(true),
                                 usage: None,
+                                activity: Default::default(),
                             },
                         );
                         workspace.roster.squads[0].members.push(SECOND.into());

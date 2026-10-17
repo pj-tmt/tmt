@@ -197,16 +197,22 @@ fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
                 .iter()
                 .filter(|id| seen.insert(*id))
                 .map(|id| {
-                    let state = squad.member_states.get(id);
-                    let waiting = state.is_some_and(|state| state.waiting);
-                    (
-                        id.clone(),
-                        if waiting {
-                            Some("waiting".into())
-                        } else {
-                            state.and_then(|state| state.state.clone())
-                        },
-                    )
+                    // The same label and stale rule as the STATE cells: a
+                    // waiting request, otherwise core activity. A task state
+                    // never overrides it.
+                    let membership = squad.member_states.get(id);
+                    let label = crate::board::activity::Member {
+                        activity: snapshot
+                            .roster
+                            .members
+                            .get(id)
+                            .map(|member| member.activity)
+                            .unwrap_or_default(),
+                        waiting: membership.is_some_and(|state| state.waiting),
+                        task: None,
+                    }
+                    .label(key.activity_stale, 0);
+                    (id.clone(), Some(label.state.to_owned()))
                 })
                 .collect();
             let rows: Vec<_> = squad
@@ -270,6 +276,8 @@ struct Key {
     digest_window: crate::config::DigestWindow,
     savings_unit: crate::config::SavingsUnit,
     visibility: crate::board::workspace::OpsVisibility,
+    /// Crossing the stale rule changes the activity counts.
+    activity_stale: bool,
 }
 impl Cache {
     pub fn clear(&mut self) {
@@ -291,6 +299,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         digest_window: snapshot.preferences.digest_window,
         savings_unit: snapshot.preferences.savings_unit,
         visibility: app.workspace.visibility.clone(),
+        activity_stale: app.activity_stale(std::time::Instant::now()),
     };
     let mut cache = app.overview_rows.borrow_mut();
     if let Some((old, scene)) = &cache.held
@@ -379,6 +388,7 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
                 state: None,
                 presence: None,
                 usage: None,
+                activity: None,
                 count: None,
                 observation: squad.observation,
             })
@@ -402,7 +412,12 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         matching_agents,
         waiting,
         rows,
-        summary: super::summary::project(snapshot, &app.labels, &key.visibility),
+        summary: super::summary::project(
+            snapshot,
+            &app.labels,
+            &key.visibility,
+            key.activity_stale,
+        ),
     });
     cache.held = Some((key, Rc::clone(&scene)));
     scene

@@ -13,9 +13,11 @@ pub(in crate::board) struct Summary {
     pub total: usize,
     pub complete: bool,
     pub digest_available: bool,
+    /// Agents core observes as working, each identity once.
     pub working: usize,
     pub needs_you: usize,
-    pub unknown_state: usize,
+    /// Agents whose activity core could not observe.
+    pub unknown_activity: usize,
     pub auto: usize,
     pub timed: usize,
     pub off: usize,
@@ -32,6 +34,7 @@ pub(super) fn project(
     snapshot: &OpsWorkspaceSnapshot,
     labels: &Supplied,
     visibility: &crate::board::workspace::OpsVisibility,
+    activity_stale: bool,
 ) -> Summary {
     let roster = &snapshot.roster;
     // Visibility affects this view's counts, never the acquired global roster
@@ -66,18 +69,15 @@ pub(super) fn project(
             .map(String::as_str),
         summary.window,
     );
+    let mut activity = crate::board::activity::Tally::default();
     for (id, member) in &roster.members {
         if visible.as_ref().is_some_and(|ids| !ids.contains(id)) {
             continue;
         }
-        if member.state.as_deref() == Some("working") {
-            summary.working += 1;
-        }
+        // Agent activity is core's observation; the task state stays a human fact.
+        activity.add(member.activity, activity_stale);
         if super::sort::needs_attention(member.state.as_deref()) {
             summary.needs_you += 1;
-        }
-        if member.state.is_none() {
-            summary.unknown_state += 1;
         }
         if let Some(status) = digest.and_then(|status| status.members.get(id)) {
             match status.mode {
@@ -95,6 +95,8 @@ pub(super) fn project(
             summary.unknown_held += 1;
         }
     }
+    summary.working = activity.working;
+    summary.unknown_activity = activity.unknown;
     summary
 }
 
@@ -104,7 +106,7 @@ mod tests {
     use crate::board::workspace::OpsMember;
 
     fn project(snapshot: &OpsWorkspaceSnapshot, labels: &Supplied) -> Summary {
-        super::project(snapshot, labels, &Default::default())
+        super::project(snapshot, labels, &Default::default(), false)
     }
 
     #[test]
@@ -126,6 +128,7 @@ mod tests {
                 waiting: false,
                 presence: None,
                 usage: None,
+                activity: Default::default(),
             },
         );
         snapshot.roster.observation = OpsObservation::Complete;
@@ -210,6 +213,7 @@ mod tests {
                     waiting: false,
                     presence: None,
                     usage: None,
+                    activity: Default::default(),
                 },
             );
         }
@@ -250,7 +254,7 @@ mod tests {
             scope: vec!["no-such-room".into()],
             reveal_hidden: false,
         };
-        let summary = super::project(&snapshot, &labels, &scoped);
+        let summary = super::project(&snapshot, &labels, &scoped, false);
         assert_eq!((summary.savings.tokens, summary.savings.total), (None, 0));
     }
     #[test]
@@ -274,10 +278,12 @@ mod tests {
     #[test]
     fn unknown_modes_and_partial_counts_do_not_become_off_or_complete() {
         let mut snapshot = OpsWorkspaceSnapshot::default();
-        for (id, state) in [
-            ("working", Some("working")),
-            ("waiting", Some("waiting")),
-            ("unknown", None),
+        use crate::board::activity::{ObservedActivity, Phase};
+        for (id, state, phase) in [
+            ("working", Some("working"), Phase::Working),
+            ("waiting", Some("waiting"), Phase::Idle),
+            ("unknown", None, Phase::Unknown),
+            ("ended", Some("working"), Phase::Ended),
         ] {
             snapshot.roster.members.insert(
                 id.into(),
@@ -288,6 +294,10 @@ mod tests {
                     waiting: false,
                     presence: None,
                     usage: None,
+                    activity: ObservedActivity {
+                        phase,
+                        ..Default::default()
+                    },
                 },
             );
         }
@@ -298,9 +308,9 @@ mod tests {
                 summary.total,
                 summary.working,
                 summary.needs_you,
-                summary.unknown_state
+                summary.unknown_activity
             ),
-            (3, 1, 1, 1)
+            (4, 1, 1, 1)
         );
         assert!(!summary.complete);
         assert_eq!(
@@ -310,7 +320,54 @@ mod tests {
                 summary.unknown_mode,
                 summary.unknown_held
             ),
-            (0, 0, 3, 3)
+            (0, 0, 4, 4)
         );
+    }
+
+    /// Builds the workspace the way the board does: global core `ls` rows
+    /// (which carry no squad state) joined with one squad's roster document.
+    fn acquired(listed: serde_json::Value, rows: Vec<serde_json::Value>) -> OpsWorkspaceSnapshot {
+        let root = std::env::temp_dir().join(format!(
+            "ops-summary-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ops.toml"), "").unwrap();
+        let config = crate::config::Config::read(root.join("ops.toml")).unwrap();
+        let core = crate::core::Core::at(root.join("core"));
+        let squad = crate::squad::Squad {
+            name: "a".into(),
+            room_id: "room-a".into(),
+        };
+        let mut acquired = crate::tab_view::roster_documents(&core, &config, &[], None, None);
+        acquired.include(
+            &config,
+            "a",
+            serde_json::json!({"squad": {"name": "a", "lead": null}, "sections": [{"rows": rows}]}),
+        );
+        let snapshot = OpsWorkspaceSnapshot::from_acquired(&[&squad], &acquired, &Ok(listed));
+        std::fs::remove_dir_all(&root).unwrap();
+        snapshot
+    }
+
+    #[test]
+    fn working_counts_agents_whose_core_activity_is_working() {
+        let task = |id: &str, state: &str| {
+            serde_json::json!({"id": id, "name": id, "state": state, "pending": null,
+                "fields": {"state": state}, "waitingOnYou": []})
+        };
+        let listed = |id: &str, phase: &str| {
+            serde_json::json!({"id": id, "name": id, "presence": "active",
+                "session": {"activity": {"state": phase, "sinceMs": 1, "lastActivityMs": 1,
+                "providers": {}}}})
+        };
+        let snapshot = acquired(
+            serde_json::json!({"identities": [listed("busy", "working"), listed("quiet", "idle")]}),
+            vec![task("busy", "working"), task("quiet", "working")],
+        );
+        // Only the agent core observes as working counts; a task named
+        // "working" on an idle agent does not.
+        assert_eq!(project(&snapshot, &Supplied::default()).working, 1);
     }
 }

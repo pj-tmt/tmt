@@ -94,8 +94,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         (screen) =>
           screen.includes('OPS / UI') &&
           /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
-          /^   Ben[ \t]+Common pool[ \t]+\? unreported/m.test(screen) &&
-          /^   worker[ \t]+Common pool[ \t]+\? unreported/m.test(screen) &&
+          /^   Ben[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
+          /^   worker[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
           /Agents[ \t]+Squads[ \t]+\/ Search/.test(screen),
         shell.pane
       );
@@ -113,8 +113,8 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
             header.slice(0, 75)
           ) &&
           rule.slice(77).startsWith('── Common pool ') &&
-          /^[ \t]+├   Ben[ \t]+— unreported[ \t]/m.test(screen) &&
-          /^[ \t]+└   worker[ \t]+— unreported[ \t]/m.test(screen)
+          /^[ \t]+├   Ben[ \t]+\? /m.test(screen) &&
+          /^[ \t]+└   worker[ \t]+\? /m.test(screen)
         );
       }, shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, 'n']);
