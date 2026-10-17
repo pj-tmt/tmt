@@ -25,3 +25,7 @@ export function assignRefs<T>(node: T | null, ...refs: (Ref<T> | undefined)[]): 
     for (const cleanup of cleanups) cleanup();
   };
 }
+
+/** Shared native Input/Textarea reset; keep the complete literal for CSS generation. */
+export const nativeFieldReset =
+  'tmt:appearance-none tmt:[border-radius:var(--tmt-foundation-radius)] tmt:font-body tmt:m-0 tmt:box-border';
