@@ -387,29 +387,25 @@ pub fn activity_style(app: &crate::board::app::App, state: &str) -> ratatui::sty
     })
 }
 
-/// The secondary task state: an authored state colour, else blocked/waiting
-/// attention, else muted. Waiting keeps its attention colour, as before.
+/// The secondary task state is muted; only a blocked-type (`✗`) task is red.
+/// `◆` and `✗` are the board's only attention colours, so no authored task
+/// colour applies here.
 pub fn task_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::style::Style {
-    let look = app.look();
     let task = row
         .activity
         .as_ref()
         .and_then(|member| member.task.as_deref());
-    let role = match task {
-        Some("waiting") => Role::Waiting,
-        Some("blocked") => Role::Blocked,
-        _ => Role::Muted,
-    };
-    app.workspace_snapshot()
-        .and_then(|snapshot| snapshot.rows.get(&row.target))
-        .and_then(|raw| raw["colors"]["state"].as_str())
-        .filter(|_| task != Some("waiting"))
-        .map_or_else(|| look.role(role), |color| look.named(color))
+    app.look()
+        .role(if crate::board::state_cell::glyph(task) == "✗" {
+            Role::Blocked
+        } else {
+            Role::Muted
+        })
 }
 
 /// A member's STATE cell in `width` cells: the glyph, the activity words and
 /// the task state when it fits. Only the glyph carries request attention colour;
-/// the words stay neutral and the task keeps its own colour.
+/// the words stay neutral and only a blocked-type task is red.
 pub fn activity_spans(
     app: &crate::board::app::App,
     row: &OpsTreeRow,

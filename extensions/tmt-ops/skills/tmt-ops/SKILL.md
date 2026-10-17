@@ -379,9 +379,9 @@ Ops markers never acknowledge Core results.
 
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;
-narrower tables drop whole optional columns. Only the state glyph and the task
-state carry state colour, and selection uses a background or the existing
-NO_COLOR reverse cue.
+narrower tables drop whole optional columns. Only the state glyph carries state
+colour; a member's task state is red only when it is `blocked`, and selection
+uses a background or the existing NO_COLOR reverse cue.
 All keeps Common pool first, then pinned squads and the selected sort order.
 `f` cycles the layer-local All / Pinned filter; explicit bindings win. Pinned shows
 pinned squads and individually pinned agents with their containing group. `p`

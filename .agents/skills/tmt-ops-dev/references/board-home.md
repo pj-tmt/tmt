@@ -355,7 +355,7 @@ job tracks and their more hint, `key_value` owns aligned metric values, and
 observations and owns effects. These painters perform no acquisition or
 view-specific projection, and later Agents placements reuse the same modules.
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
-and a member's secondary task state keeps its own state colour. Agent working/idle
+and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle
 counts tally core activity once per identity and count a stale read as unknown;
 Overview TEAM glyphs use the same activity label (request attention first, never
 a task state). Needs-you counts stay task and request facts.

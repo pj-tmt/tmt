@@ -3149,7 +3149,7 @@ fn roster_preview_click_selects_the_exact_membership_and_invalidates_old_hits() 
 }
 
 #[test]
-fn task_attention_colors_stay_in_the_task_text_while_activity_words_are_neutral() {
+fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
     use tmt_cli_style::{Base, Depth, Role, Theme};
     let mut shown_tasks = 0;
     for base in [Base::Tmt, Base::TmtLight] {
@@ -3157,13 +3157,14 @@ fn task_attention_colors_stay_in_the_task_text_while_activity_words_are_neutral(
             theme: Theme::new(base),
             depth: Depth::TrueColor,
         };
-        // The task state follows core's activity words; only its own text carries
-        // attention colour. A task named like the activity is omitted.
+        // The task state follows core's activity words. Only a blocked task is
+        // red; a waiting task is muted, because only the glyph carries orange.
+        // A task named like the activity is omitted.
         for (state, role) in [
             ("working", None),
             ("idle", Some(Role::Muted)),
             ("offline", Some(Role::Muted)),
-            ("waiting", Some(Role::Waiting)),
+            ("waiting", Some(Role::Muted)),
             ("blocked", Some(Role::Blocked)),
         ] {
             for selected in [false, true] {
