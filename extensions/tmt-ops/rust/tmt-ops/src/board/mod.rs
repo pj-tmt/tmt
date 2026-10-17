@@ -42,6 +42,7 @@ mod pane_resize;
 mod panels_picker;
 mod picker_surface;
 mod rate;
+mod recent_responses;
 mod recovery;
 mod refresh;
 mod reload;
@@ -162,6 +163,12 @@ pub(super) enum BoardEvent {
         key: home_leads::MessageKey,
         revision: u64,
         body: Result<String, String>,
+    },
+    PaneOutput {
+        cancellation: crate::runner::Cancellation,
+        key: conversation::ConversationKey,
+        revision: u64,
+        observation: recent_responses::Observation,
     },
     Status {
         cancellation: crate::runner::Cancellation,
@@ -637,6 +644,21 @@ fn session(
                     && app.selected_read() == Some(refresh::SelectedRead::Message(key.clone()))
                 {
                     app.apply_message(&key, body);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::PaneOutput {
+                cancellation,
+                key,
+                revision: read_revision,
+                observation,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read() == Some(refresh::SelectedRead::PaneOutput(key.clone()))
+                {
+                    app.apply_pane_output(key, observation);
                     dirty = true;
                 }
                 Effect::None
@@ -1494,16 +1516,124 @@ mod tests {
             !old.acquired,
             "a result for the selection left behind is never admitted"
         );
-        app.shell.tab = shell::OpsTab::Overview;
-        terminal
-            .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
-            .unwrap();
-        terminal.draw(|frame| view::render(frame, &app)).unwrap();
-        assert_eq!(
-            app.selected_read(),
-            None,
-            "hidden source surfaces start no background body read"
-        );
+        for tab in [shell::OpsTab::Overview, shell::OpsTab::Agents] {
+            app.shell.tab = tab;
+            // Terminal::resize alone leaves TestBackend at160x36; draw would
+            // auto-resize back and never exercise a hidden conversation.
+            terminal.backend_mut().resize(60, 8);
+            terminal
+                .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
+                .unwrap();
+            terminal
+                .draw(|frame| {
+                    view::prepare(&mut app, frame.area());
+                    view::render(frame, &app);
+                })
+                .unwrap();
+            assert_eq!(
+                terminal.backend().buffer().area,
+                ratatui::layout::Rect::new(0, 0, 60, 8)
+            );
+            assert!(
+                !app.scrolls.visible(crate::config::Pane::Replies),
+                "{tab:?}"
+            );
+            assert_eq!(
+                app.selected_read(),
+                None,
+                "hidden source surfaces start no background read: {tab:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn selected_pane_output_rejects_late_selection_refresh_and_wrong_sender_results() {
+        let loaded = || {
+            let mut app = app::workspace::tests::board();
+            app.view.as_mut().unwrap().refresh = None;
+            app
+        };
+        let mut app = loaded();
+        let (events, input) = channel();
+        let reads = std::cell::Cell::new(0);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |revision, selected| {
+                let Some(refresh::SelectedRead::PaneOutput(key)) = selected else {
+                    return;
+                };
+                let count = reads.get() + 1;
+                reads.set(count);
+                let result = |key, revision, text: &str| BoardEvent::PaneOutput {
+                    cancellation: Default::default(),
+                    key,
+                    revision,
+                    observation: recent_responses::Observation::Observed(vec![
+                        recent_responses::Item {
+                            text: text.into(),
+                            ended_ms: 10,
+                            truncated: false,
+                        },
+                    ]),
+                };
+                if count == 1 {
+                    events.send(self::key(KeyCode::Up)).unwrap();
+                    events.send(result(key, revision, "OLD SELECTION")).unwrap();
+                    events.send(self::key(KeyCode::Down)).unwrap();
+                } else if count == 2 {
+                    let mut fresh = loaded();
+                    let mut snapshot = app::tests::snapshot(ALL, serde_json::json!([]));
+                    snapshot.tabs.push(ALL.into());
+                    snapshot.view = Ok(fresh.view.take().unwrap());
+                    events.send(snapshot_event(snapshot)).unwrap();
+                    events.send(result(key, revision, "OLD REFRESH")).unwrap();
+                } else {
+                    let mut wrong = key.clone();
+                    wrong.0 = Some("another sender".into());
+                    events
+                        .send(result(wrong, revision, "WRONG SENDER"))
+                        .unwrap();
+                    events
+                        .send(result(key.clone(), revision - 1, "OLD REVISION"))
+                        .unwrap();
+                    events
+                        .send(result(key, revision, "CURRENT PANE OUTPUT"))
+                        .unwrap();
+                    events.send(self::key(KeyCode::Char('q'))).unwrap();
+                }
+            },
+            |_| {},
+            no_io,
+            |app| {
+                app.set_body_width(160);
+                terminal.draw(|frame| view::render(frame, app)).unwrap();
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(reads.get(), 3);
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("CURRENT PANE OUTPUT"), "{text}");
+        for stale in [
+            "OLD SELECTION",
+            "OLD REFRESH",
+            "WRONG SENDER",
+            "OLD REVISION",
+        ] {
+            assert!(!text.contains(stale), "{stale}");
+        }
+        assert!(app.pane_output_read().is_none());
     }
 
     #[test]

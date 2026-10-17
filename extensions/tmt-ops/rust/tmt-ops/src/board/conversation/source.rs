@@ -92,6 +92,15 @@ impl State {
 
 impl Session {
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {
+        let line = if let Some(sources) = self
+            .rendered
+            .as_ref()
+            .and_then(|rendered| rendered.response_sources.as_ref())
+        {
+            sources.get(line).copied().flatten()?
+        } else {
+            line
+        };
         if self.outgoing.is_empty() {
             self.reply
                 .as_ref()

@@ -26,14 +26,11 @@ pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
             .and_then(|detail| detail.reply),
     );
     session.correlate_loaded(app, row["name"].as_str().unwrap_or("unknown agent"));
-    if session.reply.is_none() && session.outgoing.is_empty() {
+    session.transcript_context(app, row);
+    if session.reply.is_none() && session.outgoing.is_empty() && !session.has_pane_output() {
         return 1;
     }
-    session.prepare(
-        usize::from(width.saturating_sub(3).max(1)),
-        app.look(),
-        &app.references,
-    );
+    session.prepare_exchange(usize::from(width), app.look(), &app.references);
     let waiting = session.outgoing.is_empty()
         && session.reply.as_ref().is_some_and(|reply| {
             reply
@@ -104,7 +101,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let session = state.sessions.entry(identity).or_default();
     session.update(incoming);
     session.correlate_loaded(app, name);
-    if session.reply.is_none() && session.outgoing.is_empty() {
+    session.transcript_context(app, row);
+    if session.reply.is_none() && session.outgoing.is_empty() && !session.has_pane_output() {
         empty_state::paint(
             frame.buffer_mut(),
             area,
@@ -146,11 +144,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         header,
         exchange::header(name, me, &stamp, read_only, usize::from(area.width), look),
     );
-    let rebuilt = session.prepare(
-        usize::from(area.width.saturating_sub(3).max(1)),
-        look,
-        &app.references,
-    );
+    let rebuilt = session.prepare_exchange(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(question && session.outgoing.is_empty() && area.height >= 3)
         + u16::from(link.is_some() && area.height >= 4);
     // Long observations retain their viewport and paging indicator; optional
@@ -191,26 +185,45 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         &mapped.lines,
         look,
         earlier_key,
-        |index, line| match session.authored_lines.get(&mapped.sources[index]) {
-            Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
-            Some(AuthoredLine::Outgoing { answer: false }) => {
-                exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+        |index, line| {
+            if session
+                .rendered
+                .as_ref()
+                .unwrap()
+                .pane_rows
+                .contains(&index)
+            {
+                return line.clone();
             }
-            Some(AuthoredLine::ReplyHeading) => {
-                exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
+            let source = session
+                .rendered
+                .as_ref()
+                .unwrap()
+                .response_sources
+                .as_ref()
+                .and_then(|sources| sources[mapped.sources[index]])
+                .unwrap_or(mapped.sources[index]);
+            match session.authored_lines.get(&source) {
+                Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
+                Some(AuthoredLine::Outgoing { answer: false }) => {
+                    exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                }
+                Some(AuthoredLine::ReplyHeading) => {
+                    exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
+                }
+                Some(AuthoredLine::Status) => {
+                    let text = line.to_string();
+                    let suffix = format!(" · {}", session.agent_mark);
+                    exchange::feedback(
+                        text.trim_end()
+                            .strip_suffix(suffix.trim_end())
+                            .unwrap_or(text.trim_end())
+                            .trim_end(),
+                        look,
+                    )
+                }
+                None => exchange::body(line.clone(), look),
             }
-            Some(AuthoredLine::Status) => {
-                let text = line.to_string();
-                let suffix = format!(" · {}", session.agent_mark);
-                exchange::feedback(
-                    text.trim_end()
-                        .strip_suffix(suffix.trim_end())
-                        .unwrap_or(text.trim_end())
-                        .trim_end(),
-                    look,
-                )
-            }
-            None => exchange::body(line.clone(), look),
         },
     );
     let text_area = Rect::new(
@@ -245,9 +258,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             });
         }
     }
-    session
-        .anchor
-        .select_visual(&session.text, &mapped.sources, offset);
+    session.anchor.select_visual(
+        &session.rendered.as_ref().unwrap().anchor_text,
+        &mapped.sources,
+        offset,
+    );
     let mut y = body.bottom();
     if question && session.outgoing.is_empty() && footer_rows > 0 {
         strip::paint_left(

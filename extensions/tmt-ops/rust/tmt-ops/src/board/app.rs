@@ -1382,6 +1382,7 @@ impl App {
 
     pub fn apply(&mut self, mut snapshot: Snapshot) {
         self.overview_rows.borrow_mut().clear();
+        self.conversation.borrow_mut().refresh_pane_output();
         if let Some(timing) = &mut self.timing {
             let accepted =
                 snapshot.view.is_ok() && (self.current.is_none() || self.current == snapshot.squad);
@@ -4223,7 +4224,8 @@ impl App {
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
-        None
+        self.pane_output_read()
+            .map(super::refresh::SelectedRead::PaneOutput)
     }
 
     /// Exact admitted row data for the selected workspace target.

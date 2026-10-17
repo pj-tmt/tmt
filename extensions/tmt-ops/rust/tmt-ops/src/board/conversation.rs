@@ -23,6 +23,7 @@ pub(in crate::board) mod exchange;
 pub(super) mod layout;
 pub(super) mod outgoing;
 mod source;
+mod transcript;
 
 #[derive(Clone)]
 pub(super) struct HeaderHit {
@@ -30,7 +31,7 @@ pub(super) struct HeaderHit {
     pub target: RowTarget,
 }
 
-type ConversationKey = (Option<String>, String);
+pub(super) type ConversationKey = (Option<String>, String);
 
 #[derive(Default)]
 pub(super) struct State {
@@ -48,9 +49,13 @@ pub(super) struct State {
 
 struct Rendered {
     width: usize,
+    canvas_width: usize,
     look: Look,
     identities: Option<std::sync::Arc<()>>,
     mapped: Mapped,
+    anchor_text: String,
+    response_sources: Option<Vec<Option<usize>>>,
+    pane_rows: std::collections::BTreeSet<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -93,6 +98,9 @@ struct Session {
     agent_mark: String,
     authored_lines: BTreeMap<usize, AuthoredLine>,
     compact_separators: std::collections::BTreeSet<usize>,
+    pane_output: super::recent_responses::Observation,
+    pane_output_fresh: bool,
+    transcript_context: transcript::Context,
 }
 
 impl Default for Session {
@@ -111,6 +119,9 @@ impl Default for Session {
             agent_mark: String::new(),
             authored_lines: Default::default(),
             compact_separators: Default::default(),
+            pane_output: Default::default(),
+            pane_output_fresh: false,
+            transcript_context: Default::default(),
         }
     }
 }
@@ -190,7 +201,6 @@ impl Session {
                 .as_ref()
                 .map_or("(no response in loaded history)", |reply| &reply.body),
         );
-        self.anchor.reconcile(&self.text);
         self.reply = incoming;
         self.rendered = None;
     }
@@ -201,12 +211,32 @@ impl Session {
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
+        self.prepare_canvas(width, width, look, inventory)
+    }
+
+    fn prepare_exchange(
+        &mut self,
+        width: usize,
+        look: Look,
+        inventory: &super::inventory::Inventory,
+    ) -> bool {
+        self.prepare_canvas(width.saturating_sub(3).max(1), width, look, inventory)
+    }
+
+    fn prepare_canvas(
+        &mut self,
+        width: usize,
+        canvas_width: usize,
+        look: Look,
+        inventory: &super::inventory::Inventory,
+    ) -> bool {
         let identities = self
             .text
             .contains("#tmt:")
             .then(|| std::sync::Arc::clone(&inventory.generation));
         let changed = self.rendered.as_ref().is_none_or(|rendered| {
             rendered.width != width
+                || rendered.canvas_width != canvas_width
                 || rendered.look != look
                 || match (&rendered.identities, &identities) {
                     (None, None) => false,
@@ -245,11 +275,17 @@ impl Session {
                 sources,
                 mentions,
             };
+            let transcript = self.merge_pane_output(mapped, canvas_width, look);
+            self.anchor.reconcile(&transcript.anchor_text);
             self.rendered = Some(Rendered {
                 width,
+                canvas_width,
                 look,
                 identities,
-                mapped,
+                mapped: transcript.mapped,
+                anchor_text: transcript.anchor_text,
+                response_sources: transcript.response_sources,
+                pane_rows: transcript.pane_rows,
             });
         }
         changed
@@ -342,7 +378,7 @@ impl App {
             session.change = Change::Current;
         } else if let Some(rendered) = &session.rendered {
             session.anchor.select_visual(
-                &session.text,
+                &rendered.anchor_text,
                 &rendered.mapped.sources,
                 self.scrolls.offset(pane),
             );
@@ -529,6 +565,7 @@ fn render_target(
     );
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
     session.correlate_loaded(app, &name);
+    session.transcript_context(app, row);
     let tree = app.workspace_rows();
     let tree_row = tree
         .get(app.selected)
@@ -966,9 +1003,11 @@ fn render_target(
         }
     }
     if switched || rebuilt || previous != offset {
-        session
-            .anchor
-            .select_visual(&session.text, &mapped.sources, offset);
+        session.anchor.select_visual(
+            &session.rendered.as_ref().unwrap().anchor_text,
+            &mapped.sources,
+            offset,
+        );
     }
     state.reply_hits = reply_hits;
     state.response_area = Some(body);

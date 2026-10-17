@@ -8,6 +8,7 @@ use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) mod performance;
+mod recent_output_packet;
 
 fn fixture() -> App {
     let mut app = App::new(Some("product".into()));
@@ -723,7 +724,7 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
                 "Digest shows status details"
             );
         } else if tab == OpsTab::Overview {
-            assert!(text.contains("No question observed"), "{text}");
+            assert!(text.contains("Loading recent pane output"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
                 "an unrelated outgoing result is not the incoming question"
@@ -986,7 +987,9 @@ fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(screen.contains("1–1 / 1"), "{screen}");
+        assert!(screen.contains("1–2 / 2"), "{screen}");
+        assert!(screen.contains("Exchange history unavailable"));
+        assert!(screen.contains("Loading recent pane output"));
     }
 }
 
@@ -1055,4 +1058,246 @@ fn member_projection_keeps_exact_response_and_refresh_invalidates_only_the_displ
             .is_none()
     );
     assert_eq!(session.reply.as_ref().unwrap().body, raw);
+}
+
+#[test]
+fn pane_output_is_neutral_bounded_and_never_a_request_source() {
+    use crate::board::recent_responses::{Item, Observation};
+    use ratatui::style::Modifier;
+    let mut session = Session::default();
+    session.update(Some(reply(
+        "real-request",
+        "real exchange\nlast source line",
+    )));
+    session.transcript_context = transcript::Context {
+        enabled: true,
+        name: "alpha".into(),
+        times: vec![1000],
+        exchanges_observed: true,
+        output_ages: vec!["now".into()],
+    };
+    session.pane_output = Observation::Observed(vec![Item {
+        text: "untrusted **pane**\r\nlast line\n".into(),
+        ended_ms: 1000,
+        truncated: true,
+    }]);
+    let original = match &session.pane_output {
+        Observation::Observed(items) => items[0].text.clone(),
+        _ => unreachable!(),
+    };
+    for width in [20, 60, 140] {
+        session.prepare(width, Look::default(), &Default::default());
+        let rendered = session.rendered.as_ref().unwrap();
+        let labels: Vec<_> = rendered
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let header = labels
+            .iter()
+            .position(|line| line.contains("pane output"))
+            .unwrap();
+        assert!(
+            labels[0].contains("real exchange"),
+            "exchange wins equal-time tie"
+        );
+        assert!(header > 0);
+        for (index, source) in rendered.mapped.sources.iter().enumerate() {
+            if rendered.pane_rows.contains(&index) {
+                assert!(
+                    session.response_key_at(*source).is_none(),
+                    "pane line {index} has no request authority"
+                );
+            } else {
+                assert_eq!(
+                    session.response_key_at(*source).unwrap().0.request,
+                    "real-request"
+                );
+            }
+        }
+        let line = &rendered.mapped.lines[header];
+        assert!(!line.style.add_modifier.contains(Modifier::BOLD));
+        assert!(
+            line.spans
+                .iter()
+                .all(|span| !span.style.add_modifier.contains(Modifier::BOLD))
+        );
+        assert_eq!(line.style.fg, Look::default().role(Role::Muted).fg);
+        assert!(
+            labels
+                .iter()
+                .any(|line| line.starts_with(" │ ") && line.contains("untrusted"))
+        );
+        assert_eq!(labels.last().unwrap(), "… truncated");
+        assert!(
+            rendered
+                .mapped
+                .mentions
+                .iter()
+                .skip(header)
+                .all(Vec::is_empty)
+        );
+    }
+    assert_eq!(
+        match &session.pane_output {
+            Observation::Observed(items) => &items[0].text,
+            _ => unreachable!(),
+        },
+        &original,
+        "display never rewrites captured bytes"
+    );
+}
+
+#[test]
+fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
+    use crate::board::recent_responses::Observation;
+    let mut session = Session {
+        transcript_context: transcript::Context {
+            enabled: true,
+            name: "alpha".into(),
+            times: vec![],
+            exchanges_observed: true,
+            output_ages: vec![],
+        },
+        ..Default::default()
+    };
+    for (observation, text) in [
+        (Observation::Pending, "Loading recent pane output…"),
+        (Observation::Unavailable, "Recent pane output unavailable"),
+    ] {
+        session.pane_output = observation;
+        session.rendered = None;
+        assert!(session.has_pane_output());
+        session.prepare(60, Look::default(), &Default::default());
+        let rendered = session.rendered.as_ref().unwrap();
+        assert_eq!(
+            rendered
+                .mapped
+                .lines
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [text]
+        );
+        assert!(session.response_key_at(0).is_none());
+    }
+    session.pane_output = Observation::Observed(vec![]);
+    assert!(!session.has_pane_output());
+    session.transcript_context.exchanges_observed = false;
+    session.rendered = None;
+    assert!(
+        session.has_pane_output(),
+        "an empty pane source cannot establish empty exchanges"
+    );
+    session.prepare(60, Look::default(), &Default::default());
+    assert_eq!(
+        session.rendered.as_ref().unwrap().mapped.lines[0].to_string(),
+        "Exchange history unavailable"
+    );
+}
+
+#[test]
+fn ten_long_pane_outputs_share_scroll_follow_and_leave_real_exchange_reachable() {
+    use crate::board::recent_responses::{Item, Observation};
+    let mut app = fixture();
+    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] =
+        json!("11111111-1111-4111-8111-111111111111");
+    app.view.as_mut().unwrap().replies[0]["recipientId"] =
+        json!("11111111-1111-4111-8111-111111111111");
+    draw(&app, 80, 18);
+    let key = app.pane_output_read().expect("visible exact UUID");
+    app.apply_pane_output(
+        key.clone(),
+        Observation::Observed(
+            (0..10)
+                .map(|index| Item {
+                    text: format!("pane {index}\n{}\nend {index}", "long line\n".repeat(600)),
+                    ended_ms: 1000 + index,
+                    truncated: false,
+                })
+                .collect(),
+        ),
+    );
+    assert!(
+        app.pane_output_read().is_none(),
+        "one read per held observation"
+    );
+    let bottom = draw(&app, 80, 18);
+    assert!(bottom.contains("end 9"));
+    app.scroll_pane(Pane::Replies, Step::Top);
+    assert!(draw(&app, 80, 18).contains("alpha line 000"));
+    let offset = app.scrolls.offset(Pane::Replies);
+    draw(&app, 60, 18);
+    assert_eq!(
+        app.scrolls.offset(Pane::Replies),
+        offset,
+        "resize does not resume follow"
+    );
+    app.scroll_pane(Pane::Replies, Step::Bottom);
+    assert!(draw(&app, 60, 18).contains("end 9"));
+    app.conversation.borrow_mut().refresh_pane_output();
+    assert_eq!(app.pane_output_read(), Some(key));
+}
+
+#[test]
+fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() {
+    let mut app = workspace_fixture();
+    workspace(&mut app, 160, 36);
+    assert!(app.pane_output_read().is_some());
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    workspace(&mut app, 160, 36);
+    assert!(
+        app.scrolls.visible(Pane::Replies),
+        "Digest Details is genuinely painted"
+    );
+    assert!(
+        app.pane_output_read().is_none(),
+        "Details is not a conversation read owner"
+    );
+    assert!(app.selected_read().is_none());
+}
+
+#[test]
+fn overview_pane_bodies_use_the_same_single_gutter_width_as_exchanges() {
+    use crate::board::recent_responses::{Item, Observation};
+    let text = "Same words wrap against exactly one shared body gutter.";
+    let mut session = Session::default();
+    session.update(Some(reply("real-request", text)));
+    session.transcript_context = transcript::Context {
+        enabled: true,
+        name: "alpha".into(),
+        times: vec![1000],
+        exchanges_observed: true,
+        output_ages: vec!["now".into()],
+    };
+    session.pane_output = Observation::Observed(vec![Item {
+        text: text.into(),
+        ended_ms: 1000,
+        truncated: false,
+    }]);
+    session.prepare_exchange(30, Look::default(), &Default::default());
+    let mapped = &session.rendered.as_ref().unwrap().mapped;
+    let header = mapped
+        .lines
+        .iter()
+        .position(|line| line.to_string().contains("pane output"))
+        .unwrap();
+    let exchange: Vec<_> = mapped.lines[..header]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let pane: Vec<_> = mapped.lines[header + 1..]
+        .iter()
+        .map(|line| line.to_string().strip_prefix(" │ ").unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        exchange, pane,
+        "no second gutter is subtracted from pane bodies"
+    );
+    assert!(mapped.lines.iter().all(|line| line.width() <= 30));
+    assert!(
+        !session.prepare_exchange(30, Look::default(), &Default::default()),
+        "unchanged mixed content uses its render cache"
+    );
 }
