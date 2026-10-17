@@ -389,11 +389,30 @@ fn unread_markers_survive_resetting_each_named_layer() {
 
 #[test]
 fn unread_squad_maximum_label_is_whole_and_tokens_align_with_the_header() {
-    for width in [103, 148] {
-        let app = crate::board::app::workspace::tests::capture_case(
+    for (width, identity_observed) in [103, 148]
+        .into_iter()
+        .flat_map(|width| [true, false].map(|observed| (width, observed)))
+    {
+        let mut app = crate::board::app::workspace::tests::capture_case(
             "unread-squads",
             crate::look::Look::default(),
         );
+        if !identity_observed {
+            // Admitted room membership can outlive an unavailable identity or
+            // roster observation; its UUID still has submitted reply evidence.
+            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            snapshot.roster.members.clear();
+            snapshot.roster.observation = crate::board::workspace::OpsObservation::Unavailable;
+            snapshot.roster.membership_complete = false;
+            for squad in &mut snapshot.roster.squads {
+                squad.member_states.clear();
+                squad.lead = None;
+                squad.observation = crate::board::workspace::OpsObservation::Unavailable;
+            }
+            snapshot
+                .rows
+                .retain(|target, _| !matches!(target, OpsTarget::Member { .. }));
+        }
         let mut terminal = Terminal::new(TestBackend::new(width, 51)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))

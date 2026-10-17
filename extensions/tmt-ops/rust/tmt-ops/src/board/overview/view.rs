@@ -187,12 +187,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     // A full two-digit lower-bound label plus the existing overflow mark.
     // Only unread squads need this room; header and every numeric row align.
-    let team_width = if app.unread_global().total > 0
+    let unread = app.unread_identities();
+    let team_width = if !unread.is_empty()
         && scene.squads.iter().any(|squad| {
             squad
                 .members
                 .iter()
-                .any(|(id, _)| app.unread_count(id).total > 0)
+                .any(|(id, _)| unread.contains(id.as_str()))
         }) {
         14
     } else {
