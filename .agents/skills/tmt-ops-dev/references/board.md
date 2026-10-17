@@ -13,9 +13,13 @@ configuration and effects belong to [config-and-effects.md](config-and-effects.m
 
 ## Frame and terminal
 
-`board::terminal` owns raw mode, mouse capture and the alternate screen through
+`board::terminal` owns raw mode, mouse capture, bracketed paste, negotiated
+keyboard enhancement and the alternate screen through
 `Screen` and `Guard`. Partial entry is undone; restoration runs on return, error,
-panic and TERM/HUP. Worker shutdown follows terminal restoration. Cold launch
+panic and TERM/HUP. Keyboard support is queried after the placeholder and before
+input starts; only an owned enhancement push is popped. TSTP restores before
+stopping and re-enters on continuation with the same draft and observed capability,
+without querying the active reader. Worker shutdown follows terminal restoration. Cold launch
 scope names resolve active rooms through the existing `rooms.roster` snapshot port
 before terminal admission; a valid ephemeral reload handoff
 uses its carried UUID scope and does not resolve the original argv names again.
@@ -297,8 +301,9 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   freshness remain independent of delivery; delivered means written to the pane.
 - Message fields use `tmt_tui::components::Editor` for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
-  submits, distinct Shift+Enter or portable Ctrl+N inserts a newline, and Escape
-  retains the draft. Terminals own IME preedit; committed Unicode enters the same
+  submits; distinct Shift+Enter, Alt+Enter, Ctrl+J or retained Ctrl+N inserts a newline, and Escape
+  retains the draft. The hint is `Shift+Enter new line` only with confirmed keyboard
+  enhancement, otherwise `Alt+Enter new line`. Terminals own IME preedit; committed Unicode enters the same
   editor. Large paste folds retain exact text and can be previewed or removed.
   `mentions` supplies the shared completion component with acquired agent UUIDs
   and squad IDs. Inserting a reference never changes recipients or broadcasts;

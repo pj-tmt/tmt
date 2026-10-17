@@ -1356,6 +1356,19 @@ fn short_terminal_review_uses_the_screen_and_scrolls_the_frozen_operation() {
     assert!(app.workspace_form.is_none());
 }
 #[test]
+fn alt_enter_confirms_non_message_form_fields() {
+    let mut app = board();
+    app.workspace_begin(Kind::Create);
+    for ch in "next".chars() {
+        key(&mut app, KeyCode::Char(ch));
+    }
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT));
+    let draft = app.workspace_form.as_ref().unwrap();
+    assert_eq!(draft.values, ["next"]);
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "");
+}
+
+#[test]
 fn form_digits_and_search_own_input_before_shell_shortcuts() {
     let mut app = board();
     app.workspace_begin(Kind::Create);

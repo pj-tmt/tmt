@@ -6,15 +6,21 @@ pub(super) mod background;
 
 use ratatui::crossterm::{
     cursor::{Hide, Show},
-    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
+    event::{
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+        supports_keyboard_enhancement,
+    },
 };
 use std::{
     io,
     sync::{
         Arc, Once,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
@@ -22,6 +28,9 @@ use std::{
 pub trait Screen {
     fn enter(&mut self) -> io::Result<()>;
     fn leave(&mut self) -> io::Result<()>;
+    fn enable_keyboard_enhancement(&mut self) -> io::Result<bool> {
+        Ok(false)
+    }
     fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
         Ok(tmt_cli_style::theme::background::QueryReply {
             background: None,
@@ -31,26 +40,63 @@ pub trait Screen {
     }
 }
 
-pub struct Crossterm;
+/// Only the terminal owner changes this flag; the panic hook needs the same
+/// ownership evidence as ordinary cleanup so it never pops an unowned stack.
+static KEYBOARD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+#[derive(Default)]
+pub struct Crossterm {
+    enhanced: bool,
+    output: Option<io::Stdout>,
+}
+
+fn push_keyboard(output: &mut io::Stdout) -> io::Result<()> {
+    // Mark ownership before writing: partial output also needs cleanup.
+    KEYBOARD_ACTIVE.store(true, Ordering::Relaxed);
+    execute!(
+        output,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )
+}
 
 impl Screen for Crossterm {
+    fn enable_keyboard_enhancement(&mut self) -> io::Result<bool> {
+        // A missing/unsupported reply is a capability observation, not a failure.
+        // This runs before the input reader; crossterm queries share its queue.
+        self.enhanced = supports_keyboard_enhancement().unwrap_or(false);
+        if self.enhanced {
+            push_keyboard(self.output.as_mut().expect("terminal entered"))?;
+        }
+        Ok(self.enhanced)
+    }
+
     fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
         background::query()
     }
 
     fn enter(&mut self) -> io::Result<()> {
         enable_raw_mode()?;
+        let output = self.output.get_or_insert_with(io::stdout);
         execute!(
-            io::stdout(),
+            output,
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableBracketedPaste,
             Hide
-        )
+        )?;
+        if self.enhanced {
+            push_keyboard(output)?;
+        }
+        Ok(())
     }
 
     fn leave(&mut self) -> io::Result<()> {
-        // Try every step even if one fails; report the first failure.
+        // Try every cleanup group even if one fails; report the first failure.
+        let keyboard = if KEYBOARD_ACTIVE.swap(false, Ordering::Relaxed) {
+            execute!(io::stdout(), PopKeyboardEnhancementFlags)
+        } else {
+            Ok(())
+        };
         let screen = execute!(
             io::stdout(),
             DisableBracketedPaste,
@@ -59,7 +105,7 @@ impl Screen for Crossterm {
             Show
         );
         let raw = disable_raw_mode();
-        screen.and(raw)
+        keyboard.and(screen).and(raw)
     }
 }
 
@@ -81,6 +127,23 @@ impl<S: Screen> Guard<S> {
             screen,
             active: true,
         })
+    }
+
+    pub fn enable_keyboard_enhancement(&mut self) -> io::Result<bool> {
+        self.screen.enable_keyboard_enhancement()
+    }
+
+    /// Restore before stopping, then re-enter with the already observed
+    /// capability. The input reader may still exist, so resumption never queries.
+    pub fn suspend(&mut self, pause: impl FnOnce() -> io::Result<()>) -> io::Result<()> {
+        self.restore()?;
+        let paused = pause();
+        if let Err(error) = self.screen.enter() {
+            let _ = self.screen.leave();
+            return Err(error);
+        }
+        self.active = true;
+        paused
     }
 
     pub fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
@@ -108,17 +171,21 @@ pub fn restore_before_panic_reports() {
     INSTALL.call_once(|| {
         let previous = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            let _ = Crossterm.leave();
+            let _ = Crossterm::default().leave();
             previous(info);
         }));
     });
 }
 
-/// TERM and HUP record their signal number; the board loop then exits,
-/// restores the terminal and reports it. Raw mode delivers Ctrl-C as a key.
+/// Record signals for the board loop: TERM/HUP restore and exit; TSTP restores,
+/// pauses and resumes the same board. Raw mode delivers Ctrl-C as a key.
 pub fn stop_requested() -> io::Result<Arc<AtomicUsize>> {
     let flag = Arc::new(AtomicUsize::new(0));
-    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGHUP] {
+    for signal in [
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGHUP,
+        signal_hook::consts::SIGTSTP,
+    ] {
         signal_hook::flag::register_usize(signal, Arc::clone(&flag), signal as usize)?;
     }
     Ok(flag)
@@ -141,9 +208,18 @@ mod tests {
         log: Rc<RefCell<Vec<&'static str>>>,
         fail_enter: bool,
         fail_query: bool,
+        fail_keyboard: bool,
     }
 
     impl Screen for Fake {
+        fn enable_keyboard_enhancement(&mut self) -> io::Result<bool> {
+            self.log.borrow_mut().push("keyboard");
+            if self.fail_keyboard {
+                Err(io::Error::other("keyboard failed"))
+            } else {
+                Ok(true)
+            }
+        }
         fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
             self.log.borrow_mut().push("query");
             if self.fail_query {
@@ -198,6 +274,49 @@ mod tests {
             drop(guard);
             assert_eq!(*fake.log.borrow(), ["enter", "query", "leave"]);
         }
+    }
+
+    #[test]
+    fn suspend_restores_then_reenters_without_repeating_capability_queries() {
+        for pause_failed in [false, true] {
+            let fake = Fake::default();
+            let log = fake.log.clone();
+            let mut guard = Guard::enter(fake.clone()).unwrap();
+            assert!(guard.enable_keyboard_enhancement().unwrap());
+            let result = guard.suspend(|| {
+                log.borrow_mut().push("pause");
+                if pause_failed {
+                    Err(io::Error::other("stop failed"))
+                } else {
+                    Ok(())
+                }
+            });
+            assert_eq!(result.is_err(), pause_failed);
+            drop(guard);
+            assert_eq!(
+                *fake.log.borrow(),
+                ["enter", "keyboard", "leave", "pause", "enter", "leave"]
+            );
+        }
+    }
+
+    #[test]
+    fn failed_keyboard_setup_and_resume_both_restore_partial_terminal_state() {
+        let fake = Fake {
+            fail_keyboard: true,
+            ..Fake::default()
+        };
+        let mut guard = Guard::enter(fake.clone()).unwrap();
+        assert!(guard.enable_keyboard_enhancement().is_err());
+        drop(guard);
+        assert_eq!(*fake.log.borrow(), ["enter", "keyboard", "leave"]);
+
+        let fake = Fake::default();
+        let mut guard = Guard::enter(fake.clone()).unwrap();
+        guard.screen.fail_enter = true;
+        assert!(guard.suspend(|| Ok(())).is_err());
+        drop(guard);
+        assert_eq!(*fake.log.borrow(), ["enter", "leave", "enter", "leave"]);
     }
 
     #[test]

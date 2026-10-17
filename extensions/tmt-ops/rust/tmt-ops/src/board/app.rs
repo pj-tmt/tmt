@@ -626,6 +626,8 @@ pub struct App {
     pub(in crate::board) conversation_return: Option<super::shell::OpsTab>,
     pub(in crate::board) monitor_details: Option<super::overview::detail::Details>,
     pub(in crate::board) invoker_tmux: bool,
+    /// Terminal-owner observation for hints only; never persisted or inferred.
+    pub(in crate::board) keyboard_enhanced: bool,
     pub(super) shell: super::shell::OpsShell,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
@@ -795,6 +797,14 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
 }
 
 impl App {
+    pub(in crate::board) fn newline_hint(&self) -> &'static str {
+        if self.keyboard_enhanced {
+            "Shift+Enter new line"
+        } else {
+            "Alt+Enter new line"
+        }
+    }
+
     pub fn new(squad: Option<String>) -> Self {
         Self {
             cron_glyphs: super::overview::cron_counts::GlyphSet::from_ascii(false),
@@ -2988,7 +2998,10 @@ impl App {
                 self.cycle_mode();
                 return Effect::None;
             }
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            KeyCode::Enter
+                if key.modifiers.contains(KeyModifiers::SHIFT)
+                    || (message && key.modifiers.contains(KeyModifiers::ALT)) =>
+            {
                 if message {
                     input.text.insert("\n", limit);
                 }
@@ -3000,7 +3013,7 @@ impl App {
                 }
                 return Effect::None;
             }
-            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('j' | 'n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if message {
                     input.text.insert("\n", limit);
                 }
@@ -4497,6 +4510,54 @@ pub(crate) mod tests {
         view.clipboard = Some(vec!["pbcopy".into()]);
         app.apply(snapshot);
         app
+    }
+
+    #[test]
+    fn newline_caption_uses_only_the_observed_terminal_capability() {
+        let mut app = App::new(None);
+        assert_eq!(app.newline_hint(), "Alt+Enter new line");
+        assert_eq!(
+            super::super::glyph_guard::glyph_error(app.newline_hint()),
+            None
+        );
+        app.keyboard_enhanced = true;
+        assert_eq!(app.newline_hint(), "Shift+Enter new line");
+        assert_eq!(
+            super::super::glyph_guard::glyph_error(app.newline_hint()),
+            None
+        );
+        app.keyboard_enhanced = false;
+        assert_eq!(app.newline_hint(), "Alt+Enter new line");
+    }
+
+    #[test]
+    fn message_newline_keys_keep_the_draft_until_plain_enter() {
+        for key in [
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        ] {
+            let mut app = crew(Default::default());
+            app.view.as_mut().unwrap().me = Some("Ben".into());
+            app.view.as_mut().unwrap().me_id = Some("ben-id".into());
+            app.perform(&Action::parse("talk").unwrap());
+            assert!(app.input.is_some(), "Talk opens the message editor");
+            app.paste("first");
+            assert_eq!(app.key(key), Effect::None, "{key:?} must not submit");
+            assert_eq!(app.input.as_ref().unwrap().text, "first\n", "{key:?}");
+            app.paste("second");
+            let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+            else {
+                panic!("plain Enter must submit the retained multiline draft");
+            };
+            match request {
+                Request::Talk { text, .. } | Request::DirectTalk { text, .. } => {
+                    assert_eq!(text, "first\nsecond");
+                }
+                other => panic!("expected Talk, got {other:?}"),
+            }
+        }
     }
 
     #[test]
