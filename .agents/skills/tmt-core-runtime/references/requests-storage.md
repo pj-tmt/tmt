@@ -268,6 +268,8 @@ owns consent, expiry and wire shapes. This output never completes an exchange.
 
 Schema 54 adds `consumption_tier5m`, the 30-day five-minute consumption rollup
 (see [identity bindings](identity-bindings.md)), with the usual change-cursor triggers.
+Schema 56 adds its nullable `credits` and `service_tier` columns (the newest credits
+observed in the bucket and the tier of its newest token-moving read); no row is rewritten.
 
 Schema 53 records claim opportunity/sealed count and first settlement time/order in
 the existing checklist owner. Settlement order uses the durable change cursor in

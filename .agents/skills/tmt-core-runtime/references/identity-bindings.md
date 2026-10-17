@@ -222,7 +222,8 @@ delivery. They install and launch nothing.
   counter and history in one transaction. The same transaction folds every accepted read into
   `consumption_tier5m`, a 30-day rollup of five-minute buckets that serves windows above an
   hour. One `Bucket::absorb` rule feeds both tiers, so a rollup bucket is the sum of its fine
-  buckets; it keeps no per-read observation and only rate limits observed inside the bucket.
+  buckets; it keeps no per-read observation and only the rate limits and credits observed inside
+  the bucket plus the service tier of its newest token-moving read.
   Writes prune the identity's expired rollup rows and a few of anyone's, so a retired identity
   ages out too; there is no row cap, and no backfill before the migration. A history read keeps one snapshot and reads each
   identity's entire retained range, even for a shorter display window: older rows still determine

@@ -407,3 +407,221 @@ fn only_limits_observed_inside_the_bucket_are_kept_and_the_newest_wins() {
     .unwrap();
     assert!(kept(connection, ROLLUP_BUCKET_MS).unwrap().contains("12.5"));
 }
+
+fn account(
+    observed: u64,
+    balance: &str,
+    tier: Option<&str>,
+    (input, sequence, at): (u64, u64, u64),
+) -> ConsumptionLatest {
+    let mut reading = latest(input, input, sequence, at);
+    reading.consumption.credits = Some(
+        serde_json::from_value(json!({"observedAtMs":observed,"balance":balance,
+            "hasCredits":true,"unlimited":false}))
+        .unwrap(),
+    );
+    reading.consumption.service_tier = tier.map(str::to_owned);
+    reading
+}
+
+fn account_cells(connection: &Connection, id: &str, from: u64) -> (Option<String>, Option<String>) {
+    connection
+        .query_row(
+            "SELECT credits,service_tier FROM consumption_tier5m WHERE identity_id=? AND from_ms=?",
+            params![id, from as i64],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_bucket_keeps_the_newest_credits_inside_it_and_the_tier_of_its_newest_moving_read() {
+    let (_directory, path, id) = fixture();
+    let storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    // The baseline read moves no tokens, so it names no tier; its credits are the
+    // first bucket's credits.
+    record_sample(
+        connection,
+        &id,
+        Some(account(5_000, "90", Some("default"), (1, 1, 6_000))),
+        6_000,
+    )
+    .unwrap();
+    let (credits, tier) = account_cells(connection, &id, 0);
+    assert!(credits.unwrap().contains(r#""balance":"90""#));
+    assert_eq!(tier, None);
+    // Tokens moved under the priority tier: the bucket names it, and newer credits win.
+    record_sample(
+        connection,
+        &id,
+        Some(account(9_000, "89.5", Some("priority"), (2, 2, 11_000))),
+        11_000,
+    )
+    .unwrap();
+    // An idle read (same counters, next sequence) under another tier claims nothing,
+    // and an older repeated credits object does not replace the newer one.
+    record_sample(
+        connection,
+        &id,
+        Some(account(5_000, "90", Some("default"), (2, 3, 16_000))),
+        16_000,
+    )
+    .unwrap();
+    let (credits, tier) = account_cells(connection, &id, 0);
+    let credits = credits.unwrap();
+    assert!(
+        credits.contains(r#""observedAtMs":9000"#) && credits.contains("89.5"),
+        "{credits}"
+    );
+    assert_eq!(tier.as_deref(), Some("priority"));
+    // Tokens that moved with an unknown tier leave the known one in place.
+    record_sample(
+        connection,
+        &id,
+        Some(account(18_000, "89", None, (3, 4, 21_000))),
+        21_000,
+    )
+    .unwrap();
+    assert_eq!(
+        account_cells(connection, &id, 0).1.as_deref(),
+        Some("priority")
+    );
+
+    // The next bucket starts clean: the same stale credits repeated by an idle session
+    // are not stored there, and neither is a tier no tokens moved under.
+    let later = ROLLUP_BUCKET_MS + 6_000;
+    record_sample(
+        connection,
+        &id,
+        Some(account(18_000, "89", Some("priority"), (3, 5, later))),
+        later,
+    )
+    .unwrap();
+    assert_eq!(
+        account_cells(connection, &id, ROLLUP_BUCKET_MS),
+        (None, None)
+    );
+    // Fresh credits and moving tokens under the default tier are stored.
+    let fresh = ROLLUP_BUCKET_MS + 11_000;
+    record_sample(
+        connection,
+        &id,
+        Some(account(fresh - 500, "88", Some("default"), (4, 6, fresh))),
+        fresh,
+    )
+    .unwrap();
+    let (credits, tier) = account_cells(connection, &id, ROLLUP_BUCKET_MS);
+    assert!(credits.unwrap().contains(r#""balance":"88""#));
+    assert_eq!(tier.as_deref(), Some("default"));
+}
+
+#[test]
+fn rollup_buckets_report_credits_and_tier_and_merged_bins_take_the_newest() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    for (observed, balance, tier, counters, at) in [
+        (5_000, "90", "default", (1, 1), 6_000),
+        (9_000, "89", "default", (2, 2), 11_000),
+        (305_000, "80", "priority", (3, 3), 311_000),
+        // A third bucket whose reads carry nothing: it reports neither field.
+        (0, "", "", (4, 4), 611_000),
+    ] {
+        let reading = if balance.is_empty() {
+            latest(counters.0, counters.0, counters.1, at)
+        } else {
+            account(observed, balance, Some(tier), (counters.0, counters.1, at))
+        };
+        record_sample(connection, &id, Some(reading), at).unwrap();
+    }
+    let ask = |storage: &mut Storage, buckets: u64| {
+        let history = storage
+            .consumption_history(
+                std::slice::from_ref(&id),
+                &[3_900_000],
+                buckets,
+                920_000,
+                false,
+            )
+            .unwrap();
+        history["identities"][0]["windows"][0]["buckets"].clone()
+    };
+    let rolled = ask(&mut storage, 13);
+    let rolled = rolled.as_array().unwrap();
+    assert_eq!(rolled.len(), 3);
+    assert_eq!(rolled[0]["credits"]["balance"], "89");
+    assert_eq!(rolled[0]["serviceTier"], "default");
+    assert_eq!(rolled[1]["credits"]["balance"], "80");
+    assert_eq!(rolled[1]["serviceTier"], "priority");
+    // No observation, no field: nothing is carried into a bucket that saw none.
+    assert!(rolled[2].get("credits").is_none() && rolled[2].get("serviceTier").is_none());
+    // One bin over all three: the newest credits and the newest row's tier.
+    let merged = ask(&mut storage, 1);
+    let merged = merged.as_array().unwrap();
+    assert_eq!(merged.len(), 1);
+    assert_eq!(merged[0]["credits"]["balance"], "80");
+    assert_eq!(merged[0]["serviceTier"], "priority");
+}
+
+#[test]
+fn corrupt_credits_or_tier_in_a_rollup_row_are_refused() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(account(5_000, "90", Some("default"), (1, 1, 6_000))),
+        6_000,
+    )
+    .unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(account(9_000, "89", Some("default"), (2, 2, 11_000))),
+        11_000,
+    )
+    .unwrap();
+    let ask = |storage: &mut Storage| {
+        storage.consumption_history(std::slice::from_ref(&id), &[3_900_000], 13, 322_500, false)
+    };
+    assert!(ask(&mut storage).is_ok());
+    for (column, value) in [
+        (
+            "credits",
+            r#"{"observedAtMs":9000,"balance":"1e3","hasCredits":true,"unlimited":false}"#,
+        ),
+        ("credits", "not json"),
+        ("service_tier", "Priority"),
+    ] {
+        let connection = storage.connection().unwrap();
+        let before: Option<String> = connection
+            .query_row(
+                &format!("SELECT {column} FROM consumption_tier5m WHERE from_ms=0"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        connection
+            .execute(
+                &format!("UPDATE consumption_tier5m SET {column}=? WHERE from_ms=0"),
+                [value],
+            )
+            .unwrap();
+        let error = ask(&mut storage).unwrap_err();
+        assert_eq!(error.code, StorageErrorCode::Corrupt, "{column}");
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                &format!("UPDATE consumption_tier5m SET {column}=? WHERE from_ms=0"),
+                [before],
+            )
+            .unwrap();
+        assert!(ask(&mut storage).is_ok());
+    }
+}

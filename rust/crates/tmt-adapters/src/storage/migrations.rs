@@ -38,6 +38,8 @@ mod request_history_tests;
 #[cfg(test)]
 mod request_room_tests;
 #[cfg(test)]
+mod rollup_account_tests;
+#[cfg(test)]
 mod room_tests;
 #[cfg(test)]
 mod session_tests;
@@ -272,6 +274,10 @@ const MIGRATIONS: &[Migration] = &[
         "schema/054.sql"
     ),
     migration!("retain recent provider-final responses", "schema/055.sql"),
+    migration!(
+        "keep the last credit balance and service tier per consumption rollup bucket",
+        "schema/056.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

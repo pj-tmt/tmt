@@ -1,5 +1,5 @@
 {
-  "description": "Synthetic normalized Codex observations; core and Ops share this vector. Three observations carry rate-limit windows, the Codex credit balance and the service tier; they appear on `latest` only, never in a bucket or the rollup. The 21000 ms sample is open and must not replace the included seed watermark. No provider transcript content.",
+  "description": "Synthetic normalized Codex observations; core and Ops share this vector. Three observations carry rate-limit windows, the Codex credit balance and the service tier; they appear on `latest`, and a rollup bucket holds the newest credits seen in it and the tier of its newest token-moving read; the 5-second buckets never carry them. The 21000 ms sample is open and must not replace the included seed watermark. No provider transcript content.",
   "observations": [
     {
       "sampleAtMs": 6000,
@@ -259,7 +259,7 @@
     "cachedInputTokens": 1
   },
   "rollup": {
-    "description": "The same observations after the first 5-minute bucket closes. A window above 3,600,000 ms reads the 30-day rollup: one bucket holding the sum of the fine buckets, the newest rate limits observed inside it, and the window-level resolutionMs, availableFromMs and retainedFromMs. The 21000 ms sample belongs to this bucket, which is closed at asOfMs.",
+    "description": "The same observations after the first 5-minute bucket closes. A window above 3,600,000 ms reads the 30-day rollup: one bucket holding the sum of the fine buckets, the newest rate limits and credits observed inside it, the service tier of its newest token-moving read, and the window-level resolutionMs, availableFromMs and retainedFromMs. The 21000 ms sample belongs to this bucket, which is closed at asOfMs.",
     "asOfMs": 322500,
     "request": {
       "version": 1,
@@ -302,7 +302,14 @@
                 "resetsAtMs": 90000000
               }
             ]
-          }
+          },
+          "credits": {
+            "observedAtMs": 20000,
+            "balance": "99.75",
+            "hasCredits": true,
+            "unlimited": false
+          },
+          "serviceTier": "priority"
         }
       ]
     }

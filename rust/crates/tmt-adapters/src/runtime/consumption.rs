@@ -6,6 +6,7 @@ mod attribution;
 mod credits;
 mod rate_limits;
 pub use attribution::ModelUsage;
+pub(crate) use attribution::valid_service_tier;
 pub use credits::Credits;
 pub use rate_limits::{RateLimits, Window as RateWindow};
 pub(crate) const MAX_MODELS: usize = 4;
