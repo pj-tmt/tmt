@@ -2480,7 +2480,13 @@ authorization in that concrete plan. Preserve an existing deployment on failed u
 its actual partial availability; never claim provider rollback restored data.
 
 A Remote home retains one independent deployment identity per Firebase project under
-`remote/deployments/<project>/deploy.json`, with one shared `deploy.lock`. Plan-only reads
+`remote/deployments/<project>/deploy.json`, with one shared `deploy.lock`. Catalog edits and
+record persistence use shared Document updates with bounded admission and atomic old/new snapshots;
+Remote retains strict 0600 admission, schemas and the whole-run writer. Deployment persistence
+errors retain the exact selected command; catalog errors give an equivalent add/rm command.
+Neither repeats a provider effect automatically. SQLite
+contention waits at most five seconds without bypassing the IMMEDIATE authority fence.
+Plan-only reads
 persist project-local v1 drafts without binding a region. The first authorized save binds
 `{project, region}` before any effect; a different region for that project refuses with
 `REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup, login or inventory, without reset.
