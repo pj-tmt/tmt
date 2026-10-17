@@ -17,7 +17,7 @@ use tmt_colab::{
     limits::{
         ATTACHMENT_REFS, DATA_IMAGE_BYTES, DATA_IMAGES_TOTAL_BYTES, GROUP_LABEL_POINTS,
         GROUP_QUESTIONS, PAGE_DEPTH, QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS,
-        QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS, REVIEW_PAGE,
+        QUESTION_CHOICES, QUESTION_PAGE, QUESTION_TITLE_POINTS, READING_PAGE, REVIEW_PAGE,
     },
     page_check::{self, Finding, Report},
     store::Store,
@@ -122,6 +122,17 @@ fn message(code: &str) -> String {
         "group-label-control" => "data-label contains a control character; the tab shows Q<n> instead.".into(),
         "group-form-invalid" | "question-form-invalid" => "data-form has one value, chip (lowercase); the block is shown as the full block.".into(),
         "question-form-member" => "data-form on a question inside a group is ignored; put it on the tmt-questions group.".into(),
+        "reading-page-limit" => format!("More than {READING_PAGE} reading anchors: none supplies reading controls. Keep at most {READING_PAGE}."),
+        "reading-id-invalid" => "A reading data-id must be a canonical lowercase UUID.".into(),
+        "reading-id-duplicate" => "Another reading, review, question or group holds this UUID; use a unique data-id.".into(),
+        "reading-nested" => "A reading anchor cannot contain or sit inside another reading, review, question or question group.".into(),
+        "reading-heading-missing" => "A reading anchor needs exactly one immediate data-title child.".into(),
+        "reading-heading-multiple" => "A reading anchor has more than one immediate data-title child.".into(),
+        "reading-title-empty" => "The reading title is empty.".into(),
+        "reading-title-too-long" => format!("The reading title is over {QUESTION_TITLE_POINTS} code points."),
+        "reading-title-control" => "The reading title contains a control character.".into(),
+        "reading-agent-invalid" => format!("The reading data-agent is required, at most {QUESTION_AGENT_POINTS} code points, without control characters."),
+        "reading-why-invalid" => format!("The reading data-why is required, at most {QUESTION_TITLE_POINTS} code points, without control characters."),
         "review-page-limit" => format!(
             "More than {REVIEW_PAGE} review sections on the page: the browser shows none of them. Keep at most {REVIEW_PAGE}."
         ),
@@ -182,6 +193,10 @@ fn report_json(report: &Report, bytes: usize) -> Value {
         "questions": {
             "admitted": report.questions.len(),
             "ignored": report.question_blocks.saturating_sub(report.questions.len()),
+        },
+        "readings": {
+            "admitted": report.readings.len(),
+            "ignored": report.reading_blocks.saturating_sub(report.readings.len()),
         },
         "reviews": {
             "admitted": report.reviews.len(),
@@ -322,6 +337,16 @@ pub fn run(state: Option<(&Store, &Keyring, &str, &mut Decoder)>, args: &ArgMatc
             format!("{} shown, {} ignored", report.questions.len(), ignored),
         ),
     ];
+    if report.reading_blocks > 0 {
+        rows.push((
+            "readings",
+            format!(
+                "{} shown, {} ignored",
+                report.readings.len(),
+                report.reading_blocks.saturating_sub(report.readings.len())
+            ),
+        ));
+    }
     // Only a page that has sections mentions them, so a page without any reads as before.
     if report.review_blocks > 0 {
         rows.push((

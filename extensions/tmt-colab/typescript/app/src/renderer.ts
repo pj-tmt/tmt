@@ -100,6 +100,7 @@ export interface ReviewRenderBlock {
 }
 /** A section's heading quote and the requested threads anchored on exactly that heading. */
 export type ReviewAnchor = QuestionAnchor;
+export type ReadingRenderBlock = ReviewRenderBlock;
 export type RenderState = 'ready' | 'navigation' | 'failed';
 export interface RenderSnapshot {
   readonly renderId: string;
@@ -147,6 +148,7 @@ export async function mountRenderer(
     viewportInset?(): number;
     onSlots?(slots: AnchorPosition[]): void;
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
+    onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
     images?: DocumentImageInput;
   },
 ): Promise<{
@@ -162,8 +164,10 @@ export async function mountRenderer(
     threads: { id: string; selector: QuoteSelector }[],
     groups: QuestionRenderGroup[],
     reviews?: ReviewRenderBlock[],
+    readings?: ReadingRenderBlock[],
   ): void;
   scrollAnchor(id: string): void;
+  scrollReading(id: string): void;
   selectionMode(enabled: boolean): void;
   images(input: DocumentImageInput): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
@@ -218,6 +222,7 @@ export async function mountRenderer(
   let questionRequestId = '';
   let questionBlocks: { id: string; title: string }[] = [];
   let reviewBlocks: ReviewRenderBlock[] = [];
+  let readingBlocks: ReadingRenderBlock[] = [];
   let questionThreads: { id: string; selector: QuoteSelector }[] = [];
   let questionGroups: QuestionRenderGroup[] = [];
   let slotRequestId = '';
@@ -499,19 +504,22 @@ export async function mountRenderer(
     }
     if (value?.type === 'colab.render.questions') {
       if (
-        Object.keys(value).length !== 5 ||
+        Object.keys(value).length !== 6 ||
         value.renderId !== snapshot.renderId ||
         value.requestId !== questionRequestId ||
         !Array.isArray(value.questions) ||
         value.questions.length > questionBlocks.length ||
         !Array.isArray(value.reviews) ||
-        value.reviews.length > reviewBlocks.length
+        value.reviews.length > reviewBlocks.length ||
+        !Array.isArray(value.readings) ||
+        value.readings.length > readingBlocks.length
       )
         return;
       const seen = new Set<string>();
       const admittedThreads = new Set(questionThreads.map((thread) => thread.id));
       const result: QuestionAnchor[] = [];
       const reviewResult: ReviewAnchor[] = [];
+      const readingResult: QuestionAnchor[] = [];
       // Questions and sections answer in one closed shape: a requested ID, its quote, and only
       // requested thread IDs. A section's quote must equal the title the parent admitted.
       const anchors = (
@@ -547,13 +555,15 @@ export async function mountRenderer(
       try {
         if (
           !anchors(value.questions, questionBlocks, result) ||
-          !anchors(value.reviews, reviewBlocks, reviewResult)
+          !anchors(value.reviews, reviewBlocks, reviewResult) ||
+          !anchors(value.readings, readingBlocks, readingResult)
         )
           return;
       } catch {
         return;
       }
       options.onQuestions?.(result, reviewResult, true);
+      options.onReadings?.(readingResult, true);
       return;
     }
     if (
@@ -786,11 +796,23 @@ export async function mountRenderer(
     threads: { id: string; selector: QuoteSelector }[],
     groups: QuestionRenderGroup[],
     reviews: ReviewRenderBlock[] = [],
+    readings: ReadingRenderBlock[] = [],
   ) => {
     if (
       stopped ||
       blocks.length > 50 ||
       groups.length > 50 ||
+      readings.length > 50 ||
+      new Set(readings.map((reading) => reading.id)).size !== readings.length ||
+      readings.some(
+        (reading) =>
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(reading.id) ||
+          typeof reading.title !== 'string' ||
+          !reading.title ||
+          [...reading.title].length > 200 ||
+          typeof reading.closed !== 'boolean' ||
+          [...blocks, ...groups, ...reviews].some((other) => other.id === reading.id),
+      ) ||
       reviews.length > 50 ||
       new Set(reviews.map((review) => review.id)).size !== reviews.length ||
       reviews.some(
@@ -834,6 +856,8 @@ export async function mountRenderer(
     // Closing a section only changes its fade, so the anchors stay valid; a new title does not.
     const changed =
       JSON.stringify(questionBlocks) !== JSON.stringify(blocks) ||
+      JSON.stringify(readingBlocks.map(({ id, title }) => ({ id, title }))) !==
+        JSON.stringify(readings.map(({ id, title }) => ({ id, title }))) ||
       JSON.stringify(reviewBlocks.map(({ id, title }) => ({ id, title }))) !==
         JSON.stringify(reviews.map(({ id, title }) => ({ id, title }))) ||
       JSON.stringify(questionGroups.map(({ active: _active, ...group }) => group)) !==
@@ -859,6 +883,7 @@ export async function mountRenderer(
     }));
     questionBlocks = blocks.map(({ id, title }) => ({ id, title }));
     reviewBlocks = reviews.map(({ id, title, closed }) => ({ id, title, closed }));
+    readingBlocks = readings.map(({ id, title, closed }) => ({ id, title, closed }));
     questionThreads = threads.map(({ id, selector }) => ({
       id,
       selector: structuredClone(selector),
@@ -872,8 +897,12 @@ export async function mountRenderer(
       groups: questionGroups,
       threads: questionThreads,
       reviews: reviewBlocks,
+      readings: readingBlocks,
     };
-    if (changed) options.onQuestions?.([], [], false);
+    if (changed) {
+      options.onQuestions?.([], [], false);
+      options.onReadings?.([], false);
+    }
     if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) return;
     channel.port1.postMessage(message);
     if (moved.size && slotHeights.length) {
@@ -1007,6 +1036,15 @@ export async function mountRenderer(
     slots,
     questions,
     scrollAnchor,
+    scrollReading: (id: string) => {
+      if (stopped || !ready || !readingBlocks.some((reading) => reading.id === id)) return;
+      channel.port1.postMessage({
+        type: 'colab.render.scroll-reading',
+        renderId: snapshot.renderId,
+        requestId: questionRequestId,
+        id,
+      });
+    },
     selectionMode,
     images,
     anchorRectangle,

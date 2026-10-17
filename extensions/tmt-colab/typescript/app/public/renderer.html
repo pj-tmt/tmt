@@ -57,6 +57,7 @@
             timer;
           let questionBlocks = [],
             reviewBlocks = [],
+            readingBlocks = [],
             questionGroups = [],
             questionThreads = [],
             questionRequestId = '';
@@ -218,6 +219,7 @@
           }
           let layer, markers;
           const anchorRanges = new Map();
+          const readingRanges = new Map();
           const sheet = document.createElement('style');
           // BEGIN GENERATED ANNOTATION TOKENS
           const annotationTokens =
@@ -226,6 +228,7 @@
           const highlightStyle =
             annotationTokens +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
+            '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
             `
             [data-colab-question-group]:not([hidden]){display:block!important}
@@ -237,7 +240,7 @@
             [data-colab-question-active="false"]{display:none!important}
             [data-colab-chip]:not([hidden]){display:none!important}
             [data-colab-chip-slot]{display:inline-block;vertical-align:middle;box-sizing:border-box}
-            [data-colab-review]{display:block}
+            [data-colab-review],[data-colab-reading]{display:block}
             [data-colab-review-closed="true"]{opacity:.55!important}
           `;
           sheet.textContent = highlightStyle;
@@ -576,7 +579,7 @@
             const positions = [];
             for (const slot of slots) {
               const matches = document.querySelectorAll(
-                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"]`,
+                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"],tmt-read[data-id="${slot.id}"]`,
               );
               const group = questionGroups.find((group) => group.id === slot.id);
               if (group?.form === 'chip') {
@@ -809,6 +812,8 @@
             if (stopped || !questionRequestId) return;
             const questions = [];
             const reviews = [];
+            const readings = [];
+            readingRanges.clear();
             try {
               for (const group of questionGroups) {
                 if (group.title !== null) {
@@ -856,6 +861,10 @@
                 if (matches.length !== 1) continue;
                 matches[0].setAttribute('data-colab-review', '');
                 matches[0].setAttribute('data-colab-review-closed', String(block.closed));
+              }
+              for (const block of readingBlocks) {
+                const matches = document.querySelectorAll(`tmt-read[data-id="${block.id}"]`);
+                if (matches.length === 1) matches[0].setAttribute('data-colab-reading', '');
               }
               const map = collect(),
                 deadline = performance.now() + 20;
@@ -914,9 +923,37 @@
                     .map((thread) => thread.id),
                 });
               }
+              for (const block of readingBlocks) {
+                if (performance.now() > deadline) throw new Error('reading budget');
+                const matches = document.querySelectorAll(`tmt-read[data-id="${block.id}"]`);
+                if (matches.length !== 1) continue;
+                const headings = [...matches[0].children].filter((node) =>
+                  node.hasAttribute('data-title'),
+                );
+                if (headings.length !== 1) continue;
+                const selector = headingSelector(map, headings[0], block.title);
+                if (!selector) continue;
+                const range = quoteRange(map, selector, deadline);
+                if (range) readingRanges.set(block.id, range);
+                readings.push({
+                  id: block.id,
+                  selector,
+                  threads: threads
+                    .filter(
+                      (thread) =>
+                        thread.range &&
+                        thread.exact === block.title &&
+                        headings[0].contains(thread.range.startContainer) &&
+                        headings[0].contains(thread.range.endContainer),
+                    )
+                    .map((thread) => thread.id),
+                });
+              }
             } catch {
               questions.length = 0;
               reviews.length = 0;
+              readings.length = 0;
+              readingRanges.clear();
             }
             port.postMessage({
               type: 'colab.render.questions',
@@ -924,6 +961,7 @@
               requestId: questionRequestId,
               questions,
               reviews,
+              readings,
             });
           }
           function resolve() {
@@ -1124,7 +1162,7 @@
             }
             if (
               v?.type === 'colab.render.questions' &&
-              Object.keys(v).length === 7 &&
+              Object.keys(v).length === 8 &&
               v.renderId === renderId &&
               typeof v.requestId === 'string' &&
               /^[0-9a-f-]{36}$/.test(v.requestId) &&
@@ -1178,6 +1216,23 @@
                   !v.blocks.some((block) => block.id === review.id) &&
                   !v.groups.some((group) => group.id === review.id),
               ) &&
+              Array.isArray(v.readings) &&
+              v.readings.length <= 50 &&
+              new Set(v.readings.map((reading) => reading?.id)).size === v.readings.length &&
+              v.readings.every(
+                (reading) =>
+                  reading &&
+                  Object.keys(reading).length === 3 &&
+                  typeof reading.id === 'string' &&
+                  /^[0-9a-f-]{36}$/.test(reading.id) &&
+                  typeof reading.title === 'string' &&
+                  reading.title &&
+                  [...reading.title].length <= 200 &&
+                  typeof reading.closed === 'boolean' &&
+                  ![...v.blocks, ...v.groups, ...v.reviews].some(
+                    (other) => other.id === reading.id,
+                  ),
+              ) &&
               Array.isArray(v.threads) &&
               v.threads.length <= 1000 &&
               v.threads.every(
@@ -1190,6 +1245,7 @@
             ) {
               questionBlocks = v.blocks;
               reviewBlocks = v.reviews;
+              readingBlocks = v.readings;
               questionGroups = v.groups;
               questionThreads = v.threads;
               questionRequestId = v.requestId;
@@ -1296,6 +1352,27 @@
             ) {
               innerScroll = true;
               resolveSlots();
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.scroll-reading' &&
+              v.renderId === renderId &&
+              v.requestId === questionRequestId &&
+              typeof v.id === 'string' &&
+              readingRanges.has(v.id)
+            ) {
+              const range = readingRanges.get(v.id);
+              range.startContainer.parentElement?.scrollIntoView({
+                block: 'center',
+                behavior: 'instant',
+              });
+              try {
+                CSS.highlights?.set('colab-reading', new Highlight(range));
+              } catch {}
               return;
             }
             if (

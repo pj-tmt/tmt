@@ -2312,6 +2312,59 @@ drawn only from the current request, exact quote text equal to the admitted titl
 and only requested thread IDs. Unknown fields, stale IDs and over-budget responses
 are ignored. No answer, recipient, count or activation authority enters this channel.
 
+### Recommended reading
+
+A reading anchor is inert page markup asking a person to read one passage:
+
+```html
+<tmt-read
+  data-id="10000000-0000-4000-8000-000000000401"
+  data-agent="Agent name"
+  data-why="Read before deciding"
+>
+  <h2 data-title>Hosting</h2>
+  <p>The passage to read.</p>
+</tmt-read>
+```
+
+Its canonical lowercase UUID shares the question/group/review namespace. Exactly one immediate
+`data-title` child supplies a whitespace-normalized title of 1–200 code points, without control
+characters. `data-agent` is required (1–64 code points); `data-why` is required (1–200 code points).
+Neither attribute permits control characters. At most 50 reading anchors are admitted per page.
+Reading anchors cannot contain, or sit inside, reading anchors, questions, question groups or
+review sections. Invalid anchors remain ordinary readable content without trusted controls.
+Keep an ID for the same reading request; use a new ID when a changed passage needs a fresh read.
+
+A trusted parent `Mark read` records an ordinary verified device comment on the heading's
+annotation thread, then the existing person Resolve. The fixed comment is `Read “<title>”`,
+`Reading: <full UUID>`, `Page: <page title>` and the uniquely resolved asking agent's mention,
+each on its own line. Only that exact device-comment form associates the reading ID; HTML,
+scrolling, agent replies and agent Resolve cannot mark it read. The effective person Resolve
+carries the same publisher-assertion limitation as review closes, not a new authentication claim.
+The canonical thread prefers an admitted reading comment, then the existing stable thread order.
+The existing review-close notification guarantee applies: one attempt per committed person
+Resolve, with frozen operation IDs and only the named agent as recipient. Other mentions in the
+heading, reason or passage do not add recipients. Unknown or ambiguous agents leave a visible
+notification warning rather than guessing a recipient. A retry reuses an already recorded
+comment; reload and reconnect never resend a notification. No separate request store is added.
+Removing the markup removes its controls while its ordinary thread record remains.
+
+The parent exposes an ordered `{id,title,state}` projection (`unread` or `read`) for navigation.
+Jump and `Next ↓` only scroll and highlight a currently resolved heading; they never open a
+thread or publish. `read=<canonical UUID>` is an optional navigation hint on the existing owner
+fragment. It survives full/short-page routing, waits for the current heading resolution, and is
+inert when missing or stale. It is not accepted on hosted reader links. Explicit Ask capture
+recognizes only that exact owner-page hint and removes it from the admitted page URL; other
+query/fragment members remain refused rather than being stripped.
+
+The existing `colab.render.questions` exchange also carries `readings` of `{id,title,closed}`
+(at most 50) and returns only requested `{id,selector,threads}`. Heading quotes must equal the
+parent-admitted title and references may name only requested threads. The separate cosmetic
+`colab.render.scroll-reading` request has exactly `{type,renderId,requestId,id}`, bound to that
+current exchange and a resolved reading ID; it has no publication authority. Unknown fields or
+stale requests do nothing. Reading slots consume only the remaining existing 250-slot budget,
+in document order, and never displace an existing proposal, question or review control.
+
 ### Review sections
 
 A review section is authored page HTML, not a new discussion record, CLI command or concept. It
@@ -2395,7 +2448,7 @@ only in `m`. Archived pages show state and count without controls. The page-list
 counts do not include sections, as for unanswered questions, until a recorded state exists to read.
 
 **Channel.** The `colab.render.questions` request carries a closed `reviews` array of
-`{id,title,closed}` (at most 50, unique IDs, none shared with a question or group) and its
+`{id,title,closed}` (at most 50, unique IDs, none shared with a question, group or reading anchor) and its
 closed response carries `reviews` of `{id,selector,threads}`, drawn only from the current
 request: the quote must equal the admitted title and only requested thread IDs are accepted. The
 frame returns, for a section, only threads whose quote is exactly the whole heading. `closed`
@@ -4681,7 +4734,7 @@ skipped group adds `questionsSkipped`, the number of `tmt-question` elements ins
 are ordered by line, element, ordinal and code.
 
 Success is `{format:"tmt-colab-page-check",version:1,ok,bytes,questions:{admitted,ignored},
-reviews:{admitted,ignored},findings}`. With no finding it exits 0. With any finding the command exits 1 with
+reviews:{admitted,ignored},readings:{admitted,ignored},findings}`. With no finding it exits 0. With any finding the command exits 1 with
 `COLAB_PAGE_CHECK`, and `--json` prints the same report with `ok:false` and the usual
 `{error:{code,message}}` attached; human output lists each finding with its line first.
 
@@ -4721,6 +4774,13 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `group-label-too-long` / `-control`                               | warning  | a shown question's `data-label` is over 24 code points or has a control character; its tab shows `Q<n>`; the finding is on the question                                                   |
 | `group-form-invalid` / `question-form-invalid`                    | warning  | `data-form` on a shown group or lone question has any value but `chip` (exact, lowercase); the full block shows                                                                           |
 | `question-form-member`                                            | warning  | a shown question inside a group carries `data-form`; it is ignored because the group decides; the finding is on the question                                                              |
+| `reading-page-limit`                                              | ignored  | more than 50 reading anchors; none supplies reading controls                                                                                                                              |
+| `reading-id-invalid` / `-duplicate`                               | ignored  | missing/noncanonical UUID, or an ID shared with a reading, review, question or group                                                                                                      |
+| `reading-nested`                                                  | ignored  | contains, or sits inside, a reading, review, question or question group                                                                                                                   |
+| `reading-heading-missing` / `-multiple`                           | ignored  | not exactly one immediate `data-title` child                                                                                                                                              |
+| `reading-title-empty` / `-too-long` / `-control`                  | ignored  | normalized title empty, over 200 code points or with a control character                                                                                                                  |
+| `reading-agent-invalid`                                           | ignored  | missing/blank, over 64 code points or with a control character                                                                                                                            |
+| `reading-why-invalid`                                             | ignored  | missing/blank, over 200 code points or with a control character                                                                                                                           |
 | `review-page-limit`                                               | ignored  | more than 50 `tmt-review` on the page; no section is shown (its questions are unaffected), and this is the only section finding (on the 51st)                                             |
 | `review-id-invalid` / `-duplicate`                                | ignored  | a section `data-id` missing or not a canonical lowercase UUID, or shared with another section, a question or a group; every holder is ignored                                             |
 | `review-nested`                                                   | ignored  | inside another `tmt-review`, a `tmt-question` or a `tmt-questions` group                                                                                                                  |

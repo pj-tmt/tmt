@@ -19,6 +19,7 @@ export interface VectorCase {
     groups: { id: string; title: string | null; questions: string[] }[];
     /** Omitted by a case with no sections. */
     reviews?: Review[];
+    readings?: { id: string; title: string; agent: string; why: string }[];
   };
   findings: VectorFinding[];
 }
@@ -38,6 +39,7 @@ export function project(inspection: QuestionInspection) {
       questions: inspection.questions,
       groups: inspection.groups,
       reviews: inspection.reviews,
+      readings: inspection.readings,
     },
     findings: sortFindings(inspection.findings),
   };
@@ -46,6 +48,7 @@ export function project(inspection: QuestionInspection) {
 export const expectedAdmitted = (candidate: VectorCase) => ({
   ...candidate.admitted,
   reviews: candidate.admitted.reviews ?? [],
+  readings: candidate.admitted.readings ?? [],
 });
 /** Findings are compared as a set; `line` is asserted by the Rust checker only. */
 export function sortFindings<T extends QuestionFinding>(findings: readonly T[]) {

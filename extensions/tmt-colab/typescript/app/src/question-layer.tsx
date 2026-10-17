@@ -27,6 +27,7 @@ import type {
   QuestionAnchor,
   RenderState,
   ReviewRenderBlock,
+  ReadingRenderBlock,
   mountRenderer,
 } from './renderer.js';
 import type { CommentContext } from './thread-store.js';
@@ -43,12 +44,14 @@ export function useQuestionLayer({
   questions,
   groups,
   reviews,
+  readings = [],
   onRecorded,
 }: {
   questions: readonly Question[];
   groups: readonly QuestionGroup[];
   /** Review sections ride the same handshake: their quotes come back with the questions'. */
   reviews: readonly ReviewRenderBlock[];
+  readings?: readonly ReadingRenderBlock[];
   /** A trusted Send recorded these answers (question IDs and their comments). */
   onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
   snapshot: PageSnapshot;
@@ -90,6 +93,7 @@ export function useQuestionLayer({
     [active],
   );
   const renderedReviews = JSON.stringify(reviews);
+  const renderedReadings = JSON.stringify(readings);
   const renderedGroups = JSON.stringify(
     groups.map((group) => ({ ...group, active: selected(group) })),
   );
@@ -106,8 +110,9 @@ export function useQuestionLayer({
       JSON.parse(identity),
       JSON.parse(renderedGroups),
       JSON.parse(renderedReviews),
+      JSON.parse(renderedReadings),
     );
-  }, [state, questions, renderedGroups, renderedReviews, identity, renderer]);
+  }, [state, questions, renderedGroups, renderedReviews, renderedReadings, identity, renderer]);
   const notificationThreads = useMemo(
     () =>
       !questions.length

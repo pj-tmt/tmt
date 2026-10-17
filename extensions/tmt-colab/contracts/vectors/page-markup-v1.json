@@ -12,7 +12,8 @@
     "dataImageBytes": 32768,
     "dataImagesTotalBytes": 262144,
     "attachmentRefs": 128,
-    "pageReviews": 50
+    "pageReviews": 50,
+    "pageReadings": 50
   },
   "cases": [
     {
@@ -8451,6 +8452,485 @@
           "line": 154,
           "severity": "ignored",
           "code": "question-page-limit"
+        }
+      ]
+    },
+    {
+      "name": "reading-valid",
+      "scope": "parser",
+      "why": "A reading passage keeps its heading, named agent and reason as inert metadata.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\">",
+        "<h2 data-title>Hosting</h2><p>Read this passage.</p>",
+        "</tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "readings": [
+          {
+            "id": "10000000-0000-4000-8000-000000000401",
+            "title": "Hosting",
+            "agent": "Agent 1",
+            "why": "Read before deciding"
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "reading-invalid-id",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"bad\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "bad",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-id-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-no-heading",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><p>Passage</p></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-heading-missing"
+        }
+      ]
+    },
+    {
+      "name": "reading-multiple-headings",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>A</h2><h3 data-title>B</h3></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-heading-multiple"
+        }
+      ]
+    },
+    {
+      "name": "reading-empty-title",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>   </h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-title-empty"
+        }
+      ]
+    },
+    {
+      "name": "reading-long-title",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-title-too-long"
+        }
+      ]
+    },
+    {
+      "name": "reading-control-title",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>A&#127;B</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-title-control"
+        }
+      ]
+    },
+    {
+      "name": "reading-missing-agent",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-agent-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-long-agent",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-agent-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-control-agent",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"A&#10;B\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-agent-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-missing-reason",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-why-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-long-reason",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-why-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-control-reason",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"A&#127;B\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-why-invalid"
+        }
+      ]
+    },
+    {
+      "name": "reading-duplicate-ids",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read><tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-id-duplicate"
+        },
+        {
+          "element": "tmt-read",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "reading-inside-review",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-review data-id=\"10000000-0000-4000-8000-000000000301\"><h2 data-title>Review</h2><tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read></tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": [],
+        "reviews": [
+          {
+            "id": "10000000-0000-4000-8000-000000000301",
+            "title": "Review",
+            "agent": "",
+            "questions": []
+          }
+        ]
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-nested"
+        }
+      ]
+    },
+    {
+      "name": "reading-contains-review",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2><tmt-review data-id=\"10000000-0000-4000-8000-000000000301\"><h2 data-title>Review</h2></tmt-review></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-nested"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000301",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-nested"
+        }
+      ]
+    },
+    {
+      "name": "reading-shares-review-id",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read><tmt-review data-id=\"10000000-0000-4000-8000-000000000401\"><h2 data-title>Review</h2></tmt-review>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "reading-id-duplicate"
+        },
+        {
+          "element": "tmt-review",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000401",
+          "line": 1,
+          "severity": "ignored",
+          "code": "review-id-duplicate"
+        }
+      ]
+    },
+    {
+      "name": "reading-page-limit",
+      "scope": "parser",
+      "why": "Reading controls require the declared bounded shape and shared identity namespace.",
+      "source": [
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000401\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000402\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000403\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000404\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000405\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000406\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000407\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000408\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000409\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000410\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000411\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000412\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000413\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000414\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000415\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000416\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000417\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000418\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000419\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000420\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000421\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000422\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000423\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000424\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000425\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000426\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000427\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000428\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000429\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000430\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000431\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000432\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000433\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000434\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000435\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000436\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000437\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000438\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000439\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000440\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000441\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000442\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000443\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000444\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000445\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000446\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000447\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000448\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000449\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000450\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>",
+        "<tmt-read data-id=\"10000000-0000-4000-8000-000000000451\" data-agent=\"Agent 1\" data-why=\"Read before deciding\"><h2 data-title>Hosting</h2></tmt-read>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-read",
+          "ordinal": 51,
+          "id": "10000000-0000-4000-8000-000000000451",
+          "line": 51,
+          "severity": "ignored",
+          "code": "reading-page-limit"
         }
       ]
     }

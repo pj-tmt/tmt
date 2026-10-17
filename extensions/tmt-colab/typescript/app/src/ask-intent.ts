@@ -17,6 +17,7 @@ import {
 } from '@tmt/colab-client';
 
 import { shortPageUrl } from './short-links.js';
+import { ownerReadingHint } from './reading-link.js';
 
 export const REQUEST_BYTES = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
@@ -120,7 +121,9 @@ export class FrozenAsk {
     // or query that is not exactly that (a reader seed, a stray secret) is refused, never kept.
     const pageFragment = `#space=${selection.space}&path=${encodeURIComponent(`/pages/${selection.page}`)}`;
     requireValue(
-      (url.hash === '' || url.hash === pageFragment) &&
+      (url.hash === '' ||
+        url.hash === pageFragment ||
+        ownerReadingHint(url, selection.space, selection.page) !== undefined) &&
         url.search === '' &&
         !url.pathname.endsWith('/read'),
     );

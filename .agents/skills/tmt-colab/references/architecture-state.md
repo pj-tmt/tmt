@@ -94,9 +94,9 @@ membership and revocation cuts still apply. Fresh `author()` and the actual call
 `rust/tmt-colab/src/page_check/` is the pure checker behind `page check` and the warnings of
 `page create` and `page write`: `tree.rs` parses with `html5ever` into an arena `TreeSink` (a
 `template` fragment context, scripting off, nesting capped at 512 because the tree builder scans
-its open elements on every start tag), and `question.rs`, `group.rs`, `review.rs` and `image.rs` hold the rule
+its open elements on every start tag), and `question.rs`, `group.rs`, `review.rs`, `reading.rs` and `image.rs` hold the rule
 tables (`group.rs` also decides which groups are skipped and which IDs are held, review sections included). It does no I/O; `cli_page_check.rs` adapts it to the commands. The browser's `inspectQuestions`
-(`src/questions.ts`) is the other implementation of the question, group and review-section rules. Both run
+(`src/questions.ts`) is the other implementation of the question, group, review-section and reading-anchor rules. Both run
 `contracts/vectors/page-markup-v1.json`: `e2e/question-vectors.spec.ts` in headless Chromium and
 `tests/page_markup_vectors.rs` natively. Change a rule in both implementations and in the
 vectors in the same PR. `html5ever` is a `tmt-colab`-only dependency (exact pin, no default
@@ -135,6 +135,12 @@ group/slot shapes and publication rules live in [Answer blocks](../../../../exte
 Review sections ride the same renderer handshake and slot batch: `review-layer.tsx` draws the
 parent bands and `review-actions.ts` publishes the explicit actions through the existing thread,
 Ask and status owners; see [Review sections](../../../../extensions/tmt-colab/contracts/colab-v1.md#review-sections).
+Recommended-reading metadata uses the same inert parser and shared check vectors. `reading.ts`
+projects person read state from ordinary verified thread records; `reading-actions.ts` records
+and resolves through the existing binding/coordinator. Its named-agent restriction excludes
+other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints; Ask capture
+accepts only that exact hint and removes it from the canonical admitted URL. Reader capabilities
+are unchanged.
 
 The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
 editable surface. `components/message-composer.tsx` configures its mention nodes,

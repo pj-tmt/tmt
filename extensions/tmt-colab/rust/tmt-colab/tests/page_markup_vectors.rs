@@ -93,6 +93,21 @@ fn every_case_gets_the_verdict_the_browser_gave() {
             "{name}: reviews"
         );
 
+        let readings: Vec<Value> = report
+            .readings
+            .iter()
+            .map(|r| json!({"id": r.id, "title": r.title, "agent": r.agent, "why": r.why}))
+            .collect();
+        assert_eq!(
+            case["admitted"]
+                .get("readings")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+            readings,
+            "{name}: readings"
+        );
+
         let found: BTreeSet<String> = report
             .findings
             .iter()
@@ -131,6 +146,7 @@ fn the_vector_limits_equal_the_named_constants() {
     for (key, value) in [
         ("pageQuestions", limits::QUESTION_PAGE),
         ("pageReviews", limits::REVIEW_PAGE),
+        ("pageReadings", limits::READING_PAGE),
         ("titlePoints", limits::QUESTION_TITLE_POINTS),
         ("choices", limits::QUESTION_CHOICES),
         ("choicePoints", limits::QUESTION_CHOICE_POINTS),

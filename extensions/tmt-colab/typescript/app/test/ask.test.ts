@@ -268,3 +268,16 @@ it('retains the full owner-fragment input for legacy captured asks without a sho
   const legacy = { ...selection(), shortId: undefined };
   expect(FrozenAsk.capture(legacy, destination()).view.message).toContain(`Link: ${pageLink()}\n`);
 });
+
+it('accepts only the declared owner reading hint and removes it from the admitted Ask URL', () => {
+  const read = '10000000-0000-4000-8000-000000000401';
+  const selected = { ...selection(), shortId: undefined, url: `${pageLink()}&read=${read}` };
+  expect(FrozenAsk.capture(selected, destination()).view.message).toContain(
+    `Link: ${pageLink()}\n`,
+  );
+  expect(FrozenAsk.capture(selected, destination()).view.message).not.toContain(`read=${read}`);
+  for (const suffix of ['&read=bad', `&read=${read}&read=${read}`, `&read=${read}&seed=AAAA`])
+    expect(() =>
+      FrozenAsk.capture({ ...selected, url: pageLink() + suffix }, destination()),
+    ).toThrow();
+});
