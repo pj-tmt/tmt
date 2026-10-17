@@ -129,6 +129,8 @@ pub struct Snapshot {
 }
 
 /// An action with every value already taken from the row.
+/// Message variants carry the complete frozen body, including any row context
+/// and source quotes. Workers and outgoing matching must not reformat it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Request {
     /// Show this member's pane in the invoking client.
@@ -3047,6 +3049,19 @@ impl App {
             return self
                 .say("Still working on the previous request; press Enter again in a moment.");
         }
+        if self.input.as_ref().is_some_and(|input| {
+            !input.response_quotes.is_empty()
+                && input.target().is_none_or(|target| {
+                    input.response_quotes.iter().any(|quote| {
+                        !self.response_quote_current(
+                            &super::row_detail::Target::Row(target.clone()),
+                            quote,
+                        )
+                    })
+                })
+        }) {
+            return self.say("The response source changed; nothing sent. Draft retained.");
+        }
         let persistent = self
             .input
             .as_ref()
@@ -3066,13 +3081,31 @@ impl App {
         if let Compose::Digest(granted) = input.compose {
             return self.digest_submit(*granted, &input.text);
         }
-        let mut text = input.text.as_str().to_owned();
-        for quote in &input.response_quotes {
-            if !text.is_empty() {
-                text.push_str("\n\n");
-            }
-            text.push_str(&quote.reference());
+        if input.text.as_str().trim().is_empty() && input.response_quotes.is_empty() {
+            return self.say("Nothing sent.");
         }
+        let row = input.row_send.as_ref().map(|send| send.name.as_str()).or({
+            if let Compose::Annotate { row, .. } = &input.compose {
+                Some(row.as_str())
+            } else {
+                None
+            }
+        });
+        let squad = if input.squad.is_empty() {
+            "Common pool"
+        } else {
+            &input.squad
+        };
+        let passages: Vec<_> = input
+            .response_quotes
+            .iter()
+            .map(|quote| quote.text.as_str())
+            .collect();
+        let text = crate::requests::message::body(
+            row.map(|row| (squad, row)),
+            &passages,
+            input.text.as_str(),
+        );
         if input
             .row_send
             .as_ref()
@@ -4571,7 +4604,7 @@ pub(crate) mod tests {
             };
             match request {
                 Request::Talk { text, .. } | Request::DirectTalk { text, .. } => {
-                    assert_eq!(text, "first\nsecond");
+                    assert_eq!(text, "[product · auth-fix] first\nsecond");
                 }
                 other => panic!("expected Talk, got {other:?}"),
             }
@@ -4707,7 +4740,7 @@ pub(crate) mod tests {
                 me: "Ben".into(),
                 squad: "product".into(),
                 to: "auth-fix".into(),
-                text: "q j -rf; $(x)".into()
+                text: "[product · auth-fix] q j -rf; $(x)".into()
             })
         );
         assert!(app.input.as_ref().unwrap().text.is_empty());
@@ -4748,7 +4781,7 @@ pub(crate) mod tests {
                 squad: "product".into(),
                 to: "sol".into(),
                 row: "auth-fix".into(),
-                text: "split the job".into()
+                text: "[product · auth-fix] split the job".into()
             })
         );
 
@@ -4772,7 +4805,7 @@ pub(crate) mod tests {
                 me: "Ben".into(),
                 request: "q1".into(),
                 from: "auth-fix".into(),
-                text: "postgres".into()
+                text: "[product · auth-fix] postgres".into()
             })
         );
         // The editor remains ready after Send; Escape returns to the tree.
@@ -4866,7 +4899,7 @@ pub(crate) mod tests {
         );
         let target = app.row_target(app.selected).unwrap();
         assert!(
-            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "[product · auth-fix] draft")
         );
         assert!(
             app.notice.is_none(),
@@ -4972,7 +5005,7 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert!(matches!(
             press(&mut app, KeyCode::Enter),
-            Effect::Act(Request::Talk { ref to, ref text, .. }) if to == "auth-fix" && text == "keep"
+            Effect::Act(Request::Talk { ref to, ref text, .. }) if to == "auth-fix" && text == "[product · auth-fix] keep"
         ));
         // Something waits: answer, note, talk in that cycle; a talk start
         // (a user's own `talk` binding) cycles on to answer, then note.

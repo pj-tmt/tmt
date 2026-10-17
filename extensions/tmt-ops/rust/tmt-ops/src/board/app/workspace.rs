@@ -372,7 +372,7 @@ impl App {
     /// An explicit message action focuses its selected agent's conversation.
     /// Compact Overview retains its monitor, so the editor opens in Agents;
     /// wide Overview keeps its existing shared conversation placement.
-    pub(super) fn workspace_focus_conversation(&mut self) {
+    pub(in crate::board) fn workspace_focus_conversation(&mut self) {
         let Some(selected) = self.workspace_message_target() else {
             return;
         };

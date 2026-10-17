@@ -13,15 +13,6 @@ pub(super) struct Quote {
     pub range: Range<usize>,
     pub text: String,
 }
-impl Quote {
-    pub fn reference(&self) -> String {
-        format!(
-            "[Response source: {}; identity {}; bytes {}..{}]\n{}\n[End response source]",
-            self.key.request, self.key.lead, self.range.start, self.range.end, self.text
-        )
-    }
-}
-
 pub(super) struct Selection {
     pub key: MessageKey,
     pub source: Editor,
@@ -80,17 +71,25 @@ impl super::app::App {
         target: &super::row_detail::Target,
         quote: &Quote,
     ) -> bool {
-        self.detail(target)
-            .and_then(|detail| detail.reply)
-            .is_some_and(|reply| {
-                reply.acquired
-                    && reply.source
-                    && reply
-                        .key
-                        .as_ref()
-                        .is_some_and(|key| key.same_source(&quote.key))
-                    && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
-            })
+        let reply = if quote.key.kind == super::home_leads::Kind::Question {
+            let super::row_detail::Target::Row(target) = target else {
+                return false;
+            };
+            // Compact placement can move the composer to Agents. The held
+            // request, not that tab's displayed response, owns this source.
+            self.pending_question(target, Some(&quote.key.request))
+        } else {
+            self.detail(target).and_then(|detail| detail.reply)
+        };
+        reply.is_some_and(|reply| {
+            reply.acquired
+                && reply.source
+                && reply
+                    .key
+                    .as_ref()
+                    .is_some_and(|key| key.same_source(&quote.key))
+                && reply.body.get(quote.range.clone()) == Some(quote.text.as_str())
+        })
     }
 
     pub(super) fn attach_response_quote(
@@ -111,17 +110,39 @@ impl super::app::App {
             RowTarget::Workspace(_) => self.target_squad(&target).unwrap_or_default(),
             RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
         };
-        let Some(send) = self.send_target(target, !squad.is_empty()) else {
-            return Attachment::Refused("The agent is no longer available; quote not attached.");
-        };
-        // A quote is response provenance, not permission to create a squad
-        // note. Common pool identities receive an explicit Talk follow-up.
-        let verb = if squad.is_empty() {
-            crate::action::Verb::Talk
+        let retained = self
+            .input
+            .as_ref()
+            .filter(|input| input.target() == Some(&target));
+        let effect = if let Some(input) = retained {
+            if input
+                .row_send
+                .as_ref()
+                .is_none_or(|send| !send.valid(self, input))
+            {
+                return Attachment::Refused(
+                    "The row target, sender, lead or request changed; quote not attached.",
+                );
+            }
+            // Attach to the admitted composer, without moving a draft to a
+            // different recipient just because its source belongs to this row.
+            self.workspace_focus_conversation();
+            super::app::Effect::None
         } else {
-            crate::action::Verb::Annotate
+            let Some(send) = self.send_target(target, !squad.is_empty()) else {
+                return Attachment::Refused(
+                    "The agent is no longer available; quote not attached.",
+                );
+            };
+            // A quote grants no squad membership. Common pool identities keep
+            // the existing explicit Talk follow-up to the same UUID.
+            let verb = if squad.is_empty() {
+                crate::action::Verb::Talk
+            } else {
+                crate::action::Verb::Annotate
+            };
+            self.compose_row(send, verb, squad)
         };
-        let effect = self.compose_row(send, verb, squad);
         if let Some(input) = &mut self.input {
             let bytes = input
                 .response_quotes

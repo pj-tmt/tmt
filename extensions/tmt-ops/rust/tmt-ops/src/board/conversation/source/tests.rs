@@ -174,7 +174,7 @@ fn styled_drag_requires_a_new_exact_paint_and_annotation_keeps_unicode_raw_bytes
         panic!("explicit annotation effect");
     };
     assert_eq!(to, "worker");
-    assert_eq!(text, quote.reference());
+    assert_eq!(text, "[product · worker]\n> 漢字 e\u{301}");
 }
 
 #[test]
@@ -440,7 +440,7 @@ fn common_pool_inline_quote_opens_pinned_talk_and_never_a_squad_note() {
     enter(&mut app);
     draw(&mut app, 100, 36);
     select(&mut app, 7);
-    let selected = quote(&app);
+    assert_eq!(quote(&app).text, "literal");
     draw(&mut app, 100, 36);
     let hit = button(&app).unwrap();
     mouse(
@@ -454,7 +454,7 @@ fn common_pool_inline_quote_opens_pinned_talk_and_never_a_squad_note() {
     );
     assert!(app.input.as_ref().unwrap().squad.is_empty());
     assert!(
-        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(crate::board::app::Request::DirectTalk { recipient, text, .. }) if recipient == MEMBER && text == selected.reference())
+        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(crate::board::app::Request::DirectTalk { recipient, text, .. }) if recipient == MEMBER && text == "[Common pool · worker]\n> literal")
     );
 }
 

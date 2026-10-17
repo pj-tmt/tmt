@@ -5585,7 +5585,11 @@ describe('composer terminal input', () => {
         );
         expect(result.status, result.stdout + result.stderr).toBe(0);
         const proof = JSON.parse(result.stdout);
-        expect(proof.message).toBe(scenario.enhanced ? 'first\nsecond' : 'first\nmiddle\nsecond');
+        expect(proof.message).toBe(
+          scenario.enhanced
+            ? '[product · worker] first\nsecond'
+            : '[product · worker] first\nmiddle\nsecond'
+        );
         expect(proof.terminalRestored).toBe(true);
         expect(proof.queries).toBeGreaterThan(0);
         if (scenario.enhanced) {

@@ -293,7 +293,10 @@ impl App {
                 .unwrap_or("(question unavailable)")
                 .into(),
             acquired: body.is_some(),
-            source: false,
+            source: body.is_some()
+                && key
+                    .as_ref()
+                    .is_some_and(|key| !self.row_details.body_failed(key)),
             key,
         })
     }
@@ -366,10 +369,32 @@ impl App {
             .into_iter()
             .filter(|target| self.detail(target).is_some())
             .collect::<Vec<_>>();
-        let keys = alive
+        let mut keys = alive
             .iter()
             .filter_map(|target| self.detail(target)?.reply?.key)
             .collect::<Vec<_>>();
+        if let Some(target) = self.input.as_ref().and_then(|input| input.target()) {
+            // Keep already acquired question bodies through compact composer
+            // placement and an in-flight send. No new read or body owner: retain
+            // only cached requests still admitted for this sender and row.
+            keys.extend(
+                self.row_details
+                    .bodies
+                    .iter()
+                    .filter(|(key, _)| {
+                        key.kind == Kind::Question
+                            && self
+                                .pending_question(target, Some(&key.request))
+                                .is_some_and(|reply| {
+                                    reply
+                                        .key
+                                        .as_ref()
+                                        .is_some_and(|current| current.same_source(key))
+                                })
+                    })
+                    .map(|(key, _)| key.clone()),
+            );
+        }
         self.row_details.reconcile(&alive, &keys);
     }
     pub(super) fn detail_read(&self) -> Option<MessageKey> {

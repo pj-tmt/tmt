@@ -115,9 +115,16 @@ Retained row text alone grants no authority after its membership disappears.
 sanitized Markdown display. Dragging a rendered response opens a labelled exact
 source view without guessing a byte range; selection on its freshly painted raw
 editor provides the exact range. The full response Reader remains a keyboard
-fallback. Source selection/copy and annotations preserve raw byte ranges.
-Attachment revalidation refuses changed requests, changed bodies or vanished
-recipients. The composer shows a bounded author/excerpt caption with a whole
+fallback. Source selection/copy and annotations preserve raw byte ranges. Pending
+questions use the same source view only after their full body is acquired;
+previews and failed reads are never selectable sources.
+Attachment and submission revalidation refuse changed requests, changed passages
+or vanished recipients. Row messages carry `[squad · row]`; selected raw lines
+follow it as Markdown blockquotes before the exact comment. Without a selection,
+the inline tag precedes the comment; task previews are not quoted automatically.
+One body projection supplies delivery and outgoing matching; attaching a source
+keeps an already admitted composer's recipient. The composer shows
+a bounded author/excerpt caption with a whole
 remove control; Alt-Backspace removes the last quote. Details freezes bounded
 quote provenance from the draft only when both recipient and source UUID match,
 including the full request/identity and exact byte range. Common pool quotations

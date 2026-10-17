@@ -347,11 +347,7 @@ impl App {
         let Some(key) = input.draft_key.clone() else {
             return;
         };
-        let text = if let crate::board::app::Compose::Annotate { row, .. } = &input.compose {
-            format!("{}{text}", crate::requests::tag(&input.squad, row))
-        } else {
-            text.to_owned()
-        };
+        let text = text.to_owned();
         let incoming = input
             .target()
             .filter(|target| {
@@ -408,10 +404,8 @@ impl App {
         let text = match request {
             Request::Talk { text, .. }
             | Request::DirectTalk { text, .. }
-            | Request::Reply { text, .. } => text.clone(),
-            Request::Annotate {
-                text, squad, row, ..
-            } => format!("{}{text}", crate::requests::tag(squad, row)),
+            | Request::Reply { text, .. }
+            | Request::Annotate { text, .. } => text.clone(),
             _ => return None,
         };
         let mut state = self.conversation.borrow_mut();

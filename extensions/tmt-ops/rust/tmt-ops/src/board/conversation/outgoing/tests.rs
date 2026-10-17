@@ -90,6 +90,127 @@ fn finish(app: &mut App, completed: Completed) {
     app.in_flight = app.in_flight.saturating_sub(1);
     app.finished_send(completed);
 }
+
+#[test]
+fn row_context_reaches_the_worker_and_outgoing_ticket_exactly_once() {
+    for action in ["talk", "annotate lead", "annotate member"] {
+        let mut app = fixture();
+        app.view.as_mut().unwrap().document["squad"]["lead"] =
+            json!({"id":"lead-id","name":"Lead"});
+        app.selected = app
+            .rows()
+            .iter()
+            .position(|(_, row)| row["id"] == "auth-fix")
+            .unwrap();
+        assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
+        app.perform(&crate::action::Action::parse(action).unwrap());
+        app.paste("  about this row\nkeep the exact comment  ");
+        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("{action}: explicit row message");
+        };
+        let expected = "[product · auth-fix]   about this row\nkeep the exact comment  ";
+        let ticket = app.outgoing_ticket(&request).unwrap();
+        assert_eq!(ticket.text, expected, "{action}: optimistic body");
+        let fake = Fake::new(json!({"requestId":"context-note","status":"queued"}), false);
+        let BoardEvent::Acted {
+            outcome: Ok(ActionOutcome::Send(completed)),
+            ..
+        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
+        else {
+            panic!("{action}: typed send result");
+        };
+        assert!(completed.outcome.is_ok());
+        let args = fake.arguments();
+        let recipient = if action == "annotate lead" {
+            "Lead"
+        } else {
+            "auth-fix"
+        };
+        assert!(
+            args.windows(2).any(|pair| pair == [recipient, expected]),
+            "{action}: the frozen body reaches only the admitted recipient"
+        );
+        assert_eq!(
+            args.iter().filter(|arg| *arg == expected).count(),
+            1,
+            "{action}: exact Core message operand"
+        );
+    }
+}
+
+#[test]
+fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
+    use crate::board::{response::Selection, row_detail::Target};
+    const RAW: &str = "first \"raw\"\n\n漢字 e\u{301}\n";
+    const EXPECTED: &str =
+        "[product · auth-fix]\n> first \"raw\"\n>\n> 漢字 e\u{301}\n>\n\n  my comment\nnext  ";
+    for action in ["talk", "annotate lead", "annotate member"] {
+        let mut app = fixture();
+        let view = app.view.as_mut().unwrap();
+        view.document["squad"]["lead"] = json!({"id":"lead-id","name":"Lead"});
+        view.replies =
+            vec![json!({"recipientId":"auth-fix","requestId":"raw-source","response":RAW})];
+        app.selected = app
+            .rows()
+            .iter()
+            .position(|(_, row)| row["id"] == "auth-fix")
+            .unwrap();
+        app.perform(&crate::action::Action::parse(action).unwrap());
+        let compose = app.input.as_ref().unwrap().compose.clone();
+        let target = Target::Row(app.row_target(app.selected).unwrap());
+        let reply = app.detail(&target).unwrap().reply.unwrap();
+        assert!(reply.acquired && reply.source);
+        assert_eq!(reply.body, RAW);
+        let mut selection = Selection::new(reply.key.unwrap(), reply.body);
+        selection.source.key(
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+            80,
+            usize::MAX,
+        );
+        let quote = selection.quote().unwrap();
+        assert_eq!(quote.text, RAW);
+        app.attach_response_quote(target, quote.clone())
+            .finish(&mut app);
+        assert_eq!(
+            app.input.as_ref().unwrap().compose,
+            compose,
+            "attaching a source never retargets the admitted composer"
+        );
+        assert_eq!(app.input.as_ref().unwrap().response_quotes, [quote]);
+        app.paste("  my comment\nnext  ");
+        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("{action}: exact source should remain admissible");
+        };
+        let ticket = app.outgoing_ticket(&request).unwrap();
+        assert_eq!(ticket.text, EXPECTED, "{action}: exact optimistic body");
+        let fake = Fake::new(json!({"requestId":"quoted-note","status":"queued"}), false);
+        let BoardEvent::Acted {
+            outcome: Ok(ActionOutcome::Send(completed)),
+            ..
+        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
+        else {
+            panic!("{action}: typed send result");
+        };
+        assert!(completed.outcome.is_ok());
+        let args = fake.arguments();
+        let recipient = if action == "annotate lead" {
+            "Lead"
+        } else {
+            "auth-fix"
+        };
+        assert!(
+            args.windows(2).any(|pair| pair == [recipient, EXPECTED]),
+            "{action}: the frozen body reaches only the admitted recipient"
+        );
+        assert_eq!(
+            args.iter().filter(|arg| *arg == EXPECTED).count(),
+            1,
+            "{action}: literal delivered body"
+        );
+    }
+}
 fn draw(app: &App) -> String {
     let mut terminal = Terminal::new(TestBackend::new(120, 36)).unwrap();
     terminal
@@ -149,7 +270,10 @@ fn five_dispositions_keep_delivery_separate_from_the_acquired_agent_state() {
                 .count(),
             1
         );
-        assert_eq!(arguments.last().unwrap(), "exact outgoing text");
+        assert_eq!(
+            arguments.last().unwrap(),
+            "[product · auth-fix] exact outgoing text"
+        );
         assert!(app.input.as_ref().unwrap().text.is_empty());
     }
 }
@@ -281,7 +405,7 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
         text,
         [
             "You · now",
-            "literal auth-fix · now",
+            "[product · auth-fix] literal auth-fix · now",
             "✓ delivered · ● auth-fix working",
             "",
             "auth-fix · now",
@@ -331,7 +455,7 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
         for index in 0..3 {
             let message = lines
                 .iter()
-                .position(|line| line == &format!("message {index}"))
+                .position(|line| line == &format!("[product · auth-fix] message {index}"))
                 .unwrap();
             assert!(lines[message + 1].starts_with("✓ delivered"), "{lines:?}");
             let reply = lines
@@ -429,7 +553,7 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
 #[test]
 fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
     let mut app = fixture();
-    let payload = "x".repeat(crate::board::app::MESSAGE_LIMIT);
+    let payload = "x".repeat(crate::board::app::MESSAGE_LIMIT - "[product · auth-fix] ".len());
     let mut oldest = None;
     for _ in 0..6 {
         if app.input.is_some() {
@@ -442,7 +566,8 @@ fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
             panic!("expected explicit send");
         };
         let ticket = app.outgoing_ticket(&request).unwrap();
-        assert_eq!(ticket.text, payload);
+        assert_eq!(ticket.text, format!("[product · auth-fix] {payload}"));
+        assert_eq!(ticket.text.len(), crate::board::app::MESSAGE_LIMIT);
         let completed = Completed {
             ticket: Some(ticket),
             outcome: Ok(Accepted {
@@ -459,7 +584,10 @@ fn outgoing_byte_budget_evicts_old_turns_and_late_completion_keeps_new_edits() {
     let state = app.conversation.borrow();
     let ticket = old.ticket.as_ref().unwrap();
     let session = &state.sessions[&(Some(ticket.key.0.clone()), ticket.key.1.clone())];
-    assert_eq!(session.outgoing.len(), MAX_BYTES / payload.len());
+    assert_eq!(
+        session.outgoing.len(),
+        MAX_BYTES / crate::board::app::MESSAGE_LIMIT
+    );
     assert_eq!(
         session.outgoing.iter().map(Entry::bytes).sum::<usize>(),
         MAX_BYTES
@@ -489,12 +617,17 @@ fn outgoing_preserves_exact_effect_bytes_without_painting_terminal_controls() {
     );
     let mut app = fixture();
     let text = "You · now\nalpha · now\nraw\u{1b}[2J\u{7} 漢字 e\u{301}";
+    let delivered = format!("[product · auth-fix] {text}");
     let completed = send(&mut app, &fake, text);
-    assert!(fake.arguments().iter().any(|argument| argument == text));
+    assert!(
+        fake.arguments()
+            .iter()
+            .any(|argument| argument == &delivered)
+    );
     let state = app.conversation.borrow();
     let ticket = completed.ticket.as_ref().unwrap();
     let session = &state.sessions[&(Some(ticket.key.0.clone()), ticket.key.1.clone())];
-    assert_eq!(session.outgoing.back().unwrap().ticket.text, text);
+    assert_eq!(session.outgoing.back().unwrap().ticket.text, delivered);
     drop(state);
     finish(&mut app, completed);
     let painted = draw(&app);
@@ -573,7 +706,7 @@ fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_g
                 "--json",
                 "--",
                 "worker",
-                "Exact answer"
+                "[product · worker] Exact answer"
             ]
         );
         let state = app.conversation.borrow();
