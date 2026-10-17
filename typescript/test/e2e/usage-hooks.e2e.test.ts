@@ -173,6 +173,7 @@ describe(
         await withE2EFixture(
           async (fixture) => {
             expect((await fixture.runJsonCli(['name', 'Owner', '-s'])).code).toBe(0);
+            const sent = Date.now();
             const results = await runScenario(fixture, provider);
             expect(results).toHaveLength(15);
             for (const result of results) {
@@ -229,13 +230,22 @@ describe(
               readonly: true,
             });
             try {
-              expect(
-                db
-                  .prepare(
-                    'SELECT driver_state_version, driver_state FROM identity_session_preferences WHERE identity_id = ?'
-                  )
-                  .get(identity.id)
-              ).toEqual({ driver_state_version: 1, driver_state: '{"model":"model-a"}' });
+              // The compacting start reported its model, so it is also the last
+              // observed model (driver state v5), and ls projects the same fact.
+              const state = db
+                .prepare(
+                  'SELECT driver_state_version, driver_state FROM identity_session_preferences WHERE identity_id = ?'
+                )
+                .get(identity.id) as { driver_state_version: number; driver_state: string };
+              expect(state.driver_state_version).toBe(5);
+              const document = JSON.parse(state.driver_state);
+              expect(document).toEqual({
+                model: 'model-a',
+                observed: { model: 'model-a', observedAtMs: expect.any(Number) },
+              });
+              expect(document.observed.observedAtMs).toBeGreaterThanOrEqual(sent);
+              expect(document.observed.observedAtMs).toBeLessThanOrEqual(Date.now());
+              expect(compacted?.observedModel).toEqual(document.observed);
             } finally {
               db.close();
             }

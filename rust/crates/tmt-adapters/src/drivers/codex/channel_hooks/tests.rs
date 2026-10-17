@@ -632,3 +632,42 @@ fn an_interrupt_waits_for_the_same_session_admission_as_its_turn_end() {
         );
     }
 }
+
+/// The shared channel start writes the start's own driver state: its valid
+/// model replaces the last observed one, and a start without one clears it.
+#[test]
+fn a_channel_start_sets_or_clears_the_observed_model() {
+    use crate::runtime::driver_state;
+    let seeded = DriverState::new(
+        driver_state::OBSERVED_STATE_VERSION,
+        r#"{"model":"resume-m","observed":{"model":"prior-m","observedAtMs":5}}"#,
+    )
+    .unwrap();
+    for (model, expected) in [
+        (Some("channel-m"), Some(("channel-m".to_owned(), 10))),
+        (None, None),
+    ] {
+        let mut payload = serde_json::json!({"hook_event_name":"SessionStart",
+            "session_id":"0199a213-81c0-7800-8aa1-bbab2a035a53","source":"startup",
+            "cwd":"/workspace","transcript_path":null,"permission_mode":"default"});
+        if let Some(model) = model {
+            payload["model"] = model.into();
+        }
+        let observation = ChannelObservation {
+            event: super::super::decode_hook(payload.to_string().as_bytes()).unwrap(),
+            record: None,
+        };
+        assert!(observation.starting());
+        let next = observation.driver_state(Some(&seeded), 10).unwrap();
+        assert_eq!(
+            driver_state::state_observed_model(&next)
+                .map(|observed| (observed.model, observed.observed_at_ms)),
+            expected,
+            "{model:?}"
+        );
+        assert_eq!(
+            driver_state::state_model(&next).as_deref(),
+            Some(model.unwrap_or("resume-m"))
+        );
+    }
+}

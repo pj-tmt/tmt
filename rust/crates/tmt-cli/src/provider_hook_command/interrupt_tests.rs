@@ -34,10 +34,16 @@ impl Drop for Directory {
     }
 }
 
-fn turn(phase: ActivityPhase, id: &str) -> Event {
-    Event {
-        phase,
-        turn: Some(ProviderSessionId::new(id).unwrap()),
+fn turn(
+    phase: ActivityPhase,
+    id: &str,
+) -> tmt_adapters::runtime::hook_protocol::ActivityObservation {
+    tmt_adapters::runtime::hook_protocol::ActivityObservation {
+        event: Event {
+            phase,
+            turn: Some(ProviderSessionId::new(id).unwrap()),
+        },
+        model: None,
     }
 }
 

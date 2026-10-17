@@ -452,19 +452,29 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::driver_state::state_usage(state)
     }
 
-    fn decode_activity(&self, bytes: &[u8]) -> Option<tmt_core::binding::session::activity::Event> {
+    fn decode_activity(
+        &self,
+        bytes: &[u8],
+    ) -> Option<crate::runtime::hook_protocol::ActivityObservation> {
         crate::runtime::hook_protocol::decode_activity(bytes, false)
     }
 
     fn activity_state(
         &self,
-        event: &tmt_core::binding::session::activity::Event,
+        observation: &crate::runtime::hook_protocol::ActivityObservation,
         session: &ProviderSessionId,
         process: &ProcessIncarnation,
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
     ) -> Option<tmt_core::binding::session::DriverState> {
-        crate::runtime::driver_state::after_activity(previous, session, process, event, now_ms)
+        crate::runtime::driver_state::after_activity(
+            previous,
+            session,
+            process,
+            &observation.event,
+            observation.model.as_deref(),
+            now_ms,
+        )
     }
 
     fn state_activity(
@@ -624,7 +634,7 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
         .then_some(self.context_tokens)
         .flatten()
         .and_then(|tokens| crate::runtime::driver_state::Usage::new(tokens, None, now_ms));
-        crate::runtime::driver_state::after_start(self.model.as_deref(), usage, previous)
+        crate::runtime::driver_state::after_start(self.model.as_deref(), usage, previous, now_ms)
     }
     fn starting(&self) -> bool {
         self.starting

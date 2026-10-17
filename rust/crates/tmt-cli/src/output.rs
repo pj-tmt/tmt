@@ -103,7 +103,7 @@ mod tests {
             HarnessId, ProviderSessionId, RememberedSession, RuntimeMode, SessionPreferences,
         };
         let usage = driver_state::Usage::new(195_664, None, 100).unwrap();
-        let original = driver_state::after_start(Some("model-a"), Some(usage), None).unwrap();
+        let original = driver_state::after_start(Some("model-a"), Some(usage), None, 100).unwrap();
         let mut preferences = SessionPreferences {
             channel: None,
             preferred_harness: None,

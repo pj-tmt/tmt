@@ -79,8 +79,8 @@ fn activity_uses_only_main_turn_events_and_codex_requires_a_turn_id() {
             let decoded = driver
                 .decode_activity(payload.to_string().as_bytes())
                 .unwrap();
-            assert_eq!(decoded.phase, phase);
-            assert_eq!(decoded.turn.is_some(), name == "codex");
+            assert_eq!(decoded.event.phase, phase);
+            assert_eq!(decoded.event.turn.is_some(), name == "codex");
             payload.as_object_mut().unwrap().remove("turn_id");
             assert_eq!(
                 driver
@@ -129,9 +129,9 @@ fn only_a_codex_main_turn_interrupt_with_its_turn_id_is_an_idle_end() {
         .unwrap();
     let fixture = include_bytes!("fixtures/codex-interrupt.json").as_slice();
     let decoded = codex.decode_activity(fixture).unwrap();
-    assert_eq!(decoded.phase, ActivityPhase::Idle);
+    assert_eq!(decoded.event.phase, ActivityPhase::Idle);
     assert_eq!(
-        decoded.turn,
+        decoded.event.turn,
         Some(ProviderSessionId::new("fixture-turn").unwrap())
     );
     assert!(claude.decode_activity(fixture).is_none());
@@ -159,7 +159,81 @@ fn only_a_codex_main_turn_interrupt_with_its_turn_id_is_an_idle_end() {
         codex
             .decode_activity(prompt.to_string().as_bytes())
             .unwrap()
+            .event
             .phase,
         ActivityPhase::Working
     );
+}
+
+/// The observed model (#3207) comes only from a Codex main-session turn event.
+/// A subagent-marked payload keeps its activity decoding but supplies no model,
+/// and a malformed model never rejects the event.
+#[test]
+fn a_codex_turn_event_reports_its_main_session_model_only() {
+    use tmt_core::binding::session::activity::ActivityPhase;
+    let registry = RuntimeRegistry::first_party();
+    let codex = registry
+        .lifecycle(&HarnessId::new("codex").unwrap())
+        .unwrap();
+    let claude = registry
+        .lifecycle(&HarnessId::new("claude").unwrap())
+        .unwrap();
+    for (fixture, phase) in [
+        (
+            include_bytes!("fixtures/codex-prompt-submit.json").as_slice(),
+            ActivityPhase::Working,
+        ),
+        (
+            include_bytes!("fixtures/codex-stop.json").as_slice(),
+            ActivityPhase::Idle,
+        ),
+        (
+            include_bytes!("fixtures/codex-interrupt.json").as_slice(),
+            ActivityPhase::Idle,
+        ),
+    ] {
+        let payload: Value = serde_json::from_slice(fixture).unwrap();
+        let event = payload["hook_event_name"].as_str().unwrap();
+        let decoded = codex.decode_activity(fixture).unwrap();
+        assert_eq!(decoded.event.phase, phase, "{event}");
+        assert_eq!(decoded.model.as_deref(), Some("gpt-5.2-codex"), "{event}");
+        // Claude names no turn, so its events never report an observed model.
+        assert!(
+            claude
+                .decode_activity(fixture)
+                .is_none_or(|decoded| decoded.model.is_none()),
+            "{event}"
+        );
+        for field in ["agent_id", "agent_type"] {
+            for value in [json!("agent-1"), json!(null)] {
+                let mut child = payload.clone();
+                child[field] = value.clone();
+                let decoded = codex.decode_activity(child.to_string().as_bytes());
+                // Activity behavior is unchanged: only an interrupt is rejected.
+                assert_eq!(decoded.is_some(), event != "Interrupt", "{event} {field}");
+                assert!(
+                    decoded.is_none_or(|decoded| decoded.model.is_none()),
+                    "{event} {field}={value}"
+                );
+            }
+        }
+        for model in [json!(null), json!(7), json!("-x"), json!("a b"), json!("")] {
+            let mut malformed = payload.clone();
+            malformed["model"] = model.clone();
+            let decoded = codex
+                .decode_activity(malformed.to_string().as_bytes())
+                .unwrap();
+            assert_eq!(decoded.event.phase, phase, "{event} {model}");
+            assert_eq!(decoded.model, None, "{event} {model}");
+        }
+        let mut missing = payload.clone();
+        missing.as_object_mut().unwrap().remove("model");
+        assert_eq!(
+            codex
+                .decode_activity(missing.to_string().as_bytes())
+                .unwrap()
+                .model,
+            None
+        );
+    }
 }

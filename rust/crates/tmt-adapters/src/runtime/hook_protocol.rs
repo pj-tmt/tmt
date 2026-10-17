@@ -77,12 +77,18 @@ pub fn decode_prompt(bytes: &[u8]) -> Option<tmt_core::binding::session::Provide
     tmt_core::binding::session::ProviderSessionId::new(&payload.session_id).ok()
 }
 
+/// One decoded activity payload: the normalized event, and the model the same
+/// payload reported for the main session. The model is evidence only for the
+/// driver state an admitted transition writes; it never decides admission.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActivityObservation {
+    pub event: tmt_core::binding::session::activity::Event,
+    pub model: Option<String>,
+}
+
 /// First-party turn envelope. Claude ordering comes from setup's synchronous
 /// command hooks; Codex additionally correlates its documented active turn ID.
-pub fn decode_activity(
-    bytes: &[u8],
-    correlated: bool,
-) -> Option<tmt_core::binding::session::activity::Event> {
+pub fn decode_activity(bytes: &[u8], correlated: bool) -> Option<ActivityObservation> {
     use tmt_core::binding::session::{
         ProviderSessionId,
         activity::{ActivityPhase, Event},
@@ -96,6 +102,9 @@ pub fn decode_activity(
         subagent_id: bool,
         #[serde(default, rename = "agent_type", deserialize_with = "present")]
         subagent_type: bool,
+        /// Any JSON value: a malformed model is no model, never a rejected event.
+        #[serde(default)]
+        model: Option<serde_json::Value>,
     }
     if bytes.len() > HOOK_INPUT_LIMIT {
         return None;
@@ -119,7 +128,23 @@ pub fn decode_activity(
     } else {
         None
     };
-    Some(Event { phase, turn })
+    // Only a turn-correlated provider names the model of its own turn, and a
+    // subagent's model never becomes the main session's.
+    let model = payload
+        .model
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .filter(|model| {
+            correlated
+                && !payload.subagent_id
+                && !payload.subagent_type
+                && super::driver_state::valid_model(model)
+        })
+        .map(str::to_owned);
+    Some(ActivityObservation {
+        event: Event { phase, turn },
+        model,
+    })
 }
 
 /// Whether a payload field is present, an explicit null included.

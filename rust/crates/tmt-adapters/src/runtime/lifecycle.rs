@@ -264,14 +264,14 @@ pub trait RuntimeLifecycle {
     fn decode_activity(
         &self,
         _payload: &[u8],
-    ) -> Option<tmt_core::binding::session::activity::Event> {
+    ) -> Option<super::hook_protocol::ActivityObservation> {
         None
     }
 
     /// Driver-owned persistence for a normalized admitted activity event.
     fn activity_state(
         &self,
-        _event: &tmt_core::binding::session::activity::Event,
+        _observation: &super::hook_protocol::ActivityObservation,
         _session: &ProviderSessionId,
         _process: &ProcessIncarnation,
         _previous: Option<&DriverState>,

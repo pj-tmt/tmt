@@ -107,7 +107,7 @@ fn read(
 fn real_provider_lines_record_usage_and_keep_the_model() {
     for driver in drivers() {
         let home = TestDirectory::new();
-        let model = driver_state::after_start(Some("model-a"), None, None).unwrap();
+        let model = driver_state::after_start(Some("model-a"), None, None, 1).unwrap();
         let state = turn(&driver, &home.path, &[driver.line.into()], Some(&model)).unwrap();
         assert_eq!(driver.lifecycle.state_usage(&state), Some(driver.expected));
         assert_eq!(

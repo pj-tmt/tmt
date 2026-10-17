@@ -7,6 +7,8 @@
 //! Version 3 adds main-turn activity scoped to the provider session and process.
 //! Without activity, legacy model/usage documents retain versions 1 and 2.
 //! Version 4 adds optional cumulative consumption and its bounded source cursor.
+//! Version 5 adds the last observed model: the model an admitted provider event
+//! reported. It is written only while present and goes first under the bound.
 //! Older documents retain their original versions/bytes; optional counters never
 //! expand the core's 1 KiB opaque-state bound.
 //! The resume launch model is never inferred from transcripts, arguments or files;
@@ -26,6 +28,7 @@ pub const MODEL_STATE_VERSION: u16 = 1;
 pub const USAGE_STATE_VERSION: u16 = 2;
 pub const ACTIVITY_STATE_VERSION: u16 = 3;
 pub const CONSUMPTION_STATE_VERSION: u16 = 4;
+pub const OBSERVED_STATE_VERSION: u16 = 5;
 
 /// Whether this document version is one the first-party drivers read.
 pub fn reads(version: u16) -> bool {
@@ -35,6 +38,7 @@ pub fn reads(version: u16) -> bool {
             | USAGE_STATE_VERSION
             | ACTIVITY_STATE_VERSION
             | CONSUMPTION_STATE_VERSION
+            | OBSERVED_STATE_VERSION
     )
 }
 
@@ -91,6 +95,41 @@ impl Usage {
     }
 }
 
+/// The last model an admitted provider event reported, and when TMT accepted
+/// it. It is a recorded fact, never proof of the current model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedModel {
+    pub model: String,
+    pub observed_at_ms: u64,
+}
+
+impl ObservedModel {
+    fn new(model: &str, observed_at_ms: u64) -> Option<Self> {
+        (valid_model(model) && observed_at_ms > 0 && is_valid_js_safe_integer(observed_at_ms)).then(
+            || Self {
+                model: model.to_owned(),
+                observed_at_ms,
+            },
+        )
+    }
+
+    /// The projection `resume.observedModel` and the stored document share.
+    pub fn document(&self) -> Value {
+        json!({"model": self.model, "observedAtMs": self.observed_at_ms})
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        let fields = value.as_object()?;
+        if fields.len() != 2 {
+            return None;
+        }
+        Self::new(
+            fields.get("model")?.as_str()?,
+            fields.get("observedAtMs")?.as_u64()?,
+        )
+    }
+}
+
 /// A provider model slug, safe to pass as one argv value: bounded, no
 /// whitespace or controls, and never option-like.
 pub(super) fn valid_model(model: &str) -> bool {
@@ -107,6 +146,7 @@ struct Document {
     usage: Option<Usage>,
     activity: Option<Activity>,
     consumption: Option<super::consumption::State>,
+    observed: Option<ObservedModel>,
 }
 
 impl Document {
@@ -131,10 +171,15 @@ impl Document {
             None => None,
             Some(value) => Some(super::consumption::State::read(value)?),
         };
+        let observed = match fields.get("observed") {
+            None => None,
+            Some(value) => Some(ObservedModel::read(value)?),
+        };
         let known = usize::from(consumption.is_some())
             + usize::from(model.is_some())
             + usize::from(usage.is_some())
-            + usize::from(activity.is_some());
+            + usize::from(activity.is_some())
+            + usize::from(observed.is_some());
         let valid = match state.version() {
             MODEL_STATE_VERSION => {
                 model.is_some() && usage.is_none() && activity.is_none() && consumption.is_none()
@@ -142,42 +187,42 @@ impl Document {
             USAGE_STATE_VERSION => usage.is_some() && activity.is_none() && consumption.is_none(),
             ACTIVITY_STATE_VERSION => activity.is_some() && consumption.is_none(),
             CONSUMPTION_STATE_VERSION => consumption.is_some(),
+            OBSERVED_STATE_VERSION => observed.is_some(),
             _ => false,
-        };
+        } && (state.version() == OBSERVED_STATE_VERSION || observed.is_none());
         (valid && fields.len() == known).then_some(Self {
             model,
             usage,
             activity,
             consumption,
+            observed,
         })
     }
 
-    fn write(self) -> Option<DriverState> {
-        let mut fields = Map::new();
-        if let Some(model) = self.model {
-            fields.insert("model".into(), json!(model));
+    fn write(mut self) -> Option<DriverState> {
+        // The observed model is the newest optional evidence, so it goes first
+        // when the bound bites: the document then takes its legacy version.
+        if let Some(observed) = self.observed.take() {
+            let mut fields = self.legacy_fields();
+            fields.insert("observed".into(), observed.document());
+            if let Some(consumption) = &self.consumption {
+                fields.insert("consumption".into(), consumption.document());
+            }
+            let document = Value::Object(fields).to_string();
+            if document.len() <= DriverState::MAXIMUM_BYTES {
+                return DriverState::new(OBSERVED_STATE_VERSION, &document).ok();
+            }
         }
-        let mut version = match self.usage {
-            Some(usage) => {
-                fields.insert("usage".into(), usage.document());
-                USAGE_STATE_VERSION
-            }
-            None if fields.is_empty() && self.activity.is_none() && self.consumption.is_none() => {
-                return None;
-            }
-            None => MODEL_STATE_VERSION,
+        let mut fields = self.legacy_fields();
+        let mut version = if self.usage.is_some() {
+            USAGE_STATE_VERSION
+        } else if fields.is_empty() && self.consumption.is_none() {
+            return None;
+        } else {
+            MODEL_STATE_VERSION
         };
-        if let Some(activity) = self.activity {
+        if self.activity.is_some() {
             version = ACTIVITY_STATE_VERSION;
-            fields.insert(
-                "activity".into(),
-                json!({
-                    "session": activity.session.as_str(), "pid": activity.process.pid(),
-                    "start": activity.process.start_identity(), "state": activity.phase.as_str(),
-                    "turn": activity.turn.as_ref().map(ProviderSessionId::as_str),
-                    "sinceMs": activity.since_ms, "lastActivityMs": activity.last_activity_ms,
-                }),
-            );
         }
         if let Some(mut consumption) = self.consumption {
             fields.insert("consumption".into(), consumption.document());
@@ -223,6 +268,29 @@ impl Document {
         }
         DriverState::new(version, &Value::Object(fields).to_string()).ok()
     }
+
+    /// The fields every version up to 3 carries, in their stored shape.
+    fn legacy_fields(&self) -> Map<String, Value> {
+        let mut fields = Map::new();
+        if let Some(model) = &self.model {
+            fields.insert("model".into(), json!(model));
+        }
+        if let Some(usage) = self.usage {
+            fields.insert("usage".into(), usage.document());
+        }
+        if let Some(activity) = &self.activity {
+            fields.insert(
+                "activity".into(),
+                json!({
+                    "session": activity.session.as_str(), "pid": activity.process.pid(),
+                    "start": activity.process.start_identity(), "state": activity.phase.as_str(),
+                    "turn": activity.turn.as_ref().map(ProviderSessionId::as_str),
+                    "sinceMs": activity.since_ms, "lastActivityMs": activity.last_activity_ms,
+                }),
+            );
+        }
+        fields
+    }
 }
 
 /// The model stored in a readable first-party state document, if any.
@@ -239,22 +307,30 @@ pub fn state_usage(state: &DriverState) -> Option<Usage> {
 /// one; without one the previous readable model stays, and nothing is
 /// guessed. Usage is what the start itself reported (a resumed Claude
 /// conversation reports it), otherwise none: the context changed.
+/// The observed model is only what this start reported: the kept resume model
+/// is not new evidence, so without a report the observation is cleared.
 pub fn after_start(
     reported: Option<&str>,
     usage: Option<Usage>,
     previous: Option<&DriverState>,
+    now_ms: u64,
 ) -> Option<DriverState> {
-    let model = reported
-        .filter(|model| valid_model(model))
-        .map(str::to_owned)
-        .or_else(|| previous.and_then(state_model));
+    let reported = reported.filter(|model| valid_model(model));
     Document {
-        model,
+        model: reported
+            .map(str::to_owned)
+            .or_else(|| previous.and_then(state_model)),
         usage,
         activity: None,
         consumption: None,
+        observed: reported.and_then(|model| ObservedModel::new(model, now_ms)),
     }
     .write()
+}
+
+/// The last observed model in a readable first-party state document, if any.
+pub fn state_observed_model(state: &DriverState) -> Option<ObservedModel> {
+    Document::read(state)?.observed
 }
 
 /// Internal cursor evidence is kept opaque to core and public projections.
@@ -321,11 +397,15 @@ pub fn state_activity(state: &DriverState) -> Option<Activity> {
     Document::read(state)?.activity
 }
 
+/// The state after an activity event, or `None` when `Activity::observe`
+/// rejects it. Only an admitted transition records the model it reported; an
+/// event without a valid one keeps the previous observation and its time.
 pub fn after_activity(
     previous: Option<&DriverState>,
     session: &ProviderSessionId,
     process: &ProcessIncarnation,
     event: &Event,
+    model: Option<&str>,
     now: u64,
 ) -> Option<DriverState> {
     let mut document = previous.and_then(Document::read).unwrap_or_default();
@@ -336,6 +416,9 @@ pub fn after_activity(
         event,
         now,
     )?);
+    if let Some(observed) = model.and_then(|model| ObservedModel::new(model, now)) {
+        document.observed = Some(observed);
+    }
     document.write()
 }
 
@@ -348,49 +431,71 @@ mod tests {
         Usage::new(tokens, Some(258_400), 1_780_000_000_000).unwrap()
     }
 
+    /// A model-only document as every version before 5 wrote it.
+    fn legacy(model: &str) -> DriverState {
+        DriverState::new(MODEL_STATE_VERSION, &json!({ "model": model }).to_string()).unwrap()
+    }
+
     #[test]
     fn activity_round_trips_without_transferring_through_session_start() {
         let session = ProviderSessionId::new("s").unwrap();
         let process = ProcessIncarnation::new(42, "birth").unwrap();
-        let previous = after_start(Some("opus"), Some(usage(10)), None).unwrap();
+        let previous = after_start(Some("opus"), Some(usage(10)), None, 50).unwrap();
         let event = Event {
             phase: ActivityPhase::Working,
             turn: Some(ProviderSessionId::new("turn").unwrap()),
         };
-        let active = after_activity(Some(&previous), &session, &process, &event, 100).unwrap();
-        assert_eq!(active.version(), 3);
+        let active =
+            after_activity(Some(&previous), &session, &process, &event, None, 100).unwrap();
+        assert_eq!(active.version(), OBSERVED_STATE_VERSION);
+        assert_eq!(
+            state_observed_model(&active),
+            state_observed_model(&previous)
+        );
         assert_eq!(state_model(&active).as_deref(), Some("opus"));
         assert_eq!(state_usage(&active), Some(usage(10)));
         assert!(state_activity(&active).unwrap().matches(&session, &process));
-        assert!(after_activity(Some(&active), &session, &process, &event, 101).is_none());
+        assert!(after_activity(Some(&active), &session, &process, &event, None, 101).is_none());
         let updated = after_observation(Some(usage(12)), None, Some(&active)).unwrap();
         assert_eq!(state_activity(&updated), state_activity(&active));
-        let resumed = after_start(None, None, Some(&active)).unwrap();
+        let resumed = after_start(None, None, Some(&active), 102).unwrap();
         assert_eq!(resumed.version(), 1);
         assert!(state_activity(&resumed).is_none());
         let mut bad: Value = serde_json::from_str(active.document()).unwrap();
         bad["activity"]["sinceMs"] = 101.into();
-        assert!(state_activity(&DriverState::new(3, &bad.to_string()).unwrap()).is_none());
+        assert!(state_activity(&DriverState::new(5, &bad.to_string()).unwrap()).is_none());
     }
 
     #[test]
     fn a_reported_model_replaces_and_an_absent_one_keeps_the_previous() {
-        let first = after_start(Some("claude-opus-5"), None, None).unwrap();
-        assert_eq!(first.version(), MODEL_STATE_VERSION);
-        assert_eq!(first.document(), r#"{"model":"claude-opus-5"}"#);
+        let first = after_start(Some("claude-opus-5"), None, None, 7).unwrap();
+        assert_eq!(first.version(), OBSERVED_STATE_VERSION);
+        assert_eq!(
+            first.document(),
+            r#"{"model":"claude-opus-5","observed":{"model":"claude-opus-5","observedAtMs":7}}"#
+        );
         assert_eq!(state_model(&first).as_deref(), Some("claude-opus-5"));
-        assert_eq!(after_start(None, None, Some(&first)), Some(first.clone()));
-        let second = after_start(Some("claude-sonnet-4-5[1m]"), None, Some(&first)).unwrap();
+        // The kept resume model is not a new observation: the start clears it,
+        // and the document returns to its legacy bytes.
+        assert_eq!(
+            after_start(None, None, Some(&first), 8),
+            Some(legacy("claude-opus-5"))
+        );
+        assert_eq!(
+            after_start(None, None, Some(&legacy("claude-opus-5")), 8),
+            Some(legacy("claude-opus-5"))
+        );
+        let second = after_start(Some("claude-sonnet-4-5[1m]"), None, Some(&first), 9).unwrap();
         assert_eq!(
             state_model(&second).as_deref(),
             Some("claude-sonnet-4-5[1m]")
         );
-        assert_eq!(after_start(None, None, None), None);
+        assert_eq!(after_start(None, None, None, 9), None);
     }
 
     #[test]
     fn a_turn_records_usage_and_keeps_the_model_until_the_context_changes() {
-        let model = after_start(Some("gpt-5.2-codex"), None, None).unwrap();
+        let model = legacy("gpt-5.2-codex");
         let turned = after_observation(Some(usage(146_577)), None, Some(&model)).unwrap();
         assert_eq!(turned.version(), USAGE_STATE_VERSION);
         assert_eq!(
@@ -404,9 +509,12 @@ mod tests {
 
         // A new, cleared or compacted context drops usage; the model stays
         // and the document returns to version 1, byte for byte.
-        assert_eq!(after_start(None, None, Some(&later)), Some(model.clone()));
+        assert_eq!(
+            after_start(None, None, Some(&later), 1),
+            Some(model.clone())
+        );
         // A resumed conversation may report its own usage.
-        let resumed = after_start(None, Some(usage(182_340)), Some(&later)).unwrap();
+        let resumed = after_start(None, Some(usage(182_340)), Some(&later), 1).unwrap();
         assert_eq!(state_usage(&resumed), Some(usage(182_340)));
         assert_eq!(state_model(&resumed).as_deref(), Some("gpt-5.2-codex"));
 
@@ -414,7 +522,7 @@ mod tests {
         let bare = after_observation(Some(usage(10)), None, None).unwrap();
         assert_eq!(bare.version(), USAGE_STATE_VERSION);
         assert_eq!(state_model(&bare), None);
-        assert_eq!(after_start(None, None, Some(&bare)), None);
+        assert_eq!(after_start(None, None, Some(&bare), 1), None);
     }
 
     #[test]
@@ -428,7 +536,7 @@ mod tests {
 
     #[test]
     fn unsafe_models_and_unreadable_documents_are_never_used() {
-        let kept = after_start(Some("gpt-5.2-codex"), None, None).unwrap();
+        let kept = legacy("gpt-5.2-codex");
         for model in [
             "",
             "--dangerously-skip-permissions",
@@ -437,7 +545,7 @@ mod tests {
             &"m".repeat(129),
         ] {
             assert_eq!(
-                after_start(Some(model), None, Some(&kept)),
+                after_start(Some(model), None, Some(&kept), 1),
                 Some(kept.clone()),
                 "{model:?}"
             );
@@ -467,8 +575,242 @@ mod tests {
             let state = DriverState::new(version, &document).unwrap();
             assert_eq!(state_model(&state), None, "{document}");
             assert_eq!(state_usage(&state), None, "{document}");
-            assert_eq!(after_start(None, None, Some(&state)), None, "{document}");
+            assert_eq!(after_start(None, None, Some(&state), 1), None, "{document}");
         }
-        assert!(reads(1) && reads(2) && reads(3) && reads(4) && !reads(5));
+        assert!(reads(1) && reads(2) && reads(3) && reads(4) && reads(5) && !reads(6));
+    }
+
+    fn working(turn: &str) -> Event {
+        Event {
+            phase: ActivityPhase::Working,
+            turn: Some(ProviderSessionId::new(turn).unwrap()),
+        }
+    }
+
+    fn idle(turn: &str) -> Event {
+        Event {
+            phase: ActivityPhase::Idle,
+            turn: Some(ProviderSessionId::new(turn).unwrap()),
+        }
+    }
+
+    fn observed(state: &DriverState) -> Option<(String, u64)> {
+        state_observed_model(state).map(|observed| (observed.model, observed.observed_at_ms))
+    }
+
+    #[test]
+    fn only_an_admitted_event_records_its_model_and_a_rejected_one_keeps_it() {
+        let session = ProviderSessionId::new("s").unwrap();
+        let process = ProcessIncarnation::new(42, "birth").unwrap();
+        let other_session = ProviderSessionId::new("other").unwrap();
+        let other_process = ProcessIncarnation::new(42, "rebirth").unwrap();
+        let start = after_start(Some("m0"), None, None, 10).unwrap();
+        assert_eq!(observed(&start), Some(("m0".into(), 10)));
+
+        let a = after_activity(
+            Some(&start),
+            &session,
+            &process,
+            &working("a"),
+            Some("m1"),
+            20,
+        )
+        .unwrap();
+        assert_eq!(observed(&a), Some(("m1".into(), 20)));
+        let b =
+            after_activity(Some(&a), &session, &process, &working("b"), Some("m2"), 30).unwrap();
+        assert_eq!(observed(&b), Some(("m2".into(), 30)));
+        // Every rejected event returns no state, so the stored model stays.
+        for (event, session, process, now) in [
+            (working("b"), &session, &process, 31),    // duplicate prompt
+            (idle("a"), &session, &process, 31),       // late end of an older turn
+            (idle("b"), &session, &process, 29),       // clock rollback
+            (idle("b"), &other_session, &process, 31), // replaced session
+            (idle("b"), &session, &other_process, 31), // replaced process
+        ] {
+            assert_eq!(
+                after_activity(Some(&b), session, process, &event, Some("late"), now),
+                None
+            );
+        }
+        assert_eq!(
+            after_activity(
+                Some(&start),
+                &session,
+                &process,
+                &idle("a"),
+                Some("late"),
+                21
+            ),
+            None,
+            "an end with no admitted start"
+        );
+
+        let ended =
+            after_activity(Some(&b), &session, &process, &idle("b"), Some("m3"), 40).unwrap();
+        assert_eq!(observed(&ended), Some(("m3".into(), 40)));
+        assert_eq!(
+            after_activity(Some(&ended), &session, &process, &idle("b"), Some("m4"), 41),
+            None,
+            "a Stop after the interrupt is a duplicate"
+        );
+        // An admitted event without a valid model applies its activity and
+        // keeps the previous observation with its own time.
+        for model in [None, Some("-x"), Some("a b"), Some("")] {
+            let next =
+                after_activity(Some(&ended), &session, &process, &working("c"), model, 50).unwrap();
+            assert_eq!(state_activity(&next).unwrap().since_ms, 50);
+            assert_eq!(observed(&next), Some(("m3".into(), 40)), "{model:?}");
+        }
+        // Usage-only observations neither set nor clear it.
+        let sampled = after_observation(Some(usage(5)), None, Some(&ended)).unwrap();
+        assert_eq!(observed(&sampled), Some(("m3".into(), 40)));
+        assert_eq!(state_usage(&sampled), Some(usage(5)));
+        // Turn events never change the resume model.
+        for state in [&a, &b, &ended, &sampled] {
+            assert_eq!(state_model(state).as_deref(), Some("m0"));
+        }
+    }
+
+    #[test]
+    fn a_start_sets_the_observed_model_only_from_its_own_report() {
+        let session = ProviderSessionId::new("s").unwrap();
+        let process = ProcessIncarnation::new(42, "birth").unwrap();
+        let start = after_start(Some("m0"), None, None, 10).unwrap();
+        let turned = after_activity(
+            Some(&start),
+            &session,
+            &process,
+            &working("a"),
+            Some("m1"),
+            20,
+        )
+        .unwrap();
+        let restarted = after_start(Some("m2"), None, Some(&turned), 30).unwrap();
+        assert_eq!(observed(&restarted), Some(("m2".into(), 30)));
+        // No report, or an unsafe one: the kept resume model is not evidence.
+        for reported in [None, Some("-x")] {
+            let next = after_start(reported, None, Some(&turned), 30).unwrap();
+            assert_eq!(observed(&next), None, "{reported:?}");
+            assert_eq!(state_model(&next).as_deref(), Some("m0"));
+            assert_eq!(next, legacy("m0"));
+        }
+        // A start time that cannot be stored records no observation.
+        assert_eq!(after_start(Some("m2"), None, None, 0), Some(legacy("m2")));
+    }
+
+    #[test]
+    fn the_observed_model_has_an_exact_shape_and_can_stand_alone() {
+        let alone = Document {
+            observed: ObservedModel::new("m", 1),
+            ..Document::default()
+        }
+        .write()
+        .unwrap();
+        assert_eq!(alone.version(), OBSERVED_STATE_VERSION);
+        assert_eq!(
+            alone.document(),
+            r#"{"observed":{"model":"m","observedAtMs":1}}"#
+        );
+        assert_eq!(observed(&alone), Some(("m".into(), 1)));
+        assert!(ObservedModel::new("m", MAX_JS_SAFE_INTEGER).is_some());
+        assert!(ObservedModel::new("m", MAX_JS_SAFE_INTEGER + 1).is_none());
+        assert!(ObservedModel::new("m", 0).is_none());
+
+        let unsafe_time = (MAX_JS_SAFE_INTEGER + 1).to_string();
+        for (version, observed_value) in [
+            (5, r#"{"model":"m"}"#),
+            (5, r#"{"observedAtMs":1}"#),
+            (5, r#"{"model":"m","observedAtMs":1,"event":"Stop"}"#),
+            (5, r#"{"model":7,"observedAtMs":1}"#),
+            (5, r#"{"model":"-x","observedAtMs":1}"#),
+            (5, r#"{"model":"m","observedAtMs":0}"#),
+            (5, r#"{"model":"m","observedAtMs":"1"}"#),
+            (
+                5,
+                &format!(r#"{{"model":"m","observedAtMs":{unsafe_time}}}"#),
+            ),
+            (5, r#""m""#),
+            (5, "null"),
+            (1, r#"{"model":"m","observedAtMs":1}"#),
+            (3, r#"{"model":"m","observedAtMs":1}"#),
+            (4, r#"{"model":"m","observedAtMs":1}"#),
+        ] {
+            let document = format!(r#"{{"model":"opus","observed":{observed_value}}}"#);
+            let state = DriverState::new(version, &document).unwrap();
+            assert_eq!(state_model(&state), None, "{version} {document}");
+            assert_eq!(state_observed_model(&state), None, "{version} {document}");
+        }
+        // Version 5 needs the field.
+        assert_eq!(
+            state_model(&DriverState::new(5, r#"{"model":"opus"}"#).unwrap()),
+            None
+        );
+    }
+
+    #[test]
+    fn older_versions_round_trip_byte_for_byte() {
+        let session = ProviderSessionId::new("s").unwrap();
+        let process = ProcessIncarnation::new(42, "birth").unwrap();
+        let v1 = legacy("opus");
+        let v2 = after_observation(Some(usage(3)), None, Some(&v1)).unwrap();
+        let v3 = after_activity(Some(&v2), &session, &process, &working("a"), None, 9).unwrap();
+        for (state, version) in [(&v1, 1), (&v2, 2), (&v3, 3)] {
+            assert_eq!(state.version(), version);
+            let rewritten = Document::read(state).unwrap().write().unwrap();
+            assert_eq!(&rewritten, state);
+        }
+    }
+
+    #[test]
+    fn the_observed_model_goes_first_and_the_legacy_version_returns() {
+        let model = "m".repeat(128);
+        let session = ProviderSessionId::new(&"\"".repeat(128)).unwrap();
+        let turn = "t".repeat(256);
+        let mut evicted = false;
+        let mut kept = false;
+        for length in (1..=256).rev() {
+            let process = ProcessIncarnation::new(42, &"\\".repeat(length)).unwrap();
+            let previous = after_start(Some(&model), Some(usage(7)), None, 10).unwrap();
+            let Some(next) = after_activity(
+                Some(&previous),
+                &session,
+                &process,
+                &working(&turn),
+                Some(&model),
+                20,
+            ) else {
+                continue; // activity alone exceeds the bound, as before v5
+            };
+            let without = after_activity(
+                Some(&after_observation(Some(usage(7)), None, Some(&legacy(&model))).unwrap()),
+                &session,
+                &process,
+                &working(&turn),
+                None,
+                20,
+            )
+            .unwrap();
+            assert!(next.document().len() <= DriverState::MAXIMUM_BYTES);
+            assert_eq!(state_activity(&next), state_activity(&without));
+            assert_eq!(state_usage(&next), Some(usage(7)));
+            assert_eq!(state_model(&next), Some(model.clone()));
+            if state_observed_model(&next).is_none() {
+                // Evicted: the same version and bytes as a document that never had it.
+                evicted = true;
+                assert_eq!(next, without);
+                assert_eq!(next.version(), ACTIVITY_STATE_VERSION);
+                let with = format!(
+                    r#"{},"observed":{}}}"#,
+                    without.document().strip_suffix('}').unwrap(),
+                    ObservedModel::new(&model, 20).unwrap().document()
+                );
+                assert!(with.len() > DriverState::MAXIMUM_BYTES);
+            } else {
+                kept = true;
+                assert_eq!(next.version(), OBSERVED_STATE_VERSION);
+            }
+        }
+        assert!(evicted && kept, "the escaped IDs cross the bound");
     }
 }

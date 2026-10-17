@@ -459,3 +459,28 @@ fn verified_direct_caller_can_resume_a_different_thread_in_the_same_process() {
     );
     assert_eq!(next.last_transition, Some(SessionTransition::Resumed));
 }
+
+/// Discovery reports no model, so a verified discovery start clears the last
+/// observed model and keeps the resume model.
+#[test]
+fn a_discovery_start_clears_the_observed_model() {
+    use crate::runtime::{driver_state, lifecycle::LifecycleObservation};
+    let seeded = tmt_core::binding::session::DriverState::new(
+        driver_state::OBSERVED_STATE_VERSION,
+        r#"{"model":"resume-m","observed":{"model":"prior-m","observedAtMs":5}}"#,
+    )
+    .unwrap();
+    assert!(driver_state::state_observed_model(&seeded).is_some());
+    let observation = Observation(
+        tmt_core::binding::session::ProviderSessionId::new("0199a213-81c0-7800-8aa1-bbab2a035a53")
+            .unwrap(),
+    );
+    assert!(observation.starting());
+    let next = observation.driver_state(Some(&seeded), 10).unwrap();
+    assert_eq!(driver_state::state_observed_model(&next), None);
+    assert_eq!(
+        driver_state::state_model(&next).as_deref(),
+        Some("resume-m")
+    );
+    assert_eq!(next.version(), driver_state::MODEL_STATE_VERSION);
+}

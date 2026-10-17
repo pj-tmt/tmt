@@ -76,6 +76,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         .join(' ');
       // Retain a real shell for the later exact shared resume and client exit.
       const targetPane = fixture.createShellPane('codex-target').pane;
+      const independentSent = Date.now();
       fixture.tmux([
         'send-keys',
         '-t',
@@ -126,10 +127,21 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
               'SELECT driver_state_version, driver_state FROM identity_session_preferences WHERE identity_id = ?'
             )
             .get(identity.id) as { driver_state_version: number; driver_state: string };
-        expect(driverState()).toEqual({
-          driver_state_version: 1,
-          driver_state: '{"model":"gpt-5.2-codex"}',
-        });
+        // An admitted start that reports a model records it as the last observed
+        // model too (driver state v5), at the start's own time.
+        const observedState = (model: string, since: number) => {
+          const state = driverState();
+          expect(state.driver_state_version).toBe(5);
+          const document = JSON.parse(state.driver_state);
+          expect(document).toEqual({
+            model,
+            observed: { model, observedAtMs: expect.any(Number) },
+          });
+          expect(document.observed.observedAtMs).toBeGreaterThanOrEqual(since);
+          expect(document.observed.observedAtMs).toBeLessThanOrEqual(Date.now());
+          return document.observed.observedAtMs as number;
+        };
+        const independentObserved = observedState('gpt-5.2-codex', independentSent);
         const before = read();
         const runtimePid = () =>
           (
@@ -149,14 +161,22 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         const sharedScenario = path.join(fixture.root, 'codex-shared.json');
         const sharedReport = path.join(fixture.root, 'codex-shared-report.json');
         const sharedStatus = path.join(fixture.root, 'codex-shared.status');
+        const refused = path.join(fixture.root, 'codex-shared-refused');
+        const preferences = () =>
+          db
+            .prepare('SELECT * FROM identity_session_preferences WHERE identity_id = ?')
+            .get(identity.id);
         fs.writeFileSync(
           sharedScenario,
           JSON.stringify([
-            hook('resume', foreign, 'gpt-5.3-codex'),
-            hook('resume', session, 'gpt-5.3-codex'),
+            // A refused start with its own model, checked before any valid start
+            // could overwrite a wrong write.
+            hook('resume', foreign, 'gpt-foreign-codex'),
+            { ...hook('resume', session, 'gpt-5.3-codex'), checkpoint: refused },
             hook('compact', session, 'gpt-5.3-codex'),
           ])
         );
+        const beforeRefused = { binding: read(), preferences: preferences() };
         // A retained shell owns wait/reaping. A direct tmux child can remain a
         // zombie after reporting; kill(pid, 0) still succeeds until tmux reaps it.
         const serverPane = fixture.createShellPane('codex-server').pane;
@@ -172,6 +192,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         ]
           .map(quote)
           .join(' ');
+        const sharedSent = Date.now();
         fixture.tmux([
           'send-keys',
           '-t',
@@ -180,6 +201,16 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           `${sharedCommand}; printf '%s' "$?" > ${quote(sharedStatus)}`,
         ]);
         fixture.tmux(['send-keys', '-t', serverPane, 'Enter']);
+        await fixture.waitFor(
+          () => fs.existsSync(refused),
+          15000,
+          'refused foreign start before the valid starts'
+        );
+        // The refused start changed no binding, preference or driver state: the
+        // observation keeps its model and time from the independent start.
+        expect({ binding: read(), preferences: preferences() }).toEqual(beforeRefused);
+        expect(observedState('gpt-5.2-codex', independentSent)).toBe(independentObserved);
+        fs.writeFileSync(refused, 'continue');
         await fixture.waitFor(() => fs.existsSync(sharedReport), 15000, 'shared Codex hook report');
         const shared = JSON.parse(fs.readFileSync(sharedReport, 'utf8'));
         expect(shared[0]).toEqual({ code: 0, stdout: '', stderr: '', badge: '' });
@@ -191,11 +222,10 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           );
         }
         expect(read()).toEqual({ ...before, runtime_state: 'running', runtime_mode: 'shared' });
-        // A reported model replaces the stored one.
-        expect(driverState()).toEqual({
-          driver_state_version: 1,
-          driver_state: '{"model":"gpt-5.3-codex"}',
-        });
+        // A reported model replaces the stored one and the last observation.
+        expect(observedState('gpt-5.3-codex', sharedSent)).toBeGreaterThanOrEqual(
+          independentObserved
+        );
         expect(badge()).toBe(
           '#[push-default]#[fg=green]●#[default]#[pop-default] Codex Reader (tmt)'
         );

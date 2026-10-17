@@ -133,7 +133,7 @@ fn observe_turn(
     lifecycle: &dyn RuntimeLifecycle,
     turn: &TurnEnd,
     activity_only: bool,
-    activity: Option<&tmt_core::binding::session::activity::Event>,
+    activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     deadline: Instant,
 ) -> Result<(), ()> {
     // An interrupted turn ends activity only: no usage, consumption source or
@@ -766,7 +766,7 @@ fn observe_prompt(
     harness: &HarnessId,
     lifecycle: &dyn RuntimeLifecycle,
     session: &ProviderSessionId,
-    activity: Option<&tmt_core::binding::session::activity::Event>,
+    activity: Option<&tmt_adapters::runtime::hook_protocol::ActivityObservation>,
     payload: &[u8],
     deadline: Instant,
 ) -> Result<String, ()> {
