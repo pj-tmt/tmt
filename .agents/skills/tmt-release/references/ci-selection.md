@@ -298,3 +298,77 @@ Also run `actionlint` on every changed workflow and the selected layer's checks.
 Review positive and negative path selections, cumulative queue diffs, shard
 membership and exact aggregate results. A selection test never substitutes for
 the runtime, archive or browser proof it selects.
+
+## Prepared Infra tick summary
+
+`typescript/scripts/infra-tick-summary.mjs` prepares read-only evidence for the
+hourly Infra lead tick. Run it manually beside the existing tick before changing
+its cron prompt; the lead compares the two reports after the script lands.
+The script does not judge reviews, attribute causes, arm PRs or publish releases.
+
+```sh
+node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
+```
+
+The caller supplies a reviewed path-to-lead map with a #606 source line, for
+example `{"rules":[{"prefix":".github/","leads":["tmt-lead","tmt-infra-lead"],"source":"#606 shared paths, lines 17-19"}]}`.
+This is an example, not a complete ownership map: include every applicable
+shared path and affected lead. Unmapped shared paths and missing exact-head lead
+statements are anomalies. The JSON keeps each exact comment, head and stated lead;
+presence of a statement never means scripted acceptance. Guide-index changes
+are conservatively flagged at file level for the lead to inspect.
+
+Remote calls are GET-only REST, with **one fixed read-only GraphQL queue query**
+as the sole exception. All calls, catalogue reads, logs and the query share
+80 API calls / 120 seconds; the existing consistent catalogue reader keeps its
+stricter inner budget. Queue query failure, errors or more than 100 entries print
+`queue coverage unavailable`; positions are never inferred from timestamps.
+Draft visibility requires repository push permission; missing evidence, changing
+counts/identities or exhaustion refuses collection rather than printing healthy
+partial results. Failed workers exclude propagated aggregate-only gates. Named
+test recurrence uses observed log tokens and distinct PR/merge-group contexts;
+missing logs remain unavailable evidence, not a cause or a successful test.
+Raw job logs use the packed command owner's existing 16 MiB capture ceiling;
+other reads keep its default. Oversize logs remain explicitly unavailable.
+Public-install failures join the workflow's exact tag-bearing job label to a
+unique published catalogue record; missing, draft or ambiguous evidence stays
+unavailable. Multiple failed hosts count as one affected release.
+
+Run health uses `per_page=1` count reads for the 24-hour and tick windows,
+including totals above GitHub's 1,000-result search cap. Details enumerate only
+failure, timed-out, action-required and stale status slices in the created
+window; every enumerated slice refuses explicitly at 1,000 matches, before
+walking beyond GitHub's searchable evidence. Queued and in-progress discovery
+has no created filter, so older active reruns are tracked; other active states
+are included inside the window. An unobserved older rerun that starts and
+finishes between ticks remains outside coverage, which every report states.
+Only failed attempts absent from the previous cursor incur job/log analysis.
+Previously observed test evidence stays in the cursor for 24-hour recurrence.
+Review evidence covers **open PRs updated since `since`, plus PRs merged in that
+interval**; both updated-desc walks stop on the first older row. The listed head
+and the final exact PR read bind complete file counts and comment statements.
+
+A quiet invocation with one page per listing costs `17 + P` calls, where `P`
+is the release catalogue's page count: two health counts, nine status searches,
+one queue query, repository visibility, `P+2` catalogue reads and two PR walks.
+Add tracked-run reads, new failed-attempt job pages/logs, extra list pages, and
+two reads per recent PR (files and final identity/count) plus comment pages for
+shared paths. The cold baseline can span bounded invocations: a call or time budget refusal
+keeps the complete cursor unchanged and preserves qualified immutable terminal
+job/log evidence. Retry the same output directory to reuse that evidence;
+mutable discovery, review statements and catalogue evidence are always refreshed.
+Each invocation stays inside 80 calls / 120 seconds; record the measured total
+startup calls and invocation count. An incomplete baseline
+never claims a healthy or complete report. The first run defaults to one hour;
+`--since` selects an explicit UTC boundary within the 24-hour coverage.
+
+`summary.md` lists anomalies first (up to 20, with an explicit pointer to the full
+JSON), coverage and host disk/load. `summary.json` keeps the complete evidence and
+local cache paths. `cursor.json` advances atomically only after a complete report;
+refusal or unavailable coverage returns nonzero and leaves the cursor intact.
+An empty anomaly list is stated explicitly only after complete collection. Known
+GitHub credential values are redacted from output. No secrets or raw logs belong
+in a posted summary. Shared guide line/byte limits have one owner,
+`typescript/scripts/guide-budgets.json`, used by both the summary and guide guard;
+this extraction changes no limit. The prepared report is input for the lead's
+judgement, never a replacement for it.

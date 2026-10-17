@@ -5,14 +5,9 @@ import { describe, expect, it } from 'vite-plus/test';
 // .agents/skills/<area>/ (DEVELOPMENT.md's area table) and per-module architecture in
 // .agents/skills/tmt-core-runtime and the other area skills (ARCHITECTURE.md's owner
 // maps). Raise a budget only with an issue that explains what moved into the guide.
-const BUDGETS = {
-  'DEVELOPMENT.md': 339,
-  'ARCHITECTURE.md': 640,
-} as const;
-const BYTE_BUDGETS = {
-  'DEVELOPMENT.md': 19_187,
-  'ARCHITECTURE.md': 48_100,
-} as const;
+const { lines: BUDGETS, bytes: BYTE_BUDGETS } = JSON.parse(
+  readFileSync(new URL('../../scripts/guide-budgets.json', import.meta.url), 'utf8')
+) as { lines: Record<string, number>; bytes: Record<string, number> };
 
 export function lineCount(text: string): number {
   return text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
@@ -27,6 +22,16 @@ export function withinByteBudget(text: string, budget: number): boolean {
 }
 
 describe('shared guide budgets', () => {
+  it('declares positive line and byte limits for exactly the two shared guides', () => {
+    const guides = ['ARCHITECTURE.md', 'DEVELOPMENT.md'];
+    expect(Object.keys(BUDGETS).sort()).toEqual(guides);
+    expect(Object.keys(BYTE_BUDGETS).sort()).toEqual(guides);
+    expect(
+      [...Object.values(BUDGETS), ...Object.values(BYTE_BUDGETS)].every(
+        (value) => Number.isSafeInteger(value) && value > 0
+      )
+    ).toBe(true);
+  });
   it('counts lines without the final newline', () => {
     expect(lineCount('a\nb\n')).toBe(2);
     expect(lineCount('a\nb')).toBe(2);

@@ -1205,6 +1205,12 @@ describe('component map', () => {
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',
       'typescript/test/tooling/guide-budget.test.ts':
         'counts DEVELOPMENT.md and ARCHITECTURE.md lines; Code quality runs it on every change',
+      'typescript/scripts/guide-budgets.json':
+        'guide-budget limits, enforced by Code quality on every change',
+      'typescript/scripts/infra-tick-summary.mjs':
+        'manual Infra report reads guide sizes; CI tests inject contents and never run the live report',
+      'typescript/test/tooling/infra-tick-summary.test.ts':
+        'injected guide-name fixtures only; never reads the named prose contents',
       'typescript/test/tooling/markdown-links.test.ts':
         'reads inert tracked Markdown link destinations; Code quality runs it on every change',
       'typescript/test/tooling/pr-agent-check.test.ts':
