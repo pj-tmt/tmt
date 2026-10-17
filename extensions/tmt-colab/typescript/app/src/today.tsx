@@ -124,9 +124,9 @@ function Chapter({
         </div>
         <div className="today-chapter-state">
           {waiting && <NeedsYouBar tone="needs" word={t.waitingForYou} />}
-          {comments === undefined ? null : (
+          {comments ? (
             <span className="today-comments">{text.pageList.commentCount(comments)}</span>
-          )}
+          ) : null}
         </div>
       </article>
     </li>

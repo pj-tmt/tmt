@@ -53,6 +53,9 @@ test('waiting pages come first, then the rest by update time, each with its chap
   await expect(chapters(page).nth(2).locator('.needs-you-bar')).toHaveCount(0);
   // A page without a summary shows only what the list knows: no comment count, no placeholder.
   await expect(chapters(page).nth(4).locator('.today-comments')).toHaveCount(0);
+  // A zero count is noise: only a page with comments shows one.
+  await expect(chapters(page).nth(2).locator('.today-comments')).toHaveCount(0);
+  await expect(chapters(page).nth(3).locator('.today-comments')).toHaveText('5 comments');
   // Archived pages stay in All pages.
   await expect(app(page).getByText('Archived spec')).toHaveCount(0);
   await expect(app(page).locator('.today-fold')).toHaveCount(0);
@@ -193,6 +196,16 @@ for (const width of [1440, 390])
           const mark = document.querySelector('#today-fixture .today-chapter .today-mark');
           const rule = document.querySelector('#today-fixture .today-chapter');
           const text = getComputedStyle(document.querySelector('#today-fixture .today h1')!).color;
+          const ink = (() => {
+            const probe = document.createElement('i');
+            probe.style.color = 'var(--tmt-ui-color-selected-text)';
+            document.body.append(probe);
+            const value = getComputedStyle(probe).color;
+            probe.remove();
+            return value;
+          })();
+          const title = document.querySelector('#today-fixture .today-title a');
+          const numeral = document.querySelector('#today-fixture .today-numeral');
           return {
             overflow: document.documentElement.scrollWidth > innerWidth,
             width: root.width,
@@ -200,12 +213,19 @@ for (const width of [1440, 390])
             sideBySide: main && state ? state.left >= main.right - 1 : undefined,
             mark: mark ? getComputedStyle(mark).color : undefined,
             text,
+            ink,
+            title: title ? getComputedStyle(title).color : undefined,
+            numeral: numeral ? getComputedStyle(numeral).color : undefined,
             shadow: rule ? getComputedStyle(rule).boxShadow : 'none',
             ruleWidth: rule ? getComputedStyle(rule).borderTopWidth : '0px',
             ruleStyle: rule ? getComputedStyle(rule).borderTopStyle : 'none',
           };
         });
         expect(metrics.overflow).toBe(false);
+        // Hero, chapter titles and numerals use the strongest ink in both themes.
+        expect(metrics.text).toBe(metrics.ink);
+        if (metrics.title) expect(metrics.title).toBe(metrics.ink);
+        if (metrics.numeral) expect(metrics.numeral).toBe(metrics.ink);
         expect(metrics.width).toBeLessThanOrEqual(1120);
         expect(metrics.shadow).toBe('none');
         if (kind === 'few' || kind === 'long') {

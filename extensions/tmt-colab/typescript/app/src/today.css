@@ -1,5 +1,6 @@
 /* The Today home: one editorial column, flat and square, shared browser-ui tokens only. The
-   only attention colour is the waiting ◆. */
+   only attention colour is the waiting ◆. Headlines use the strongest ink token in both themes,
+   so the hierarchy never inverts in the dark one. */
 .today {
   max-width: 1120px;
   margin: auto;
@@ -44,6 +45,7 @@
 }
 .today-hero h1 {
   margin: 4px 0 12px;
+  color: var(--tmt-ui-color-selected-text);
   font: 600 clamp(36px, 6vw, 64px) / 1.05 var(--tmt-ui-font-display);
   letter-spacing: -0.04em;
   overflow-wrap: anywhere;
@@ -90,7 +92,7 @@
   text-decoration: underline;
 }
 .today-numeral {
-  color: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-color-selected-text);
   font: 600 40px / 1 var(--tmt-ui-font-display);
   letter-spacing: -0.03em;
 }
@@ -129,7 +131,7 @@
   overflow-wrap: anywhere;
 }
 .today-title a {
-  color: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-color-selected-text);
   text-decoration: none;
 }
 .today-title a:hover {
@@ -179,7 +181,7 @@
 .today-fold a {
   min-width: 0;
   overflow: hidden;
-  color: var(--tmt-ui-color-text);
+  color: var(--tmt-ui-color-selected-text);
   text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
