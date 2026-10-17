@@ -377,6 +377,19 @@ fn world<'e>(env: &'e Env) -> (ObjectService<'e>, Origins, Live, Ext) {
     (service, origins, live, ext)
 }
 
+// A reply head can arrive before Mounts drops its pending origin ticket.
+fn await_origin_cleanup(origins: &Origins) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while origins.count() != 0 {
+        assert!(
+            Instant::now() < deadline,
+            "origin ticket cleanup did not finish"
+        );
+        thread::yield_now();
+    }
+    assert_eq!(origins.count(), 0);
+}
+
 #[test]
 fn an_upgrade_gets_one_origin_and_the_extension_is_told_in_order() {
     let env = Env::new();
@@ -421,13 +434,13 @@ fn only_an_upgrade_with_an_active_channel_carries_an_origin() {
     let (idle, head) = live.upgrade(OWNER, "");
     assert!(head.starts_with("HTTP/1.1 101"), "{head}");
     assert!(values(&ext.head(0), "tmt-origin").is_empty());
-    assert_eq!(origins.count(), 0);
+    await_origin_cleanup(&origins);
     drop(idle);
     // With a channel, a page request still carries none.
     service.activate(live.mounts(), "alpha").unwrap();
     assert!(live.page().starts_with("HTTP/1.1 200"));
     assert!(values(&ext.head(1), "tmt-origin").is_empty());
-    assert_eq!(origins.count(), 0);
+    await_origin_cleanup(&origins);
 }
 
 #[test]
@@ -438,13 +451,13 @@ fn a_failed_adoption_is_never_established() {
     // The extension refuses the upgrade.
     let (_, head) = live.upgrade_at("refuse", OWNER, "");
     assert!(head.starts_with("HTTP/1.1 403"), "{head}");
-    assert_eq!(origins.count(), 0);
+    await_origin_cleanup(&origins);
     // The owner session ended before the upgrade could attach: the extension saw the
     // upgrade and answered 101, but Remote refuses the browser and never establishes.
     let (_, head) = live.upgrade(ENDED, "");
     assert!(head.starts_with("HTTP/1.1 404"), "{head}");
     assert_eq!(ext.heads(), 2);
-    assert_eq!(origins.count(), 0);
+    await_origin_cleanup(&origins);
     // Neither attempt was announced: the next notice is the first real tunnel's.
     let (_client, _) = live.upgrade(OWNER, "");
     let notice = ext.notice();
@@ -1119,7 +1132,7 @@ fn a_channel_that_ends_right_after_setup_leaves_no_origin_to_issue() {
     let (_tab, head) = live.upgrade(OWNER, "");
     assert!(head.starts_with("HTTP/1.1 101"), "{head}");
     assert!(values(&ext.head(0), "tmt-origin").is_empty());
-    assert_eq!(origins.count(), 0);
+    await_origin_cleanup(&origins);
 }
 
 fn observation_tab(live: &Live, ext: &Ext, index: usize) -> (TcpStream, Uuid4) {
@@ -1941,7 +1954,7 @@ fn hung_setup_is_single_flight_forwards_without_origin_and_cools_down_monotonica
         for index in 0..4 {
             assert!(values(&ext.head(index), "tmt-origin").is_empty());
         }
-        assert_eq!(origins.count(), 0);
+        await_origin_cleanup(&origins);
         assert_eq!(service.readiness().snapshot()[0]["state"], "unavailable");
         // Closing clients alone does not synchronously join their splice owners.
         drop(clients);
@@ -2064,7 +2077,7 @@ fn a_late_setup_candidate_never_supplies_an_origin_to_the_forwarded_upgrade() {
             thread::yield_now();
         }
         assert!(service.active("alpha").is_none());
-        assert_eq!(origins.count(), 0);
+        await_origin_cleanup(&origins);
         assert_eq!(
             service.locked().slots[0].failure,
             Some(ActivateError::Channel(Fault::Timeout(
