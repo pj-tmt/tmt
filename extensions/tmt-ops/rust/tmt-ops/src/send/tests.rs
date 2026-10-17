@@ -74,13 +74,13 @@ fn only_a_pane_write_reads_as_sent() {
 }
 
 #[test]
-fn a_note_names_its_row() {
+fn a_note_keeps_its_row_in_completion_feedback() {
     let (core, dir) = fake(
         "note",
         &json!({"requestId": "req_1", "status": "queued", "offline": true}),
         0,
     );
-    let accepted = annotate(&core, "p", "me", "sol", "alpha", "look").unwrap();
+    let accepted = talk(&core, "p", "me", "sol", "[p · alpha] look").unwrap();
     assert_eq!(
         accepted.describe("Note on alpha", "sol"),
         "Note on alpha queued for sol (req_1): offline, it waits for their inbox."

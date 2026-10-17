@@ -77,7 +77,7 @@ fn explicit_member_note_goes_to_the_lead_instead_of_answering_a_pending_request(
     assert!(
         matches!(key(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate {
         to, row, text, ..
-    }) if to == "product-lead" && row == "worker" && text == "keep the recipient explicit")
+    }) if to == "product-lead" && row == "worker" && text == "[product · worker] keep the recipient explicit")
     );
 }
 

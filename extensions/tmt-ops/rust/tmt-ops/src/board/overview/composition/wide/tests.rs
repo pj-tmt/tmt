@@ -197,7 +197,7 @@ fn a_squad_uses_its_observed_lead_and_never_borrows_a_waiting_members_question()
     app.paste("Reply to the lead only.");
     assert!(matches!(key(&mut app, KeyCode::Enter),
         Effect::Act(Request::Reply { request, text, .. })
-        if request == "req_88888888-8888-4888-8888-888888888888" && text == "Reply to the lead only."));
+        if request == "req_88888888-8888-4888-8888-888888888888" && text == "[product · observed-lead] Reply to the lead only."));
     assert_eq!(app.workspace.selected, selected);
     key(&mut app, KeyCode::Esc);
     crate::board::app::tests::configure_workspace(
@@ -230,10 +230,10 @@ fn enter_and_pointer_reply_to_the_exact_question_and_an_unrelated_result_never_r
     let shown = text(&paint(&mut app, 148, 51));
     assert!(shown.contains("Exact acquired question body"));
     assert!(!shown.contains("WRONG_BODY") && !shown.contains("UNRELATED_RESPONSE"));
-    assert!(
-        !app.conversation_reply().unwrap().source,
-        "question bytes are not response attachments"
-    );
+    let question = app.conversation_reply().unwrap();
+    assert!(question.source, "only the acquired question is selectable");
+    assert_eq!(question.body, "Exact acquired question body");
+    assert_eq!(question.key.as_ref().unwrap().request, read.request);
     key(&mut app, KeyCode::Tab);
     assert_eq!(
         app.workspace_scope(),
@@ -255,7 +255,7 @@ fn enter_and_pointer_reply_to_the_exact_question_and_an_unrelated_result_never_r
     assert_eq!(app.input_viewport.get().unwrap().0.x, band.x + 2);
     app.paste("Approved");
     assert!(
-        matches!(key(&mut app,KeyCode::Enter),Effect::Act(Request::Reply {request,text,..}) if request==read.request && text=="Approved")
+        matches!(key(&mut app,KeyCode::Enter),Effect::Act(Request::Reply {request,text,..}) if request==read.request && text=="[product · worker] Approved")
     );
     // A separate fresh passive field has the same pointer-to-request route.
     let mut pointer = board_app();

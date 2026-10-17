@@ -371,7 +371,7 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
             return Ok(ActionOutcome::Send(Box::new(
                 conversation::outgoing::Completed {
                     ticket: None,
-                    outcome: send::annotate(core, &squad, &me, &to, &row, &text),
+                    outcome: send::talk(core, &squad, &me, &to, &text),
                     what: format!("Note on {row}"),
                     to,
                 },

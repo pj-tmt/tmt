@@ -325,12 +325,11 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     assert_eq!(quote.key.lead, MEMBER);
     assert_eq!(quote.range, 0..source.len());
     assert_eq!(quote.text, source);
-    let reference = quote.reference();
     assert_eq!(app.view.as_ref().unwrap().document, before);
     assert!(matches!(
         press(&mut app, KeyCode::Enter),
         Effect::Act(app::Request::DirectTalk { recipient, text, .. })
-            if recipient == MEMBER && text == reference
+            if recipient == MEMBER && text == "[Common pool · worker]\n> A **literal** response\n> 漢字 e\u{301}"
     ));
 }
 

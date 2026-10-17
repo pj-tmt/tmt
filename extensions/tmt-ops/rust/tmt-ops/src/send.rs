@@ -4,7 +4,6 @@
 
 use crate::{
     core::{Core, SquadError},
-    requests::tag,
     squad::room_name,
 };
 
@@ -132,21 +131,6 @@ pub fn talk_direct(
         )
         .map_err(retained)?;
     Accepted::from_document(&sent)
-}
-
-/// A talk tagged `[<squad> · <row>]`, so the row can show it until answered.
-pub fn annotate(
-    core: &Core,
-    squad: &str,
-    me: &str,
-    to: &str,
-    row: &str,
-    text: &str,
-) -> Result<Accepted, SquadError> {
-    if text.trim().is_empty() {
-        return Err(refused("Nothing to send."));
-    }
-    talk(core, squad, me, to, &format!("{}{text}", tag(squad, row)))
 }
 
 /// Answers one open request from `from` to `me` through `tmt answer`: core

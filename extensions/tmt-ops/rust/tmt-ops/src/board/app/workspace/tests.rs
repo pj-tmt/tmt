@@ -1833,7 +1833,7 @@ fn workspace_annotations_recheck_sender_membership_and_lead_identity() {
             squad: "product".into(),
             to: "lead".into(),
             row: "worker".into(),
-            text: "  observed\nmessage  ".into()
+            text: "[product · worker]   observed\nmessage  ".into()
         })
     );
     app.finished(Ok("Annotated".into()));
@@ -1922,7 +1922,7 @@ fn workspace_replies_keep_the_exact_request_and_recheck_opening_authority() {
             me: "Owner".into(),
             request: SECOND.into(),
             from: "worker".into(),
-            text: "y".into(),
+            text: "[product · worker] y".into(),
         })
     );
 
@@ -2005,7 +2005,7 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
                 me: "Owner".into(),
                 request: REQUEST.into(),
                 from: "worker".into(),
-                text: "y".into(),
+                text: "[product · worker] y".into(),
             })
         );
         assert_eq!(app.workspace.selected.as_ref(), Some(&selected));

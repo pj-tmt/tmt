@@ -11,6 +11,9 @@ use crate::{
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+pub(crate) mod message;
+pub use message::tag;
+
 /// Items per `requests.list` page, and the most pages one view reads.
 pub const PAGE: usize = 50;
 pub const PAGES: usize = 4;
@@ -50,11 +53,6 @@ pub fn window(
         items,
         complete: false,
     })
-}
-
-/// The tag that ties an annotation to a squad row.
-pub fn tag(squad: &str, row: &str) -> String {
-    format!("[{squad} · {row}] ")
 }
 
 fn note_annotations(room: &Window, me: &str, squad: &str, lead: &str) -> Vec<Value> {
@@ -100,7 +98,11 @@ fn annotations(
     {
         let preview = item["preview"].as_str().unwrap_or_default();
         for row in rows {
-            let Some(text) = preview.strip_prefix(&tag(squad, row)) else {
+            let prefix = tag(squad, row);
+            let Some(text) = preview
+                .strip_prefix(prefix.trim_end_matches(' '))
+                .and_then(|rest| rest.strip_prefix(' ').or_else(|| rest.strip_prefix('\n')))
+            else {
                 continue;
             };
             let to = item["recipientId"].as_str().unwrap_or_default();
@@ -579,6 +581,34 @@ mod tests {
         );
         assert_eq!(sent.room.items, history, "body reads preserve Core history");
         assert!(cache.len() <= BODIES);
+    }
+
+    #[test]
+    fn retained_inline_and_blockquote_row_tags_share_the_annotation_reader() {
+        for (preview, expected) in [
+            ("[product · worker] old comment", Some("old comment")),
+            (
+                "[product · worker]\n> exact passage\n\ncomment",
+                Some("> exact passage\n\ncomment"),
+            ),
+            ("[product · worker-other] another row", None),
+            ("[product · worker]not a tag separator", None),
+        ] {
+            let room = Window {
+                items: vec![item("context-note", "ME", "TO", preview, false)],
+                complete: true,
+            };
+            let before = room.items.clone();
+            let found = annotations(&room, "ME", "product", &["worker"], &BTreeMap::new());
+            assert_eq!(
+                found.get("worker").and_then(|item| item["text"].as_str()),
+                expected
+            );
+            assert_eq!(
+                room.items, before,
+                "reading context never changes request state"
+            );
+        }
     }
 
     #[test]
