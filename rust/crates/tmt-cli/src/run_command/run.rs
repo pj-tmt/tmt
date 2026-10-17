@@ -165,7 +165,8 @@ pub(super) fn run_bound(
             )
         })?;
         let mut settings = replay.map(|p| p.settings()).unwrap_or_default();
-        // The last admitted observation wins over the launch model.
+        // The resume model a starting hook reported wins over the launch
+        // model; the last observed model (`resume.observedModel`) is not replayed.
         if let Some(model) = session
             .state
             .as_ref()

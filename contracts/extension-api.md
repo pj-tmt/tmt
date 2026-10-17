@@ -903,6 +903,23 @@ unavailable. Counter times are not heartbeats. Foreground sampling can expose ac
 completed-request evidence before the main turn ends; it does not estimate
 unreported in-flight usage. See [consumption history](#consumption-history) for
 the bounded public seed and coverage contract.
+
+<a id="last-observed-model"></a>
+`resume.observedModel` is `{model, observedAtMs}`: the **last observed** model, which an
+admitted provider event reported, and its local accepted observation time. It is a recorded
+fact, not the current model and not liveness evidence. A Codex `/model` change shows only at
+the next turn event, with no time bound.
+
+- Codex prompts, Stops and main-agent interrupts carry it; a subagent event never supplies it.
+- A start of either provider sets it from the start's own reported model, or clears it.
+- Claude turn events carry none, so a Claude session shows its start's model.
+- A rejected or duplicate event never changes it. An admitted event without a valid model keeps
+  the earlier observation and its time.
+- The key is absent, never null, while nothing is recorded. It can also be lost when the
+  bounded driver state evicts it, or when an older `tmt` replaces the state.
+- It never changes `resume.model` (the starting-hook model that a resume launch replays) or
+  `resume.consumption.modelId` (the model of the last accepted completed request or turn).
+
 See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for exact fields, provider
 normalization and bounded-source limitations. Extensions read these public
 projections, never provider transcripts or private driver state.
