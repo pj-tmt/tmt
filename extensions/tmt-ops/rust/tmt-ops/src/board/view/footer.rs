@@ -27,6 +27,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }
+        Verb::Annotate if app.workspace_snapshot().is_some() => "note to lead",
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
@@ -277,6 +278,14 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             }
         }
     }
+    // An applied filter must remain editable before optional member hints fit.
+    if tab == crate::board::shell::OpsTab::Overview
+        && !app.search.is_empty()
+        && let Some(key) = find(Verb::Ui(Ui::Search), "/")
+    {
+        first.push((key_label(&key).into(), "edit filter".into()));
+        seen.push(Verb::Ui(Ui::Search));
+    }
     if let Some(action) = bindings.get("enter").filter(|action| {
         row_allows(app, action) && !matches!(action.verb, Verb::Ui(Ui::Quit | Ui::Help))
     }) {
@@ -296,6 +305,8 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     }
     for (verb, preferred, word) in [
         (Verb::Talk, "t", "chat"),
+        (Verb::Copy, "y", "copy"),
+        (Verb::Annotate, "a", "note to lead"),
         (Verb::ViewReply, "v", "reader"),
         (Verb::Jump, "j", "host"),
         (Verb::Open, "o", "link"),

@@ -151,13 +151,16 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
     let screen = frame.area();
     let count = completion.matches.len().clamp(1, 6);
     let height = (count as u16 + 1).min(screen.height);
-    let y = if editor.y.saturating_sub(screen.y) >= height {
-        editor.y - height
+    let anchor = app.input_band.get().unwrap_or(editor).intersection(screen);
+    let y = if screen.bottom().saturating_sub(anchor.bottom()) >= height {
+        anchor.bottom()
+    } else if anchor.y.saturating_sub(screen.y) >= height {
+        anchor.y - height
     } else {
         editor.bottom().min(screen.bottom().saturating_sub(height))
     };
-    let width = screen.width.min(68);
-    let x = editor.x.min(screen.right().saturating_sub(width));
+    let width = anchor.width.min(68);
+    let x = anchor.x.min(screen.right().saturating_sub(width));
     let look = app.look();
     let start = completion.selected.saturating_sub(count - 1);
     for row in 0..height {
@@ -180,8 +183,7 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         } else if let Some(candidate) = completion.matches.get(start + usize::from(row)) {
             let selected = start + usize::from(row) == completion.selected;
             let style = if selected {
-                look.role(Role::Accent)
-                    .add_modifier(ratatui::style::Modifier::REVERSED)
+                look.role(Role::Text).patch(look.role(Role::Track))
             } else {
                 look.role(Role::Text)
             };
@@ -189,15 +191,25 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
                 .hits
                 .borrow_mut()
                 .push((rect, start + usize::from(row)));
-            Line::from(vec![Span::styled(
+            let mut spans = vec![Span::styled(
                 format!(
-                    "{} {:5}  {}",
+                    "{} {:5}  ",
                     if selected { "›" } else { " " },
-                    candidate.kind,
-                    candidate.label
+                    candidate.kind
                 ),
                 style,
-            )])
+            )];
+            let mut at = 0;
+            for matched in completion.matched_ranges(start + usize::from(row)) {
+                spans.push(Span::styled(&candidate.label[at..matched.start], style));
+                spans.push(Span::styled(
+                    &candidate.label[matched.clone()],
+                    style.add_modifier(ratatui::style::Modifier::BOLD),
+                ));
+                at = matched.end;
+            }
+            spans.push(Span::styled(&candidate.label[at..], style));
+            Line::from(spans)
         } else {
             Line::styled(
                 if app.references.error.is_some() {
@@ -211,7 +223,14 @@ pub(super) fn render(frame: &mut Frame, app: &App) {
         // Explicit opaque cell fill prevents underlying pane text leaking into
         // short candidates; strip owns escaping and cell clipping.
         for col in rect.x..rect.right() {
-            frame.buffer_mut()[(col, rect.y)].reset();
+            let cell = &mut frame.buffer_mut()[(col, rect.y)];
+            cell.reset();
+            if row != height - 1
+                && start + usize::from(row) == completion.selected
+                && !completion.matches.is_empty()
+            {
+                cell.set_style(look.role(Role::Text).patch(look.role(Role::Track)));
+            }
         }
         strip::paint_left(frame.buffer_mut(), rect, line);
     }

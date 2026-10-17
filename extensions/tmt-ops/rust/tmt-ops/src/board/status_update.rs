@@ -549,7 +549,7 @@ mod tests {
         let mut app = app();
         member_row(&mut app)["waitingOnYou"] =
             json!([{"requestId":"q1","preview":"First?"},{"requestId":"q2","preview":"Second?"}]);
-        app.perform(&crate::action::Action::parse("annotate").unwrap());
+        app.perform(&crate::action::Action::parse("reply").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
         press(&mut app, KeyCode::Tab);
         assert_eq!(

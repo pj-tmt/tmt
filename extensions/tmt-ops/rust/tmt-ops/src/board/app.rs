@@ -2502,11 +2502,20 @@ impl App {
             return self
                 .say("Notes require a squad context; use Talk for this Common pool identity.");
         }
+        let workspace_note =
+            verb == Verb::Annotate && matches!(&send.target, RowTarget::Workspace(_));
+        if workspace_note && send.note.is_none() {
+            return self.say("This squad has no observed lead to receive the note.");
+        }
         self.status_draft = None;
         let row = self.target_row(&send.target).expect("opening row exists");
         let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
         let open = self.request_entries(&send);
-        if verb != Verb::Talk && !(verb == Verb::Annotate && send.note_member) && !open.is_empty() {
+        if verb != Verb::Talk
+            && !workspace_note
+            && !(verb == Verb::Annotate && send.note_member)
+            && !open.is_empty()
+        {
             if open.len() > 1 {
                 self.remember_draft();
                 self.input = None;
@@ -2704,7 +2713,7 @@ impl App {
 
     /// The modes Tab reaches from `current`, in answer, note, talk order after
     /// it. Answer is offered only for the one request the row waits on; several
-    /// requests are chosen from the menu `a` opens first.
+    /// requests are chosen from the menu Reply opens first.
     fn other_modes(&self, send: &RowSend, current: &Compose) -> Vec<Compose> {
         let answer = match current {
             Compose::Reply { .. } | Compose::AnswerPicker => Some(current.clone()),
@@ -4715,7 +4724,7 @@ pub(crate) mod tests {
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
 
-        app.perform(&Action::parse("annotate").unwrap());
+        app.perform(&Action::parse("reply").unwrap());
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
         let selected = app.workspace.selected.clone();
         assert_eq!(press(&mut app, KeyCode::Char('1')), Effect::None);
@@ -4723,7 +4732,7 @@ pub(crate) mod tests {
         assert!(app.menu.is_none() && app.input.is_none());
         assert_eq!(app.workspace.selected, selected);
         press(&mut app, KeyCode::Char('2'));
-        app.perform(&Action::parse("annotate").unwrap());
+        app.perform(&Action::parse("reply").unwrap());
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Tab);
         assert_eq!(
@@ -4794,11 +4803,14 @@ pub(crate) mod tests {
         app.clamp();
         app.perform(&Action::parse("reply").unwrap());
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
+        let retained = app.input.as_ref().map(|input| input.compose.clone());
         app.perform(&Action::parse("annotate").unwrap());
-        assert!(matches!(
-            app.input.as_ref().unwrap().compose,
-            Compose::Talk { .. }
-        ));
+        assert_eq!(
+            app.input.as_ref().map(|input| input.compose.clone()),
+            retained
+        );
+        assert!(app.notice.as_deref().unwrap().contains("no observed lead"));
+        app.perform(&Action::parse("talk").unwrap());
         press(&mut app, KeyCode::Tab);
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
@@ -4814,7 +4826,7 @@ pub(crate) mod tests {
         composer_row(view, super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId":"q", "preview":"Ship tonight?"}]);
         app.workspace_reconcile();
-        app.perform(&Action::parse("annotate").unwrap());
+        app.perform(&Action::parse("reply").unwrap());
         assert!(app.menu.is_none(), "a single request opens in place");
         assert_eq!(
             app.input.as_ref().unwrap().header(),
@@ -4862,7 +4874,7 @@ pub(crate) mod tests {
         );
         app.finished(Err("delivery uncertain".into()));
         assert_eq!(app.notice.as_deref(), Some("delivery uncertain"));
-        app.perform(&Action::parse("annotate").unwrap());
+        app.perform(&Action::parse("reply").unwrap());
         typed(&mut app, "approved");
         press(&mut app, KeyCode::Enter);
         app.finished(Ok("Replied".into()));
@@ -4873,7 +4885,7 @@ pub(crate) mod tests {
             app.notice.is_none(),
             "the next key clears the completion notice"
         );
-        app.perform(&Action::parse("annotate").unwrap());
+        app.perform(&Action::parse("talk").unwrap());
         typed(&mut app, "later");
         press(&mut app, KeyCode::Enter);
         app.finished(Ok("Message queued in auth-fix's inbox (r).".into()));
@@ -4966,7 +4978,7 @@ pub(crate) mod tests {
         // (a user's own `talk` binding) cycles on to answer, then note.
         composer_row(app.view.as_mut().unwrap(), super::workspace::tests::MEMBER)["waitingOnYou"] =
             json!([{"requestId": "q", "preview": "Ship?"}]);
-        app.perform(&Action::parse("annotate").unwrap());
+        app.perform(&Action::parse("reply").unwrap());
         assert_eq!(
             modes_of(&app),
             (
@@ -5104,7 +5116,7 @@ pub(crate) mod tests {
             let mut app = workspace_composer();
             composer_row(app.view.as_mut().unwrap(), MEMBER)["waitingOnYou"] =
                 json!([{"requestId":"q", "preview":"Choose?"}]);
-            app.perform(&Action::parse("annotate").unwrap());
+            app.perform(&Action::parse("reply").unwrap());
             let target = app
                 .input
                 .as_ref()

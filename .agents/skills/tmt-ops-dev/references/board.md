@@ -192,7 +192,7 @@ Resize/model replacement invalidates controls before another action can use them
 
 `board::discovery` owns explicit
 Intro/Scan/candidate/detail/form/confirmation/result presentation. Config
-supplies the Agents-list-only `discover-agents` default `a`; dispatch,
+supplies the Agents-list-only `discover-agents` default `s`; dispatch,
 footer/help/menu and the empty-pool action use the effective table. Only public
 `discover` precedes confirmation; known UUID examples reuse acquired/verified
 evidence, with explicit UUID input for other identities. The existing ordered
