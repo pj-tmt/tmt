@@ -13,6 +13,7 @@ const note = element<HTMLTextAreaElement>('note');
 const send = element<HTMLButtonElement>('send');
 let capture: Capture | undefined;
 let busy = false;
+let ready = false;
 function message(): string {
   return intent.input?.message ?? (capture ? formatMessage(capture, note.value) : '');
 }
@@ -25,14 +26,14 @@ function render(): void {
   }
   element('preview').textContent = text || 'Capture a selection to begin.';
   element('escaped').textContent = visibleText(text);
-  send.disabled = busy || !!intent.input || !text || !agent.value;
-  agent.disabled = note.disabled = busy || !!intent.input;
-  element<HTMLButtonElement>('capture').disabled = busy || !!intent.input;
-  element<HTMLButtonElement>('recover').disabled = busy || !intent.input;
+  send.disabled = !ready || busy || !!intent.input || !text || !agent.value;
+  agent.disabled = note.disabled = !ready || busy || !!intent.input;
+  element<HTMLButtonElement>('capture').disabled = !ready || busy || !!intent.input;
+  element<HTMLButtonElement>('recover').disabled = !ready || busy || !intent.input;
   element<HTMLButtonElement>('retry').hidden = intent.state?.state !== 'uncertain';
-  element<HTMLButtonElement>('retry').disabled = busy;
+  element<HTMLButtonElement>('retry').disabled = !ready || busy;
   element<HTMLButtonElement>('reset').hidden = !intent.input;
-  element<HTMLButtonElement>('reset').disabled = busy;
+  element<HTMLButtonElement>('reset').disabled = !ready || busy;
   if (intent.state) {
     const state = intent.state;
     element('status').textContent =
@@ -76,7 +77,7 @@ function showError(error: unknown): void {
 }
 async function action(event: Event, run: () => Promise<void>): Promise<void> {
   event.preventDefault();
-  if (!event.isTrusted || busy) return;
+  if (!event.isTrusted || !ready || busy) return;
   busy = true;
   render();
   let failure: unknown;
@@ -147,6 +148,9 @@ async function start(): Promise<void> {
   for (const item of await client.listAgents()) agent.add(new Option(item.name, item.id));
   if (intent.input) agent.value = intent.input.agentId;
   capture = await loadCapture();
+  ready = true;
+  element('status').textContent = intent.input ? 'Saved message restored.' : 'Ready';
   render();
 }
+render();
 void start().catch(showError);
