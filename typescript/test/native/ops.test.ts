@@ -5312,9 +5312,7 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
-                expect(screen).toMatch(
-                  /^ +SQUAD \/ AGENT[ \t]+MEMBERS \/ STATE[ \t]+DIGEST[ \t]+◷ CRON[ \t]*$/m
-                );
+                expect(screen).toMatch(/^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]*$/m);
               },
               { timeout: 5000, interval: 50 }
             );
@@ -5323,7 +5321,7 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () =>
                 expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
-                  /^[ \t]+└   Ben[ \t]+\? lead[ \t]+—[ \t]+0\/0[ \t]*$/m
+                  /^[ \t]+└ Ben[ \t]+\?[ \t]+—[ \t]+0[ \t]+lead[ \t]*$/m
                 ),
               { timeout: 5000, interval: 50 }
             );
@@ -5735,12 +5733,13 @@ describe('large board responsiveness', () => {
             () => {
               expect(existsSync(trace)).toBe(true);
               expect(readFileSync(trace, 'utf8')).toContain('fresh_board');
-              expect(screen()).toContain('Roster preview');
+              expect(screen()).toContain('room product');
+              expect(screen()).toContain('No current recipient observed.');
             },
             { timeout: 30_000, interval: 50 }
           );
           tmux(['send-keys', '-t', pane, 'Right']);
-          await vi.waitFor(() => expect(screen()).toContain('▾   product'), {
+          await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
             timeout: 10_000,
             interval: 25,
           });

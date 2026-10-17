@@ -105,7 +105,7 @@ frame or title rule. Factory Enter replies to an observed exact question or
 messages the selected member/current squad lead from either pane; active Enter
 submits, and Esc keeps the draft and returns to the originating list. Common pool
 and an unobserved or replaced lead grant no substitute recipient. The effective
-footer owns key hints; authored bindings retain their meaning. The effective Member/Reader
+footer owns key hints, including the active terminal-capability newline key; authored bindings retain their meaning. The effective Member/Reader
 `view-reply` binding (default `v`) opens the full response reader without changing
 its exact-source admission; a missing response is explained in the status line.
 

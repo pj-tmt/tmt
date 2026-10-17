@@ -186,7 +186,8 @@ def stop_and_resume():
         # waitpid reports WCONTINUED on this host.
         lambda: b"\x1b[>1u" in output[mark:]
         and termios.tcgetattr(slave) != original_modes
-        and fresh_text("Message"),
+        and fresh_text("first")
+        and fresh_text("⏎ send · Esc cancel"),
         "resumed composer and keyboard mode",
     )
     if queries != before_queries:
@@ -228,13 +229,13 @@ sys.exit(0)
         pass_fds=(status_write, release_read),
         env={**os.environ, "TERM": "xterm-256color", "COLORTERM": "truecolor"},
     )
-    wait_for(lambda: fresh_text("Roster preview"), "initial squad preview")
+    wait_for(lambda: fresh_text("room product") and fresh_text("No current recipient observed."), "initial selected squad focus")
     mark = len(output)
     os.write(master, b"\x1b[C")
     wait_for(lambda: fresh_text("▾", mark), "expanded squad")
     mark = len(output)
     os.write(master, b"\x1b[F")
-    wait_for(lambda: fresh_text("Message", mark), "selected member composer")
+    wait_for(lambda: fresh_text("⏎ to message worker", mark), "selected member input")
     mark = len(output)
     os.write(master, b"\r")
     caption = "Shift+Enter new line" if spec["enhanced"] else "Alt+Enter new line"
@@ -283,7 +284,7 @@ sys.exit(0)
         wait_for(
             lambda: queries > before_queries
             and fresh_text("Board reloaded")
-            and fresh_text("⏎ write")
+            and fresh_text("⏎ to message worker")
             and not fresh_text("Sending…"),
             "reload after submitted draft",
             30,
