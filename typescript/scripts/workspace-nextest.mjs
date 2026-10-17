@@ -340,7 +340,7 @@ function executionIdentity() {
 }
 
 /** Every effect is bounded and its timing/result survives a failing phase. */
-function command(directory, phase, program, args, isolated = false, base = process.env) {
+async function command(directory, phase, program, args, isolated = false, base = process.env) {
   const started = new Date().toISOString();
   const clock = performance.now();
   let result;
@@ -384,8 +384,25 @@ function command(directory, phase, program, args, isolated = false, base = proce
     leaks: world?.leaks,
   });
   writeJSON(file, phases);
-  process.stdout.write(result.stdout ?? '');
-  process.stderr.write((result.stderr ?? '') + diagnostics.join('\n'));
+  const stdout = result.stdout ?? '';
+  const stderr = (result.stderr ?? '') + diagnostics.join('\n');
+  if (result.error || result.status !== 0 || (world && !worldRemoved)) {
+    // An uncaught failure can exit before pipe writes drain; artifacts are already durable.
+    await Promise.all(
+      [
+        [process.stdout, stdout],
+        [process.stderr, stderr],
+      ].map(
+        ([stream, text]) =>
+          new Promise((resolve, reject) => {
+            stream.write(text, (error) => (error ? reject(error) : resolve()));
+          })
+      )
+    );
+  } else {
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+  }
   if (world) assert.equal(worldRemoved, true, 'private world retained');
   console.log(`#3284 phase=${phase} seconds=${seconds.toFixed(3)} exit=${result.status}`);
   if (result.error) throw result.error;
@@ -393,9 +410,9 @@ function command(directory, phase, program, args, isolated = false, base = proce
   return result.stdout;
 }
 
-function inventory(directory, total) {
+async function inventory(directory, total) {
   const run = (phase, program, args) => command(directory, phase, program, args);
-  const build = run('compile-inventory', 'cargo', [
+  const build = await run('compile-inventory', 'cargo', [
     'test',
     '--locked',
     '--workspace',
@@ -413,16 +430,26 @@ function inventory(directory, total) {
     .filter((item) => item.reason === 'compiler-artifact' && item.profile.test && item.executable)
     .map((item) => item.executable);
   assert.ok(executables.length > 0 && executables.length <= 1000, 'Cargo executable bound');
-  const cargo = executables.map((executable, index) => ({
-    executable,
-    tests: libtestCases(run(`libtest-${index}`, executable, ['--list', '--format', 'terse'])),
-    ignored: libtestCases(
-      run(`libtest-ignored-${index}`, executable, ['--ignored', '--list', '--format', 'terse'])
-    ),
-  }));
+  const cargo = [];
+  for (const [index, executable] of executables.entries()) {
+    cargo.push({
+      executable,
+      tests: libtestCases(
+        await run(`libtest-${index}`, executable, ['--list', '--format', 'terse'])
+      ),
+      ignored: libtestCases(
+        await run(`libtest-ignored-${index}`, executable, [
+          '--ignored',
+          '--list',
+          '--format',
+          'terse',
+        ])
+      ),
+    });
+  }
   writeJSON(path.join(directory, 'cargo-inventory.json'), cargo);
   const nextest = JSON.parse(
-    run('nextest-inventory', 'cargo-nextest', [
+    await run('nextest-inventory', 'cargo-nextest', [
       'nextest',
       'list',
       '--locked',
@@ -437,7 +464,7 @@ function inventory(directory, total) {
   writeJSON(path.join(directory, 'cases.json'), cases);
   for (let index = 1; index <= total; index++) {
     const selected = JSON.parse(
-      run(`partition-list-${index}`, 'cargo-nextest', [
+      await run(`partition-list-${index}`, 'cargo-nextest', [
         'nextest',
         'list',
         '--locked',
@@ -461,13 +488,13 @@ function inventory(directory, total) {
   console.log(`Cargo/nextest inventory equal: ${cases.length} cases in ${cargo.length} binaries`);
 }
 
-function archive(directory, total) {
+async function archive(directory, total) {
   const runtimeFiles = readJSON(path.join(directory, 'runtime-files.json'));
   verifyRuntimeExecutables(runtimeFiles, path.resolve('target'));
   const config = path.join(directory, 'archive-config.toml');
   writeFileSync(config, runtimeArchiveConfig(runtimeFiles));
   const archive = path.join(directory, 'workspace.tar.zst');
-  command(directory, 'archive', 'cargo-nextest', [
+  await command(directory, 'archive', 'cargo-nextest', [
     'nextest',
     '--config-file',
     config,
@@ -491,7 +518,7 @@ function archive(directory, total) {
   });
 }
 
-function consume(directory, index) {
+async function consume(directory, index) {
   const manifest = readJSON(path.join(directory, 'manifest.json'));
   const machine = executionIdentity();
   assert.deepEqual(manifest.identity, machine, 'consumer identity differs');
@@ -506,7 +533,7 @@ function consume(directory, index) {
   assert.ok(!existsSync('target'), 'consumer target must start absent');
   // nextest owns decoding; extraction into this existing workspace preserves compiled absolute paths.
   const inventory = JSON.parse(
-    command(directory, 'downloaded-extract-list', 'cargo-nextest', [
+    await command(directory, 'downloaded-extract-list', 'cargo-nextest', [
       'nextest',
       'list',
       '--archive-file',
@@ -539,7 +566,7 @@ function consume(directory, index) {
     '--cargo-metadata',
     path.resolve('target/nextest/cargo-metadata.json'),
   ];
-  command(
+  await command(
     directory,
     'nextest-execution',
     'cargo-nextest',
@@ -582,14 +609,14 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
   );
   const directory = path.resolve(location);
   mkdirSync(directory, { recursive: true });
-  if (mode === 'inventory') inventory(directory, Number(value));
-  else if (mode === 'archive') archive(directory, Number(value));
-  else if (mode === 'consume') consume(directory, Number(value));
+  if (mode === 'inventory') await inventory(directory, Number(value));
+  else if (mode === 'archive') await archive(directory, Number(value));
+  else if (mode === 'consume') await consume(directory, Number(value));
   else if (mode === 'phase') {
     assert.match(value ?? '', /^[a-z][a-z0-9-]{0,63}$/);
     const [program, ...args] = process.argv.slice(5);
     assert.ok(program, 'phase program missing');
-    command(directory, value, program, args, true);
+    await command(directory, value, program, args, true);
   } else if (mode === 'aggregate') {
     const manifest = readJSON(path.join(directory, 'manifest.json'));
     admitMachineIdentity(manifest.identity, runIdentity());

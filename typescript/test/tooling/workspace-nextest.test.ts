@@ -317,6 +317,50 @@ it('captures timing and the original failure in a real bounded child phase', () 
   }
 });
 
+it.each([0, 7])('forwards complete large phase output to parent pipes with exit %s', (exit) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'workspace-phase-output-'));
+  try {
+    const stdoutTail =
+      '\nFAIL [ 0.001s] suite broken\npanic: stdout failure detail\nSummary: 1 failed\nstdout tail\n';
+    const stderrTail =
+      '\nFAIL [ 0.001s] suite broken\npanic: stderr failure detail\nSummary: 1 failed\nstderr tail\n';
+    const stdout = 'stdout begin\n' + 'o'.repeat(256 * 1024) + stdoutTail;
+    const stderr = 'stderr begin\n' + 'e'.repeat(256 * 1024) + stderrTail;
+    const code = `const { writeFileSync } = require('node:fs');
+writeFileSync(1, 'stdout begin\\n' + 'o'.repeat(256 * 1024) + ${JSON.stringify(stdoutTail)});
+writeFileSync(2, 'stderr begin\\n' + 'e'.repeat(256 * 1024) + ${JSON.stringify(stderrTail)});
+process.exitCode = ${exit};`;
+    const result = spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL('../../scripts/workspace-nextest.mjs', import.meta.url)),
+        'phase',
+        root,
+        'fixture',
+        process.execPath,
+        '-e',
+        code,
+      ],
+      { encoding: 'utf8', maxBuffer: 2 * 1024 * 1024, timeout: 10_000 }
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.signal).toBeNull();
+    expect(result.status).toBe(exit === 0 ? 0 : 1);
+    expect(result.stdout.startsWith(stdout)).toBe(true);
+    expect(result.stderr.startsWith(stderr)).toBe(true);
+    expect(readFileSync(path.join(root, 'fixture.log'), 'utf8').startsWith(stdout + stderr)).toBe(
+      true
+    );
+    const phases = JSON.parse(readFileSync(path.join(root, 'phases.json'), 'utf8'));
+    expect(phases).toHaveLength(1);
+    expect(phases[0].exit).toBe(exit);
+    expect(phases[0].worldRemoved).toBe(true);
+    expect(existsSync(phases[0].world)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it('keeps the workflow compile-once, VM-isolated and fail-closed under its original caller gate', () => {
   const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
   const ci = read('.github/workflows/ci.yml');

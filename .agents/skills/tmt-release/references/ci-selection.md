@@ -210,6 +210,8 @@ Producer-only cache writes retain main admission. Phase evidence records compile
 listing, archive, extraction and execution; Actions step times retain setup,
 transfer, selected emulators and collection costs. Separate VM ownership avoids a
 shared-host cleanup domain; any local heavy proof still needs Infra's run grant.
+Failed commands drain captured output into the job log before throwing, so failing
+test names, details and summary remain visible there as well as in the full phase artifact.
 Identity and artifact names include the run attempt, so recovery requires
 **re-run all jobs**, not re-run failed jobs (about 68 runner-minutes and 12 minutes
 per attempt, longer when runners queue). Partial recovery is tracked in
