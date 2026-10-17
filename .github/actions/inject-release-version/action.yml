@@ -16,6 +16,10 @@ inputs:
     description: Reviewed tooling checkout; current main for an owner-authorized historical rerun
     required: false
     default: '.'
+  declaration:
+    description: Frozen CLI selection for packaging; null for CLI, driver or version-only proofs
+    required: false
+    default: 'null'
   phase:
     description: prepare injects once; verify rechecks the unchanged version-only contract after a stage
     required: false
@@ -49,6 +53,7 @@ runs:
         RELEASE_TAG: ${{ inputs.tag }}
         SOURCE_ROOT: ${{ inputs.source-root }}
         TOOLING_ROOT: ${{ inputs.tooling-root }}
+        TMT_RELEASE_DECLARATION: ${{ inputs.declaration }}
       run: |
         set -euo pipefail
         source_checkout=$(cd "$SOURCE_ROOT" && pwd)

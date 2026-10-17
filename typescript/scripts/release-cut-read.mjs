@@ -6,14 +6,10 @@ import { runPackedCommand } from './packed-command.mjs';
 
 const SHA = /^[a-f0-9]{40}$/;
 
-export function readCutMetadata(
-  { repository, cut, token, draftVisibility },
-  execute = runPackedCommand
-) {
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? '') || !SHA.test(cut ?? ''))
-    throw new Error('Cut metadata needs a repository and exact main cut SHA.');
-  if (!token || draftVisibility !== 'trusted')
-    throw new Error('Draft visibility requires the trusted contents-write metadata reader.');
+/** Shared bounded catalogue; only readCutMetadata attests trusted draft visibility. */
+export function readReleaseCatalog({ repository, token }, execute = runPackedCommand) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? ''))
+    throw new Error('Release catalogue needs a repository.');
   let requests = 0;
   const deadline = Date.now() + 90_000;
   const get = (path) => {
@@ -21,7 +17,7 @@ export function readCutMetadata(
     return JSON.parse(
       execute('gh', ['api', `repos/${repository}/${path}`, '--method', 'GET'], {
         cwd: process.cwd(),
-        env: { ...process.env, GH_TOKEN: token },
+        env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },
         timeoutMs: Math.min(10_000, deadline - Date.now()),
       })
     );
@@ -58,6 +54,18 @@ export function readCutMetadata(
   );
   if (releases.some((r) => typeof r.draft !== 'boolean' || typeof r.tag_name !== 'string'))
     throw new Error('Invalid release metadata.');
+  return releases;
+}
+
+export function readCutMetadata(
+  { repository, cut, token, draftVisibility },
+  execute = runPackedCommand
+) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? '') || !SHA.test(cut ?? ''))
+    throw new Error('Cut metadata needs a repository and exact main cut SHA.');
+  if (!token || draftVisibility !== 'trusted')
+    throw new Error('Draft visibility requires the trusted contents-write metadata reader.');
+  const releases = readReleaseCatalog({ repository, token }, execute);
   return {
     schema: 1,
     repository,

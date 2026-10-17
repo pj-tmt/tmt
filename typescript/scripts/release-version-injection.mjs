@@ -13,11 +13,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { componentOfProduct, releasePolicy } from './native-release-policy.mjs';
 import { assertHerdrCapabilities } from './native-runtime-proof.mjs';
+import {
+  DECLARATION_OUTPUT,
+  writeDeclaration,
+  verifyDeclarationBytes,
+} from './release-declaration.mjs';
 import { syntheticAlphaVersion, versionOfTag } from './release-versions.mjs';
 
 const LOCK = 'rust/Cargo.lock';
@@ -79,7 +84,16 @@ const normalizeLock = (lock) => ({
 });
 
 /** Builds a version-only edit contract from the source, not a release manifest/config. */
-export function captureVersionState({ root, files, metadata, product, tag, cut, map }) {
+export function captureVersionState({
+  root,
+  files,
+  metadata,
+  product,
+  tag,
+  cut,
+  map,
+  declaration = null,
+}) {
   const component = componentOfProduct(map, product);
   if (!component?.package || component.release === false)
     throw new Error('Injection requires a released component package.');
@@ -121,6 +135,7 @@ export function captureVersionState({ root, files, metadata, product, tag, cut, 
     tag,
     version,
     oldVersion,
+    declaration,
     manifest,
     section,
     source,
@@ -244,6 +259,12 @@ export function verifyDistArtifact(root, snapshot, plan, build, executable) {
   const args =
     snapshot.product === 'driver-herdr' ? ['__tmt-driver', '1', 'capabilities'] : ['--version'];
   verifyDistVersions(snapshot, plan, build, command(root, executable, args));
+  if (snapshot.declaration)
+    verifyDeclarationBytes(
+      join(dirname(executable), 'TMT-USES.json'),
+      snapshot,
+      parseComponentMap(read(root, '.github/components.json'))
+    );
 }
 
 function command(root, executable, args) {
@@ -287,6 +308,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           WORKSPACE,
         ])
       );
+      const declaration = JSON.parse(process.env.TMT_RELEASE_DECLARATION || 'null');
+      const map = parseComponentMap(read(root, '.github/components.json'));
       const snapshot = captureVersionState({
         root,
         files: git(['ls-files', '-z']).split('\0').filter(Boolean),
@@ -294,9 +317,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         product,
         tag,
         cut,
-        map: parseComponentMap(read(root, '.github/components.json')),
+        map,
+        declaration,
       });
       writeFileSync(snapshotFile, `${JSON.stringify(snapshot)}\n`);
+      writeDeclaration(root, snapshot, map);
       injectVersion(root, snapshot);
     } else if (action === 'verify' && !args.length) {
       const snapshot = JSON.parse(readFileSync(snapshotFile, 'utf8'));
@@ -317,6 +342,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           '--manifest-path',
           WORKSPACE,
         ])
+      );
+      verifyDeclarationBytes(
+        join(root, DECLARATION_OUTPUT),
+        snapshot,
+        parseComponentMap(read(root, '.github/components.json'))
       );
       console.log(JSON.stringify(verifyVersionState(root, snapshot, metadata), null, 2));
     } else if (action === 'manifests' && args.length === 2) {

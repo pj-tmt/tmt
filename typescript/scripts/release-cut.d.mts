@@ -33,6 +33,7 @@ export interface CutRow {
   commits?: string[];
   breaking?: boolean;
   authorization?: string;
+  declaration?: import('./release-declaration.mjs').DeclarationRecord | null;
 }
 export interface CutPlan {
   cut: string;

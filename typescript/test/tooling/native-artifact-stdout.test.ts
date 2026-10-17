@@ -13,6 +13,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 
+import { parseComponentMap } from '../../scripts/ci-scope.mjs';
+import { writeDeclaration } from '../../scripts/release-declaration.mjs';
+
 const roots: string[] = [];
 /** Vendored license clarifications: crate, locked version, vendored file. */
 const vendored = [
@@ -134,17 +137,45 @@ fi`
     'dist',
     `if [ "\${1:-}" = build ]; then printf '{"artifacts":{}}\\n'; else printf 'dist diagnostics\\n'; fi`
   );
-  return { root, bin, script };
+  const snapshot = path.join(root, 'release-version-state.json');
+  if (['ops', 'digest', 'remote', 'colab'].includes(product)) {
+    mkdirSync(path.join(root, '.github'));
+    const mapText = readFileSync(path.resolve('../.github/components.json'), 'utf8');
+    writeFileSync(path.join(root, '.github/components.json'), mapText);
+    const cut = 'a'.repeat(40);
+    const state = {
+      product,
+      cut,
+      hashes: {},
+      declaration: {
+        schema: 1,
+        product,
+        cut,
+        cli: { tag: 'v5.0.0-alpha.277', version: '5.0.0-alpha.277', sha: 'b'.repeat(40) },
+      },
+    };
+    writeFileSync(snapshot, JSON.stringify(state));
+    writeDeclaration(root, state, parseComponentMap(mapText));
+  }
+  return {
+    root,
+    bin,
+    script,
+    releaseEnv: {
+      TMT_RELEASE_VERSION_STATE: snapshot,
+      TMT_RELEASE_TOOLING_ROOT: path.resolve('..'),
+    },
+  };
 }
 
 describe('native artifact stdout', () => {
   it.each(['cli', 'ops', 'driver-herdr', 'remote', 'colab', 'digest'])(
     'reserves stdout and selects the %s notice manifest',
     (product) => {
-      const { root, bin, script } = artifactFixture(product);
+      const { root, bin, script, releaseEnv } = artifactFixture(product);
       const result = spawnSync(script, ['aarch64-apple-darwin', product], {
         encoding: 'utf8',
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        env: { ...process.env, ...releaseEnv, PATH: `${bin}:${process.env.PATH}` },
       });
       expect(result.status, result.stderr).toBe(0);
       expect(JSON.parse(result.stdout)).toEqual({ artifacts: {} });

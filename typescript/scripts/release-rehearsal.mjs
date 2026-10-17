@@ -33,7 +33,7 @@ const SHARED_PATTERNS = [
   /^rust\/(?:crates\/)?[^/]+\/Cargo\.toml$/,
   /^\.github\/actions\/(?:inject-release-version|setup-tooling|apt-install|warm-xcrun)\//,
   /^scripts\/(?:build-native-artifact|native-cargo|native-bootstrap|run-native-verification|retry-command)\.sh$/,
-  /^typescript\/scripts\/(?:native-application-schema|native-artifact-policy|native-runtime-proof|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-versions|verify-native-(?:artifact|bootstrap|notices|installation|extension-upgrade|driver-upgrade)|release-upgrade|publication-gates|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
+  /^typescript\/scripts\/(?:native-application-schema|native-artifact-policy|native-runtime-proof|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-declaration|release-versions|verify-native-(?:artifact|bootstrap|notices|installation|extension-upgrade|driver-upgrade)|release-upgrade|publication-gates|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
 ];
 // These code and test owners exercise the real-archive CLI upgrade/skill-refresh proof.
 // Trailing slashes select module descendants; file entries select only the named owner.

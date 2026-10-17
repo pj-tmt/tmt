@@ -124,10 +124,12 @@ export function selectNativeArtifact(
     ? [skillsRoot]
     : [];
   // The companions this archive declares, in their one order.
+  const declaration =
+    product !== 'cli' && product !== 'driver-herdr' && assets.includes('TMT-USES.json');
   const carried = companionFiles(product).filter((companion) => assets.includes(companion));
   assert.deepEqual(
     assets.sort(),
-    [...requiredFiles, ...carried, ...declared].sort(),
+    [...requiredFiles, ...carried, ...declared, ...(declaration ? ['TMT-USES.json'] : [])].sort(),
     'Manifest must describe exactly the native runtime files'
   );
   if (release) {
@@ -143,6 +145,7 @@ export function selectNativeArtifact(
     target,
     sha256: artifact.checksums.sha256,
     ...(product === 'cli' ? {} : { product }),
+    ...(declaration ? { declaration: true } : {}),
     ...(declared.length > 0 ? { skills: true } : {}),
     ...(carried.length > 0 ? { companions: carried } : {}),
   };
@@ -168,7 +171,11 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
     fs.writeFileSync(snapshot, expanded, { flag: 'wx', mode: 0o600 });
     const executables = [requiredFiles[0], ...(metadata.companions ?? [])];
     const expected = new Set(
-      [...requiredFiles, ...(metadata.companions ?? [])].map((name) => `${rootName}/${name}`)
+      [
+        ...requiredFiles,
+        ...(metadata.companions ?? []),
+        ...(metadata.declaration ? ['TMT-USES.json'] : []),
+      ].map((name) => `${rootName}/${name}`)
     );
     const tree = `${rootName}/${skillsRoot}`;
     const seen = new Set();
@@ -198,6 +205,8 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         );
         assert.equal(entry.type, 'File', `Native archive entry must be regular: ${entry.path}`);
         assert.equal(entry.mode & 0o7000, 0, 'Native archive must not set special permission bits');
+        if (entry.path === `${rootName}/TMT-USES.json`)
+          assert(entry.size <= 4096, 'Extension declaration exceeds 4 KiB.');
         assert(entry.size > 0, `Empty native archive entry: ${entry.path}`);
         if (executables.some((name) => entry.path === `${rootName}/${name}`)) {
           assert(entry.mode & 0o111, 'Native executable lacks execute permission');

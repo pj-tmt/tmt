@@ -1,3 +1,4 @@
+import { declarationMarker } from './release-declaration.mjs';
 // Trusted-main adapter: the cut planner remains pure; only this owner drafts and dispatches.
 import assert from 'node:assert/strict';
 import { appendFileSync } from 'node:fs';
@@ -97,7 +98,7 @@ export function createCutClient({ repository, token, ref }, execute = runPackedC
 export function cutDraftBody(row) {
   if (!SHA.test(row.cut ?? '') || !row.notes || !row.commits?.length)
     throw new Error('A cut draft requires notes and releasable source commits.');
-  return `${row.notes}\n\nRelease cut: ${row.cut}\n`;
+  return `${row.notes}\n\nRelease cut: ${row.cut}\n${declarationMarker(row.declaration)}`;
 }
 
 function verifiedDraft(release, row, body) {

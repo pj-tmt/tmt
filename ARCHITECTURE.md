@@ -484,12 +484,12 @@ commands remain in [DEVELOPMENT](DEVELOPMENT.md#native-process-and-shared-tests)
 
 ## Release boundary
 
-Release tooling uses cargo-dist manifests and product-owned archives, sharing native
-runtime/linkage proof across archive, installer, upgrade and public smoke checks.
-Raw executables prove neither archives nor public installation. Candidate handoff:
-[native-install-handoff-v1](contracts/native-install-handoff-v1.md). [Records](contracts/release-index-v1.md) bind verified release bytes to identity.
-Archive, installer, verifier, publication, compiled CLI schema and the PR release-candidate producer/cleanup sources belong to
-[tmt-release](.agents/skills/tmt-release/SKILL.md).
+Release tooling shares native runtime/linkage proof across cargo-dist archives,
+installers, upgrades and public smoke. Generated extension minima cover product
+registration and declaration support; cut metadata freezes the published CLI.
+Raw binaries prove neither archives nor public installs. [Handoffs](contracts/native-install-handoff-v1.md)
+and [records](contracts/release-index-v1.md) bind release bytes to identity.
+Archive, installer, verifier, publication, compiled schema and PR producer/cleanup sources belong to [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
 

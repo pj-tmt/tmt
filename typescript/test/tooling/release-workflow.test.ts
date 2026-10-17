@@ -277,7 +277,11 @@ describe('compiled CLI schema preparation order', () => {
     );
     expect(verify).toContain('--schema-snapshot "$RUNNER_TEMP/release-version-state.json"');
     expect(verify).toContain('--schema-evidence "target/distrib/$TARGET-application-schema.json"');
-    expect(verify).toContain('--source-root "$PWD"');
+    const cliProof = verify.slice(
+      verify.indexOf('if [ "$PRODUCT" = cli ]; then'),
+      verify.indexOf('          else\n', verify.indexOf('if [ "$PRODUCT" = cli ]; then'))
+    );
+    expect(cliProof).toContain('--source-root "$PWD"');
     expect(verify.indexOf('scripts/run-native-verification.sh "$TARGET"')).toBeLessThan(
       verify.indexOf('--schema-snapshot')
     );
@@ -797,9 +801,13 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     );
     expect(call).toContain('needs: check');
     expect(call).toContain('uses: ./.github/workflows/native-release-prepare.yml');
-    expect(job(prepare, 'build')).not.toMatch(/^ {4}(needs|if):/m);
-    expect(job(prepare, 'assemble')).toContain('needs: build');
-    expect(job(prepare, 'verify')).toContain('needs: assemble');
+    expect(job(prepare, 'declaration')).toContain(
+      "if: inputs.product != 'cli' && inputs.product != 'driver-herdr'"
+    );
+    expect(job(prepare, 'build')).toContain('needs: declaration');
+    expect(job(prepare, 'build')).toContain("needs.declaration.result == 'skipped'");
+    expect(job(prepare, 'assemble')).toContain('needs: [build, declaration]');
+    expect(job(prepare, 'verify')).toContain('needs: [assemble, declaration]');
   });
 
   it('qualifies release artifacts by the draft tag and emits tagless CLI reports only', () => {
@@ -1077,6 +1085,7 @@ describe('shared prepare pipeline and release rehearsal', () => {
       /secrets\.|environment:|gh release|release-publish|release-draft-assets/
     );
     expect([...jobs(prepare).keys()]).toEqual([
+      'declaration',
       'build',
       'assemble',
       'verify',

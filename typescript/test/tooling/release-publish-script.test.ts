@@ -10,6 +10,7 @@ import { checkReleaseParity } from '../../scripts/release-parity.mjs';
 const script = fileURLToPath(new URL('../../scripts/release-publish.mjs', import.meta.url));
 const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
 
+import { declarationMarker } from '../../scripts/release-declaration.mjs';
 import { writeRecordFixture, RECORD_TARGETS } from '../support/release-record-fixture.js';
 
 const SHA = 'a'.repeat(40);
@@ -69,6 +70,10 @@ if (command === 'api') {
   else if (url.includes('/releases/tags/')) state.published ? out(state.published) : fail('HTTP 404');
   else if (url.includes('/releases/') && args.includes('PATCH')) { state.latest = state.published; fs.writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state)); out(state.latest); }
   else if (url.endsWith('/releases/latest')) state.latest ? out(state.latest) : fail('HTTP 404');
+  else if (url.includes('/compare/')) {
+    const floor = url.split('/compare/')[1].split('...')[0];
+    out({status: floor === state.tagCommit ? 'identical' : 'ahead', base_commit:{sha:floor}, merge_base_commit:{sha:floor}});
+  }
   else if (url.includes('/commits/')) state.tagCommit ? out({ sha: state.tagCommit }) : fail('HTTP 404');
   else if (url.includes('/issues?state=open')) out(state.openIssues ?? []);
   else if (url.endsWith('/issues') && args.includes('POST')) {
@@ -123,6 +128,7 @@ interface Scenario {
   missingAssets?: string[];
   openIssues?: { number: number; title: string }[];
   issueFails?: boolean;
+  sourceRoot?: string;
   indexRefusal?: boolean;
   indexRefResponses?: { status: number; message: string }[];
 }
@@ -133,6 +139,18 @@ function scenario(options: Scenario = {}) {
   mkdirSync(bin);
   const ghFile = path.join(bin, 'gh');
   writeExecutable(ghFile, FAKE_GH, 0o755);
+  if (options.sourceRoot)
+    writeExecutable(
+      path.join(bin, 'git'),
+      `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const result = spawnSync('git', process.argv.slice(2), { cwd: ${JSON.stringify(options.sourceRoot)}, env: {...process.env, PATH: ${JSON.stringify(process.env.PATH)}} });
+if (result.stdout) process.stdout.write(result.stdout);
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status ?? 1);
+`,
+      0o755
+    );
   const calls = path.join(directory, 'calls');
   writeFileSync(calls, '');
   const fixture = writeRecordFixture(path.join(directory, 'record-fixture'));
@@ -272,7 +290,55 @@ describe('release-publish.mjs publish', () => {
 
   it('publishes an extension as a prerelease that is never the latest release', () => {
     const tag = 'tmt-ops-v0.1.0-alpha.2';
-    const { run, calls, directory } = scenario({ drafts: [draft(tag, ASSETS)] });
+    const source = mkdtempSync(path.join(root, 'extension-source-'));
+    mkdirSync(path.join(source, '.github'));
+    writeFileSync(
+      path.join(source, '.github/components.json'),
+      JSON.stringify({
+        components: {
+          cli: { owns: ['rust'], package: 'tmt-cli' },
+          ops: {
+            owns: ['extensions/ops'],
+            package: 'tmt-ops',
+            requiresCliSha: 'b'.repeat(40),
+            uses: [],
+          },
+        },
+      })
+    );
+    const git = (args: string[]) => {
+      const result = spawnSync('git', args, { cwd: source, encoding: 'utf8' });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git(['init', '-q']);
+    git(['add', '.']);
+    git([
+      '-c',
+      'user.name=Release fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-qm',
+      'test: publication source fixture\n\nCo-authored-by: Codex <codex@openai.com>',
+    ]);
+    const cut = git(['rev-parse', 'HEAD']);
+    const record = {
+      schema: 1,
+      cut,
+      product: 'ops',
+      cli: { tag: TAG, version: '5.0.0-alpha.9', sha: cut },
+    };
+    const { run, calls, directory } = scenario({
+      drafts: [
+        draft(tag, ASSETS, { target_commitish: cut, body: declarationMarker(record) }),
+        release({ target_commitish: cut }),
+      ],
+      tagCommit: cut,
+      sourceRoot: source,
+    });
     const map = JSON.parse(readFileSync(componentMap, 'utf8'));
     map.components.ops.release = false;
     const blocked = path.join(directory, 'blocked-components.json');
@@ -281,7 +347,8 @@ describe('release-publish.mjs publish', () => {
       1
     );
     expect(calls().some(([, sub]) => sub === 'edit')).toBe(false);
-    expect(run(['publish', '--product', 'ops', '--tag', tag]).status).toBe(0);
+    const published = run(['publish', '--product', 'ops', '--tag', tag]);
+    expect(published.status, published.stderr).toBe(0);
     expect(calls().find(([, sub]) => sub === 'edit')).toEqual([
       'release',
       'edit',

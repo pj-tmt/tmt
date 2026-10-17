@@ -1,3 +1,8 @@
+import {
+  resolveDeclaration,
+  gitDeclarationAncestry,
+  declaresMinimumCli,
+} from './release-declaration.mjs';
 // Plans release cuts without mutation. This module has no network/mutation interface.
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync } from 'node:fs';
@@ -384,6 +389,7 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
   if (!Array.isArray(metadata.releases)) throw new Error('Incomplete shadow metadata.');
   git(['merge-base', '--is-ancestor', cut, 'refs/remotes/origin/main']);
   const components = [];
+  const observeCli = gitDeclarationAncestry(git);
   for (const component of map.components) {
     if (component.release === false || !component.package) continue;
     const row = { product: component.name, cut, status: 'blocked' };
@@ -419,6 +425,7 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
       if (!history.previous && (!component.bootstrapSha || !component.initialVersion))
         throw new Error('First cut needs bootstrapSha and an owner-approved initial version.');
       if (
+        !declaresMinimumCli(product) &&
         component.requiresCliSha &&
         (!history.previous ||
           (component.predecessor && !publishedReleases(metadata.releases, product).length))
@@ -470,6 +477,14 @@ export async function planReleaseCuts({ metadata, map, workspace, git, date, ver
         components.push(row);
         continue;
       }
+      const declaration = resolveDeclaration({
+        map,
+        product,
+        cut,
+        releases: metadata.releases,
+        observeCli,
+      });
+      if (declaration) row.declaration = declaration;
       const version =
         versions[product] ??
         (previousVersion ? nextAlphaVersion(previousVersion) : component.initialVersion);

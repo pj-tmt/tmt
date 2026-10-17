@@ -22,6 +22,8 @@ import {
   type PublishedRelease,
 } from '../../scripts/release-publish.mjs';
 import type { IndexApi } from '../../scripts/release-index.mjs';
+import { declarationMarker } from '../../scripts/release-declaration.mjs';
+import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
 
 import { writeRecordFixture, RECORD_TARGETS } from '../support/release-record-fixture.js';
@@ -206,11 +208,31 @@ describe('publishDraft', () => {
     ['cli', TAG, ['--draft=false', '--prerelease=false', '--latest=false']],
     ['ops', EXTENSION_TAG, ['--draft=false', '--prerelease=true', '--latest=false']],
   ])('publishes a %s draft with the flags of its policy, once', (product, tag, flags) => {
+    const record = {
+      schema: 1,
+      cut: SHA,
+      product,
+      cli: {
+        tag: 'v5.0.0-alpha.8',
+        version: '5.0.0-alpha.8',
+        sha: SHA,
+      },
+    };
     const { api, published } = fakeApi([
-      draft('v5.0.0-alpha.8', ['release-publication.json']),
-      draft(tag, ['release-publication.json']),
+      draft('v5.0.0-alpha.8', ['release-publication.json'], { draft: false }),
+      draft(tag, ['release-publication.json'], { body: declarationMarker(record) }),
     ]);
-    expect(publishDraft({ api, product, tag })).toEqual({ flags });
+    const declarationEvidence = {
+      map: parseComponentMap(
+        JSON.stringify({
+          components: {
+            ops: { owns: ['extensions/ops'], package: 'tmt-ops', requiresCliSha: SHA, uses: [] },
+          },
+        })
+      ),
+      observeCli: () => ({ sha: SHA, status: 'ahead' }),
+    };
+    expect(publishDraft({ api, product, tag, declarationEvidence })).toEqual({ flags });
     expect(published).toEqual([{ tag, flags }]);
   });
 

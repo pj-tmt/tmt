@@ -62,6 +62,7 @@ export function publishDraft(input: {
   tag: string;
   released?: boolean;
   wait?: () => void;
+  declarationEvidence?: { map: import('./ci-scope.mjs').ComponentMap; observeCli: (release: { tag_name: string; draft: boolean }, floor: string) => { sha: string; status: string } };
 }): {
   flags: string[];
 };

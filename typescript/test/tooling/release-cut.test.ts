@@ -20,7 +20,12 @@ import {
 const sha = (n: number) => n.toString(16).padStart(40, 'a');
 const definitions = {
   cli: { owns: ['.'], excludes: ['extensions', 'shared'], package: 'tmt-cli' },
-  ops: { owns: ['extensions/ops'], package: 'tmt-ops', selectedBy: ['tests/ops.*'] },
+  ops: {
+    owns: ['extensions/ops'],
+    package: 'tmt-ops',
+    requiresCliSha: sha(0),
+    selectedBy: ['tests/ops.*'],
+  },
   private: { owns: ['shared'], release: false, releaseConsumers: ['ops'] },
   never: {
     owns: ['extensions/never'],

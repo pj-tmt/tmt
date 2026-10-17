@@ -24,6 +24,15 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import {
+  declaresMinimumCli,
+  declarationAncestry,
+  gitDeclarationAncestry,
+  declarationSource,
+  readDeclarationMarker,
+  resolveDeclaration,
+  verifyDeclaration,
+} from './release-declaration.mjs';
 import { readReleaseSourceAtRef } from './release-source-at-ref.mjs';
 import { componentOfProduct } from './native-release-policy.mjs';
 import {
@@ -319,6 +328,21 @@ export function releaseCommits({ from, to, product, map, workspace }, readGit = 
 
 function earlyChecks({ product, tag, release, releases, repository }) {
   const sha = release.target_commitish;
+  // Compatibility is a preflight, never a hold-skippable publication permission.
+  if (declaresMinimumCli(product)) {
+    const context = {
+      map: declarationSource(sha),
+      product,
+      cut: sha,
+      releases,
+      observeCli: declarationAncestry({ repository }),
+    };
+    const record =
+      release.draft === undefined
+        ? resolveDeclaration({ ...context, observeCli: gitDeclarationAncestry(git) })
+        : readDeclarationMarker(release.body);
+    verifyDeclaration({ ...context, record });
+  }
   return {
     channel: () => checkChannel({ product, tag }),
     commit: () => {
