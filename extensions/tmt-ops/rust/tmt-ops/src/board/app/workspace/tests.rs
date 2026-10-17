@@ -4966,3 +4966,49 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
         }
     }
 }
+
+#[test]
+fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
+    use crate::board::overview::monitor;
+    use std::time::{Duration, Instant};
+    let look = crate::look::Look::new(tmt_cli_style::Theme::default());
+    for (read, glyph, state) in [
+        (Some(Instant::now()), "●", "working"),
+        (
+            Instant::now().checked_sub(Duration::from_secs(16)),
+            "?",
+            "stale",
+        ),
+    ] {
+        let mut app = disagreeing_board(false, look);
+        app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .read_at = read;
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = monitor::View::Squads;
+        let scene = monitor::scene(&app, app.workspace_snapshot().unwrap());
+        let member = scene.squads[0]
+            .members
+            .iter()
+            .find(|(id, _)| id == MEMBER)
+            .unwrap();
+        assert_eq!(
+            member.1.as_deref(),
+            Some(state),
+            "the blocked task never wins"
+        );
+        let screen = paint(&app, 160, 36).join("\n");
+        let team = screen
+            .lines()
+            .find(|line| line.starts_with("   product "))
+            .unwrap();
+        assert!(team.contains(&format!("product   {glyph}")), "{team}");
+        assert!(!team.contains('✗'), "{team}");
+    }
+}

@@ -197,11 +197,10 @@ fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
                 .iter()
                 .filter(|id| seen.insert(*id))
                 .map(|id| {
-                    // Attention marks lead (a waiting request, then a blocked
-                    // task); otherwise the glyph is core activity, by the same
-                    // label and stale rule as the STATE cells.
+                    // The same label and stale rule as the STATE cells: a
+                    // waiting request, otherwise core activity. A task state
+                    // never overrides it.
                     let membership = squad.member_states.get(id);
-                    let task = membership.and_then(|state| state.state.clone());
                     let label = crate::board::activity::Member {
                         activity: snapshot
                             .roster
@@ -210,15 +209,10 @@ fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
                             .map(|member| member.activity)
                             .unwrap_or_default(),
                         waiting: membership.is_some_and(|state| state.waiting),
-                        task: task.clone(),
+                        task: None,
                     }
                     .label(key.activity_stale, 0);
-                    let state = if label.state != "waiting" && task.as_deref() == Some("blocked") {
-                        "blocked"
-                    } else {
-                        label.state
-                    };
-                    (id.clone(), Some(state.to_owned()))
+                    (id.clone(), Some(label.state.to_owned()))
                 })
                 .collect();
             let rows: Vec<_> = squad

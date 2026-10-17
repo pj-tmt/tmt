@@ -357,8 +357,8 @@ view-specific projection, and later Agents placements reuse the same modules.
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
 and a member's secondary task state keeps its own state colour. Agent working/idle
 counts tally core activity once per identity and count a stale read as unknown;
-Overview TEAM glyphs put request and blocked-task attention first, then the same
-activity label. Needs-you counts stay task and request facts.
+Overview TEAM glyphs use the same activity label (request attention first, never
+a task state). Needs-you counts stay task and request facts.
 
 One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the

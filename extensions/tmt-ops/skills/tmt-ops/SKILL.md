@@ -947,8 +947,8 @@ rows go stale and stay stale until you refresh. Stale and unknown never mean
 idle, and the age is never made up when core gives no time. A narrow cell clips
 the task first, then drops the age. The working and idle counts follow core
 activity, each agent once, and count a stale agent as unknown. In Overview's
-Squads view each TEAM glyph shows a waiting request (◆) or a blocked task (✗)
-first, otherwise core activity (`?` when stale or unknown). Attention and
+Squads view each TEAM glyph shows a waiting request (◆) first, otherwise core
+activity (`?` when stale or unknown); a task state never overrides it. Attention and
 presence are scoped observations, and failed observations remain partial/stale
 rather than becoming idle or zero.
 A collapsed squad shows its worst observed state. Display names never provide
