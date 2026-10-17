@@ -38,19 +38,10 @@
 .chapter-passage-controls .question-description-space {
   display: none;
 }
-.chapter-passage-continue,
-.chapter-passage-next,
-.chapter-passage-unavailable button {
+.chapter-passage-continue .tmt-ui-action,
+.chapter-passage-unavailable .tmt-ui-action {
   padding: 0;
-  border: 0;
-  background: none;
-  color: var(--c-muted);
   font: inherit;
-}
-.chapter-passage-continue:hover,
-.chapter-passage-next:hover,
-.chapter-passage-unavailable button:hover {
-  text-decoration: underline;
 }
 @media (max-width: 600px) {
   .chapter-passage-clip {

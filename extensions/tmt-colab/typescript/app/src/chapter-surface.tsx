@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { chapterTargets, selectChapterTarget, type ChapterTargetRef } from './chapter-passage.js';
 import type { ChapterPassages } from './chapter-passages.js';
 import { ConversationTurn } from './components/conversation-turn.js';
+import { ConversationPresentation } from './components/conversation-presentation.js';
 import { MessageText } from './components/message-text.js';
 import { compactRelativeTime } from './display-time.js';
 import { PassageNavigation } from './passage-navigation.js';
@@ -240,9 +242,7 @@ export function ChapterSurface({
       {unavailable ? (
         <p className="chapter-passage-unavailable">
           {copy.unavailable} ·{' '}
-          <button type="button" onClick={open}>
-            {copy.open}
-          </button>
+          <BrowserAction type="button" variant="text" label={copy.open} onActivate={open} />
         </p>
       ) : (
         <>
@@ -271,11 +271,13 @@ export function ChapterSurface({
             />
             {reply && (
               <div ref={replyBody} className="chapter-passage-reply">
-                <ConversationTurn role="agent" author={reply.agentName} at={reply.issuedAt}>
-                  <pre>
-                    <MessageText value={reply.reply!} names={[reply.agentName]} />
-                  </pre>
-                </ConversationTurn>
+                <ConversationPresentation.Provider value="chat">
+                  <ConversationTurn role="agent" author={reply.agentName} at={reply.issuedAt}>
+                    <pre>
+                      <MessageText value={reply.reply!} names={[reply.agentName]} />
+                    </pre>
+                  </ConversationTurn>
+                </ConversationPresentation.Provider>
               </div>
             )}
           </div>
@@ -285,13 +287,12 @@ export function ChapterSurface({
                 !pending &&
                 next &&
                 next.id !== target?.id && (
-                  <button
+                  <BrowserAction
                     type="button"
-                    className="chapter-passage-next"
-                    onClick={() => setSelected({ kind: next.kind, id: next.id })}
-                  >
-                    {copy.next}
-                  </button>
+                    variant="text"
+                    label={copy.next}
+                    onActivate={() => setSelected({ kind: next.kind, id: next.id })}
+                  />
                 )
               }
             >
@@ -301,9 +302,9 @@ export function ChapterSurface({
             </PassageNavigation.Provider>
           </div>
           {clipped && (
-            <button type="button" className="chapter-passage-continue" onClick={open}>
-              {copy.continue}
-            </button>
+            <div className="chapter-passage-continue">
+              <BrowserAction type="button" variant="text" label={copy.continue} onActivate={open} />
+            </div>
           )}
         </>
       )}

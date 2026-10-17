@@ -1760,11 +1760,16 @@ export function resumeAttachmentUploads() {
 export function reading(
   options: { count?: number; darkPage?: boolean; forged?: boolean; tall?: boolean } = {},
 ) {
+  const details = Array.from(
+    { length: 24 },
+    (_, paragraph) =>
+      `<p>Decision detail ${paragraph + 1}: read the evidence, review the trade-offs, and confirm the next step with the team before continuing.</p>`,
+  ).join('');
   current = {
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read${options.tall ? ' style="min-height:900px;display:block"' : ''} data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p></tmt-read>`).join('')}<p>The page continues here.</p>`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read${options.tall ? ' style="min-height:900px;display:block"' : ''} data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p>${options.tall ? details : ''}</tmt-read>`).join('')}<p>The page continues here.</p>`,
   };
   emit();
 }

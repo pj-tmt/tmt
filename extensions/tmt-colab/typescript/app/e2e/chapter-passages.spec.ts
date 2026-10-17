@@ -37,7 +37,7 @@ test('Today uses the ordinary Mark read and notice owner and keeps the completed
   ).toBeVisible();
   await expect(
     first.locator('.needs-you-actions').getByRole('button', { name: 'Next ›', exact: true }),
-  ).toBeVisible();
+  ).toHaveCSS('text-decoration-line', 'underline');
   await passage.getByRole('button', { name: 'Next ›', exact: true }).click();
   await expect(first).toBeHidden();
   await expect(
@@ -287,9 +287,10 @@ test('a refused chapter keeps its page link and exposes no source or action', as
   await run(page, 'mount', { todayPassages: true, refuseChapter: true });
   const fixtureApp = page.locator('#ask-page-fixture');
   await expect(fixtureApp.getByText('Preview unavailable', { exact: false })).toBeVisible();
-  await expect(
-    fixtureApp.getByRole('button', { name: 'Open the page', exact: true }),
-  ).toBeVisible();
+  await expect(fixtureApp.getByRole('button', { name: 'Open the page', exact: true })).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
   await expect(fixtureApp.locator('[data-chapter-slot] iframe')).toHaveCount(0);
   await expect(fixtureApp.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(0);
   expect((await run(page, 'proof')).actions).toEqual([]);
@@ -336,14 +337,29 @@ for (const width of [1440, 390])
           ).toBeVisible();
           await capture('clipped');
           await passage.getByRole('button', { name: 'Mark read', exact: true }).click();
+          await expect(passage.locator('[data-inline-reading]').first()).toHaveAttribute(
+            'data-reading-state',
+            'read',
+          );
           await expect(passage.getByRole('button', { name: 'Next ›', exact: true })).toBeVisible();
           await capture('done-next');
+          await expect(passage.locator('[data-inline-reading]').first()).toBeVisible();
+          await expect(passage.locator('[data-inline-reading]').first()).toHaveAttribute(
+            'data-reading-state',
+            'read',
+          );
         }
       }
       await page.goto('/');
       await run(page, 'mount', { todayPassages: true, pastReplies: true });
       await expect(app.locator('.chapter-passage-kicker')).toContainText('Latest reply');
       await expect(app.locator('.chapter-passage-clip')).toBeVisible();
+      await expect(app.locator('.chapter-passage-reply .conversation-avatar')).toHaveCount(0);
+      const [meta, body] = await Promise.all([
+        app.locator('.chapter-passage-reply .comment-byline').boundingBox(),
+        app.locator('.chapter-passage-reply .conversation-body').boundingBox(),
+      ]);
+      expect(meta!.x).toBe(body!.x);
       await capture('reply');
       await page.goto('/');
       await run(page, 'mount', { todayPassages: true });

@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { createPortal } from 'react-dom';
 import { ChapterPassages } from './chapter-passages.js';
 import { text } from './strings.js';
@@ -163,9 +164,12 @@ export function ChapterSurfaces({
             ) : view.state === 'unavailable' && view.visible ? (
               <p className="chapter-passage-unavailable">
                 {text.today.passage.unavailable} ·{' '}
-                <button type="button" onClick={slot.open}>
-                  {text.today.passage.open}
-                </button>
+                <BrowserAction
+                  type="button"
+                  variant="text"
+                  label={text.today.passage.open}
+                  onActivate={slot.open}
+                />
               </p>
             ) : null,
             slot.container,
