@@ -2463,6 +2463,7 @@ dependencies = [
  "time",
  "tmt-core",
  "tmt-driver-protocol",
+ "tmt-extension-state",
  "tmt-sys",
  "tmt-test-support",
  "toml_edit",

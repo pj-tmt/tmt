@@ -1717,7 +1717,7 @@ fn extension_serve_is_a_leaf_with_only_reviewed_executable_consumers() {
 }
 
 #[test]
-fn extension_state_is_a_leaf_with_only_the_three_reviewed_executable_consumers() {
+fn extension_state_is_a_leaf_with_reviewed_consumers() {
     for consumer in ["tmt-remote", "tmt-colab", "tmt-ops"] {
         assert!(
             policy::dependency_violations(&package(
@@ -1783,7 +1783,7 @@ fn extension_state_is_a_leaf_with_only_the_three_reviewed_executable_consumers()
                 ))
                 .is_empty()
             );
-            for consumer in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-colab-model"] {
+            for consumer in ["tmt-core", "tmt-cli", "tmt-colab-model"] {
                 assert!(
                     !policy::dependency_violations(&package(
                         consumer,
@@ -1862,6 +1862,54 @@ fn refuses(
     ))
     .iter()
     .any(|violation| violation.contains(dependency_name))
+}
+
+#[test]
+fn adapters_share_state_only_in_the_config_owner() {
+    for kind in ["dev", "build"] {
+        assert!(
+            !policy::dependency_violations(&package(
+                "tmt-adapters",
+                vec![dependency("tmt-extension-state", kind, None, None)]
+            ))
+            .is_empty()
+        );
+    }
+    assert!(
+        !policy::dependency_violations(&package(
+            "tmt-adapters",
+            vec![dependency(
+                "tmt-extension-state",
+                "normal",
+                Some("cfg(unix)"),
+                None
+            )]
+        ))
+        .is_empty()
+    );
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-adapters",
+            vec![dependency("tmt-extension-state", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-adapters",
+            "config/document.rs",
+            "use tmt_extension_state::Document;",
+        )],
+        &[],
+    );
+    assert!(
+        !policy::source_violations(&[syntax(
+            "tmt-adapters",
+            "storage.rs",
+            "use tmt_extension_state::Store;"
+        )])
+        .is_empty()
+    );
 }
 
 #[test]
