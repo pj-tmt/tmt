@@ -1467,8 +1467,9 @@ fn hook_with(
         "source": "startup", "reason": "other", "cwd": "/src", "model": "claude-test"});
     fs::write(hooked.with_extension("json"), input.to_string()).unwrap();
     // The shell outlives the hook (no exec into it) until the test releases
-    // it, or at most 30 s if the test fails first.
-    let mut child = std::process::Command::new(program)
+    // it; a failing test reaps it through `Provider`, and the 30 s bound
+    // covers a test process that is killed.
+    let child = std::process::Command::new(program)
         .args([
             "-c",
             "\"$0\" __hook claude < \"$1.json\" > \"$1.out\" 2> \"$1.err\"; touch \"$1.done\"
@@ -1486,14 +1487,34 @@ fn hook_with(
         .stdin(Stdio::null())
         .spawn()
         .unwrap();
+    let mut provider = Provider {
+        child,
+        release: hooked.with_extension("release"),
+    };
     wait_until("the hook", || hooked.with_extension("done").exists());
     running();
-    fs::write(hooked.with_extension("release"), "").unwrap();
-    let status = child.wait().unwrap();
+    fs::write(&provider.release, "").unwrap();
+    let status = provider.child.wait().unwrap();
     Output {
         status,
         stdout: fs::read(hooked.with_extension("out")).unwrap(),
         stderr: fs::read(hooked.with_extension("err")).unwrap(),
+    }
+}
+
+/// The stand-in provider, released and reaped even when a test panics.
+struct Provider {
+    child: std::process::Child,
+    release: PathBuf,
+}
+
+impl Drop for Provider {
+    fn drop(&mut self) {
+        let _ = fs::write(&self.release, "");
+        if !matches!(self.child.try_wait(), Ok(Some(_))) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
