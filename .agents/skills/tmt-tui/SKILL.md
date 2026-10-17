@@ -1,6 +1,6 @@
 ---
 name: tmt-tui
-description: Verify the internal TUI markup crate (`rust/crates/tmt-tui`) - XML admission, utilities, geometry, paint and components - and the Squad board parity baseline. Load when changing tmt-tui or board output. Owner - the tmt-squad squad.
+description: Verify the internal TUI markup crate (`rust/crates/tmt-tui`) - XML admission, utilities, geometry, paint and components - and the Squad board parity baseline. Load when changing tmt-tui or board output. Owner - tmt-ux.
 ---
 
 # Internal TUI markup (`tmt-tui`)
@@ -29,8 +29,9 @@ development reference below; unexplained differences block handoff.
 
 ## Admission rules
 
-- Squad is the only reviewed consumer. A new consumer, a new dependency or any
-  Squad term in the crate goes to tmt-lead first. The architecture guard permits
+- Squad is the only reviewed consumer. A new consumer, a new dependency, an
+  app-neutral API change or any Squad term in the crate still needs tmt-lead review.
+  The architecture guard permits
   XML parsing, borrowed JSON, shared style, private Taffy geometry and Ratatui
   buffer painting; never core, adapters, CLI or extension behavior.
 - The leaf acquires nothing: no terminal, clock, settings persistence, markdown or
