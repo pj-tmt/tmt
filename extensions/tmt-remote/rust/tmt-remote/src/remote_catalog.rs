@@ -1,15 +1,11 @@
 //! Public references only. Importing or removing one never grants access or changes cloud state.
 use crate::{
     error::RemoteError,
-    state::{Layout, state_error},
+    state::{Layout, document_error, document_result},
     wire,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    fs::{self, OpenOptions},
-    io::{Read, Write},
-    os::unix::fs::OpenOptionsExt,
-};
+use std::io::Read;
 const FILE: &str = "remotes.json";
 const BYTES: usize = crate::limits::REMOTE_CATALOG_BYTES;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,10 +43,13 @@ pub fn read(layout: &Layout) -> Result<Vec<RemoteReference>, RemoteError> {
     };
     let mut bytes = vec![];
     file.take((BYTES + 1) as u64).read_to_end(&mut bytes)?;
+    decode(&bytes)
+}
+fn decode(bytes: &[u8]) -> Result<Vec<RemoteReference>, RemoteError> {
     if bytes.len() > BYTES {
         return Err(unsafe_catalog());
     }
-    let value = wire::strict_json(&bytes).ok_or_else(unsafe_catalog)?;
+    let value = wire::strict_json(bytes).ok_or_else(unsafe_catalog)?;
     let document: Catalog = serde_json::from_value(value).map_err(|_| unsafe_catalog())?;
     let mut names = std::collections::BTreeSet::new();
     if document.version != 1
@@ -127,21 +126,25 @@ pub fn add(layout: &Layout, name: &str, url: &str) -> Result<RemoteReference, Re
         )
         .with_hint("Run tmt remote ls"));
     }
-    update(layout, |entries| {
-        if entries.iter().any(|e| e.name == name) {
-            return Err(RemoteError::new(
-                "REMOTE_SELECTOR_INVALID",
-                "A remote already has that name.",
-            )
-            .with_hint("Run tmt remote ls"));
-        }
-        entries.push(entry.clone());
-        Ok(())
-    })?;
+    update(
+        layout,
+        &format!("tmt remote add {name} {url} --json"),
+        |entries| {
+            if entries.iter().any(|e| e.name == name) {
+                return Err(RemoteError::new(
+                    "REMOTE_SELECTOR_INVALID",
+                    "A remote already has that name.",
+                )
+                .with_hint("Run tmt remote ls"));
+            }
+            entries.push(entry.clone());
+            Ok(())
+        },
+    )?;
     Ok(entry)
 }
 pub fn remove(layout: &Layout, name: &str) -> Result<(), RemoteError> {
-    update(layout, |entries| {
+    update(layout, &format!("tmt remote rm {name} --json"), |entries| {
         let index = entries
             .iter()
             .position(|e| e.name == name)
@@ -152,41 +155,35 @@ pub fn remove(layout: &Layout, name: &str) -> Result<(), RemoteError> {
 }
 fn update(
     layout: &Layout,
+    retry: &str,
     change: impl FnOnce(&mut Vec<RemoteReference>) -> Result<(), RemoteError>,
 ) -> Result<(), RemoteError> {
-    let _publication = layout
-        .publication(FILE, "remotes.lock", ".remotes-", BYTES as u64)
-        .map_err(state_error)?;
-    let mut entries = read(layout)?;
-    change(&mut entries)?;
-    entries.sort_by(|a, b| a.name.cmp(&b.name));
-    let bytes = serde_json::to_vec(&Catalog {
-        version: 1,
-        entries,
-    })
-    .map_err(|_| unsafe_catalog())?;
-    if bytes.len() > BYTES {
-        return Err(unsafe_catalog());
-    }
-    let path = layout.directory.join(format!(
-        ".remotes-{}",
-        crate::store::uuid_v4()?.replace('-', "")
-    ));
-    let result = (|| -> Result<(), RemoteError> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(nix::libc::O_NOFOLLOW)
-            .open(&path)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&path, layout.directory.join(FILE))?;
-        layout.sync()?;
-        Ok(())
-    })();
-    let _ = fs::remove_file(&path);
-    result
+    let document = tmt_extension_state::Document::new(
+        &layout.directory,
+        &layout.directory.join(FILE),
+        BYTES as u64,
+        retry,
+    )
+    .map_err(document_error)?;
+    document_result(document.update(|current| {
+        // Document's general permission policy is broader than Remote's private 0600 files.
+        // Re-admit under the document lock before validating/changing its current bytes.
+        if layout.read_file(FILE)?.is_some() != current.is_some() {
+            return Err(unsafe_catalog());
+        }
+        let mut entries = current.map(decode).transpose()?.unwrap_or_default();
+        change(&mut entries)?;
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        let bytes = serde_json::to_vec(&Catalog {
+            version: 1,
+            entries,
+        })
+        .map_err(|_| unsafe_catalog())?;
+        if bytes.len() > BYTES {
+            return Err(unsafe_catalog());
+        }
+        Ok(bytes)
+    }))
 }
 
 #[cfg(test)]

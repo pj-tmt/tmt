@@ -75,8 +75,12 @@ fn supplied_exact_bytes_compose_once_and_absence_never_uses_fixture_bytes() {
     );
     let root = Root::new();
     let layout = root.layout();
-    let mut record =
-        tmt_remote::deploy_record::DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut record = tmt_remote::deploy_record::DeployRecordStore::open(
+        &layout,
+        "demo-remote-1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     record
         .persist(&tmt_remote::deploy_run::DeployRecord::new(
             deploy_fixture::ID,

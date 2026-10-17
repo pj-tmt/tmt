@@ -19,6 +19,37 @@ pub struct FirestoreArgs {
     pub json: bool,
     pub details: bool,
 }
+/// Preserve the selected command's intent in local persistence-error guidance.
+fn retry_command(args: &FirestoreArgs) -> String {
+    let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+    let mut command = "tmt remote".to_owned();
+    if let Some(remote) = &args.remote {
+        command.push_str(&format!(" --remote {}", quote(remote)));
+    }
+    command.push_str(&format!(
+        " deploy firestore --project {} --region {} --sign-in {}",
+        quote(&args.project),
+        quote(&args.region),
+        quote(
+            &args
+                .sign_in
+                .iter()
+                .map(|provider| provider.name())
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    ));
+    if let Some(digest) = &args.authorize {
+        command.push_str(&format!(" --authorize {}", quote(digest)));
+    }
+    if args.details {
+        command.push_str(" --details");
+    }
+    if args.json {
+        command.push_str(" --json");
+    }
+    command
+}
 #[derive(Debug)]
 pub enum DeployCliError {
     Usage,
@@ -201,8 +232,13 @@ pub fn execute_with_confirmation<P: FirestoreCommandPort>(
         details: args.details,
     };
     let args = &selected;
-    let mut store = DeployRecordStore::open_for_target(&layout, &args.project, &args.region)
-        .map_err(DeployCliError::Local)?;
+    let mut store = DeployRecordStore::open_for_target(
+        &layout,
+        &args.project,
+        &args.region,
+        &retry_command(args),
+    )
+    .map_err(DeployCliError::Local)?;
     let mut provider = provider_factory()?;
     provider.login().map_err(DeployCliError::Setup)?;
     let path = store.record_path();
@@ -561,4 +597,41 @@ fn short_preview(
     text.push_str(&supersession_notice(plan, record));
     text.push_str("Full plan: run the same command with --details.\n");
     text
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn persistence_retry_retains_explicit_selection_authorization_and_output_flags() {
+        let args = FirestoreArgs {
+            project: "demo-remote-1".into(),
+            remote: Some("shared".into()),
+            region: "asia-east1".into(),
+            sign_in: vec![SignInProvider::Anonymous, SignInProvider::Google],
+            authorize: Some("a".repeat(12)),
+            json: true,
+            details: true,
+        };
+        assert_eq!(
+            retry_command(&args),
+            "tmt remote --remote 'shared' deploy firestore --project 'demo-remote-1' --region 'asia-east1' --sign-in 'anonymous,google.com' --authorize 'aaaaaaaaaaaa' --details --json"
+        );
+        let human = FirestoreArgs {
+            remote: None,
+            authorize: None,
+            json: false,
+            details: false,
+            ..args
+        };
+        assert_eq!(
+            retry_command(&human),
+            "tmt remote deploy firestore --project 'demo-remote-1' --region 'asia-east1' --sign-in 'anonymous,google.com'"
+        );
+        let quoted = FirestoreArgs {
+            region: "not'a region".into(),
+            ..human
+        };
+        assert!(retry_command(&quoted).contains("--region 'not'\\''a region'"));
+    }
 }

@@ -66,6 +66,24 @@ pub(crate) fn state_error(error: StateError) -> RemoteError {
         StateError::Busy => io(nix::errno::Errno::EWOULDBLOCK),
     }
 }
+/// Shared entries keep their typed uncertainty/timeout cause and caller's exact retry.
+pub(crate) fn document_error(error: tmt_extension_state::StateError) -> RemoteError {
+    let code = match &error {
+        tmt_extension_state::StateError::Unsafe { .. }
+        | tmt_extension_state::StateError::Invalid { .. } => "REMOTE_STATE_UNSAFE",
+        _ => "REMOTE_STATE_UNAVAILABLE",
+    };
+    RemoteError::new(code, &error.to_string())
+}
+pub(crate) fn document_result(
+    outcome: Result<(), tmt_extension_state::UpdateError<RemoteError>>,
+) -> Result<(), RemoteError> {
+    match outcome {
+        Ok(()) => Ok(()),
+        Err(tmt_extension_state::UpdateError::Change(error)) => Err(error),
+        Err(tmt_extension_state::UpdateError::State(error)) => Err(document_error(error)),
+    }
+}
 fn lock_error(error: StateError, code: &str, message: &str) -> RemoteError {
     match error {
         StateError::Busy => RemoteError::new(code, message),

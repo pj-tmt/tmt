@@ -56,10 +56,10 @@ Rules that are easy to get wrong:
   rereads the persisted grant (revision, liveness, scope, recipients, expiry)
   inside an IMMEDIATE transaction and performs the core call under that fence. A
   new check outside the transaction is a race with revocation.
-- **Revoke waits for the fence.** SQLite authority writers wait
-  `limits::AUTHORITY_WAIT` (40 s), longer than two `CORE_CALL` runs (15 s each)
-  plus cleanup, so a revoke ordered after an in-flight effect succeeds once the
-  call releases. Keep that ordering when changing either constant.
+- **Revoke respects the fence.** SQLite authority writers wait at most
+  `limits::AUTHORITY_WAIT` (5 s), then refuse contention without a mutation.
+  Effects remain inside their IMMEDIATE transaction; a successful revoke follows
+  its release. A timeout never means an in-flight effect was undone or may be resent.
 - **Uncertainty keeps identity.** The `dispatching` audit row commits after the
   core call; recovery uses the adopted frozen intent and core's idempotent
   operation ID (`dispatch.show` before any `dispatch.create`) and never infers
@@ -69,7 +69,9 @@ Rules that are easy to get wrong:
   retry or send. A full stream drops its oldest entries (`make_room_for_entry`), and a full
   ownership table drops read leftovers and the oldest finished records
   (`make_room_for_operation`); held, dispatching and uncertain records are never evicted.
-- **Serve lease.** `Serving::retain_for_invocations` clears close-on-exec on the
+- **Serve lease.** Serving deliberately remains a specialized File-held guard: the shared
+  Guard explicitly unlocks on drop and cannot retain invocation descriptors. Holder metadata
+  is unavailable and means unknown; never infer authority from a PID. `Serving::retain_for_invocations` clears close-on-exec on the
   lock file so invocation children inherit it; closing never unlocks. A restart
   refuses while an orphaned child lives; unconfirmed cleanup disables writes until
   a fresh lease-owning run. The lease test is a real-process SIGKILL probe in
@@ -281,19 +283,25 @@ it does not prove project/database/Auth provisioning, login, billing or quotas.
 
 Project-local `deployments/<project>/deploy.json` and the shared home `deploy.lock` belong to
 Remote's private layout, separately from the
-serving lease and database. The writer retains the nonblocking lock for a plan/run, writes a
-create-new private staging file, syncs it, atomically renames it and syncs the directory.
+serving lease and database. The writer retains a fail-fast `Guard` for a plan/run; contention names its recorded holder
+(or explicitly unknown);
+`Document::update` re-admits the private current bytes and deployment identity under its
+bounded write lock, then owns staging, fsync, rename and directory sync. The CLI supplies
+its exact selected retry command, including authorization/output flags, without storing it.
 Readers never take `deploy.lock`: an opened snapshot is a complete old or new record, so a
 long deployment cannot block status. Malformed, oversized or unsafe state is refused, never
 reset. Save failure stops effects; a directory-sync failure after rename does not mean the
 visible publication rolled back. Staging cleanup only removes admitted deployment staging
-names under the writer lock. Existing status/stop, settings, store and machine-key owners
+names under the writer lock; the shared entry reserves `.deploy.json.tmt-staging`, while
+admission still cleans only the old admitted `.deploy-<uuid>` names. Existing status/stop, settings, store and machine-key owners
 keep the deployment identity and binding. Bound records persist the immutable project/region
 with the first authorized run; plan-only drafts stay unbound v1 records. The writer checks it
 before provider creation, login or inventory. Project-local v1 previews are unbound; reads never
 infer a region or convert a file. The old
 single path is refused without migration. `remote_selector` owns explicit/default/local resolution;
-`remote_catalog` owns public references, never grants or deployment authority. The contract owns
+`remote_catalog` applies each edit once to Document's freshly validated current bytes;
+reads stay observational and private mode remains 0600. It owns public references, never
+grants or deployment authority. The contract owns
 [native selection](../../../../contracts/remote-channel-v1.md#native-remote-selection). A conflicting
 target leaves record and staging untouched. Foreign Rules replacement consent is the whole frozen plan digest, including its live
 fingerprint; the run refuses a changed foreign fingerprint before the Rules effect. The contract

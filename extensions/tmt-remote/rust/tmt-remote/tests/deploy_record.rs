@@ -20,9 +20,17 @@ fn writer_excludes_a_successor_but_readers_and_existing_layout_never_take_its_lo
     let layout = root.layout();
     let source = DeployRecordEvidence::new(&layout);
     assert_eq!(source.evidence(), None);
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     assert!(
-        matches!(DeployRecordStore::open(&layout, "demo-remote-1"),Err(e) if e.code=="REMOTE_DEPLOY_BUSY")
+        matches!(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture"),Err(e) if e.code=="REMOTE_DEPLOY_BUSY")
+    );
+    let busy = DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture")
+        .err()
+        .unwrap();
+    assert!(
+        busy.message
+            .contains(&format!("recorded holder pid {}", std::process::id()))
     );
     let original = DeployRecord::new(ID);
     writer.persist(&original).unwrap();
@@ -46,7 +54,7 @@ fn writer_excludes_a_successor_but_readers_and_existing_layout_never_take_its_lo
         0o600
     );
     drop(writer);
-    drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
+    drop(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap());
 }
 
 #[test]
@@ -55,7 +63,8 @@ fn index_readiness_reads_the_snapshot_under_the_writer_lock_without_changing_byt
     use tmt_remote::readiness::{LAYERS, project};
     let root = Root::new();
     let layout = root.layout();
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let mut record = DeployRecord::new(ID);
     record.run = Some(Run {
         plan_digest: "a".repeat(64),
@@ -103,14 +112,15 @@ fn index_readiness_reads_the_snapshot_under_the_writer_lock_without_changing_byt
     );
     assert!(!root.remote().join("remote.db").exists());
     assert!(
-        matches!(DeployRecordStore::open(&layout, "demo-remote-1"), Err(e) if e.code == "REMOTE_DEPLOY_BUSY")
+        matches!(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture"), Err(e) if e.code == "REMOTE_DEPLOY_BUSY")
     );
 }
 #[test]
 fn machine_publication_settings_store_and_stopped_lease_preserve_deployment_identity() {
     let root = Root::new();
     let layout = root.layout();
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     let stale = root
@@ -142,7 +152,7 @@ fn machine_publication_settings_store_and_stopped_lease_preserve_deployment_iden
 fn only_admitted_deploy_staging_is_cleaned_and_foreign_names_are_preserved() {
     let root = Root::new();
     let layout = root.layout();
-    drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
+    drop(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap());
     let stale = root
         .remote()
         .join("deployments/demo-remote-1")
@@ -153,12 +163,12 @@ fn only_admitted_deploy_staging_is_cleaned_and_foreign_names_are_preserved() {
         .remote()
         .join("deployments/demo-remote-1/.deploy-not-a-uuid");
     fs::write(&unrelated, b"retain").unwrap();
-    drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
+    drop(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap());
     assert!(!stale.exists());
     assert_eq!(fs::read(&unrelated).unwrap(), b"retain");
     assert!(deploy_record::read(&layout).unwrap().is_none());
     symlink(&unrelated, &stale).unwrap();
-    assert!(DeployRecordStore::open(&layout, "demo-remote-1").is_err());
+    assert!(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").is_err());
     assert!(stale.symlink_metadata().unwrap().file_type().is_symlink());
     assert_eq!(fs::read(&unrelated).unwrap(), b"retain");
 }
@@ -173,7 +183,7 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
     ] {
         let root = Root::new();
         let layout = root.layout();
-        drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
+        drop(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap());
         let path = root.remote().join("deployments/demo-remote-1/deploy.json");
         fs::write(&path, &bytes).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -182,13 +192,14 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
             DeployRecordEvidence::new(&layout).evidence(),
             Some(FirestoreEvidence::unknown())
         );
-        assert!(DeployRecordStore::open(&layout, "demo-remote-1").is_err());
+        assert!(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
     let root = Root::new();
     let layout = root.layout();
     let path = root.remote().join("deployments/demo-remote-1/deploy.json");
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     drop(writer);
     let bytes = fs::read(&path).unwrap();
@@ -207,7 +218,7 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
         DeployRecordEvidence::new(&layout).evidence(),
         Some(FirestoreEvidence::unknown())
     );
-    assert!(DeployRecordStore::open(&layout, "demo-remote-1").is_err());
+    assert!(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").is_err());
     assert_eq!(fs::read(&foreign).unwrap(), bytes);
 }
 
@@ -215,7 +226,8 @@ fn unsafe_oversized_malformed_or_future_record_is_never_reset_or_replaced() {
 fn an_existing_original_cannot_be_replaced_by_a_new_deployment_identity() {
     let root = Root::new();
     let layout = root.layout();
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     let before = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
     assert!(
@@ -234,8 +246,13 @@ fn target_binds_atomically_and_conflict_preserves_record_and_staging() {
     let root = Root::new();
     let layout = root.layout();
     let original = DeployRecord::new(ID);
-    let mut writer =
-        DeployRecordStore::open_for_target(&layout, "demo-remote-1", "asia-east1").unwrap();
+    let mut writer = DeployRecordStore::open_for_target(
+        &layout,
+        "demo-remote-1",
+        "asia-east1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target("demo-remote-1", "asia-east1").unwrap();
     assert!(deploy_record::read(&layout).unwrap().is_none());
     writer.persist(&original).unwrap();
@@ -261,13 +278,18 @@ fn target_binds_atomically_and_conflict_preserves_record_and_staging() {
     {
         let (project, region) = ("demo-remote-1", "us-central1");
         assert!(
-            matches!(DeployRecordStore::open_for_target(&layout, project, region), Err(e) if e.code == "REMOTE_DEPLOY_PROJECT_CONFLICT")
+            matches!(DeployRecordStore::open_for_target(&layout, project, region, "retry deploy fixture"), Err(e) if e.code == "REMOTE_DEPLOY_PROJECT_CONFLICT")
         );
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(fs::read(&staged).unwrap(), b"keep on conflict");
     }
-    let mut reopened =
-        DeployRecordStore::open_for_target(&layout, "demo-remote-1", "asia-east1").unwrap();
+    let mut reopened = DeployRecordStore::open_for_target(
+        &layout,
+        "demo-remote-1",
+        "asia-east1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     reopened.persist(&original).unwrap();
     assert_eq!(fs::read(&path).unwrap(), before);
     assert!(!staged.exists());
@@ -284,7 +306,7 @@ fn legacy_single_path_is_refused_without_conversion_or_any_reset() {
     fs::write(&path, &bytes).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     assert!(
-        matches!(DeployRecordStore::open_for_target(&layout, "demo-remote-1", "asia-east1"), Err(e) if e.code == "REMOTE_SELECTOR_LEGACY")
+        matches!(DeployRecordStore::open_for_target(&layout, "demo-remote-1", "asia-east1", "retry deploy fixture"), Err(e) if e.code == "REMOTE_SELECTOR_LEGACY")
     );
     assert!(matches!(deploy_record::read(&layout), Err(e) if e.code == "REMOTE_SELECTOR_LEGACY"));
     assert_eq!(fs::read(&path).unwrap(), bytes);
@@ -299,8 +321,13 @@ fn previews_for_two_projects_retain_independent_identities_without_binding() {
         ("demo-project-a", ID),
         ("demo-project-b", "ad2fb77d-b5e8-4a32-bf35-413f2220d909"),
     ] {
-        let mut writer =
-            DeployRecordStore::open_for_target(&layout, project, "asia-east1").unwrap();
+        let mut writer = DeployRecordStore::open_for_target(
+            &layout,
+            project,
+            "asia-east1",
+            "retry deploy fixture",
+        )
+        .unwrap();
         writer.persist(&DeployRecord::new(identity)).unwrap();
         let path = root
             .remote()
@@ -313,16 +340,67 @@ fn previews_for_two_projects_retain_independent_identities_without_binding() {
         assert_eq!(value["record"]["deploymentId"], identity);
     }
     assert!(!root.remote().join("deploy.json").exists());
-    let mut writer =
-        DeployRecordStore::open_for_target(&layout, "demo-project-a", "asia-east1").unwrap();
+    let mut writer = DeployRecordStore::open_for_target(
+        &layout,
+        "demo-project-a",
+        "asia-east1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     assert_eq!(writer.load_or_draft().unwrap().deployment_id, ID);
     writer.bind_target("demo-project-a", "asia-east1").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     drop(writer);
-    let writer =
-        DeployRecordStore::open_for_target(&layout, "demo-project-b", "asia-east1").unwrap();
+    let writer = DeployRecordStore::open_for_target(
+        &layout,
+        "demo-project-b",
+        "asia-east1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     assert_eq!(
         writer.load_or_draft().unwrap().deployment_id,
         "ad2fb77d-b5e8-4a32-bf35-413f2220d909"
+    );
+}
+
+#[test]
+fn deployment_document_recovers_reserved_staging_without_changing_the_legacy_record() {
+    let root = Root::new();
+    let layout = root.layout();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
+    let record = DeployRecord::new(ID);
+    writer.persist(&record).unwrap();
+    let directory = root.remote().join("deployments/demo-remote-1");
+    let before = fs::read(directory.join("deploy.json")).unwrap();
+    let staging = directory.join(".deploy.json.tmt-staging");
+    fs::write(&staging, b"abandoned publication").unwrap();
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o600)).unwrap();
+    writer.persist(&record).unwrap();
+    assert!(!staging.exists());
+    assert_eq!(fs::read(directory.join("deploy.json")).unwrap(), before);
+    assert_eq!(
+        deploy_record::read_project(&layout, "demo-remote-1").unwrap(),
+        Some(record)
+    );
+}
+
+#[test]
+fn an_unrecorded_deployment_writer_is_explicitly_unknown_and_never_treated_as_dead() {
+    let root = Root::new();
+    let layout = root.layout();
+    let held = layout.file("deploy.lock").unwrap();
+    held.try_lock().unwrap();
+    let error = DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture")
+        .err()
+        .unwrap();
+    assert_eq!(error.code, "REMOTE_DEPLOY_BUSY");
+    assert!(error.message.contains("holder unknown"));
+    assert!(!root.remote().join("deployments").exists());
+    assert!(
+        fs::read(root.remote().join("deploy.lock"))
+            .unwrap()
+            .is_empty()
     );
 }

@@ -61,9 +61,8 @@ pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
 pub const CORE_CALL: Duration = Duration::from_secs(15);
 /// Largest registered-ID-shaped runtime driver disclosed in agents.list.
 pub const RUNNING_DRIVER_BYTES: usize = 32;
-/// A dispatch fence can perform receipt lookup and creation, each with a one-second
-/// cleanup budget. Authority writes wait beyond both calls with eight seconds' margin.
-pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);
+/// Bounded SQLite contention admission. Expiry refuses; it never bypasses an effect fence.
+pub const AUTHORITY_WAIT: Duration = Duration::from_secs(5);
 
 /// Total wait for restart admission to observe its existing in-run owners.
 pub const RESTART_IDLE_WAIT: Duration = Duration::from_millis(250);
