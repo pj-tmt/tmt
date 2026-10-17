@@ -1,9 +1,9 @@
-//! Wide Digest columns adapt held scoped observations; no new aggregation policy.
+//! Wide Digest identity rows adapt held scoped observations; no new aggregation policy.
 use crate::{
     board::{
         app::App,
         digest_dashboard,
-        digest_matrix::{self, Column},
+        digest_matrix::{self, Row},
     },
     config::DigestWindow,
     labels::digest::{Mode, SavingsSummary},
@@ -11,8 +11,7 @@ use crate::{
 use std::collections::BTreeSet;
 
 pub(super) struct Matrix {
-    pub columns: Vec<Column>,
-    pub labels: [String; 6],
+    pub rows: Vec<Row>,
     pub note: String,
 }
 fn estimate(savings: &SavingsSummary, complete: bool) -> [Option<String>; 3] {
@@ -68,7 +67,7 @@ fn tokens(app: &App, identities: &[&str], complete: bool) -> Option<String> {
     })
 }
 impl Matrix {
-    pub fn project(app: &App, width: u16) -> Self {
+    pub fn project(app: &App, height: u16) -> Self {
         let snapshot = app.workspace_snapshot().expect("admitted workspace");
         let summary = super::monitor::scene(app, snapshot).summary.clone();
         let visible = app
@@ -100,9 +99,8 @@ impl Matrix {
             .collect();
             Some(if present.len() == 1 {
                 format!(
-                    "{}{} {}",
+                    "{}{}",
                     if summary.complete { "" } else { "~" },
-                    present[0].0,
                     present[0].1
                 )
             } else if present.is_empty() && summary.complete {
@@ -126,7 +124,7 @@ impl Matrix {
             DigestWindow::Day,
         );
         let [ctx, percent, cost] = estimate(&savings, summary.complete);
-        let mut columns = vec![Column {
+        let mut rows = vec![Row {
             name: "all".into(),
             values: [
                 all_mode,
@@ -157,10 +155,7 @@ impl Matrix {
                 })
                 .then_with(|| a.cmp(b))
         });
-        for (id, _) in ranked
-            .into_iter()
-            .take(digest_matrix::columns(width).saturating_sub(1))
-        {
+        for (id, _) in ranked.into_iter().take(digest_matrix::agents(height)) {
             let member = digest.and_then(|status| status.members.get(id));
             let mode = member.map(|member| match member.mode {
                 Mode::Auto => "Auto".into(),
@@ -176,7 +171,7 @@ impl Matrix {
                 DigestWindow::Day,
             );
             let [ctx, percent, cost] = estimate(&savings, true);
-            columns.push(Column {
+            rows.push(Row {
                 name: snapshot.roster.members[id].name.clone(),
                 values: [mode, held, tokens(app, &[id], true), ctx, percent, cost],
             });
@@ -199,19 +194,10 @@ impl Matrix {
         );
         Self {
             note: format!(
-                "top {} by TOK · {destination}",
-                columns.len().saturating_sub(1)
+                "all + top {} by TOK · {destination}",
+                rows.len().saturating_sub(1)
             ),
-            columns,
-            labels: [
-                "mode",
-                "held",
-                "TOK 1h",
-                "ctx avoided 24h",
-                "% of input",
-                "≈ $ avoided",
-            ]
-            .map(str::to_owned),
+            rows,
         }
     }
 }

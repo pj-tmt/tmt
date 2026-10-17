@@ -542,7 +542,7 @@ pub(in crate::board) fn populate_final(app: &mut crate::board::app::App, scene: 
             question["preparedAtMs"] = json!(now - (index as u64 + 1) * 60_000);
         }
     }
-    if scene == "squads-valued" {
+    if matches!(scene, "squads-valued" | "digest-rows") {
         let mut document = crate::board::digest_dashboard::tests::valued_document();
         let template = document["members"][0].clone();
         document["observedAtMs"] = json!(now);
@@ -569,7 +569,12 @@ pub(in crate::board) fn populate_final(app: &mut crate::board::app::App, scene: 
     let squad = app.workspace_snapshot().unwrap().roster.squads[0].clone();
     let roster = &app.workspace_snapshot().unwrap().roster;
     let mut seeds = BTreeMap::new();
-    for (index, id) in squad.members.iter().take(3).enumerate() {
+    let observed = if scene == "digest-rows" {
+        squad.members.len()
+    } else {
+        3
+    };
+    for (index, id) in squad.members.iter().take(observed).enumerate() {
         let mut seed = fixture_seeds(&history_fixture())
             .remove("a")
             .unwrap()
@@ -579,7 +584,7 @@ pub(in crate::board) fn populate_final(app: &mut crate::board::app::App, scene: 
         seed.through += offset;
         seed.available = seed.available.map(|at| at + offset);
         seed.sampled = seed.sampled.map(|at| at + offset);
-        let factor = (3 - index) as u64;
+        let factor = (observed - index) as u64;
         for bucket in &mut seed.buckets {
             bucket.from_ms += offset;
             bucket.to_ms += offset;

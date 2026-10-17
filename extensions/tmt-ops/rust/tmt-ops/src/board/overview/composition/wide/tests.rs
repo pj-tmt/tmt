@@ -47,7 +47,7 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
     let mut app = board_app();
     let buffer = paint(&mut app, 148, 51);
     let shown = text(&buffer);
-    assert!(shown.contains("% of input") && shown.contains("≈ $ avoided"));
+    assert!(shown.contains("CTX 24h") && shown.contains("% IN") && shown.contains("≈ $"));
     assert!(!shown.contains("Auto · timed · Off") && !shown.contains("Conversation ·"));
     let band = app.input_band.get().unwrap();
     assert_eq!(band.height, 3);
