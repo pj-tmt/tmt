@@ -203,7 +203,7 @@ jobs:
           key: ${{ steps.browsers.outputs.cache-primary-key }}
 
   colab-app:
-    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/3)
+    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/4)
     needs: changes
     concurrency:
       group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}-${{ matrix.shard }}
@@ -211,12 +211,12 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || needs.changes.outputs.colab_app == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The single-worker suite (~730 specs) took 17 to 21 minutes as one job (#2827); three shards
-    # of about 240 specs each take about a third of that. No shard cancels another.
+    # Four contiguous shards measure per-file durations before the balanced split (#3618).
+    # Every test remains selected; each shard owns its concurrency group and evidence.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
     steps:
@@ -235,9 +235,11 @@ jobs:
       # One worker and no retries, as configured. The native-fixture specs (cli, chrome) skip
       # with a named reason here; the real-binary job below owns native behavior.
       - name: Run the app component specs
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-app-results/results.json
         working-directory: typescript
         shell: bash
-        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --shard=${{ matrix.shard }}/3 --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
+        run: pnpm --filter @tmt/colab-app --fail-if-no-match test:browser --shard=${{ matrix.shard }}/4 --reporter=dot,json --output "$RUNNER_TEMP/colab-app-results/traces" 2>&1 | tee "$RUNNER_TEMP/colab-app-results/run.log"
       - name: Upload run log and failure traces
         if: always()
         uses: actions/upload-artifact@v4
