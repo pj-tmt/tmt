@@ -4,6 +4,7 @@ import history from '../fixtures/release-cut-history.json' with { type: 'json' }
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { versionOfTag } from '../../scripts/release-versions.mjs';
 import { readCutMetadata } from '../../scripts/release-cut-read.mjs';
+import { createCutClient } from '../../scripts/release-cut-live.mjs';
 import {
   attributeCutCommits,
   nextAlphaVersion,
@@ -669,8 +670,12 @@ describe('bounded REST-only state acquisition', () => {
     const f = api(101);
     f.rows[100].draft = true;
     f.rows[100].assets = [{ name: 'verification-failed.json' }];
+    const captured = structuredClone(f.rows);
+    const asset = { name: 'verification-failed.json', browser_download_url: 'unused' };
+    f.rows[100].assets = [asset];
     const result = readCutMetadata(input, f.execute);
-    expect(result.releases).toEqual(f.rows);
+    expect(result.releases).toEqual(captured);
+    expect(result.releases.at(-1)!.assets).toEqual([{ name: 'verification-failed.json' }]);
     expect(f.execute).toHaveBeenCalledTimes(4);
     expect(JSON.stringify(result)).not.toContain(input.token);
   });
@@ -678,6 +683,43 @@ describe('bounded REST-only state acquisition', () => {
     const f = api(count);
     expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
     expect(f.execute).toHaveBeenCalledTimes(Math.max(1, Math.ceil(count / 100)) + 2);
+  });
+  it('fits eight seven-page snapshots and seven mutation boundaries in the live cut budget', () => {
+    const f = api(695);
+    const draft = {
+      id: 900,
+      draft: true,
+      tag_name: 'v5.0.0-alpha.999',
+      target_commitish: input.cut,
+      body: 'notes',
+    };
+    const execute = vi.fn((executable: string, args: string[]) => {
+      if (args[1].includes('/releases?')) return f.execute(executable, args);
+      if (args[1].includes('/git/ref/heads/'))
+        return JSON.stringify({ object: { sha: input.cut } });
+      if (args[1].includes('/git/matching-refs/')) return '[]';
+      if (args[1].endsWith('/releases') || args[1].endsWith('/releases/900'))
+        return JSON.stringify(draft);
+      if (args[1].endsWith('/dispatches')) return '';
+      throw new Error(`Unexpected cut REST call: ${args[1]}`);
+    });
+    const client = createCutClient(
+      { repository: input.repository, token: input.token, ref: 'refs/heads/main' },
+      execute
+    );
+    expect(client.main()).toBe(input.cut);
+    for (let read = 0; read < 8; read += 1)
+      expect(client.metadata(input.cut).releases).toHaveLength(695);
+    for (let row = 0; row < 7; row += 1) {
+      expect(client.tagged(draft.tag_name)).toBe(false);
+      client.draft({ product: 'cli', tag: draft.tag_name, cut: input.cut, body: 'notes' });
+      client.release(900);
+      expect(client.tagged(draft.tag_name)).toBe(false);
+      client.dispatch('cli', draft.tag_name);
+    }
+    expect(f.execute).toHaveBeenCalledTimes(72); // Eight quiet catalogues: 8 * (7 + 2), previously 8 * 7 = 56.
+    expect(execute).toHaveBeenCalledTimes(108); // Catalogues + main + seven five-request mutation boundaries.
+    expect(execute.mock.calls.length).toBeLessThan(180);
   });
   it('fails closed one page beyond the maximum without increasing the request cap', () => {
     const f = api(5801);
@@ -713,6 +755,36 @@ describe('bounded REST-only state acquisition', () => {
   it('detects a first-page removal between discovery and the terminal anchor', () => {
     const f = api(250, (rows, _page, call) => {
       if (call === 2) rows.splice(10, 1);
+    });
+    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(10);
+  });
+  it.each(['assets', 'draft'] as const)(
+    'keeps captured rows when page-one %s change without membership moving',
+    (field) => {
+      const f = api(250, (rows, _page, call) => {
+        if (call === 5) {
+          if (field === 'assets') rows[0].assets.push({ name: 'verification-failed.json' });
+          else rows[0].draft = true;
+        }
+      });
+      const captured = structuredClone(f.rows);
+      expect(readCutMetadata(input, f.execute).releases).toEqual(captured);
+      expect(f.execute).toHaveBeenCalledTimes(5);
+      expect(f.rows).not.toEqual(captured);
+    }
+  );
+  it('keeps captured terminal rows when only draft metadata changes', () => {
+    const f = api(250, (rows, _page, call) => {
+      if (call === 4) rows.at(-1)!.draft = true;
+    });
+    const captured = structuredClone(f.rows);
+    expect(readCutMetadata(input, f.execute).releases).toEqual(captured);
+    expect(f.execute).toHaveBeenCalledTimes(5);
+  });
+  it('restarts when the final first-page verification sees an ID shift', () => {
+    const f = api(250, (rows, _page, call) => {
+      if (call === 5) rows.unshift(release(251));
     });
     expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
     expect(f.execute).toHaveBeenCalledTimes(10);

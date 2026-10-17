@@ -15,7 +15,8 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   // A quiet P-page catalogue costs P + 2 requests: discovery, terminal anchor,
   // middle pages, terminal verification and page-one verification. The shared
   // 60-request/90-second budget admits 58 pages (5,800 releases); all three
-  // attempts spend this same budget. Exhaustion never returns partial history.
+  // attempts spend this same budget. The live cut can exhaust its separate
+  // 180-request budget earlier across snapshots. Exhaustion never returns partial history.
   const deadline = Date.now() + 90_000;
   const get = (page) => {
     if (++requests > 60 || Date.now() >= deadline) throw new Error('Cut REST budget exceeded.');
@@ -74,6 +75,7 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
     });
     return { rows, lastPage };
   };
+  const membership = ({ rows, lastPage }) => ({ ids: rows.map(({ id }) => id), lastPage });
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const first = get(1);
     const pages = first.lastPage;
@@ -94,8 +96,8 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
     const verifiedFirst = get(1);
     if (
       shifted ||
-      !isDeepStrictEqual(terminal.rows, verifiedTerminal.rows) ||
-      !isDeepStrictEqual(first, verifiedFirst)
+      !isDeepStrictEqual(membership(terminal), membership(verifiedTerminal)) ||
+      !isDeepStrictEqual(membership(first), membership(verifiedFirst))
     )
       continue;
     return rows;
