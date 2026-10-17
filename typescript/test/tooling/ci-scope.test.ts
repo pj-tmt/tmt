@@ -2956,7 +2956,7 @@ describe('required CI gate', () => {
       'utf8'
     );
     expect((workflow + workspace).match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(
-      sites.length + 1
+      sites.length + 2
     );
     expect(workspace.indexOf('sh scripts/install-ci-rust.sh ')).toBeLessThan(
       workspace.indexOf('uses: Swatinem/rust-cache@')
@@ -2983,7 +2983,7 @@ describe('required CI gate', () => {
       (workflow + workspace).match(
         /install-ci-rust\.sh 1\.97\.0 --profile minimal --component rustfmt,clippy/g
       )
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     const colab = readFileSync(
       new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
       'utf8'

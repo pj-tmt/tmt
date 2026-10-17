@@ -215,7 +215,7 @@ function writeJSON(file, data) {
   writeFileSync(file, JSON.stringify(data) + '\n');
 }
 
-function identity() {
+function runIdentity() {
   const source = spawnSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
   assert.equal(source.status, 0, 'source identity unavailable');
   assert.equal(source.stdout.trim(), process.env.GITHUB_SHA, 'checkout differs from event');
@@ -238,15 +238,60 @@ function identity() {
   };
 }
 
+/** The native metadata tests use both runtime CARGO and a producer-compiled Cargo path. */
+export function consumerEnvironment(cargo, base = process.env) {
+  assert.ok(
+    typeof cargo === 'string' && path.isAbsolute(cargo),
+    'Cargo executable must be absolute'
+  );
+  return { ...base, CARGO: cargo };
+}
+
+/** Collectors validate run provenance; only actual execution machines supply compiler evidence. */
+export function admitMachineIdentity(identity, expectedRun) {
+  const { cargo, cargoVersion, rustcVersion, ...run } = identity;
+  assert.deepEqual(run, expectedRun, 'run identity differs');
+  consumerEnvironment(cargo, {});
+  assert.ok(
+    typeof cargoVersion === 'string' && cargoVersion.startsWith(`cargo ${TOOLCHAIN} `),
+    'Cargo version differs'
+  );
+  assert.ok(
+    typeof rustcVersion === 'string' && rustcVersion.startsWith(`rustc ${TOOLCHAIN} `),
+    'rustc version differs'
+  );
+  return identity;
+}
+
+function executionIdentity() {
+  const read = (program, args) => {
+    const result = spawnSync(program, args, { encoding: 'utf8', timeout: 30_000, maxBuffer: 4096 });
+    if (result.error) throw result.error;
+    assert.equal(result.status, 0, `${program} ${args.join(' ')} identity failed`);
+    return result.stdout.trim();
+  };
+  const cargo = realpathSync(read('rustup', ['which', 'cargo']));
+  const context = runIdentity();
+  return admitMachineIdentity(
+    {
+      ...context,
+      cargo,
+      cargoVersion: read(cargo, ['--version']),
+      rustcVersion: read(path.join(path.dirname(cargo), 'rustc'), ['--version']),
+    },
+    context
+  );
+}
+
 /** Every effect is bounded and its timing/result survives a failing phase. */
-function command(directory, phase, program, args, isolated = false) {
+function command(directory, phase, program, args, isolated = false, base = process.env) {
   const started = new Date().toISOString();
   const clock = performance.now();
   let result;
   const diagnostics = [];
   const spawn = (executable, argv, options = {}) => {
     result = spawnSync(executable, argv, {
-      env: options.env ?? process.env,
+      env: options.env ?? base,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 ** 2,
       timeout: 18 * 60_000,
@@ -254,7 +299,12 @@ function command(directory, phase, program, args, isolated = false) {
     return result;
   };
   const world = isolated
-    ? runInPrivateWorld({ argv: [program, ...args], spawn, log: (line) => diagnostics.push(line) })
+    ? runInPrivateWorld({
+        argv: [program, ...args],
+        base,
+        spawn,
+        log: (line) => diagnostics.push(line),
+      })
     : undefined;
   if (!world) spawn(program, args);
   else result.status = world.status;
@@ -367,7 +417,7 @@ function archive(directory, total) {
   partitionCases(cases, 1, total);
   writeJSON(path.join(directory, 'manifest.json'), {
     schema: 1,
-    identity: identity(),
+    identity: executionIdentity(),
     partitions: total,
     cases,
     archive: { bytes: stat.size, sha256: sha256(readFileSync(archive)) },
@@ -376,7 +426,8 @@ function archive(directory, total) {
 
 function consume(directory, index) {
   const manifest = readJSON(path.join(directory, 'manifest.json'));
-  assert.deepEqual(manifest.identity, identity(), 'consumer identity differs');
+  const machine = executionIdentity();
+  assert.deepEqual(manifest.identity, machine, 'consumer identity differs');
   const expected = partitionCases(manifest.cases, index, manifest.partitions);
   const archive = path.join(directory, 'workspace.tar.zst');
   const stat = lstatSync(archive);
@@ -384,7 +435,7 @@ function consume(directory, index) {
     stat.isFile() && !stat.isSymbolicLink() && stat.size <= 1024 ** 3,
     'archive byte bound/type'
   );
-  admitArchive(manifest, readFileSync(archive), identity());
+  admitArchive(manifest, readFileSync(archive), machine);
   assert.ok(!existsSync('target'), 'consumer target must start absent');
   // nextest owns decoding; extraction into this existing workspace preserves compiled absolute paths.
   const inventory = JSON.parse(
@@ -434,7 +485,8 @@ function consume(directory, index) {
       '--partition',
       `slice:${index}/${manifest.partitions}`,
     ],
-    true
+    true,
+    consumerEnvironment(machine.cargo)
   );
   const phases = readJSON(path.join(directory, 'phases.json'));
   const worldRemoved = phases.at(-1).worldRemoved;
@@ -472,7 +524,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
     command(directory, value, program, args, true);
   } else if (mode === 'aggregate') {
     const manifest = readJSON(path.join(directory, 'manifest.json'));
-    assert.deepEqual(manifest.identity, identity(), 'aggregate identity differs');
+    admitMachineIdentity(manifest.identity, runIdentity());
     const states = {
       producer: process.env.PRODUCER_RESULT,
       consumers: process.env.CONSUMERS_RESULT,

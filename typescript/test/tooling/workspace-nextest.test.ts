@@ -4,8 +4,13 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runInPrivateWorld } from '../../scripts/private-world.mjs';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  consumerEnvironment,
+  admitMachineIdentity,
+  TOOLCHAIN,
   admitArchive,
   admitPartition,
   aggregatePartitions,
@@ -327,7 +332,10 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(consumers).toContain('fail-fast: false');
   expect(consumers).toContain('fromJSON(needs.producer.outputs.matrix');
   expect(consumers).toContain('workspace-nextest.mjs consume');
-  expect(consumers).not.toMatch(/rust-cache|cargo (build|test|nextest)|install-ci-rust/);
+  expect(consumers).not.toMatch(/rust-cache|cargo (build|test|nextest)/);
+  expect(consumers).toContain(
+    'sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy'
+  );
   expect(aggregate).toContain('needs: [producer, consumers]');
   expect(aggregate).toContain('if: always()');
   expect(aggregate).toContain('test "$PRODUCER_RESULT" = success');
@@ -337,4 +345,79 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(setup).toContain(`cargo-nextest-${NEXTEST_VERSION}`);
   expect(setup).toContain('223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc');
   expect(setup).toContain('sha256sum --check');
+});
+
+it('admits observed compiler versions while collectors validate only their own run context', () => {
+  const context = { source: 'a'.repeat(40), run: '123', attempt: '1', toolchain: TOOLCHAIN };
+  const machine = {
+    ...context,
+    cargo: '/owned/toolchain/bin/cargo',
+    cargoVersion: `cargo ${TOOLCHAIN} (fixture)`,
+    rustcVersion: `rustc ${TOOLCHAIN} (fixture)`,
+  };
+  expect(admitMachineIdentity(machine, context)).toEqual(machine);
+  for (const field of ['cargoVersion', 'rustcVersion'])
+    expect(() => admitMachineIdentity({ ...machine, [field]: 'older compiler' }, context)).toThrow(
+      'version differs'
+    );
+  expect(() => admitMachineIdentity({ ...machine, cargo: 'cargo' }, context)).toThrow('absolute');
+  expect(() => admitMachineIdentity(machine, { ...context, attempt: '2' })).toThrow(
+    'run identity differs'
+  );
+  expect(() => admitMachineIdentity({ ...machine, toolchain: 'other' }, context)).toThrow(
+    'run identity differs'
+  );
+});
+
+it('gives the isolated consumer a real Cargo executable without changing its parent environment', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'consumer-cargo-'));
+  try {
+    const cargo = path.join(root, 'cargo');
+    writeExecutable(cargo, '#!/bin/sh\nprintf "%s\\n" "cargo fixture version"\n', 0o755);
+    const base = { ...process.env, CARGO: '/missing/parent/cargo' };
+    const env = consumerEnvironment(cargo, base);
+    expect(base.CARGO).toBe('/missing/parent/cargo');
+    expect(env.CARGO).toBe(cargo);
+    let stdout = '';
+    const result = runInPrivateWorld({
+      argv: [
+        process.execPath,
+        '-e',
+        `
+        const assert = require('node:assert/strict');
+        const {spawnSync} = require('node:child_process');
+        const compiledCargo = process.argv[1];
+        assert.equal(process.env.CARGO, compiledCargo, 'runtime Cargo missing');
+        const versions = [compiledCargo, process.env.CARGO].map(cargo => {
+          const child = spawnSync(cargo, ['--version'], {encoding:'utf8'});
+          assert.equal(child.status, 0);
+          return child.stdout.trim();
+        });
+        console.log(JSON.stringify({cargo:process.env.CARGO, versions}));
+      `,
+        cargo,
+      ],
+      base: env,
+      spawn: (program, args, options) => {
+        const child = spawnSync(program, args, {
+          ...options,
+          stdio: 'pipe',
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        stdout = child.stdout;
+        return child;
+      },
+      log: () => {},
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      cargo,
+      versions: ['cargo fixture version', 'cargo fixture version'],
+    });
+    expect(existsSync(result.world.root)).toBe(false);
+    expect(() => consumerEnvironment('cargo', base)).toThrow('absolute');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

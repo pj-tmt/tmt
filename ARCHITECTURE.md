@@ -92,7 +92,6 @@ Project-only never-shipped path declarations are defined in the
 [release-tracking reference](.agents/skills/tmt-release/references/native-release.md#project-release-tracking).
 The separate `tmt-cli` architecture guard checks all Rust files and macro tokens outside
 declared roots, packaging and canonical generated inputs without cfg/reachability inference.
-Experimental workspace partitions have one producer and an exact-identity gate (see CI reference).
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 

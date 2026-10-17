@@ -62,3 +62,9 @@ export function admitArchive(
   bytes: Uint8Array,
   expectedIdentity: Record<string, string>
 ): WorkspaceManifest;
+
+export function consumerEnvironment(cargo: string, base?: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
+export function admitMachineIdentity(
+  identity: Record<string, string>,
+  expectedRun: Record<string, string>
+): Record<string, string>;

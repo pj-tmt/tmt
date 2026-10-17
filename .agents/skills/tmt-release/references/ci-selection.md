@@ -199,14 +199,20 @@ execution, then reports actual PASS identities. The always-run collector rejects
 missing, skipped, failed, overlapping or foreign results before the caller can
 satisfy the native aggregate. It never replaces identity proof with counts.
 
-The pinned nextest installer is shared by producer and consumers. Consumers only
-extract and run the archive; they restore no Cargo cache and issue no build.
+The pinned nextest installer is shared by producer and consumers. Consumers also
+install the same pinned Rust toolchain for the native tests that run Cargo metadata.
+The isolated nextest run receives the real Cargo executable in `CARGO`; producer
+and consumer identities record actual Cargo/rustc versions. Consumers only extract
+and run the archive; they restore no Cargo cache and issue no build.
 Producer-only cache writes retain main admission. Phase evidence records compile,
 listing, archive, extraction and execution; Actions step times retain setup,
 transfer, selected emulators and collection costs. Separate VM ownership avoids a
 shared-host cleanup domain; any local heavy proof still needs Infra's run grant.
 This is measurement, not rollout. A reviewed exact head needs explicit run GO
-before its PR event; later retries require their own disposition.
+before its PR event; later retries require their own disposition. Because identity
+and artifact names include the run attempt, recovery requires **re-run all jobs**,
+not re-run failed jobs. Whether rollout should allow partial recovery remains a
+question for the final recommendation.
 
 ## Gate-time budgets
 
