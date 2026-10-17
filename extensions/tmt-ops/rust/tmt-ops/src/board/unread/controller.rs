@@ -3,6 +3,25 @@ use super::{Count, publish::Seen};
 use crate::board::{app::App, home_leads::Kind, workspace::OpsTarget};
 
 impl App {
+    /// Sorting resolves the bounded results page once; comparisons use UUID
+    /// membership without acquiring read markers again.
+    pub(in crate::board) fn unread_identities(&self) -> std::collections::BTreeSet<&str> {
+        let Some(actor) = self.view.as_ref().and_then(|view| view.me_id.as_deref()) else {
+            return Default::default();
+        };
+        let Some(page) = self.home_leads.unread(actor) else {
+            return Default::default();
+        };
+        page.replies
+            .keys()
+            .map(String::as_str)
+            .filter(|member| {
+                page.newest(member)
+                    .is_some_and(|at| at > self.read_marker(actor, member))
+            })
+            .collect()
+    }
+
     fn read_marker(&self, actor: &str, member: &str) -> u64 {
         self.unread.writer.confirmed(actor, member).max(
             self.workspace_snapshot()

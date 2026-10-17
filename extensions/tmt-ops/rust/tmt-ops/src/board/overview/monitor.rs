@@ -332,9 +332,14 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         matches!(&row.target,
         OpsTarget::Member { identity_id, .. } if key.pins.contains(identity_id))
     };
+    let unread = app.unread_identities();
+    let has_unread = |row: &OpsTreeRow| {
+        matches!(&row.target,
+        OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))
+    };
     projected.sort_by(|(a, av), (b, bv)| {
-        (app.unread_target(&b.target).total > 0)
-            .cmp(&(app.unread_target(&a.target).total > 0))
+        has_unread(b)
+            .cmp(&has_unread(a))
             .then_with(|| pinned(b).cmp(&pinned(a)))
             .then_with(|| waits(snapshot, b).cmp(&waits(snapshot, a)))
             .then_with(|| match key.order {

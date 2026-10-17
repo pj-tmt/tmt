@@ -166,11 +166,15 @@ impl App {
                     )
                 } else {
                     let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
-                    for siblings in rows.chunk_by_mut(|a, b| {
-                        matches!((&a.target, &b.target),
-                            (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b)
-                    }) {
-                        siblings.sort_by_key(|row| std::cmp::Reverse(self.unread_target(&row.target).total > 0));
+                    let unread = self.unread_identities();
+                    if !unread.is_empty() {
+                        for siblings in rows.chunk_by_mut(|a, b| {
+                            matches!((&a.target, &b.target),
+                                (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b)
+                        }) {
+                            siblings.sort_by_key(|row| std::cmp::Reverse(matches!(&row.target,
+                                OpsTarget::Member { identity_id, .. } if unread.contains(identity_id.as_str()))));
+                        }
                     }
                     rows
                 }

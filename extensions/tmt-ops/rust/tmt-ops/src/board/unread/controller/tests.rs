@@ -267,6 +267,10 @@ fn unread_global_and_squad_counts_deduplicate_uuid_memberships_and_respect_pool_
 #[test]
 fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clears() {
     let mut app = unread_app();
+    assert_eq!(
+        app.unread_identities(),
+        std::collections::BTreeSet::from([MEMBER])
+    );
     let target = app.workspace.selected.clone().unwrap();
     let other = "44444444-4444-4444-8444-444444444444";
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
@@ -318,6 +322,7 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
     assert_eq!(app.workspace.selected, Some(target.clone()));
     assert_eq!(app.workspace_rows()[app.selected].target, target);
     assert_eq!(app.unread_count(MEMBER).total, 0);
+    assert!(app.unread_identities().is_empty());
     let snapshot = app.workspace_snapshot().unwrap();
     assert!(snapshot.roster.squads[0].member_states[other].waiting);
 }
