@@ -4326,3 +4326,35 @@ fn member_pin_failure_and_cap_leave_the_current_saved_state_intact() {
         );
     }
 }
+
+#[test]
+fn pinned_filter_disclosure_matches_temporarily_shown_children() {
+    for pool in [false, true] {
+        let mut app = populated_board(usize::from(!pool), 1);
+        let identity = app
+            .workspace_snapshot()
+            .unwrap()
+            .roster
+            .members
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
+        preferences.agent_pins.insert(identity);
+        app.finished_workspace_preferences(preferences, "Pinned agent".into());
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
+        app.workspace.expanded.clear();
+        app.workspace.pool_expanded = false;
+        app.workspace_reconcile();
+        let lines = paint(&app, 103, 51);
+        let group = if pool { "Common pool" } else { "squad-00" };
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains(&format!("▾ {group}"))),
+            "{lines:?}"
+        );
+        assert!(app.workspace.expanded.is_empty() && !app.workspace.pool_expanded);
+    }
+}

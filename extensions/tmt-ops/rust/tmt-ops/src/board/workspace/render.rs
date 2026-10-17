@@ -352,9 +352,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 let style = columns::table_style(app, selected, look.role(Role::Text));
                 let text = match field {
                     Field::Agent => {
+                        let children_shown = rows
+                            .get(index + 1)
+                            .is_some_and(|next| next.depth > row.depth);
                         let prefix = match &row.target {
                             OpsTarget::Pool => {
-                                if app.workspace.pool_expanded {
+                                if app.workspace.pool_expanded || children_shown {
                                     "▾ "
                                 } else {
                                     "▸ "
@@ -363,6 +366,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             OpsTarget::Squad(room) => {
                                 if app.workspace.expanded.contains(room)
                                     || !app.workspace.query.is_empty()
+                                    || children_shown
                                 {
                                     "▾ "
                                 } else {
