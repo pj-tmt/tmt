@@ -1991,6 +1991,15 @@ works with Rules N. Tightening waits until the client no longer needing the old 
 the deployed bundle for one release. Colab owns the whole hosted bundle, including an
 unmodified, digest-checked copy of Remote's built SDK; Remote adds no hosted pages.
 
+The verified Hosting release name is retained exactly as received: only
+`sites/<site>/releases/<id>` or `sites/<site>/channels/live/releases/<id>` for the selected site,
+with a nonempty single-segment ID within the existing resource bound, is admitted. Other sites,
+channels, empty IDs and extra segments refuse. POST/read-back identity comparisons use the
+validated site and release ID, not the path spelling; this does not add a provider read or change
+the authorized plan, digest, handles, fields or record version. Existing site-qualified records
+read unchanged. A record with the live-channel-qualified name is forward-only: older Remote
+versions refuse it, so do not downgrade that record.
+
 **Remote link.** The public carrier is derived only from a Complete record's typed verified
 Hosting publication. No link metadata is persisted and deployment documents stay at version 3.
 An authorized Complete prints the derived link; `tmt remote link [--json]` derives the same bytes

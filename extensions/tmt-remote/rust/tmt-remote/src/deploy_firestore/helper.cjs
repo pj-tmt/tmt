@@ -530,6 +530,19 @@ async function execute(request, deps) {
       fail('unknown');
     return value;
   }
+  function releaseIdentity(name) {
+    if (typeof name !== 'string') fail('unknown');
+    for (const prefix of [`sites/${project}/releases/`, `sites/${project}/channels/live/releases/`]) {
+      if (name.startsWith(prefix)) {
+        resource(name, prefix);
+        return { site: project, id: name.slice(prefix.length) };
+      }
+    }
+    fail('unknown');
+  }
+  // Pin the POST or first exact live observation through joint verification/reconciliation.
+  // Metadata stays separate from the frozen inventory; never rewrite the received name.
+  let expectedReleaseName;
   async function apps() {
     const found = await pages('firebase', `projects/${project}/webApps`, 'apps');
     if (found.length > 256) fail('unknown');
@@ -588,7 +601,7 @@ async function execute(request, deps) {
     return [...union.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   }
 
-  async function liveHosting() {
+  async function liveHosting(expectedName) {
     const site = await api(
       'hosting',
       `projects/${project}/sites/${project}`,
@@ -598,11 +611,9 @@ async function execute(request, deps) {
     );
     if (site === null)
       return {
-        siteExists: false,
-        siteAppId: null,
-        siteAppConfig: null,
-        webApps: await apps(),
-        live: null,
+        inventory: { siteExists: false, siteAppId: null, siteAppConfig: null,
+          webApps: await apps(), live: null },
+        releaseName: null,
       };
     if (
       site.name !== `projects/${project}/sites/${project}` ||
@@ -612,6 +623,9 @@ async function execute(request, deps) {
     const channel = await api('hosting', `sites/${project}/channels/live`, 'GET', undefined, true);
     let live = null;
     if (channel?.release) {
+      const identity = releaseIdentity(channel.release.name);
+      if (expectedName !== undefined && stable(identity) !== stable(releaseIdentity(expectedName)))
+        fail('unknown');
       const name = resource(channel.release.version?.name, `sites/${project}/versions/`);
       const version = await api('hosting', name);
       if (version.status !== 'FINALIZED') fail('unknown');
@@ -628,6 +642,7 @@ async function execute(request, deps) {
         config,
       };
     }
+    if (!channel?.release && expectedName !== undefined) fail('unknown');
     const siteAppId = site.appId || null;
     const listed = await apps();
     let siteAppConfig = null;
@@ -639,9 +654,12 @@ async function execute(request, deps) {
         fail('unknown');
       siteAppConfig = await publicConfig(siteAppId);
     }
-    return { siteExists: true, siteAppId, siteAppConfig, webApps: listed, live };
+    return {
+      inventory: { siteExists: true, siteAppId, siteAppConfig, webApps: listed, live },
+      releaseName: channel?.release?.name ?? null,
+    };
   }
-  if (r.operation === 'hosting-inventory') return liveHosting();
+  if (r.operation === 'hosting-inventory') return (await liveHosting()).inventory;
   async function hosting() {
     const cp = structuredClone(i.checkpoint);
     const h = i.hosting;
@@ -741,8 +759,9 @@ async function execute(request, deps) {
     }
 
     async function exactLive() {
-      const live = (await liveHosting()).live;
-      return (
+      const observed = await liveHosting(expectedReleaseName);
+      const live = observed.inventory.live;
+      const exact = (
         live &&
         live.version === cp.version &&
         stable(live.files) === stable(files) &&
@@ -751,6 +770,8 @@ async function execute(request, deps) {
         live.planDigestPrefix === i.planDigest.slice(0, 12) &&
         live.contentDigest === contentDigest.slice(0, 32)
       );
+      if (exact && expectedReleaseName === undefined) expectedReleaseName = observed.releaseName;
+      return exact;
     }
     if (i.action === 'web-app') {
       if (await selectedApp()) return reply(applying ? 'done' : 'satisfied');
@@ -898,7 +919,7 @@ async function execute(request, deps) {
     }
     if (i.action === 'release') {
       if (await exactLive()) return reply(applying ? 'done' : 'satisfied');
-      const live = (await liveHosting()).live;
+      const live = (await liveHosting()).inventory.live;
       // A retained own release is still checked by its complete frozen fingerprint.
       const fingerprint = live === null ? null : sha(stable(live));
       if (h.replaces === 'foreign' && fingerprint !== h.replacedFingerprint)
@@ -910,13 +931,15 @@ async function execute(request, deps) {
       const listed = await versionFiles();
       if (stable(listed) !== stable(files)) fileMismatch(listed);
       // Re-read immediately before the public switch; no cross-service CAS exists.
-      if (stable((await liveHosting()).live) !== stable(live)) fail('unknown');
-      await api(
+      if (stable((await liveHosting()).inventory.live) !== stable(live)) fail('unknown');
+      const released = await api(
         'hosting',
         `sites/${project}/releases?versionName=${encodeURIComponent(cp.version)}`,
         'POST',
         {}
       );
+      expectedReleaseName = released?.name ?? null;
+      releaseIdentity(expectedReleaseName);
       if (!(await exactLive())) fail('unknown');
       return reply('done');
     }
@@ -941,6 +964,7 @@ async function execute(request, deps) {
       const release = (await api('hosting', `sites/${project}/channels/live`)).release;
       if (
         release.version?.name !== cp.version ||
+        stable(releaseIdentity(release.name)) !== stable(releaseIdentity(expectedReleaseName)) ||
         !(await exactLive()) ||
         (await liveRules()) !== i.source ||
         (await api('hosting', `projects/${project}/sites/${project}`)).appId !== cp.appId
@@ -954,7 +978,7 @@ async function execute(request, deps) {
           projectId: project,
           appId: cp.appId,
         },
-        release: resource(release.name, `sites/${project}/releases/`),
+        release: release.name,
       };
     }
     fail('provider-rejected');
