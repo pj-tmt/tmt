@@ -876,7 +876,9 @@ mod named_surface_tests {
             let actual = crate::board::view::footer::overview_hints(&app, width).unwrap();
             if actual.contains("@ names") {
                 shown += 1;
-                assert_eq!(actual.strip_suffix("  @ names").unwrap(), baseline);
+                assert_eq!(actual.replacen("@ names  ", "", 1), baseline);
+                assert!(actual.find("@ names").unwrap() < actual.find("? help").unwrap());
+                assert!(actual.ends_with("q quit"));
             } else {
                 assert_eq!(actual, baseline);
             }
@@ -1081,6 +1083,31 @@ mod named_surface_tests {
             terminal.backend().buffer()[(hit.area.x, hit.area.y)].bg,
             look.selection().bg.unwrap()
         );
+    }
+    #[test]
+    fn anchored_member_menu_shortcut_letters_use_neutral_text_color() {
+        for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth: tmt_cli_style::Depth::TrueColor,
+            };
+            let (_app, terminal) = rendered_scene("menu", 100, look);
+            let buffer = terminal.backend().buffer();
+            let row = (0..buffer.area.height)
+                .find_map(|y| {
+                    let text = (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>();
+                    let start = text.find("Copy")?;
+                    Some((y, text[..start].chars().count() as u16 - 3))
+                })
+                .expect("Copy is available in this member menu");
+            assert_eq!(buffer[(row.1, row.0)].symbol(), "y");
+            assert_eq!(
+                buffer[(row.1, row.0)].fg,
+                look.role(tmt_cli_style::Role::Text).fg.unwrap()
+            );
+        }
     }
     #[test]
     fn rendered_exchange_names_use_text_color_even_after_reader_hit_paint() {
