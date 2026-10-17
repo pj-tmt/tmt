@@ -45,10 +45,14 @@ with Core's usual 15 seconds and 1 MiB per call:
   window's own start. Earlier time was not recorded, and Core does not backfill it.
   Cached input is part of input; total is input plus output. An incomplete bucket is a
   lower bound, not an error.
-- `usage.unavailable[]`: `{id,name,retired,reason}` for an identity with no
+- `usage.unavailable[]`: `{id,name,retired,reason,cause?}` for an identity with no
   evidence: `no_evidence` (found, no successful read in the rollup), `not_found`, or
   `read_failed` (its batch failed or contradicted itself; a warning says why).
-  Unavailable is never reported as a seat with zero.
+  Unavailable is never reported as a seat with zero. A `no_evidence` row carries
+  Core's `cause` when Core gave one (`no_binding`, `no_agent`, `no_sampler`,
+  `not_sampled`; [meaning](../../../contracts/extension-api.md#consumption-history)):
+  why nothing is being sampled right now. A value this build does not know is passed
+  through, and a reader must tolerate one. The other reasons carry no cause.
 - `usage.lines[]`: totals grouped by model family, from the model id: `claude`
   (`claude-*`), `gpt` (`gpt-*`), `other`, and `unattributed` for totals Core could
   not attribute. `seats` counts identities contributing; `partialSeats` those whose
@@ -91,10 +95,10 @@ Failure exits 1 and prints `{"version":1,"error":{code,message}}` on stdout with
 `--csv` prints one RFC 4180 table with a header and LF row ends. Its rows are the
 JSON rows, so the two never disagree.
 
-- `usage`: `id,name,retired,line,model,input,output,cached,coveredMs,windowMs,startsAtMs,complete,unavailable`.
+- `usage`: `id,name,retired,line,model,input,output,cached,coveredMs,windowMs,startsAtMs,complete,unavailable,cause`.
   One row per model of each seat (`line` from the model id; `unattributed` and an
   empty `model` when `byModel` is null), then one row per unavailable identity with
-  only `id,name,retired,unavailable`.
+  only `id,name,retired,unavailable,cause`.
 - `credits`: `fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,serviceTiers`, one row
   per point (`serviceTiers` joined by spaces); only the header when `credits` is null.
 - `exchange`: `senderId,sender,recipientId,recipient,kind,count,bytes`, one row per

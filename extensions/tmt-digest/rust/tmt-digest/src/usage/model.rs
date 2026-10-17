@@ -121,6 +121,9 @@ pub struct Seat {
 pub struct Unavailable {
     label: Label,
     reason: &'static str,
+    /// Core's reason for a `no_evidence` identity, such as `no_agent`. A value
+    /// this build does not know is passed through; None when Core gave none.
+    cause: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +156,7 @@ impl Usage {
                 .map(|id| Unavailable {
                     label: label_of(id, labels),
                     reason: "read_failed",
+                    cause: None,
                 })
                 .collect(),
         }
@@ -234,6 +238,21 @@ fn credit(value: &Value) -> Result<Option<Credit>, Error> {
         .ok_or_else(|| invalid("consumption series"))
 }
 
+/// Core's `cause` for an identity that reports nothing: a plain lowercase id, else
+/// none. Unknown ids pass through, because later hosts add causes additively.
+fn cause(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .filter(|text| {
+            (1..=24).contains(&text.len())
+                && text.starts_with(|first: char| first.is_ascii_lowercase())
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+        })
+        .map(str::to_owned)
+}
+
 fn tier(value: &Value) -> Result<Option<String>, Error> {
     if value.is_null() {
         return Ok(None);
@@ -288,6 +307,7 @@ pub fn usage(
             result.unavailable.push(Unavailable {
                 label,
                 reason: "not_found",
+                cause: None,
             });
             continue;
         }
@@ -303,6 +323,7 @@ pub fn usage(
             result.unavailable.push(Unavailable {
                 label,
                 reason: "no_evidence",
+                cause: cause(&total["cause"]),
             });
             continue;
         }
@@ -531,8 +552,12 @@ fn seat_json(seat: &Seat) -> Value {
 }
 
 fn unavailable_json(row: &Unavailable) -> Value {
-    json!({"id": row.label.id, "name": row.label.name, "retired": row.label.retired,
-           "reason": row.reason})
+    let mut value = json!({"id": row.label.id, "name": row.label.name,
+                           "retired": row.label.retired, "reason": row.reason});
+    if let Some(cause) = &row.cause {
+        value["cause"] = json!(cause);
+    }
+    value
 }
 
 /// The `usage`, `limits` and `limitsUnavailable` sections.

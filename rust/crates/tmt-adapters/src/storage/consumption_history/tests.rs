@@ -22,7 +22,7 @@ fn history_empty_and_missing_keep_complete_wire_shape() {
                         {"fromMs":10000,"toMs":15000,"inputTokens":0,"outputTokens":0,
                          "cachedInputTokens":0,"coveredMs":0,"complete":false,"gap":true,"discontinuous":false}
                      ]}
-                 ]},
+                 ],"cause":"no_agent"},
                 {"id":"missing","found":false}
             ]
         })
@@ -71,7 +71,7 @@ fn history_populated_windows_preserve_gaps_and_exact_boundaries() {
                     {"fromMs":15000,"toMs":20000,"inputTokens":4,"outputTokens":0,"cachedInputTokens":0,
                      "coveredMs":5000,"complete":true,"gap":false,"discontinuous":true}
                 ]}
-            ]}]
+            ],"cause":"no_agent"}]
         })
     );
 }
@@ -867,4 +867,68 @@ fn recent_response_failure_rolls_back_preferences_and_the_change_cursor() {
         json!([])
     );
     storage.close().unwrap();
+}
+
+#[test]
+fn an_identity_that_reports_nothing_says_why_from_its_binding_alone() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let cause = |storage: &mut Storage| {
+        let history = storage
+            .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000, false)
+            .unwrap();
+        let entry = history["identities"][0].clone();
+        assert_eq!(entry["found"], true);
+        assert_eq!(entry["reporting"], false);
+        entry.get("cause").cloned()
+    };
+    let update = |storage: &Storage, sql: &str| {
+        storage.connection().unwrap().execute(sql, [&id]).unwrap();
+    };
+    // A bound pane with no admitted agent session: a shell, a Herdr pane, or an
+    // agent whose start hook never admitted its session.
+    assert_eq!(cause(&mut storage), Some(json!("no_agent")));
+    // Running, but only observed as a plain pane process: still no admitted session.
+    update(
+        &storage,
+        "UPDATE bindings SET runtime_state='running', runtime_pid=12, runtime_start_identity='s' WHERE identity_id=?",
+    );
+    assert_eq!(cause(&mut storage), Some(json!("no_agent")));
+    // An admitted running session with no foreground owner is Stop-only.
+    update(
+        &storage,
+        "UPDATE bindings SET observed_provider_session_id='session' WHERE identity_id=?",
+    );
+    assert_eq!(cause(&mut storage), Some(json!("no_sampler")));
+    // Owned and admitted, yet nothing sampled: hook missing, wrapper too old, or too new.
+    update(
+        &storage,
+        "UPDATE bindings SET launch_owner_pid=13, launch_owner_start_identity='o' WHERE identity_id=?",
+    );
+    assert_eq!(cause(&mut storage), Some(json!("not_sampled")));
+    // No binding at all: offline or never bound.
+    update(&storage, "DELETE FROM bindings WHERE identity_id=?");
+    assert_eq!(cause(&mut storage), Some(json!("no_binding")));
+}
+
+#[test]
+fn a_reporting_or_unknown_identity_has_no_cause() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    record_sample(
+        storage.connection().unwrap(),
+        &id,
+        Some(latest(10, 5, 1, 6000)),
+        6000,
+    )
+    .unwrap();
+    let missing = "ffffffff-ffff-4fff-8fff-ffffffffffff".to_owned();
+    let history = storage
+        .consumption_history(&[id.clone(), missing], &[5000], 120, 20000, false)
+        .unwrap();
+    assert_eq!(history["identities"][0]["reporting"], true);
+    assert!(history["identities"][0].get("cause").is_none());
+    assert_eq!(history["identities"][1]["found"], false);
+    assert!(history["identities"][1].get("cause").is_none());
 }

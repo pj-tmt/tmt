@@ -19,6 +19,7 @@ const USAGE: &[&str] = &[
     "startsAtMs",
     "complete",
     "unavailable",
+    "cause",
 ];
 const CREDITS: &[&str] = &[
     "fromMs",
@@ -91,6 +92,7 @@ fn usage(document: &Value) -> Vec<String> {
                 coverage["startsAtMs"].clone(),
                 coverage["complete"].clone(),
                 Value::Null,
+                Value::Null,
             ]
         };
         let head = |line: &str, model: &Value| {
@@ -132,6 +134,7 @@ fn usage(document: &Value) -> Vec<String> {
         ];
         cells.extend(std::iter::repeat_n(Value::Null, 9));
         cells.push(seat["reason"].clone());
+        cells.push(seat["cause"].clone());
         rows.push(row(&cells));
     }
     rows
