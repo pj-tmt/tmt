@@ -5,6 +5,7 @@ pub mod assets;
 pub mod attachments;
 mod browser_policy;
 mod chrome;
+pub mod collections;
 pub mod control;
 pub mod core;
 pub mod decoder;

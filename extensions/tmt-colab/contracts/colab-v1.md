@@ -4214,6 +4214,80 @@ management code with its corresponding HTTP status. The CLI maps that existing
 wire directly; malformed, mismatched or interrupted replies are unknown outcomes,
 with captured correlation and no offline fallback.
 
+### Collections (#3541)
+
+Collections organize this owner's pages in the chapter layout. They are display-only
+owner-Store data, like labels: never page markup, signed owner statements, page streams,
+Firestore resources or access grants. V1 is owner-only on one Remote. Maintainer and
+audience names are display labels, not principals or notification destinations. A reader
+link or authored page cannot create, change or mark a collection. Collection changes do
+not change Today ordering, page needs-you counts or the space's Home summary.
+
+A collection has a generated UUID, a name (1–64 code points), a maintainer label (at most
+128 UTF-8 bytes), an archived flag and a kind, `manual` or `smart`. Names and labels contain
+no controls; a name is nonblank. There are at most 64 collections per space. An archived
+collection remains stored and can be shown explicitly; archiving never archives a page.
+
+A manual item has a generated UUID, a full same-space page UUID, an optional exact section
+anchor, a note (at most 512 UTF-8 bytes), an audience display label (at most 128 UTF-8 bytes)
+and its maintainer-selected position. There are at most 256 items per collection and
+1,000 manual items in the space. Repeated page references with different item IDs are
+separate items. Deleting an item deletes its collection Seen mark, never the source page.
+A section anchor is exactly `[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}`. It resolves to
+exactly one element by exact `id` in the existing renderer channel, never CSS or XPath.
+Missing or duplicate IDs are unavailable. Generic scroll/highlight is cosmetic only; even
+an ID equal to a reading/review/question UUID grants no semantic action unless the
+existing semantic path admits that action. A missing page or anchor stays visibly
+unavailable, never silently removed or redirected to a different passage. The displayed source is live, admitted through the same page
+binding, renderer and parent action owners as Today; a stored reference grants nothing.
+
+A smart collection stores the canonical All-pages `validateHomeSearch` search (`q`,
+`label`, `by`, `sort`, `archived`) plus optional `needsYou:true`. These are the existing
+list keys and semantics: literal words, all selected labels, any selected creator, title
+or updated sorting, and active pages unless archived pages are explicitly selected.
+There is no additional query language, regex, body index, background search or copied
+membership. The browser applies the same list filter to its current owner list; native
+commands show the saved definition, not a separately evaluated result set. A needs-you
+query includes only pages with a known positive count; unknown summaries make the result
+pending, never a complete empty result. Page title filling and summary refresh keep their
+existing bounds and lifecycle, with no collection polling or Subscribe for discovery.
+
+Seen is explicit collection reading progress. Only a trusted person action in the browser
+marks an item Seen or clears collection Seen; the CLI has neither operation. Opening,
+scrolling, an agent, source HTML or a renderer message cannot mark it. Seen is independent
+of reading/answer/review records and sends no notification. Unseen collection items never add to Today’s Needs-you count. It remains until Clear seen or
+a changed/removed target, and a source edit alone does not reset it. Seen items stay
+expanded and faded. A manual mark is keyed by collection/item; a smart mark is keyed by
+collection/page. Replacing a smart query clears its Seen marks. Neither marking nor
+clearing Seen changes any page record or needs-you count.
+
+The owner serves bounded directory and selected-collection detail reads at
+`GET /api/collections` and `GET /api/collections/<uuid>`. Both require the same admitted
+paired-owner device context as the owner page list. A browser mutation at
+`POST /api/collections` requires that owner context and a trusted parent action. The
+root-local CLI uses `POST /.tmt/colab/local/collections` on the existing private serve
+socket, or the same Store service under the serve lifecycle lock when stopped; Remote
+never forwards the reserved path. Root-local requests reject Seen operations. A request
+has `version:1` and one closed operation; unknown fields, kinds, IDs, scopes or operations
+are refused before a write. The directory carries definitions and metadata; details carry
+only one collection's items and Seen marks, each reply within the existing 1 MiB cap.
+
+Create, add, remove, rename, maintainer, query, sort and archive changes apply atomically
+under the Store writer transaction; reads create nothing. A request owns its frozen IDs;
+an exact repeat is unchanged, and an existing ID with different create data is a conflict.
+Capacity or invalid input changes nothing and is never truncated. A lost reply is an
+unknown outcome to inspect with show; it never triggers an automatic retry or an offline
+fallback. Management lives in the collection menu. Native commands expose the same
+operations except person-only Seen/Clear seen, with human/JSON parity. The bundled skill
+teaches maintainers to add references and notes rather than copy source.
+
+Collection chapters reuse the existing chapter presentation and navigation. Manual order
+starts with maintainer positions; explicit title/updated sort is available. Smart order
+is its saved list sort. Today retains its waiting/recent/folded order and its own summary.
+Live surfaces share the three-intersecting-surface bound, serial acquisition, joined
+replacement and busy-Send lifetime; collections do not create a second pool or action
+implementation. Source controls keep their existing admission and notification behavior.
+
 ### Page labels (#2588)
 
 Labels are display-only names the owner uses to organize the page list. They carry no

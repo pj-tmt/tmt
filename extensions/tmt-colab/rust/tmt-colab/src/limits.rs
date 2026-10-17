@@ -193,3 +193,11 @@ mod tests {
         assert_eq!(ACQUISITION + PUBLISH_COMBINE, PUBLISH_REPLY - RESPONSE);
     }
 }
+
+/// Display-only owner collections and their references; never additional page or carrier quotas.
+pub const COLLECTIONS: usize = 64;
+pub const COLLECTION_ITEMS: usize = 256;
+pub const COLLECTION_SPACE_ITEMS: usize = 1_000;
+pub const COLLECTION_NAME_POINTS: usize = 64;
+pub const COLLECTION_NOTE_BYTES: usize = 512;
+pub const COLLECTION_PERSON_BYTES: usize = 128;

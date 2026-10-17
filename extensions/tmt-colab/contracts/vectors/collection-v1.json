@@ -1,0 +1,99 @@
+{
+  "names": {
+    "valid": [
+      "Reports",
+      " Q4 notes ",
+      "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀"
+    ],
+    "invalid": [
+      "",
+      "   ",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "line\nbreak",
+      "a\u0000b"
+    ]
+  },
+  "sections": {
+    "valid": [
+      "hosting",
+      "10000000-0000-4000-8000-000000000001",
+      "chapter:1.part-2",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "invalid": [
+      "",
+      "#hosting",
+      "[id=hosting]",
+      "a b",
+      "a/b",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      ".first"
+    ]
+  },
+  "search": {
+    "valid": [
+      {},
+      {
+        "q": "release notes",
+        "label": ["Reports"],
+        "by": ["PM"],
+        "sort": "title",
+        "archived": true
+      },
+      {
+        "q": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀"
+      },
+      {
+        "label": ["a", "A"]
+      },
+      {
+        "by": [
+          "字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字字"
+        ]
+      }
+    ],
+    "invalid": [
+      {
+        "q": ""
+      },
+      {
+        "q": " leading"
+      },
+      {
+        "q": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "label": ["a", "a"]
+      },
+      {
+        "label": ["a", "a", "a", "a", "a", "a", "a", "a", "a"]
+      },
+      {
+        "label": [" bad"]
+      },
+      {
+        "by": [""]
+      },
+      {
+        "by": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ]
+      },
+      {
+        "by": ["a", "a"]
+      },
+      {
+        "archived": false
+      },
+      {
+        "sort": "updated"
+      },
+      {
+        "body": "full-text"
+      },
+      {
+        "needsYou": true
+      }
+    ]
+  }
+}
