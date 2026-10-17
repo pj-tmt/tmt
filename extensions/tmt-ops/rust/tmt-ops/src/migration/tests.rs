@@ -333,12 +333,13 @@ fn pending_invocation_clones_never_mix_layouts_and_state_writes_refuse_later_cut
     let mut f = CronFixture::new();
     let actor = f.actor(LEAD);
     let job = f.add(&actor, WORKER).unwrap().job.job;
-    let original = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
+    let original = crate::test_support::stored_jobs(&f.directory);
     fs::rename(f.directory.join("ops"), f.directory.join("squad")).unwrap();
     fs::rename(f.directory.join("ops.toml"), f.directory.join("squad.toml")).unwrap();
     fs::remove_file(f.directory.join(COMPLETE)).unwrap();
     fs::remove_file(f.directory.join(CUTOVER)).unwrap();
     let lease = f.directory.join("squad/cron/clock.json");
+    fs::create_dir_all(f.directory.join("squad/cron")).unwrap();
     fs::write(f.directory.join("squad/cron/clock.lock"), "").unwrap();
     let now = jiff::Timestamp::now().as_millisecond();
     fs::write(
@@ -367,10 +368,7 @@ fn pending_invocation_clones_never_mix_layouts_and_state_writes_refuse_later_cut
     );
     assert!(!f.directory.join("squad").exists());
     assert!(!f.directory.join("squad.toml").exists());
-    assert_eq!(
-        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap(),
-        original
-    );
+    assert_eq!(crate::test_support::stored_jobs(&f.directory), original);
     assert!(Config::load(&clone).is_err());
 }
 

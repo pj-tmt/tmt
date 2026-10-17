@@ -405,14 +405,16 @@ own module/drawing boundaries and verification.
   through `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. Digest owns
   locking, deadlines and delivery. No direct Core state, tmux or provider writes.
   The guard rejects TMT-to-Ops and Ops-to-Core Cargo/source edges. Dependencies
-  are `tmt-tui`, `tmt-cli-style`, `tmt-invoke` and dev-only `tmt-test-support`.
-  New API methods require tmt-lead review.
+  are `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and dev-only
+  `tmt-test-support`. New API methods need tmt-lead review.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
-  neither reads nor writes the retired internal `cache/board` display format;
-  existing files are left untouched. `ops.toml` is user-owned: agents never write it;
-  Ops uses CAS. `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice decision warns once on CLI stderr; admitted UI projects the same notice through App without out-of-band terminal writes.
+  never touches the retired internal `cache/board` display format; existing
+  files remain. `ops.toml` is user-owned: agents never write it;
+  Ops uses CAS; cron/checklists live in
+  [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
+  `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice warns once on CLI stderr; the UI projects the same notice through App without out-of-band terminal writes.
   `board_switch` owns the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
   data enters `config.json` or Core's database.
 - **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches selectable squad and canonical all-agent projections, while tree projections are frame-scoped.
@@ -444,7 +446,7 @@ own module/drawing boundaries and verification.
   authority, acquisition limits and binding effects. Successful public refresh
   selects the returned UUID through the workspace projection.
 - **Checklist.** `checklist_command` uses the existing caller/room admission and
-  versioned room-UUID JSON in `<dataRoot>/ops/checklist`. Reads create no files;
+  versioned room-UUID JSON in `ops.db`. Reads create no files;
   failed prepublication preserves bytes; uncertainty remains Unknown after
   readback. The board consumes the same typed service.
 - **Contracts.** The [embedded skill](extensions/tmt-ops/skills/tmt-ops/SKILL.md)
@@ -546,8 +548,8 @@ registry, release catalog, process runner, archive parser or memory/MCP layer.
 
 `rust/crates/tmt-extension-state` is an unpublished, library-only state leaf owned
 by Remote. Store, Document and Guard own SQLite transactions, atomic current-byte
-updates and fail-fast ownership. Only Remote and Colab consume it, using existing
-`nix` and `rusqlite` pins; no TMT or crypto dependency. Core, adapters and the Colab
+updates and fail-fast ownership. Only Remote, Colab and Ops consume it, using existing
+`nix`/`rusqlite` pins; no TMT or crypto dependency. Core, adapters and the Colab
 model do not consume it. The architecture guard checks reviewed manifest/source
 edges across all dependency kinds, aliases and targets.
 

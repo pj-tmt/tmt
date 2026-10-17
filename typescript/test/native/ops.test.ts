@@ -48,6 +48,43 @@ function installSquad(sandbox: Sandbox): string {
   return bin;
 }
 
+/** The Ops state database inside the data root. */
+function opsDatabase(root: string): string {
+  return path.join(root, 'ops', 'ops.db');
+}
+
+/** A stored document (`cron` or one room's `checklist`), read behind the CLI's back. */
+function storedDocument(database: string, kind: 'cron' | 'checklist', key = ''): Buffer {
+  const db = new Database(database, { readonly: true });
+  try {
+    const row = db
+      .prepare('SELECT body FROM documents WHERE kind = ? AND key = ?')
+      .get(kind, key) as { body: Buffer } | undefined;
+    if (!row) throw new Error(`no stored ${kind} document`);
+    return row.body;
+  } finally {
+    db.close();
+  }
+}
+
+/** Replace a stored document, as an author of fixtures would edit a file. */
+function replaceStoredDocument(
+  database: string,
+  kind: 'cron' | 'checklist',
+  key: string,
+  body: Buffer | string
+): void {
+  const db = new Database(database);
+  try {
+    const changed = db
+      .prepare('UPDATE documents SET body = ? WHERE kind = ? AND key = ?')
+      .run(Buffer.from(body), kind, key).changes;
+    expect(changed).toBe(1);
+  } finally {
+    db.close();
+  }
+}
+
 async function squad(sandbox: Sandbox, args: string[]) {
   const result = await runCli(sandbox, ['ops', 'squad', ...args, '--json']);
   return { status: result.status, body: JSON.parse(result.stdout), stderr: result.stderr };
@@ -3164,6 +3201,195 @@ sort = ["-name"]
   });
 });
 
+describe('Ops state database', () => {
+  async function dataRoot(sandbox: Sandbox): Promise<string> {
+    return parseWholeStdout(
+      await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+      })
+    ).dataRoot as string;
+  }
+
+  async function squadWithWorker(sandbox: Sandbox) {
+    installSquad(sandbox);
+    await identity(sandbox, 'Ben');
+    await identity(sandbox, 'worker');
+    expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+    expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+  }
+
+  it('lets eight processes add cron jobs and edit checklist items at once, every one landing', async () => {
+    await withSandbox(async (sandbox) => {
+      await squadWithWorker(sandbox);
+      const adds = await Promise.all(
+        Array.from({ length: 8 }, (_, n) =>
+          squad(sandbox, ['cron', 'add', 'product', 'worker', '--every', '1h', `reminder ${n}`])
+        )
+      );
+      for (const added of adds) expect(added.status, JSON.stringify(added.body)).toBe(0);
+      const ids = adds.map((added) => added.body.job.id as string).sort();
+      expect(ids).toEqual(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']);
+      const listed = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
+      expect(listed.body.jobs.map((job: { id: string }) => job.id).sort()).toEqual(ids);
+
+      const room = parseWholeStdout(
+        await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
+      ).room as { id: string };
+      const checklist = '55555555-5555-4555-8555-555555555555';
+      const item = (n: number) => `0000000${n}-0000-4000-8000-000000000000`;
+      for (let n = 1; n <= 8; n += 1) {
+        const created = await squad(sandbox, [
+          'checklist',
+          'create',
+          `Item ${n}`,
+          '--room',
+          room.id,
+          '--checklist',
+          checklist,
+          '--item',
+          item(n),
+          '--expect-inventory',
+          n === 1 ? 'absent' : String(n - 1),
+        ]);
+        expect(created.status, JSON.stringify(created.body)).toBe(0);
+      }
+      const completions = await Promise.all(
+        Array.from({ length: 8 }, (_, n) =>
+          squad(sandbox, [
+            'checklist',
+            'complete',
+            '--room',
+            room.id,
+            '--checklist',
+            checklist,
+            '--item',
+            item(n + 1),
+            '--expect-revision',
+            '1',
+          ])
+        )
+      );
+      for (const done of completions) expect(done.status, JSON.stringify(done.body)).toBe(0);
+      const stored = JSON.parse(
+        storedDocument(opsDatabase(await dataRoot(sandbox)), 'checklist', room.id).toString('utf8')
+      );
+      expect(stored.items).toHaveLength(8);
+      for (const entry of stored.items) {
+        expect(entry).toMatchObject({ revision: 2, completion: 'complete' });
+      }
+    });
+  }, 120_000);
+
+  it('imports the previous release files on first use and keeps them renamed, never deleted', async () => {
+    await withSandbox(async (sandbox) => {
+      await squadWithWorker(sandbox);
+      const root = await dataRoot(sandbox);
+      const database = opsDatabase(root);
+      const room = parseWholeStdout(
+        await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
+      ).room as { id: string };
+      const checklist = '55555555-5555-4555-8555-555555555555';
+      const item = '66666666-6666-4666-8666-666666666666';
+      expect(
+        (
+          await squad(sandbox, [
+            'cron',
+            'add',
+            'product',
+            'worker',
+            '--every',
+            '1h',
+            'kept reminder',
+          ])
+        ).status
+      ).toBe(0);
+      expect(
+        (
+          await squad(sandbox, [
+            'checklist',
+            'create',
+            'Kept item',
+            '--room',
+            room.id,
+            '--checklist',
+            checklist,
+            '--item',
+            item,
+            '--expect-inventory',
+            'absent',
+          ])
+        ).status
+      ).toBe(0);
+      const jobBytes = storedDocument(database, 'cron');
+      const checklistBytes = storedDocument(database, 'checklist', room.id);
+
+      // Rewind to the previous release: both documents are files and no database exists.
+      for (const name of ['ops.db', 'ops.db-wal', 'ops.db-shm']) {
+        rmSync(path.join(root, 'ops', name), { force: true });
+      }
+      const cron = path.join(root, 'ops', 'cron');
+      const room_ = path.join(root, 'ops', 'checklist', room.id);
+      mkdirSync(cron, { recursive: true, mode: 0o700 });
+      mkdirSync(room_, { recursive: true, mode: 0o700 });
+      writeFileSync(path.join(cron, 'jobs.json'), jobBytes, { mode: 0o600 });
+      writeFileSync(path.join(room_, 'items.json'), checklistBytes, { mode: 0o600 });
+
+      const listed = await squad(sandbox, ['cron', 'ls', '--squad', 'product']);
+      expect(listed.status, JSON.stringify(listed.body)).toBe(0);
+      expect(listed.body.jobs).toHaveLength(1);
+      expect(listed.body.jobs[0]).toMatchObject({ id: 'c1', message: 'kept reminder' });
+      const retained = await squad(sandbox, ['checklist', 'ls', '--room', room.id]);
+      expect(retained.status, JSON.stringify(retained.body)).toBe(0);
+      expect(retained.body.current.items).toMatchObject([{ id: item, title: 'Kept item' }]);
+
+      expect(storedDocument(database, 'cron')).toEqual(jobBytes);
+      expect(storedDocument(database, 'checklist', room.id)).toEqual(checklistBytes);
+      expect(existsSync(path.join(cron, 'jobs.json'))).toBe(false);
+      expect(existsSync(path.join(room_, 'items.json'))).toBe(false);
+      const archivedJobs = readdirSync(cron).filter((name) =>
+        name.startsWith('jobs.json.migrated-')
+      );
+      const archivedItems = readdirSync(room_).filter((name) =>
+        name.startsWith('items.json.migrated-')
+      );
+      expect(archivedJobs).toHaveLength(1);
+      expect(archivedItems).toHaveLength(1);
+      expect(archivedJobs[0]).toMatch(/^jobs\.json\.migrated-\d{4}-\d{2}-\d{2}$/);
+      expect(readFileSync(path.join(cron, archivedJobs[0]!))).toEqual(jobBytes);
+      expect(readFileSync(path.join(room_, archivedItems[0]!))).toEqual(checklistBytes);
+    });
+  }, 120_000);
+
+  it('refuses a database written by a newer Ops with an upgrade hint and changes nothing', async () => {
+    await withSandbox(async (sandbox) => {
+      await squadWithWorker(sandbox);
+      const root = await dataRoot(sandbox);
+      const database = opsDatabase(root);
+      expect(
+        (await squad(sandbox, ['cron', 'add', 'product', 'worker', '--every', '1h', 'one'])).status
+      ).toBe(0);
+      const before = storedDocument(database, 'cron');
+      const newer = new Database(database);
+      newer
+        .prepare(
+          "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES (2, 'later', 'SELECT 1')"
+        )
+        .run();
+      newer.close();
+      for (const args of [
+        ['cron', 'ls', '--squad', 'product'],
+        ['cron', 'add', 'product', 'worker', '--every', '1h', 'two'],
+      ]) {
+        const refused = await squad(sandbox, args);
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('SQUAD_CRON_STORE_NEWER');
+        expect(refused.body.error.message).toContain('Upgrade Ops');
+      }
+      expect(storedDocument(database, 'cron')).toEqual(before);
+    });
+  }, 120_000);
+});
+
 describe('Squad cron clock', () => {
   it('keeps status read-only and admits exact paused manual sends through the explicit actor', async () => {
     await withSandbox(async (sandbox) => {
@@ -3200,8 +3426,7 @@ describe('Squad cron clock', () => {
         message,
       ]);
       expect(added.status, JSON.stringify(added.body)).toBe(0);
-      const store = path.join(directory, 'jobs.json');
-      const before = readFileSync(store);
+      const before = storedDocument(opsDatabase(root), 'cron');
       const denied = await squad(sandbox, [
         'cron',
         'send',
@@ -3219,7 +3444,7 @@ describe('Squad cron clock', () => {
       expect(first.status, JSON.stringify(first.body)).toBe(0);
       expect(second.status, JSON.stringify(second.body)).toBe(0);
       expect(first.body.dispatch.operationId).not.toBe(second.body.dispatch.operationId);
-      expect(readFileSync(store)).toEqual(before);
+      expect(storedDocument(opsDatabase(root), 'cron')).toEqual(before);
       const db = new Database(sandbox.database, { readonly: true });
       try {
         expect(
@@ -3366,7 +3591,7 @@ describe('WP2 squad workspace services', () => {
         })
       ).dataRoot as string;
       expect(
-        JSON.parse(readFileSync(path.join(root, 'ops', 'cron', 'jobs.json'), 'utf8')).jobs[0].pause
+        JSON.parse(storedDocument(opsDatabase(root), 'cron').toString('utf8')).jobs[0].pause
       ).toEqual(missing.pause);
       expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
       expect((await squad(sandbox, ['cron', 'show', 'product', 'c1'])).body.job).toMatchObject({
@@ -3447,9 +3672,10 @@ describe('Squad cron management', () => {
           stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
         })
       ).dataRoot as string;
-      const store = path.join(root, 'ops', 'cron', 'jobs.json');
-      expect(JSON.parse(readFileSync(store, 'utf8')).jobs[0].message).toBe(message);
-      expect(statSync(store).mode & 0o777).toBe(0o600);
+      expect(
+        JSON.parse(storedDocument(opsDatabase(root), 'cron').toString('utf8')).jobs[0].message
+      ).toBe(message);
+      expect(statSync(opsDatabase(root)).mode & 0o777).toBe(0o600);
       const config = path.join(sandbox.globalDir, 'ops.toml');
       const originalConfig = readFileSync(config, 'utf8');
       const denied = await squad(sandbox, [
@@ -3617,7 +3843,14 @@ describe('Squad checklist native commands', () => {
     ).dataRoot as string;
     const directory = path.join(root, 'ops', 'checklist', room.id);
     const selected = ['--room', room.id, '--checklist', checklistId, '--item', itemId];
-    return { worker, roomId: room.id, root, directory, selected };
+    return {
+      worker,
+      roomId: room.id,
+      root,
+      directory,
+      database: opsDatabase(root),
+      selected,
+    };
   }
 
   // Observe metadata, dispatch/attention/request/hook state without invoking a product read.
@@ -3708,8 +3941,8 @@ describe('Squad checklist native commands', () => {
           },
         },
       });
-      const file = path.join(f.directory, 'items.json');
-      const stored = () => JSON.parse(readFileSync(file, 'utf8'));
+      const raw = () => storedDocument(f.database, 'checklist', f.roomId);
+      const stored = () => JSON.parse(raw().toString('utf8'));
       expect(stored().items[0]).toMatchObject({
         id: itemId,
         revision: 1,
@@ -3720,7 +3953,7 @@ describe('Squad checklist native commands', () => {
         completion: 'open',
         archived: false,
       });
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(statSync(f.database).mode & 0o777).toBe(0o600);
       expect(existsSync(path.join(sandbox.root, 'executed'))).toBe(false);
       const alias = await runCli(sandbox, [
         'ops',
@@ -3745,7 +3978,7 @@ describe('Squad checklist native commands', () => {
         status: 0,
         body: { itemRevision: 8, current: { inventoryRevision: 1 } },
       });
-      const bytes = readFileSync(file);
+      const bytes = raw();
       const conflict = await mutation('edit', 7, ['--title', 'Retained draft']);
       expect(conflict).toMatchObject({
         status: 1,
@@ -3759,7 +3992,7 @@ describe('Squad checklist native commands', () => {
           },
         },
       });
-      expect(readFileSync(file)).toEqual(bytes);
+      expect(raw()).toEqual(bytes);
       const human = await runCli(sandbox, [
         'ops',
         'squad',
@@ -3777,7 +4010,7 @@ describe('Squad checklist native commands', () => {
         changed: false,
         itemRevision: 8,
       });
-      expect(readFileSync(file)).toEqual(bytes);
+      expect(raw()).toEqual(bytes);
       const second = await cli([
         'create',
         'Independent item',
@@ -3851,8 +4084,8 @@ describe('Squad checklist native commands', () => {
         { roomId: f.roomId, checklistId, itemId, deletionRevision: 13 },
       ]);
       expect(stored().items).toHaveLength(1);
-      expect(readFileSync(file, 'utf8')).not.toContain('Draft 6');
-      expect(readFileSync(file, 'utf8')).not.toContain(body);
+      expect(raw().toString('utf8')).not.toContain('Draft 6');
+      expect(raw().toString('utf8')).not.toContain(body);
       const deleted = await cli(['show', ...f.selected]);
       expect(deleted).toMatchObject({
         status: 1,
@@ -3894,7 +4127,6 @@ describe('Squad checklist native commands', () => {
       // Room departure was intentional; all checklist operations themselves remain inert.
       const after = unrelatedState(sandbox);
       expect(after).toEqual(before);
-      expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
     });
   }, 60_000);
 
@@ -3905,8 +4137,8 @@ describe('Squad checklist native commands', () => {
       expect(
         (await cli(['create', 'Title', ...f.selected, '--expect-inventory', 'absent'])).status
       ).toBe(0);
-      const file = path.join(f.directory, 'items.json');
-      const bytes = readFileSync(file);
+      const stored = () => storedDocument(f.database, 'checklist', f.roomId);
+      const bytes = stored();
       const before = unrelatedState(sandbox);
       const selected = [...f.selected, '--expect-revision', '1'];
       const invalid = [
@@ -3970,7 +4202,7 @@ describe('Squad checklist native commands', () => {
           stderr: '',
           body: { error: { code: 'CHECKLIST_INPUT_INVALID' } },
         });
-        expect(readFileSync(file)).toEqual(bytes);
+        expect(stored()).toEqual(bytes);
       }
       const usage = [
         [],
@@ -3989,14 +4221,13 @@ describe('Squad checklist native commands', () => {
           stderr: '',
           body: { error: { code: 'USAGE_ERROR', message: expect.stringMatching(/^error: /) } },
         });
-        expect(readFileSync(file)).toEqual(bytes);
+        expect(stored()).toEqual(bytes);
       }
       expect(
         (await cli(['show', '--room', f.roomId, '--checklist', checklistId, '--item', otherId]))
           .body.error.code
       ).toBe('CHECKLIST_NOT_FOUND');
       expect(unrelatedState(sandbox)).toEqual(before);
-      expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
       const help = await runCli(sandbox, ['ops', 'sq', 'checklist', '--help']);
       expect(help.status).toBe(0);
       expect(help.stderr).toBe('');
@@ -4056,10 +4287,9 @@ describe('Squad checklist native commands', () => {
         items: [],
       });
       expect(existsSync(path.join(f.root, 'ops', 'checklist', otherRoom))).toBe(false);
-      const file = path.join(f.directory, 'items.json');
-      const original = readFileSync(file);
+      const original = storedDocument(f.database, 'checklist', f.roomId);
       const corrupt = Buffer.from('{"version":999}\n');
-      writeFileSync(file, corrupt);
+      replaceStoredDocument(f.database, 'checklist', f.roomId, corrupt);
       const failed = await cli(['ls', '--room', f.roomId]);
       expect(failed).toMatchObject({
         status: 1,
@@ -4067,17 +4297,26 @@ describe('Squad checklist native commands', () => {
         body: { error: { code: 'CHECKLIST_STORAGE_ERROR' } },
       });
       expect(failed.body.error).not.toHaveProperty('current');
-      expect(readFileSync(file)).toEqual(corrupt);
-      writeFileSync(file, original);
-      const lock = path.join(f.directory, 'items.lock');
-      const lockBytes = readFileSync(lock);
-      unlinkSync(lock);
-      expect((await cli(['ls', '--room', f.roomId])).body.error.code).toBe(
-        'CHECKLIST_STORAGE_ERROR'
-      );
-      expect(existsSync(lock)).toBe(false);
-      expect(readFileSync(file)).toEqual(original);
-      writeFileSync(lock, lockBytes, { mode: 0o600 });
+      expect(storedDocument(f.database, 'checklist', f.roomId)).toEqual(corrupt);
+      replaceStoredDocument(f.database, 'checklist', f.roomId, original);
+      // A database written by a newer Ops is refused with an upgrade hint, never overwritten.
+      const newer = new Database(f.database);
+      newer
+        .prepare(
+          "INSERT INTO _tmt_state_migrations(version, name, sql) VALUES (2, 'later', 'SELECT 1')"
+        )
+        .run();
+      newer.close();
+      const refused = await cli(['ls', '--room', f.roomId]);
+      expect(refused).toMatchObject({
+        status: 1,
+        body: { error: { code: 'CHECKLIST_STORAGE_ERROR' } },
+      });
+      expect(refused.body.error.message).toContain('Upgrade Ops');
+      expect(storedDocument(f.database, 'checklist', f.roomId)).toEqual(original);
+      const restored = new Database(f.database);
+      restored.prepare('DELETE FROM _tmt_state_migrations WHERE version = 2').run();
+      restored.close();
       const beforeRename = parseWholeStdout(
         await runCli(sandbox, ['api'], {
           stdin: JSON.stringify({
@@ -4108,7 +4347,7 @@ describe('Squad checklist native commands', () => {
         name: 'renamed',
         available: true,
       });
-      expect(readFileSync(file)).toEqual(original);
+      expect(storedDocument(f.database, 'checklist', f.roomId)).toEqual(original);
       expect((await runCli(sandbox, ['room', 'rm', f.roomId, '--json'])).status).toBe(0);
       const orphan = await cli(['ls', '--room', f.roomId]);
       expect(orphan).toMatchObject({
@@ -4131,7 +4370,7 @@ describe('Squad checklist native commands', () => {
       ).id;
       expect(successor).not.toBe(f.roomId);
       expect((await cli(['ls', '--room', successor])).body.current.checklistId).toBeNull();
-      expect(readFileSync(file)).toEqual(original);
+      expect(storedDocument(f.database, 'checklist', f.roomId)).toEqual(original);
     });
   }, 60_000);
 });
@@ -4464,14 +4703,14 @@ describe('Ops path migration with unchanged Squad commands', () => {
       ]);
       writeFileSync(config, configBytes);
       const opsRoot = path.join(root, 'ops');
-      const jobs = path.join(opsRoot, 'cron', 'jobs.json');
+      const database = opsDatabase(root);
       // This fixture retains the shipped v1 schema and independently chooses a
       // due anchor; no expected migration output is generated by migration.
-      const stored = JSON.parse(readFileSync(jobs, 'utf8'));
+      const stored = JSON.parse(storedDocument(database, 'cron').toString('utf8'));
       stored.jobs[0].schedule.anchorMs = Date.now() - 10_000;
-      writeFileSync(jobs, JSON.stringify(stored));
-      const jobBytes = readFileSync(jobs);
-      const checklistBytes = readFileSync(path.join(opsRoot, 'checklist', room, 'items.json'));
+      replaceStoredDocument(database, 'cron', '', JSON.stringify(stored));
+      const jobBytes = storedDocument(database, 'cron');
+      const checklistBytes = storedDocument(database, 'checklist', room);
       renameSync(config, path.join(sandbox.globalDir, 'squad.toml'));
       renameSync(opsRoot, path.join(root, 'squad'));
       unlinkSync(path.join(sandbox.globalDir, '.ops-paths-v1'));
@@ -4479,6 +4718,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
       const backup = path.join(sandbox.globalDir, 'squad.toml.bak-user');
       writeFileSync(backup, 'user backup');
       const lease = path.join(root, 'squad', 'cron', 'clock.json');
+      mkdirSync(path.join(root, 'squad', 'cron'), { recursive: true, mode: 0o700 });
       writeFileSync(path.join(root, 'squad', 'cron', 'clock.lock'), '');
       writeFileSync(
         lease,
@@ -4525,16 +4765,14 @@ describe('Ops path migration with unchanged Squad commands', () => {
         schedule: stored.jobs[0].schedule,
       });
       expect(readFileSync(config)).toEqual(configBytes);
-      expect(readFileSync(path.join(opsRoot, 'cron', 'jobs.json'))).toEqual(jobBytes);
-      expect(readFileSync(path.join(opsRoot, 'checklist', room, 'items.json'))).toEqual(
-        checklistBytes
-      );
+      expect(storedDocument(database, 'cron')).toEqual(jobBytes);
+      expect(storedDocument(database, 'checklist', room)).toEqual(checklistBytes);
       expect(readFileSync(backup, 'utf8')).toBe('user backup');
       expect(existsSync(path.join(root, 'squad'))).toBe(false);
       expect(existsSync(path.join(sandbox.globalDir, 'squad.toml'))).toBe(false);
       const archives = readdirSync(root).filter((name) => name.startsWith('squad.migrated-'));
       expect(archives).toHaveLength(1);
-      expect(readFileSync(path.join(root, archives[0]!, 'cron', 'jobs.json'))).toEqual(jobBytes);
+      expect(storedDocument(path.join(root, archives[0]!, 'ops.db'), 'cron')).toEqual(jobBytes);
       const retained = await squad(sandbox, ['checklist', 'ls', '--room', room]);
       expect(retained.status).toBe(0);
       expect(retained.body.current.items).toMatchObject([

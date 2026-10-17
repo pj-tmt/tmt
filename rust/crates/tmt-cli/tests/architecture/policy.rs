@@ -146,6 +146,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // nonblocking Unix advisory locking, no TMT behavior.
             "sha2",
             "nix",
+            // Cron jobs, checklists and config edits use the shared private-state entries
+            // (#3347); Ops reaches SQLite only through the Store callback they hand it.
+            "tmt-extension-state",
+            "rusqlite",
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix", "rusqlite"],
@@ -731,13 +735,23 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                     "{location}: HTML parsing belongs only in the page check tree"
                 ));
             }
+            // Ops holds `rusqlite` for the Store callback's transaction type only; it opens no
+            // connection of its own, so it can never connect to Core's database.
+            if source.package == "tmt-ops"
+                && root == "rusqlite"
+                && path.get(1).map(String::as_str) == Some("Connection")
+            {
+                violations.push(format!(
+                    "{location}: Ops opens SQLite only through the shared Store, never a connection of its own"
+                ));
+            }
             // Public-interface extensions name their own library and approved leaves only.
             if ["tmt-ops", "tmt-remote", "tmt-colab"].contains(&source.package.as_str())
                 && root.starts_with("tmt_")
                 && root != "tmt_cli_style"
                 && root != "tmt_invoke"
                 && !(root == "tmt_extension_state"
-                    && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
+                    && ["tmt-remote", "tmt-colab", "tmt-ops"].contains(&source.package.as_str()))
                 && !(root == "tmt_extension_serve"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
                 && !(root == "tmt_extension_objects"
@@ -768,7 +782,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 ));
             }
             if root == "tmt_extension_state"
-                && !["tmt-extension-state", "tmt-remote", "tmt-colab"]
+                && !["tmt-extension-state", "tmt-remote", "tmt-colab", "tmt-ops"]
                     .contains(&source.package.as_str())
             {
                 violations.push(format!(

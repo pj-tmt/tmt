@@ -1,5 +1,6 @@
 use super::test_support::*;
 use super::*;
+use crate::test_support::{replace_stored_jobs, stored_jobs};
 use std::fs;
 
 #[test]
@@ -109,8 +110,7 @@ fn failed_or_incomplete_owner_observation_never_claims_missing_or_changes_jobs()
     for malformed in [false, true] {
         let f = Fixture::new();
         let job = f.add(&f.actor(USER), WORKER).unwrap().job.job;
-        let path = f.directory.join("ops/cron/jobs.json");
-        let before = fs::read(&path).unwrap();
+        let before = stored_jobs(&f.directory);
         f.change_model(|model| {
             if malformed {
                 model["malformedReferences"] = json!(true);
@@ -120,7 +120,7 @@ fn failed_or_incomplete_owner_observation_never_claims_missing_or_changes_jobs()
         });
         assert!(list_jobs(&f.core, &f.config, Some("product"), 100).is_err());
         assert!(admit_scheduled(&f.core, &JobKey::of(&job), job.revision).is_err());
-        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(stored_jobs(&f.directory), before);
     }
 }
 
@@ -164,7 +164,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
     let user = f.actor(USER);
     let job = f.add(&user, WORKER).unwrap().job.job;
     let paused = f.mutate(&user, &job, Mutation::Pause).unwrap().job.job;
-    let before = fs::read(f.directory.join("ops/cron/jobs.json")).unwrap();
+    let before = stored_jobs(&f.directory);
     assert_eq!(
         f.mutate(&user, &job, Mutation::Resume).err().unwrap().code,
         "SQUAD_CRON_REVISION_CONFLICT"
@@ -193,10 +193,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
         f.add(&user, WORKER).err().unwrap().code,
         "SQUAD_CRON_ROOM_CONFLICT"
     );
-    assert_eq!(
-        fs::read(f.directory.join("ops/cron/jobs.json")).unwrap(),
-        before
-    );
+    assert_eq!(stored_jobs(&f.directory), before);
     let calls = f.model()["calls"].as_array().unwrap().clone();
     assert!(
         calls
@@ -479,11 +476,7 @@ fn failed_pause_publication_refuses_membership_leave() {
     let f = Fixture::new();
     f.add(&f.actor(USER), WORKER).unwrap();
     // A real store failure must happen before the public leave command.
-    fs::write(
-        f.directory.join("ops/cron/jobs.json"),
-        "not a cron document",
-    )
-    .unwrap();
+    replace_stored_jobs(&f.directory, b"not a cron document");
     let selected = Squad {
         name: "product".into(),
         room_id: ROOM.into(),
@@ -570,8 +563,7 @@ fn member_display_rename_refreshes_owner_name_without_moving_timer_state() {
     let f = Fixture::new();
     let user = f.actor(USER);
     let job = f.add(&user, WORKER).unwrap().job.job;
-    let path = f.directory.join("ops/cron/jobs.json");
-    let before = fs::read(&path).unwrap();
+    let before = stored_jobs(&f.directory);
     f.change_model(|model| {
         let member = model["members"]
             .as_array_mut()
@@ -587,7 +579,7 @@ fn member_display_rename_refreshes_owner_name_without_moving_timer_state() {
     assert_eq!(current.owner_name.as_deref(), Some("renamed-worker"));
     assert_eq!(current.job, job);
     assert!(!current.owner_missing);
-    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(stored_jobs(&f.directory), before);
     let next = f.add(&user, WORKER).unwrap().job.job;
     assert_eq!(next.id(), "c2");
     assert_eq!(next.owner_id.as_deref(), Some(WORKER));

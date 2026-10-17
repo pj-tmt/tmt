@@ -84,11 +84,13 @@ def fail(code):
 def identities(ids):
  return [dict(next((x for x in m['members'] if x['id']==i),{'id':i}),found=any(x['id']==i for x in m['members']) and i not in m['absent'],retired=i in m['retired']) for i in ids]
 locked=False
-lock=p/'ops/checklist'/m.get('lockRoom',m['roomId'])/'items.lock'
-if lock.exists():
- with open(lock,'r') as f:
-  try:fcntl.flock(f,fcntl.LOCK_SH|fcntl.LOCK_NB)
-  except BlockingIOError:locked=True
+database=p/'ops'/'ops.db'
+if database.exists():
+ import sqlite3
+ try:
+  probe=sqlite3.connect(str(database),timeout=0,isolation_level=None)
+  probe.execute('BEGIN IMMEDIATE');probe.execute('ROLLBACK');probe.close()
+ except sqlite3.OperationalError:locked=True
 if a[0]=='api':
  q=json.load(sys.stdin);op=q['operation'];i=q['input']
  assert op in ['storage.root','references.resolve','rooms.roster'], 'unexpected side effect'
@@ -151,11 +153,32 @@ save();print(json.dumps(out))
         self.change(|m| m["caller"] = json!(LEAD));
         self.service()
     }
+    /// Where the previous release kept this room's document.
     pub fn directory(&self) -> PathBuf {
         self.root.join("ops/checklist").join(ROOM)
     }
+    pub fn database(&self) -> rusqlite::Connection {
+        rusqlite::Connection::open(self.root.join("ops/ops.db")).unwrap()
+    }
+    /// The room's stored document, read behind the store's back.
     pub fn bytes(&self) -> Vec<u8> {
-        fs::read(self.directory().join("items.json")).unwrap()
+        self.database()
+            .query_row(
+                "SELECT body FROM documents WHERE kind = 'checklist' AND key = ?1",
+                [ROOM],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+    pub fn overwrite(&self, bytes: &[u8]) {
+        let changed = self
+            .database()
+            .execute(
+                "UPDATE documents SET body = ?1 WHERE kind = 'checklist' AND key = ?2",
+                rusqlite::params![bytes, ROOM],
+            )
+            .unwrap();
+        assert_eq!(changed, 1);
     }
     pub fn literal(&self) -> serde_json::Value {
         serde_json::from_slice(&self.bytes()).unwrap()

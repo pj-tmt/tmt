@@ -140,10 +140,10 @@ fn a_symlink_lock_and_an_oversized_edit_preserve_the_original_bytes() {
         .save_read_markers(&mark(ACTOR, FIRST, 10))
         .unwrap();
     let before = fixture.bytes();
-    fs::remove_file(fixture.0.join("ops.toml.lock")).unwrap();
+    fs::remove_dir_all(fixture.0.join("document-locks")).unwrap();
     let sentinel = fixture.0.join("sentinel");
-    fs::write(&sentinel, b"untouched").unwrap();
-    std::os::unix::fs::symlink(&sentinel, fixture.0.join("ops.toml.lock")).unwrap();
+    fs::create_dir(&sentinel).unwrap();
+    std::os::unix::fs::symlink(&sentinel, fixture.0.join("document-locks")).unwrap();
     assert!(
         fixture
             .config()
@@ -151,7 +151,7 @@ fn a_symlink_lock_and_an_oversized_edit_preserve_the_original_bytes() {
             .is_err()
     );
     assert_eq!(fixture.bytes(), before);
-    assert_eq!(fs::read(sentinel).unwrap(), b"untouched");
+    assert_eq!(fs::read_dir(sentinel).unwrap().count(), 0);
 
     let huge =
         Fixture::new(&("#".to_owned() + &"x".repeat(super::super::FILE_LIMIT as usize - 2) + "\n"));

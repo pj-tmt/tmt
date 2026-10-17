@@ -205,6 +205,35 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   worker or core Squad concept exists. The lead skill owns the user-visible observed-age,
   claim-loss and cache-loss limits.
 
+## Ops state database
+
+`state` (library module `tmt_ops::state`) owns `<dataRoot>/ops/ops.db`, a private SQLite file
+(directory 0700, file 0600) with one table, `documents(kind, key, body)`: the `cron` document
+(key empty) and one `checklist` document per canonical room UUID. Admission, the five-second
+write queue, crash-atomic commits and the refusal of a database written by a newer Ops belong
+to the shared `tmt-extension-state` leaf (Store); `state` adds the slots, the import and the
+archive, and hands callers a `Refusal` (`Busy`, `Newer`, `Failed`) to present under their own
+codes (`SQUAD_CRON_STORE_BUSY`/`_NEWER`/`_IO`, `CHECKLIST_STORAGE_ERROR`). Callers keep their
+codecs; the database stores bytes. Constructing or reading an absent store creates nothing.
+
+- **Import.** The first access after an upgrade finds a slot's row absent and the previous
+  release's file present (`cron/jobs.json`, `checklist/<room-uuid>/items.json`). The file's
+  bytes go through the caller's decoder like any stored bytes and are inserted inside the
+  write transaction, so a corrupt or foreign file refuses and changes nothing.
+- **Archive.** After that commit the file is renamed to `<name>.migrated-<YYYY-MM-DD>`
+  (`-<n>` when taken) by hard-linking to the first free name and then dropping the old name:
+  nothing is ever overwritten or deleted. A crash between commit and rename is safe: the next
+  access sees the row and the file, trusts the row and finishes the rename. An older Ops
+  that keeps writing the old file is archived the same way and never read again. The lock
+  files and staging names of the old stores are no longer created.
+- **Newer database.** `Store` refuses history this binary does not know; Ops names it with an
+  upgrade hint (`tmt extension upgrade ops` or `tmt upgrade`) and changes nothing.
+- **Other owners.** `ops.toml` edits go through the leaf's `Document` (one lock around the
+  compare-and-replace; the same `SQUAD_CONFIG_CHANGED` refusal when the file moved on). The
+  board switch holds the leaf's `Guard` for its whole run and names the holder on
+  contention. The cron clock stays a lease in `cron/clock.json` (expiry and takeover are its
+  contract); the leaf has no lease primitive.
+
 ## Checklist storage and service
 
 The native binary's `checklist` module provides typed list/show/create/edit/assign/
@@ -219,18 +248,20 @@ projects its typed results/errors. The board consumes the same typed service dir
   validation. Create and Delete change inventory; other item writes do not. Delete drops
   content and retains only room/checklist/item UUIDs and deletion revision, without purge
   or UUID reuse. Completion and archive are independent.
-- `store` owns version 1 JSON at `<dataRoot>/ops/checklist/<canonical-room-UUID>/items.json`.
-  `items.lock` is stable; `items.tmp` belongs to the locked publisher. The document has
+- `store` keeps each room's version 1 JSON document as the `checklist` document keyed by the
+  canonical room UUID in the [Ops state database](#ops-state-database). The document has
   `version`, `roomId`, `checklistId`, `inventoryRevision`, ordered live `items` and minimal
   `deleted` tombstones. It persists no copied membership, actor authority or operation ledger.
   Read/list/show create nothing and distinguish absent, empty and filtered-empty results
-  from errors. Unsupported/corrupt data and unsafe files fail closed without repair.
-- A nonblocking room lock bounds contention as `CHECKLIST_STORAGE_ERROR`. New owned
-  directories/files use 0700/0600; existing permissions survive replacement. Files are
-  opened no-follow/nonblocking and must be owned regular files with one link; extension
-  directories must be owned real directories. The trusted public root may be canonicalized.
-  The implementation limits are 64 MiB per document and 100000 retained item identities;
-  every individual admitted title/body/reference bound fits within these limits.
+  from errors. Unsupported/corrupt data and unsafe files fail closed without repair. A
+  candidate is written inside the database transaction and `before_publish` (the service's
+  repeated room/actor/assignment admission) runs before it commits: a refusal discards it.
+- A write queues behind another writer for at most five seconds; a spent budget is
+  `CHECKLIST_STORAGE_ERROR` saying nothing was saved with the one retry, and a commit that
+  timed out is `CHECKLIST_OUTCOME_UNKNOWN`. The implementation limits are 64 MiB per document
+  and 100000 retained item identities; every individual admitted title/body/reference bound
+  fits within these limits. The previous release's `checklist/<room-uuid>/items.json` is
+  imported on first use (see the database section) and never deleted.
 - The service captures the public caller through `me::caller`, using read-only recorded
   user context only when no caller is bound. Ambiguous callers refuse. A retired recorded
   UUID cannot adopt a same-name successor. Active recorded users and current room leads
@@ -264,20 +295,21 @@ own these layers:
   bundled database. Fixed local times skip DST gaps and take the first occurrence in a fold;
   elapsed intervals keep their stored anchor and duration. Day-of-month and day-of-week use
   the standard alternative rule unless either field starts with `*`.
-- `cron::store` owns the versioned `<dataRoot>/ops/cron/jobs.json` document: per-squad
-  counters that survive removal, exact message bytes, room and owner references, schedules,
-  revisions and pause attribution. The caller supplies the absolute `storage.root` and admits
-  core UUID references; the store resolves no identities, decides no permissions, dispatches
-  nothing and tracks no runs. Reads of an absent store create nothing. The stable
-  `jobs.lock` allows concurrent shared readers. A reader facing a writer retries every
-  25 ms within a one-second budget; a mutation retries the exclusive lock within five seconds,
-  then reads the current document under it, applies its change and publishes, so concurrent
-  adds, removals, pauses and edits all land. A spent budget returns `SQUAD_CRON_STORE_BUSY`
-  saying another Ops process holds the lock, with the one retry (`Run the same command again.`), with nothing
-  saved. Validation and file sync precede atomic rename, then a directory sync. A failed publish keeps the previous document; a directory-sync error
-  after rename reports an uncertain commit for rereading. New directories/files use
-  0700/0600. Invalid existing state fails explicitly rather than resetting counters or
-  overwriting it.
+- `cron::store` keeps the versioned jobs document as the `cron` document of the
+  [Ops state database](#ops-state-database): per-squad counters that survive removal, exact
+  message bytes, room and owner references, schedules, revisions and pause attribution. The
+  caller supplies the absolute Ops root under `storage.root` and admits core UUID references;
+  the store resolves no identities, decides no permissions, dispatches nothing and tracks no
+  runs. Reads of an absent store create nothing. A mutation queues for the database's write
+  lock for at most five seconds, then reads the current document under it, applies its change
+  and commits, so concurrent adds, removals, pauses and edits all land; a reader queues behind
+  a writer the same way. A spent budget returns `SQUAD_CRON_STORE_BUSY` saying another Ops
+  process holds the database, with the one retry (`Run the same command again.`) and with
+  nothing saved. A failed change commits nothing. Invalid existing state fails explicitly
+  rather than resetting counters or overwriting it. `pause_owner_then` is membership's
+  barrier: it commits the departing owner's pause, runs the leave or move with no lock held
+  (it runs a core command), then pauses once more so a job its owner added meanwhile is
+  paused too; the second pause is best effort because the departure is done.
 - `cron_command` composes the management grammar and output; one `cron_service` is shared
   with clock and board callers. `cron_service` owns `list_jobs`/`show_job`/apply,
   explicit recorded-or-verified `CronActor` admission and room/owner/revision revalidation.
@@ -304,12 +336,13 @@ own these layers:
   rollback, outbox or recovery journal, so an interruption can lose a notice. Reassignment
   keeps a pause; resume requires a current owner.
 - `cron::clock` owns the bounded, read-only Running/NoClock/Unknown lease projection
-  and atomic `clock.json` publication under the same extension directory. A stable,
+  and atomic `clock.json` publication under the Ops `cron` directory. A stable,
   nonblocking `clock.lock` serializes acquisition, renewal and ownership-checked
   release. Contention is `SQUAD_CRON_CLOCK_BUSY`; acquisition and renewal retry on the
   next tick, while release, which runs once at shutdown, waits up to 500 ms for a
   brief holder such as a status read. Pane, PID, start and expiry are evidence, not
-  process probes; an expired lease can be taken over. `cron::tick` owns slot selection and deterministic
+  process probes; an expired lease can be taken over, and a clock refused because another
+  holds the lease names that holder's PID and pane. `cron::tick` owns slot selection and deterministic
   operation UUIDs from room UUID, non-reused c-id and UTC slot milliseconds. A
   running clock admits every slot since its own previous tick, capped at five
   minutes; startup, takeover, restart and clock rollback baseline at now. A

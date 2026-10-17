@@ -1369,14 +1369,32 @@ fn squad_and_core_are_independent_in_both_directions() {
         ))
         .is_empty()
     );
-    assert_eq!(
+    // Ops holds `rusqlite` for the shared Store's transaction type, never a connection of
+    // its own, so it cannot open Core's database.
+    assert!(
         policy::dependency_violations(&package(
             "tmt-ops",
             vec![dependency("rusqlite", "normal", None, None)]
         ))
-        .len(),
-        1,
-        "Squad must not add a direct core-storage connection"
+        .is_empty()
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-ops",
+            "state.rs",
+            "use rusqlite::Transaction; fn open(path: &str) { let _ = rusqlite::Connection::open(path); }",
+        )],
+        &[
+            "tmt-ops/state.rs: Ops opens SQLite only through the shared Store, never a connection of its own",
+        ],
+    );
+    assert_exact(
+        &[syntax(
+            "tmt-ops",
+            "state.rs",
+            "use rusqlite::{Transaction, params};",
+        )],
+        &[],
     );
     for core in [
         "tmt-core",
@@ -1699,8 +1717,8 @@ fn extension_serve_is_a_leaf_with_only_reviewed_executable_consumers() {
 }
 
 #[test]
-fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
-    for consumer in ["tmt-remote", "tmt-colab"] {
+fn extension_state_is_a_leaf_with_only_the_three_reviewed_executable_consumers() {
+    for consumer in ["tmt-remote", "tmt-colab", "tmt-ops"] {
         assert!(
             policy::dependency_violations(&package(
                 consumer,
@@ -1765,13 +1783,7 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
                 ))
                 .is_empty()
             );
-            for consumer in [
-                "tmt-core",
-                "tmt-adapters",
-                "tmt-cli",
-                "tmt-colab-model",
-                "tmt-ops",
-            ] {
+            for consumer in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-colab-model"] {
                 assert!(
                     !policy::dependency_violations(&package(
                         consumer,
@@ -1782,13 +1794,7 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
             }
         }
     }
-    for consumer in [
-        "tmt-core",
-        "tmt-adapters",
-        "tmt-cli",
-        "tmt-colab-model",
-        "tmt-ops",
-    ] {
+    for consumer in ["tmt-core", "tmt-adapters", "tmt-cli", "tmt-colab-model"] {
         assert!(
             !policy::source_violations(&[syntax(
                 consumer,

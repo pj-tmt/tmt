@@ -156,10 +156,25 @@ fn acquire(core: &Core, clock: &Clock, time: i64) -> Result<Option<Lease>, Squad
     let _migration = crate::migration::state_guard(core)?;
     Ok(clock.acquire(time, std::process::id(), std::env::var("TMUX_PANE").ok())?)
 }
-fn occupied() -> SquadError {
+/// The refusal when another clock owns the lease; it names that clock when its lease says who.
+fn occupied(clock: &Clock) -> SquadError {
+    let holder = match clock.status(now()) {
+        ClockStatus::Running(holder) => Some(format!(
+            " (process {}{})",
+            holder.pid,
+            holder
+                .pane
+                .map(|pane| format!(", pane {pane}"))
+                .unwrap_or_default()
+        )),
+        _ => None,
+    };
     failed(
         "SQUAD_CRON_CLOCK_RUNNING",
-        "Another clock holds the lease; inspect tmt ops sq cron clock.",
+        &format!(
+            "Another clock holds the lease{}; inspect tmt ops sq cron clock.",
+            holder.unwrap_or_default()
+        ),
     )
 }
 
@@ -234,7 +249,7 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
             json!({"action":"clock","complete":status != ClockStatus::Unknown,"clock":status_document(status)}),
         );
     }
-    let mut lease = acquire(core, &clock, now())?.ok_or_else(occupied)?;
+    let mut lease = acquire(core, &clock, now())?.ok_or_else(|| occupied(&clock))?;
     let result = pass(
         core,
         config,
@@ -465,7 +480,7 @@ fn serve(
                     Err(error) => return Err(error),
                 };
                 if lease.is_none() && foreground {
-                    return Err(occupied());
+                    return Err(occupied(&clock));
                 }
                 tick = Tick::new(time);
             }

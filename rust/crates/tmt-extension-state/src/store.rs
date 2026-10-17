@@ -1,11 +1,10 @@
 //! Private, consumer-schema SQLite with one write admission and commit owner.
 use crate::{Layout, StateError, UpdateError, locking::WRITE_WAIT};
-use nix::fcntl::OFlag;
+use nix::unistd::Uid;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior, params};
 use std::{
     collections::BTreeSet,
-    fs::OpenOptions,
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -63,6 +62,11 @@ impl Store {
         connection
             .pragma_update(None, "foreign_keys", true)
             .map_err(|e| StateError::sqlite(&path, "enable foreign keys", e))?;
+        // A concurrent first opener may be creating the store; wait for it instead of
+        // failing on the instant lock a connection starts with.
+        connection
+            .busy_timeout(WRITE_WAIT)
+            .map_err(|e| StateError::sqlite(&path, "configure admission wait", e))?;
         // Refuse unrecognized/future history before even changing journal mode.
         migration_start(&connection, &path, migrations)?;
         configure_wal(&connection, &path, retry)?;
@@ -173,17 +177,17 @@ fn migration_start(
     path: &Path,
     migrations: &[Migration<'_>],
 ) -> Result<Option<usize>, StateError> {
-    let has_history: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='_tmt_state_migrations')", [], |r| r.get(0))
+    // One statement is one snapshot: two separate queries could see a concurrent first
+    // opener's tables appear between them and mistake its new store for a foreign one.
+    let (has_history, existing): (bool, bool) = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='_tmt_state_migrations'), \
+                    EXISTS(SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .map_err(|e| StateError::sqlite(path, "read migration history", e))?;
     if !has_history {
-        let existing: bool = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*')",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(|e| StateError::sqlite(path, "admit new store", e))?;
         if existing {
             return Err(StateError::Migration {
                 path: path.into(),
@@ -224,21 +228,38 @@ fn migration_start(
     Ok(Some(history.len()))
 }
 
+/// Admit SQLite's own sidecars by metadata alone. Opening and closing one while a
+/// connection is live would release that process's POSIX locks on it (closing any
+/// descriptor does), including the WAL-index "deadman" lock; a second process would
+/// then take itself for the first connection and reset the shared index under the
+/// first one's mapping.
 fn secure_sidecars(path: &Path) -> Result<(), StateError> {
     for suffix in ["-wal", "-shm", "-journal"] {
         let mut name = path.as_os_str().to_owned();
         name.push(suffix);
         let sidecar = PathBuf::from(name);
-        let file = match OpenOptions::new()
-            .read(true)
-            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
-            .open(&sidecar)
-        {
-            Ok(file) => file,
+        let metadata = match std::fs::symlink_metadata(&sidecar) {
+            Ok(metadata) => metadata,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => return Err(StateError::io(&sidecar, "admit SQLite sidecar", e)),
         };
-        super::validate_file(&file).map_err(|e| StateError::admission(&sidecar, e))?;
+        if metadata.file_type().is_symlink() {
+            // The same refusal a no-follow open gives, without opening.
+            return Err(StateError::io(
+                &sidecar,
+                "admit SQLite sidecar",
+                std::io::Error::from_raw_os_error(nix::errno::Errno::ELOOP as i32),
+            ));
+        }
+        if !metadata.is_file()
+            || metadata.uid() != Uid::effective().as_raw()
+            || metadata.mode() & 0o777 != 0o600
+        {
+            return Err(StateError::Unsafe {
+                path: sidecar,
+                reason: "state must have the required owner, mode and regular-file type",
+            });
+        }
     }
     Ok(())
 }

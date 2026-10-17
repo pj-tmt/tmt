@@ -887,8 +887,8 @@ mod tests {
     #[test]
     fn unpublished_reset_and_window_keep_effective_state_and_can_recover() {
         let mut f = fixture("unpublished-reset-window", "refresh = 'off'\n");
-        let staged = f.root.join(format!(".ops.toml.{}", std::process::id()));
-        std::fs::write(&staged, "occupied publication path").unwrap();
+        let staged = f.root.join(".ops.toml.tmt-staging");
+        std::fs::create_dir(&staged).unwrap();
         let overlay = f.app.settings.as_mut().unwrap();
         overlay.surface.borrow_mut().select("board.refresh");
         let before = overlay.settings.value();
@@ -897,7 +897,7 @@ mod tests {
         assert_eq!(overlay.settings.value(), before);
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
         assert_eq!(overlay.notice.as_ref().unwrap().mark, Mark::Failed);
-        std::fs::remove_file(staged).unwrap();
+        std::fs::remove_dir(staged).unwrap();
         assert!(overlay.reset());
         assert!(overlay.save_window(crate::config::TokenWindow::HOUR));
         let reopened = Config::read(f.path.clone()).unwrap();

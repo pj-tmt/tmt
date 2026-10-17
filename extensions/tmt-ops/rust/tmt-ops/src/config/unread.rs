@@ -100,15 +100,43 @@ impl Config {
         Ok(result)
     }
 
-    /// Fresh read and max-merge under the same lock as every Config writer.
+    /// Fresh read and max-merge under the same document lock as every Config writer.
     /// A stale view cannot erase another layout's mark or an authored setting.
     pub(crate) fn save_read_markers(
         &mut self,
         updates: &ReadMarkers,
     ) -> Result<ReadMarkers, SquadError> {
         let _migration = crate::migration::config_write_guard(&self.path)?;
-        let _writer = super::write_guard(&self.path)?;
-        let mut current = Self::read(self.path.clone())?;
+        let (current, markers, changed) = Self::merged(&self.path, updates)?;
+        if !changed {
+            *self = current;
+            return Ok(markers);
+        }
+        let mut saved = None;
+        let outcome = self.state_document()?.update(|_| {
+            // The file may have moved on since the unlocked look above.
+            let (mut current, markers, _) = Self::merged(&self.path, updates)?;
+            let bytes = current.document.to_string().into_bytes();
+            if bytes.len() as u64 > super::FILE_LIMIT {
+                return Err(super::too_large());
+            }
+            current.original = Some(bytes.clone());
+            saved = Some((current, markers));
+            Ok(bytes)
+        });
+        self.settled(outcome)?;
+        let (current, markers) = saved.expect("a successful update ran its change");
+        *self = current;
+        Ok(markers)
+    }
+
+    /// The file read fresh with every update that advances a watermark applied to its
+    /// document, the resulting markers, and whether anything advanced.
+    fn merged(
+        path: &std::path::Path,
+        updates: &ReadMarkers,
+    ) -> Result<(Self, ReadMarkers, bool), SquadError> {
+        let mut current = Self::read(path.to_path_buf())?;
         let mut markers = current.read_markers()?;
         let mut changed = false;
         for (actor, members) in &updates.0 {
@@ -122,11 +150,7 @@ impl Config {
                 }
             }
         }
-        if changed {
-            current.publish_document(current.document.clone())?;
-        }
-        *self = current;
-        Ok(markers)
+        Ok((current, markers, changed))
     }
 }
 

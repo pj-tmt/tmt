@@ -807,7 +807,8 @@ to the user. Add accepts `--paused`; edit accepts the same schedule flags or
 `--message`. Reassignment clears no owner but retains its pause; resume separately.
 
 Messages must be nonempty and are retained exactly, without substitution. Jobs
-live under the extension's own storage, separate from `ops.toml`. IDs are never
+live in the Ops state database in the extension's own storage, separate from
+`ops.toml`. IDs are never
 reused. Fixed local times skip daylight-saving gaps and use the first repeated
 time; intervals keep elapsed duration. Schedule edits retain the stored zone.
 Change notices are best-effort announcements to the owner; reassignment notifies
@@ -1125,6 +1126,15 @@ that reappears is reported but never read or merged; move wanted settings into
 binary is `tmt-ops`; disposable observations use the `tmt-ops` cache namespace.
 Refresh former generated hotkeys with consent using `tmt ops hotkeys install`.
 The former generated file and immutable skill sources remain available.
+
+Cron jobs and checklists are kept in one Ops database (`<dataRoot>/ops/ops.db`). The
+first use after an upgrade imports the earlier `cron/jobs.json` and
+`checklist/<room-uuid>/items.json`, then renames each to `<name>.migrated-<date>`;
+nothing is deleted, and an old file that reappears is archived the same way and never
+read. Concurrent commands queue for up to five seconds; a longer wait reports
+`SQUAD_CRON_STORE_BUSY` (or a checklist storage error) with nothing saved, and the same
+command can simply be run again. A database written by a newer Ops is refused with an
+upgrade hint (`tmt extension upgrade ops` or `tmt upgrade`) and never changed.
 
 ## Observed token usage
 

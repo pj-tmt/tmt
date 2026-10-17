@@ -50,6 +50,31 @@ fn probe(
     crate::runner::run(path, &["__tmt_fixture_ready".into()], b"", ceiling, 1024)
 }
 
+/// The stored cron jobs document of an Ops tree laid out under `directory`, read behind
+/// the store's back.
+pub(crate) fn stored_jobs(directory: &Path) -> Vec<u8> {
+    rusqlite::Connection::open(directory.join("ops/ops.db"))
+        .unwrap()
+        .query_row(
+            "SELECT body FROM documents WHERE kind = 'cron' AND key = ''",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+/// Replace the stored cron jobs document with `bytes`, as a damaged store would hold.
+pub(crate) fn replace_stored_jobs(directory: &Path, bytes: &[u8]) {
+    let changed = rusqlite::Connection::open(directory.join("ops/ops.db"))
+        .unwrap()
+        .execute(
+            "UPDATE documents SET body = ?1 WHERE kind = 'cron' AND key = ''",
+            [bytes],
+        )
+        .unwrap();
+    assert_eq!(changed, 1);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

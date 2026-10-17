@@ -131,6 +131,25 @@ fn process_worker() {
         .unwrap();
     let root = PathBuf::from(root);
     let layout = Layout::open(&root, "owned", FILES).unwrap();
+    if std::env::var("TMT_STATE_WORKER_MODE").unwrap() == "wal-index-lock" {
+        // SQLite's "dead man switch" (byte 128 of the WAL index): a connection holds a
+        // shared lock on it for as long as it lives, and a process that finds it free
+        // concludes it is the first and resets the index. Report who holds it.
+        let index = std::fs::File::open(layout.directory.join("state.db-shm")).unwrap();
+        let mut lock = nix::libc::flock {
+            l_start: 128,
+            l_len: 1,
+            l_pid: 0,
+            l_type: nix::libc::F_WRLCK as _,
+            l_whence: nix::libc::SEEK_SET as _,
+        };
+        nix::fcntl::fcntl(&index, nix::fcntl::FcntlArg::F_GETLK(&mut lock)).unwrap();
+        println!(
+            "WAL_INDEX_LOCK_HELD={}",
+            lock.l_type != nix::libc::F_UNLCK as _
+        );
+        return;
+    }
     let mut store = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
     println!("STATE_READY");
     std::io::Write::flush(&mut std::io::stdout()).unwrap();
@@ -583,4 +602,51 @@ fn an_unrecognized_database_is_refused_before_journal_or_schema_changes() {
         assert_eq!(fs::read(&path).unwrap(), before);
         assert_eq!(fs::read_dir(layout.directory).unwrap().count(), 1);
     }
+}
+
+#[test]
+fn concurrent_first_opens_of_a_new_store_all_succeed_and_migrate_once() {
+    for round in 0..20 {
+        let world = World::new();
+        let layout = world.layout();
+        let start = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (layout, start) = (layout.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    Store::open(&layout, "state.db", MIGRATIONS, RETRY).map(drop)
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread
+                .join()
+                .unwrap()
+                .unwrap_or_else(|error| panic!("round {round}: {error}"));
+        }
+        let history: i64 = rusqlite::Connection::open(layout.directory.join("state.db"))
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM _tmt_state_migrations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(history, 1, "round {round}");
+    }
+}
+
+#[test]
+fn opening_a_store_keeps_its_wal_index_lock_so_another_process_cannot_reset_the_index() {
+    let world = World::new();
+    let layout = world.layout();
+    let mut store = Store::open(&layout, "state.db", MIGRATIONS, RETRY).unwrap();
+    store
+        .write(|tx| tx.execute("INSERT INTO records VALUES(1,'first')", []))
+        .unwrap();
+    // Admitting SQLite's sidecars by opening and closing them would release this process's
+    // POSIX locks on them (closing any descriptor does), and with them the lock below.
+    let mut probe = Worker::spawn(&world.0, 2, "process_worker", "wal-index-lock");
+    probe.until("WAL_INDEX_LOCK_HELD=true");
+    probe.finish();
+    drop(store);
 }
