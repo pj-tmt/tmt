@@ -95,6 +95,7 @@ declared roots, packaging and canonical generated inputs without cfg/reachabilit
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 
+Opt-in workspace proof never substitutes for required workers.
 Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
 cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
 [CI reference](.agents/skills/tmt-release/references/ci-selection.md). `pr-title-check.mjs` owns

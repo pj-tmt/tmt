@@ -338,7 +338,16 @@ describe('complete trusted-main verification', () => {
       (match) => match[1]
     );
     expect(ids.sort()).toEqual(
-      [...MAIN_FULL_JOBS, 'release-rehearsal', 'complete-main', 'notify-main-failure'].sort()
+      [
+        ...MAIN_FULL_JOBS,
+        'release-rehearsal',
+        'complete-main',
+        'notify-main-failure',
+        'workspace-proof',
+      ].sort()
+    );
+    expect(job('workspace-proof')).toContain(
+      "if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)"
     );
     const complete = job('complete-main');
     const needs = complete.split('    needs:\n')[1].split('    if:')[0];
@@ -2988,9 +2997,16 @@ describe('required CI gate', () => {
         `${output}: \${{ steps.mainfull.outputs.${output} || steps.scope.outputs.${output} || steps.queue.outputs.${output} }}`
       );
     }
-    // A seeding run (no pull request, no diff) builds the whole workspace, so it is the full scope.
+    // Main-full and ordinary seed dispatches retain full scope; only opt-in proof selects none.
     expect(changes).toContain(
-      'native_scope: ${{ steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}'
+      "if: steps.event.outputs.verify != 'true' && github.event_name != 'push' && !inputs.workspace_proof && !inputs.workspace_capability"
+    );
+    expect(changes).toContain(
+      "if: github.event_name == 'workflow_dispatch' && (inputs.workspace_proof || inputs.workspace_capability)"
+    );
+    expect(changes).toContain('native_scope=none');
+    expect(changes).toContain(
+      'native_scope: ${{ steps.proof.outputs.native_scope || steps.mainfull.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}'
     );
     expect(changes).toContain('node typescript/scripts/ci-scope.mjs "$SEED_SCOPE"');
     expect(changes).toContain(

@@ -49,6 +49,40 @@ All selected inputs require full native scope so the job runs. Remote uses hoste
 Dockerfile with the same pins, then runs `--rm --init --network none` with only its extension mounted
 read-only and no credentials. Both suites fail closed within their step bounds, without retry or cache.
 
+## Opt-in workspace equivalence proof
+
+`ci.yml` admits `workspace_proof=true` only on manual dispatch with an exact `proof_head`;
+`workspace-proof.yml` owns the separate N=1 producer, same-source default Cargo baseline,
+one restored whole-harness consumer, doctest worker and fail-closed aggregate. It selects every
+retained workspace member without retired-product exclusions. The producer moves the unchanged
+workspace build before one test compilation; Remote and architecture lists come from those exact
+hashed harnesses and must be nonempty. The current required worker remains unchanged.
+
+`workspace-proof.mjs` owns Cargo/libtest/rustdoc admission and exact coverage;
+`run-workspace-proof.mjs` owns bounded capture, custody, closure and cleanup observations.
+Missing, cancelled, ambiguous, mismatched or incomplete evidence stays red. The five roles retain
+20-minute caps, immutable same-attempt artifact IDs and original streams; no retries, cache writes
+or automatic PR/merge-group proof runs. Default manual/weekly cache seeding and trusted main-full
+verification keep their existing behavior.
+
+Source readiness is separate from execution: lifecycle/resource-domain capability and an
+immutable-head launch plan require primary acceptance before any heavy proof. Private HOME/XDG
+is not an exclusive descendant/listener domain; global observer uncertainty retains runtime roots
+and cannot prove cleanup. N=1 removes zero required-gate wall seconds while the current worker
+remains; N=2/3 need separately authorized matched measurements after equivalent N=1 evidence.
+`workspace_capability=true` selects only the five-minute PID-domain qualification on Ubuntu
+24.04; every compilation role is skipped. `scripts/workspace-proof-domain.py` supervises tiny
+controls under `sudo unshare --pid --fork --kill-child --mount-proc`, drops payload privileges,
+binds the namespace before launch, and externally reaps/checks that owned domain. Normal exit,
+nonzero exit, a double-fork/setsid listener, cancellation and observation failure retain their
+original outcomes. Expected refusal controls never admit the payload. No cgroup or private network
+namespace is introduced. The first capability run needs Infra and Core exact-head approval;
+capability source is not capability evidence, and the heavy hold remains.
+
+Role reports retain command/phase UTC and monotonic timings plus free-disk boundary samples
+(null when unavailable, not a continuous peak). Queue, setup, upload/download and runner-minutes
+come from the same original jobs/steps; timings never substitute for coverage or cleanup admission.
+
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process

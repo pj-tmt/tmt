@@ -59,6 +59,8 @@ describe('Cargo workspace reader', () => {
         expect.objectContaining({ cwd: join(root, 'rust'), timeoutMs: 60_000 })
       );
       expect(workspace.packages[0]).toMatchObject({
+        id: 'product',
+        targets: packages[0].targets,
         name: 'product',
         version: '1.2.3',
         manifest: 'rust/product/Cargo.toml',
