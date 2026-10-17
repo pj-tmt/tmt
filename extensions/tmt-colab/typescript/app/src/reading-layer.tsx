@@ -198,6 +198,7 @@ export function useReadingLayer({
         className="proposal-inline reading-inline"
         data-detached={!attached || undefined}
         data-reading-state={state.kind}
+        data-reason-expanded={(!!warning && (readOnly || expanded.has(reading.id))) || undefined}
         aria-label={text.readingSection(reading.title)}
         style={{ top: slot?.top ?? 0 }}
       >
@@ -219,7 +220,7 @@ export function useReadingLayer({
                 {warning && (
                   <button
                     type="button"
-                    className="tmt-ui-action"
+                    className="tmt-ui-action reading-why"
                     data-variant="text"
                     aria-expanded={expanded.has(reading.id)}
                     aria-controls={detailId}

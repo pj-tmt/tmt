@@ -1157,8 +1157,18 @@ footer {
   visibility: hidden;
   pointer-events: none;
 }
+.reading-inline .reading-why,
+.reading-inline .reading-why:hover,
+.reading-inline .reading-why:focus-visible,
+.reading-inline .reading-why[aria-expanded='true'] {
+  color: inherit;
+  background: transparent;
+}
+.reading-inline[data-reason-expanded] .needs-you-bar {
+  padding-bottom: 0;
+}
 .reading-reason {
-  margin: 0;
+  margin: 4px 0 0;
   padding: 0 12px 8px;
   color: var(--tmt-ui-color-secondary);
   font-size: 13px;

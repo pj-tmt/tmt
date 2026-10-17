@@ -14,6 +14,22 @@ async function mount(page: Page, options = {}) {
   await expect(band).not.toHaveAttribute('data-detached');
   return band;
 }
+/** The frame's real spacer acknowledges the measured parent band, including a disclosure. */
+async function placed(page: Page, band: import('@playwright/test').Locator) {
+  const id = await band.getAttribute('data-inline-reading');
+  const spacer = page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator(`tmt-read[data-id="${id}"] > [data-colab-proposal-slot]`);
+  await expect
+    .poll(async () => {
+      const [height, box] = await Promise.all([
+        spacer.evaluate((node) => parseFloat((node as HTMLElement).style.minHeight)),
+        band.boundingBox(),
+      ]);
+      return height - Math.ceil(box!.height);
+    })
+    .toBe(0);
+}
 test('reading bands record a person read once, keep content, and survive reload without notification retries', async ({
   page,
 }) => {
@@ -131,6 +147,7 @@ for (const width of [1440, 390])
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
       const band = await mount(page, { count: 3, darkPage: theme === 'dark' });
       await expect(band).toBeVisible();
+      await placed(page, band);
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({
           path: capturePath(`reading-open-${width}-${theme}.png`),
@@ -139,6 +156,7 @@ for (const width of [1440, 390])
       await band.getByRole('button', { name: 'Mark read', exact: true }).click();
       await run(page, 'readingDelivery', 'accepted');
       await expect(band).toContainText('Agent 1 notified');
+      await placed(page, band);
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({
           path: capturePath(`reading-done-${width}-${theme}.png`),
@@ -146,6 +164,7 @@ for (const width of [1440, 390])
         });
       await run(page, 'readingDelivery', 'unavailable');
       await expect(band).toContainText('Agent 1 not notified');
+      await placed(page, band);
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({
           path: capturePath(`reading-warning-${width}-${theme}.png`),
@@ -153,6 +172,7 @@ for (const width of [1440, 390])
         });
       await band.getByRole('button', { name: 'Why', exact: true }).click();
       await expect(band.locator('.reading-reason')).toBeVisible();
+      await placed(page, band);
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({
           path: capturePath(`reading-why-${width}-${theme}.png`),
@@ -184,4 +204,36 @@ test('the reading cue stays between its title and passage in unread and done sta
   await band.getByRole('button', { name: 'Mark read', exact: true }).click();
   await expect(band).toHaveAttribute('data-reading-state', 'read');
   await expect.poll(beforePassage).toBe(true);
+});
+
+test('Why stays a plain text action and its reason preserves the passage gap', async ({ page }) => {
+  const band = await mount(page);
+  await band.getByRole('button', { name: 'Mark read', exact: true }).click();
+  await expect(band).toHaveAttribute('data-reading-state', 'read');
+  const why = band.getByRole('button', { name: 'Why', exact: true });
+  await why.hover();
+  await expect(why).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  const content = page.frameLocator('#ask-page-fixture iframe').locator('tmt-read').first();
+  const gap = async () => {
+    const [cue, passage] = await Promise.all([
+      band.boundingBox(),
+      content.locator('p').boundingBox(),
+    ]);
+    return passage!.y - cue!.y - cue!.height;
+  };
+  await placed(page, band);
+  await expect.poll(gap).toBeGreaterThanOrEqual(0);
+  const closedGap = await gap();
+  await why.click();
+  await expect(why).toHaveAttribute('aria-expanded', 'true');
+  await expect(why).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await placed(page, band);
+  await expect.poll(async () => Math.abs((await gap()) - closedGap)).toBeLessThan(1.01);
+  const [line, reason] = await Promise.all([
+    band.locator('.needs-you-bar').boundingBox(),
+    band.locator('.reading-reason').boundingBox(),
+  ]);
+  expect(reason!.y - line!.y - line!.height).toBeCloseTo(4, 0);
+  await why.press('Enter');
+  await expect(why).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });
