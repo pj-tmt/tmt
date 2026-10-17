@@ -185,11 +185,6 @@ export function reviewState(
   return { kind: 'waiting' };
 }
 
-/** `n / m closed` for the page head. */
-export function reviewProgress(states: readonly ReviewState[]) {
-  return { closed: states.filter((state) => state.kind === 'closed').length, total: states.length };
-}
-
 /**
  * Whether a reader's answers have answered every question inside a section: the condition under
  * which the trusted Send that recorded them also closes the section. An empty section is never

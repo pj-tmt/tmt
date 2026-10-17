@@ -87,7 +87,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   behavior. Grammar and bounds live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 - Review sections: `questions.ts` admits inert `tmt-review` structure beside the questions (one
   ID namespace, one rule table shared with Rust). `reviews.ts` is pure: the fixed section comments,
-  the canonical thread, the person-only closed rule, the derived state and `n / m`. `review-layer.tsx`
+  the canonical thread, the person-only closed rule and the derived pending state. `review-layer.tsx`
   associates each section's heading-anchored threads from the renderer's quote answer and owns the
   parent bands; `components/review-card.tsx` presents them. Review cards and the question cards'
   state line share one "needs you" band, `components/needs-you-bar.tsx`. `review-actions.ts` is the only writer:

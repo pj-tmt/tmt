@@ -6,7 +6,6 @@ import {
   confirmComment,
   needsChangeComment,
   resolvedByPerson,
-  reviewProgress,
   reviewState,
   sectionAction,
   sectionAnswered,
@@ -124,7 +123,7 @@ it('shows changes requested until an agent replies to the newest note', () => {
   expect(reviewState(review, thread('w', [forged]))).toEqual({ kind: 'waiting' });
 });
 
-it('picks the section thread like an answer block does, and counts closed sections', () => {
+it('picks the canonical section thread like an answer block does', () => {
   const recorded = thread('b', [comment('b', 'c', '1', 'Confirmed “Hosting plan”\nPage: P')]);
   const empty = thread('a', []);
   const forged = thread('a', [comment('a', 'd', '9', 'Confirmed “Hosting plan”', false)]);
@@ -135,15 +134,6 @@ it('picks the section thread like an answer block does, and counts closed sectio
   ])
     expect(canonicalReviewThread(review, threads)).toBe(recorded);
   expect(canonicalReviewThread(review, [thread('b', []), empty])).toBe(empty);
-  expect(
-    reviewProgress([
-      { kind: 'closed' },
-      { kind: 'waiting' },
-      { kind: 'changes' },
-      { kind: 'closed' },
-    ]),
-  ).toEqual({ closed: 2, total: 4 });
-  expect(reviewProgress([])).toEqual({ closed: 0, total: 0 });
 });
 
 it('a section is answered only when every question inside has a verified device answer', () => {

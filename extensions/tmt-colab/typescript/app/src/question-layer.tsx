@@ -15,12 +15,8 @@ import {
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { QuestionChip } from './components/question-chip.js';
 import { QuestionGroupCard } from './components/question-group-card.js';
-import {
-  canonicalQuestionThread,
-  currentAnswer,
-  type Question,
-  type QuestionGroup,
-} from './questions.js';
+import { focusNeedsYouTarget, unansweredQuestions, type NeedsYouCandidate } from './needs-you.js';
+import type { Question, QuestionGroup } from './questions.js';
 import type { PageSnapshot, PageView } from './transport.js';
 import type {
   AnchorPosition,
@@ -72,6 +68,7 @@ export function useQuestionLayer({
   const chips = useRef(new Map<string, HTMLButtonElement>());
   const panels = useRef(new Map<string, HTMLElement>());
   const focusPanel = useRef<string | undefined>(undefined);
+  const navigationFocus = useRef<string | undefined>(undefined);
   const panelPrefix = useId();
   const threads = useMemo(
     () =>
@@ -142,12 +139,17 @@ export function useQuestionLayer({
   useEffect(() => {
     // Opening hands focus to the panel; the next render has it visible.
     const id = focusPanel.current;
-    if (!id || !opened.has(id)) return;
+    if (!id || (groups.find((group) => group.id === id)?.form === 'chip' && !opened.has(id)))
+      return;
     focusPanel.current = undefined;
-    panels.current.get(id)?.querySelector<HTMLElement>('.question-group-card')?.focus({
-      preventScroll: true,
-    });
-  }, [opened]);
+    if (navigationFocus.current === id) {
+      navigationFocus.current = undefined;
+      focusNeedsYouTarget(panels.current.get(id));
+    } else
+      panels.current.get(id)?.querySelector<HTMLElement>('.question-group-card')?.focus({
+        preventScroll: true,
+      });
+  }, [opened, active, groups]);
   /** Opens the chip-form panel of a group (or of the group holding a question) and selects that
    * question. False when the ID names no chip-form group, so a caller can fall back to jumping. */
   const open = useCallback(
@@ -161,10 +163,53 @@ export function useQuestionLayer({
     },
     [groups, setOpen],
   );
+  const rows = groups.map((group) => {
+    const members = group.questions.map((id) => questions.find((question) => question.id === id)!);
+    return { group, members, pending: unansweredQuestions(members, associated) };
+  });
+  const navigation: NeedsYouCandidate[] =
+    state !== 'ready' || anchors === null
+      ? []
+      : rows.flatMap(({ group, members, pending }) => {
+          const slot = slots.find((value) => value.id === group.id);
+          const attached =
+            group.form === 'chip' ? !!slot?.chip : slot?.descriptionHeight !== undefined;
+          if (
+            !attached ||
+            !members.every((member) => anchors.some((anchor) => anchor.id === member.id))
+          )
+            return [];
+          return [
+            {
+              kind: 'answer',
+              state: pending.length ? 'unanswered' : 'answered',
+              id: group.id,
+              title: group.title ?? members[0].title,
+              agent: [...new Set(members.map((member) => member.agent).filter(Boolean))].join(', '),
+              targetId: (pending[0] ?? members[0]).id,
+            },
+          ];
+        });
   return {
     onQuestions,
     associated,
     open,
+    navigation,
+    ready: state === 'ready' && anchors !== null,
+    jump: (id: string) => {
+      const item = navigation.find((value) => value.id === id || value.targetId === id);
+      if (!item) return false;
+      const group = groups.find((value) => value.id === item.id)!;
+      if (group.form === 'chip') {
+        open(item.targetId ?? item.id);
+        navigationFocus.current = group.id;
+        return true;
+      }
+      focusPanel.current = group.id;
+      navigationFocus.current = group.id;
+      setActive((previous) => ({ ...previous, [group.id]: item.targetId ?? group.questions[0] }));
+      return true;
+    },
     notificationThreads,
     activateNotification: (event: ReplyNotification) => {
       const group = groups.find((group) => group.questions.includes(event.questionId!));
@@ -185,10 +230,7 @@ export function useQuestionLayer({
     },
     inline: (
       <>
-        {groups.map((group) => {
-          const members = group.questions.map((id) =>
-            questions.find((question) => question.id === id)!,
-          );
+        {rows.map(({ group, members, pending }) => {
           const current = selected(group);
           const slot = slots.find((slot) => slot.id === group.id);
           const chip = group.form === 'chip';
@@ -199,27 +241,15 @@ export function useQuestionLayer({
             setOpen(group.id, false);
             chips.current.get(group.id)?.focus({ preventScroll: true });
           };
-          const unanswered = chip
-            ? members.filter(
-                (member) =>
-                  !currentAnswer(
-                    member,
-                    canonicalQuestionThread(member, associated(member.id))?.comments ?? [],
-                  ),
-              ).length
-            : 0;
+          const unanswered = chip ? pending.length : 0;
           const panel = (
             <div
               key={chip ? undefined : group.id}
               id={chip ? panelId : undefined}
-              ref={
-                chip
-                  ? (node) => {
-                      if (node) panels.current.set(group.id, node);
-                      else panels.current.delete(group.id);
-                    }
-                  : undefined
-              }
+              ref={(node) => {
+                if (node) panels.current.set(group.id, node);
+                else panels.current.delete(group.id);
+              }}
               hidden={chip && !isOpen ? true : undefined}
               data-inline-question={current}
               data-question-group={group.id}

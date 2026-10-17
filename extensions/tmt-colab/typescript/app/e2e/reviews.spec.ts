@@ -38,8 +38,8 @@ test('a waiting section offers Confirm and Needs change, and the head counts it'
   await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeEnabled();
   await expect(card.getByRole('button', { name: 'Needs change…', exact: true })).toBeEnabled();
   await expect(card.getByText('Goes to @Agent 1')).toBeVisible();
-  const chip = page.getByRole('status', { name: '0 of 2 review sections closed' });
-  await expect(chip).toHaveText('✓ 0 / 2 closed');
+  const chip = page.getByRole('button', { name: 'Needs you: 2', exact: true });
+  await expect(chip).toContainText('Needs you 2');
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
   expect(await sectionThread(page)).toHaveLength(0);
 });
@@ -65,9 +65,7 @@ test('Confirm and close records one comment, resolves the thread and fades the s
     'Confirmed “Section 1”\nPage: Live shared page\n@Agent 1',
   );
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve']);
-  await expect(page.getByRole('status', { name: '1 of 2 review sections closed' })).toHaveText(
-    '✓ 1 / 2 closed',
-  );
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
   // Faded, never collapsed or hidden: its content stays visible and selectable.
   const closed = section(page);
   await expect(closed).toHaveAttribute('data-colab-review-closed', 'true');
@@ -81,7 +79,7 @@ test('Confirm and close records one comment, resolves the thread and fades the s
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'status:reopen']);
-  await expect(page.getByRole('status', { name: '0 of 2 review sections closed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
 });
 
 test('Confirm keeps an optional one-line note in the closing comment', async ({ page }) => {
@@ -116,9 +114,11 @@ test('Needs change adds a comment and an Ask, keeps the thread open, and a reply
     'Needs change to “Section 1”: Say what the page is for.\nPage: Live shared page\n@Agent 1',
   );
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
-  // No status action: the thread stays open and the count does not move.
+  // No status action: the thread stays open, but the header excludes work waiting for the agent.
   expect((await run(page, 'proof')).actions).toEqual([]);
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
   await run(page, 'questionAsk', 'replied');
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
@@ -134,14 +134,18 @@ test('an agent resolving the thread does not close the section; Confirm reopens,
   await card.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(card).toHaveAttribute('data-review-state', 'changes');
   await run(page, 'agentResolves');
-  // The thread is resolved with an agent label: the section stays open and the count is 0.
+  // The agent-labelled Resolve leaves Changes requested; nothing yet waits for the reader.
   await expect(card).not.toHaveAttribute('data-review-state', 'closed');
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
   await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
   await expect(card).toHaveAttribute('data-review-state', 'closed');
   expect((await run(page, 'proof')).actions).toEqual(['status:reopen', 'status:resolve']);
-  await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
 });
 
 test('page HTML cannot close a section, count or draw controls', async ({ page }) => {
@@ -154,7 +158,7 @@ test('page HTML cannot close a section, count or draw controls', async ({ page }
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
   // Authored text that looks like a status changes nothing in the parent.
   await expect(frame(page).getByText('✓ Closed by the author')).toBeVisible();
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
   // Page-authored buttons in the frame cannot reach the parent's action.
   await frame(page).getByRole('button', { name: 'Confirm and close' }).click();
   expect(await sectionThread(page)).toHaveLength(0);
@@ -166,10 +170,10 @@ test('duplicate and nested sections supply no controls', async ({ page }) => {
   await run(page, 'mount');
   await run(page, 'review', { placement: 'duplicate' });
   await expect(page.locator('.review-card')).toHaveCount(0);
-  await expect(page.getByRole('status', { name: /review sections closed/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Needs you:/ })).toHaveCount(0);
   await run(page, 'review', { placement: 'nested' });
   await expect(page.locator('.review-card')).toHaveCount(1);
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
 });
 
 test('answering the questions inside a section closes it in the same Send', async ({ page }) => {
@@ -190,7 +194,9 @@ test('answering the questions inside a section closes it in the same Send', asyn
   expect(sections).toHaveLength(1);
   expect(sections[0].comments[0].body).toBe('Answered “Section 1”\nPage: Live shared page');
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve']);
-  await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
 });
 
 test('an archived page shows section state and count but no controls', async ({ page }) => {
@@ -200,7 +206,9 @@ test('an archived page shows section state and count but no controls', async ({ 
   await run(page, 'archive');
   await expect(card.getByRole('button', { name: 'Reopen' })).toHaveCount(0);
   await expect(card.locator('.needs-you-bar strong')).toHaveText('Closed');
-  await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
 });
 
 test('a Resolve that did not land leaves the section waiting; the retry publishes only the Resolve', async ({
@@ -212,7 +220,7 @@ test('a Resolve that did not land leaves the section waiting; the retry publishe
   await expect(card.getByRole('alert')).toContainText('Your comment is saved');
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
   expect((await run(page, 'proof')).actions).toEqual([]);
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
   await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
   await expect(card).toHaveAttribute('data-review-state', 'closed');
   // The confirmation is recorded once, not twice.
@@ -237,7 +245,9 @@ test('concurrent first actions make sibling threads and every tab agrees on one 
     writer: 2,
   });
   await expect(card).toHaveAttribute('data-review-state', 'closed');
-  await expect(page.getByRole('status', { name: '1 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
   // An agent-labelled sibling never closes anything.
   await run(page, 'reviewSibling', {
     body: 'Confirmed “Section 1”\nPage: Live shared page',
@@ -245,19 +255,21 @@ test('concurrent first actions make sibling threads and every tab agrees on one 
     writer: 1,
   });
   await expect(card).not.toHaveAttribute('data-review-state', 'closed');
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
 });
 
 test('a group inside a section closes it only when every question is answered', async ({
   page,
 }) => {
   const card = await mount(page, { group: true });
+  await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
   const group = page.locator('.question-group-card');
   const active = page.locator('.question-card:visible').first();
   await group.getByRole('tab', { name: /Q1/ }).click();
   await active.getByLabel('Your answer', { exact: true }).fill('First answer.');
   await group.getByRole('button', { name: /^Send/ }).press('Enter');
   await expect(group.locator('.needs-you-bar').first()).toContainText('Answered');
+  await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
   // One of two answered: the section stays open and nothing was resolved.
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
   expect((await run(page, 'proof')).actions).toEqual([]);
@@ -266,6 +278,9 @@ test('a group inside a section closes it only when every question is answered', 
   await group.getByRole('button', { name: /^Send/ }).press('Enter');
   await expect(card).toHaveAttribute('data-review-state', 'closed');
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve']);
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
 });
 
 test('the controls wait for the asking agent to resolve, then name it', async ({ page }) => {
@@ -311,7 +326,9 @@ test('only a thread on the whole heading is the section thread; a partial note i
     anchor: { exact: 'Content of section 1.', prefix: '', suffix: '' },
   });
   await expect(card).toHaveAttribute('data-review-state', 'changes');
-  await expect(page.getByRole('status', { name: '0 of 1 review sections closed' })).toBeVisible();
+  await expect(
+    page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true }),
+  ).toBeVisible();
 });
 
 /** WCAG contrast of `foreground` blended over `background` at `opacity`, against the background. */
@@ -368,9 +385,7 @@ for (const [width, theme] of [
       await bands.nth(2).getByLabel('Note (optional)', { exact: true }).fill('Looks right to me');
       await bands.nth(2).getByRole('button', { name: 'Confirm and close', exact: true }).click();
       await expect(bands.nth(2)).toHaveAttribute('data-review-state', 'closed');
-      await expect(
-        page.getByRole('status', { name: '1 of 3 review sections closed' }),
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
       // Nothing overflows at this width, and the bands sit below their sections.
       for (let index = 0; index < 3; index++) {
         await expect(page.locator('[data-inline-review]').nth(index)).not.toHaveAttribute(

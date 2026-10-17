@@ -71,6 +71,19 @@ stay visible; Agents, Files (count), Source and Export move into More with the s
 handlers and disabled states. A single media-query observation selects those menu
 items; CSS owns fitting. Header, body and update-notice offsets use shared heights,
 including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
+
+`needs-you-header.tsx` uses the existing page status slot for one `◆ Needs you N ▾` entry.
+Only the diamond takes the attention colour. Through 640px the visible label is `◆ N ▾`,
+with `Needs you: N` as its accessible name. At zero, neutral `✓ Nothing waits` is plain
+text without a caret or action; compact headers retain the check and accessible name.
+The slot keeps its width across that transition. The shared DropdownMenu supplies grouped
+labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header
+and safe-area padding, so opening it does not shift the authored page. Menu rows contain a one-line target title and muted
+agent. Groups are `Please read`, `Please answer`, then `Please confirm`, each with its count.
+Picking a row finishes menu dismissal before scrolling/opening the existing target and
+focusing its first action. Read-only targets retain content focus and navigation, never writes.
+The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#review-sections) owns
+pending-state and count rules; header state is not another read or publication owner.
 The page index uses leaf List/Row presentation with newest-update-first ordering,
 then displayed title and page ID for ties. Active titles are links; archived titles
 remain plain text with their actions menu. Tab order is title then actions for
