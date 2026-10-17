@@ -265,6 +265,44 @@ fn unread_global_and_squad_counts_deduplicate_uuid_memberships_and_respect_pool_
 }
 
 #[test]
+fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
+    let mut app = unread_app();
+    let targets = [
+        OpsTarget::Member {
+            room_id: Some(ROOM.into()),
+            identity_id: MEMBER.into(),
+        },
+        OpsTarget::Squad(ROOM.into()),
+        OpsTarget::Pool,
+    ];
+    app.view.as_mut().unwrap().me_id = Some("44444444-4444-4444-8444-444444444444".into());
+    assert_eq!(app.unread_global(), Count::default());
+    assert!(app.unread_identities().is_empty());
+    for target in &targets {
+        assert_eq!(app.unread_target(target), Count::default());
+    }
+    assert!(app.unread_jump(MEMBER).is_none());
+    app.view.as_mut().unwrap().me_id = Some(ACTOR.into());
+    assert_eq!(
+        app.unread_global().total,
+        1,
+        "the held page still belongs to its actor"
+    );
+    app.home_leads
+        .test_results(ACTOR, json!({"items": [], "nextBefore": null}));
+    assert_eq!(app.unread_global(), Count::default());
+    assert!(app.unread_identities().is_empty());
+    for target in &targets {
+        assert_eq!(app.unread_target(target), Count::default());
+    }
+    assert!(app.unread_jump(MEMBER).is_none());
+    assert!(
+        !draw(&app).contains(" unread"),
+        "empty results restore the source states"
+    );
+}
+
+#[test]
 fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clears() {
     let mut app = unread_app();
     assert_eq!(
