@@ -1256,7 +1256,7 @@ fn hosting_release_names_round_trip_as_received_without_changing_the_frozen_reco
     assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut writer = DeployRecordStore::open(&layout, PROJECT).unwrap();
+    let mut writer = DeployRecordStore::open(&layout, PROJECT, "retry deploy fixture").unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     let path = root
         .remote()
