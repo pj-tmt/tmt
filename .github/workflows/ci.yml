@@ -476,9 +476,11 @@ jobs:
   native-rust:
     name: Native Rust contracts
     needs: [changes, native-clippy, native-workspace-tests, native-process-tests, native-msrv]
-    # Preserve the outer gate's skipped result for scope none. Missing selection
-    # must still reach this gate and fail, even when all workers were skipped.
-    if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}
+    # Preserve the outer gate's skipped result for scope none, and skip a main run
+    # that was superseded (verify is explicitly 'false'; its workers were skipped).
+    # Missing selection (empty outputs) must still reach this gate and fail, even
+    # when all workers were skipped.
+    if: ${{ always() && needs.changes.outputs.native_scope != 'none' && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -2554,6 +2554,40 @@ describe('required CI gate', () => {
     it.each(['', 'unknown', 'office'])('rejects unsupported scope %s', (scope) =>
       expect(rustGatePasses(scope, expectedFor('full'))).toBe(false)
     );
+    describe('job condition', () => {
+      // Evaluates the job's `if:` for the changes outputs, supporting only the `always()` and
+      // `needs.changes.outputs.<name> != '<literal>'` terms that the condition is made of.
+      const jobRuns = (outputs: Record<string, string>) => {
+        const workflow = readFileSync(
+          fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
+          'utf8'
+        );
+        const start = workflow.indexOf('\n  native-rust:\n');
+        const condition = /^ {4}if: \$\{\{ (.*) \}\}$/m.exec(workflow.slice(start))?.[1] ?? '';
+        const terms = condition.split(' && ');
+        expect(terms.length).toBeGreaterThan(1);
+        return terms.every((term) => {
+          if (term === 'always()') return true;
+          const match = /^needs\.changes\.outputs\.(\w+) != '(\w+)'$/.exec(term);
+          if (!match) throw new Error(`Unsupported condition term: ${term}`);
+          return (outputs[match[1]] ?? '') !== match[2];
+        });
+      };
+
+      it('skips a superseded main run, whose workers were skipped with verify=false', () => {
+        expect(jobRuns({ native_scope: 'full', verify: 'false' })).toBe(false);
+      });
+      it('skips the gate for scope none and keeps running it for a verified selection', () => {
+        expect(jobRuns({ native_scope: 'none', verify: 'true' })).toBe(false);
+        for (const scope of ['full', 'ops'])
+          expect(jobRuns({ native_scope: scope, verify: 'true' })).toBe(true);
+      });
+      it('still runs, and fails, when the selection is missing', () => {
+        // The changes job failed: every output is empty, all workers were skipped.
+        expect(jobRuns({})).toBe(true);
+        expect(rustGatePasses('', Array<string>(4).fill('skipped'))).toBe(false);
+      });
+    });
     it('enforces missing, extra and failed workers through the actual command', () => {
       const script = fileURLToPath(new URL('../../scripts/ci-scope.mjs', import.meta.url));
       const options = { cwd: process.cwd(), env: process.env };
@@ -2981,7 +3015,7 @@ describe('required CI gate', () => {
       'needs: [changes, native-clippy, native-workspace-tests, native-process-tests, native-msrv]'
     );
     expect(rustGate).toContain(
-      "if: ${{ always() && needs.changes.outputs.native_scope != 'none' }}"
+      "if: ${{ always() && needs.changes.outputs.native_scope != 'none' && needs.changes.outputs.verify != 'false' }}"
     );
     for (const [variable, worker] of [
       ['CLIPPY_RESULT', 'native-clippy'],
