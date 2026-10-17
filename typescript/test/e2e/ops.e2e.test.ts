@@ -17,6 +17,11 @@ function installSquad(fixture: E2EFixture): void {
   if (!fs.existsSync(squad)) throw new Error(`Build tmt-ops first: ${squad}`);
   fs.symlinkSync(squad, path.join(fixture.wrapperDir, 'tmt-ops'));
   fs.symlinkSync(cli, path.join(fixture.wrapperDir, 'tmt'));
+  // Board view hints are cached by HOME/XDG roots, independently of TMT_HOME.
+  const home = path.join(fixture.root, 'ops-ui-home');
+  fs.mkdirSync(home);
+  fixture.tmux(['set-environment', '-g', 'HOME', home]);
+  fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(home, 'cache')]);
 }
 
 /** Extension options follow the extension name, so `--json` goes last. */
@@ -113,6 +118,9 @@ async function hostActionBoard(fixture: E2EFixture, action: string, task: string
   fixture.tmux(['join-pane', '-d', '-h', '-b', '-s', left.pane, '-t', board.pane]);
   fixture.tmux(['select-window', '-t', board.pane]);
   fixture.tmux(['select-pane', '-t', board.pane]);
+  // Keep a 160-column board beside the working pane; notices must fit whole.
+  fixture.tmux(['set-option', '-w', '-t', board.pane, 'window-size', 'manual']);
+  fixture.tmux(['resize-window', '-t', board.pane, '-x', '321', '-y', '51']);
   fixture.tmux([
     'send-keys',
     '-t',
@@ -151,6 +159,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const panes = await hostActionBoard(fixture, 'swap left', 'host action integration');
       const initial = hostPaneSlots(fixture);
       const caller = clientPlace(fixture);
+      await fixture.waitForCapture((screen) => screen.includes('j swap left'), panes.board);
       const ids = Object.keys(initial).sort();
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
       await fixture.waitFor(
@@ -244,8 +253,17 @@ renameSync(output+'.tmp',output);
       const before = hostPaneSlots(fixture);
       const caller = clientPlace(fixture);
       expect(fs.existsSync(output)).toBe(false);
+      await fixture.waitForCapture((screen) => screen.includes('j run'), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'j']);
-      await fixture.waitFor(() => fs.existsSync(output), 2_000, 'custom command argv publication');
+      try {
+        await fixture.waitFor(
+          () => fs.existsSync(output),
+          2_000,
+          'custom command argv publication'
+        );
+      } catch (error) {
+        throw new Error(`${String(error)}\n${fixture.capture(100, panes.board)}`, { cause: error });
+      }
       const observed = JSON.parse(fs.readFileSync(output, 'utf8')) as {
         pid: number;
         args: string[];
