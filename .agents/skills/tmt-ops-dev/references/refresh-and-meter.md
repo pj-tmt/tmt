@@ -201,7 +201,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   values before section shaping. On named/HOME entry, the existing cancellable
   worker publishes the usable roster before acquiring history. It batches
   `consumption.history` for at most 32 UUIDs per call, requesting one longest
-  window capped at the API's 1 h limit. The aggregate workspace requests that
+  fine-resolution window capped at 1 h. The aggregate workspace requests that
   whole hour even when summary windows are shorter, for its independent chart
   controls; board meters retain at least one hour in their existing rings.
   The worker may reuse validated seeds
@@ -209,13 +209,21 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   and requested window; missing UUIDs are fetched, failures are not cached, and
   any unknown/changed cursor or time range discards reuse. This bounded worker
   cache does not replace interval freshness for panes or notebooks.
+  Long chart ranges use the same reader and worker, requesting one retained
+  window with exactly Range/Each buckets (at most 48 per UUID). That window
+  closes on Core's five-minute boundary and validates its own resolution, retained
+  start and availability; fine reporting does not suppress older evidence. Its
+  separate cache key includes cursor, closed boundary and interval/range. Range
+  changes and each new closed boundary preempt through the existing generation
+  while the Overview or Digest Usage surface is enabled. Leaving it cancels the
+  demand; no additional reader thread or persistent history store is created.
   A new generation reacquires history even when queued tab switches coalesce
   back to the previous name; ordinary same-generation reloads do not acquire it.
 - Publication: the same worker serializes roster, history and a fresh public
   usage observation. History never replays the opening snapshot's older counters.
   One global `ls` supplies the post-history observation, replacing the first
   scheduled usage poll. Delivery checks cancellation, displayed owner, room UUID,
-  settings and exact member UUIDs before seeding the existing Rate rings. A failed
+  settings, exact member UUIDs and current chart request before seeding Rate. A failed
   observation preserves historical evidence with a gap; it cannot imply zero or
   continuous coverage. The usable roster remains interactive while usage updates.
 - Seeding: closed deltas replace the authoritative recent region on re-entry,
@@ -225,9 +233,15 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   Whole rollups crossing a shorter window boundary are excluded rather than
   prorated. Missing or failed acquisition means unavailable evidence, not zero,
   and cannot bridge current cumulative counters.
-- Chart intervals: `rate::series` projects whole retained source records into
-  Each 5/15/30/60 minutes and Range 15/30/60 minutes (default 5/60). Each must fit
-  Range; changing either never silently changes the other. UUIDs contribute once,
+- Chart intervals: `rate::series` projects whole source records into the
+  range-dependent choices documented in [board-home.md](board-home.md). Default
+  remains Each 5m / Range 1h. The recent ring and a bounded retained tier (at most
+  48 intervals per UUID) share one Rate owner; a chart selects one resolution and
+  never adds overlapping fine/coarse totals. Long seeding does not resize the
+  recent ring, alter configured meter windows or change the live counter baseline.
+  Provider attribution requires a matching fine watermark and a complete fine
+  bridge from the closed retained boundary, then only the connected complete
+  non-discontinuous suffix; unproven portions remain unknown. UUIDs contribute once,
   including when several squads hold the same identity. Input plus output counts
   cached input only once. Boundary-crossing source records are excluded and marked
   partial, never prorated. Only reported `coveredMs` contributes duration; live
@@ -236,7 +250,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   complete roster. Count overflow retains exact detail where representable but
   never wraps or truncates a plot. Sampling/history updates invalidate the bounded
   semantic projection, including replacements in the same clock slot. The visible
-  chart or controls modal registers a five-second range clock only when its
+  chart or controls modal registers its five-second or five-minute range clock only when its
   admitted data or inspection changes with time; an unavailable idle summary
   does not wake, and a covered chart adds no clock. The single admitted scene
   paints background-space fills in color and full/half block glyphs in NO_COLOR,

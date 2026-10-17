@@ -206,6 +206,16 @@ impl Meter {
         self.settle(now);
     }
 
+    pub fn seed_retained(
+        &mut self,
+        input: &Input,
+        seeds: &super::rate::history::rollup::Seeds,
+        now: Instant,
+    ) {
+        let ms = self.milliseconds(now);
+        self.rate.seed_retained(input, seeds, ms);
+    }
+
     pub fn sample(&mut self, input: Result<&Input, ()>, now: Instant) {
         let ms = self.milliseconds(now);
         match input {

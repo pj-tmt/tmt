@@ -268,7 +268,13 @@ impl Worker {
     }
 
     /// None loads the first squad.
-    pub fn request(&self, squad: Option<String>, preempt: bool, preview_panes: bool) {
+    pub fn request(
+        &self,
+        squad: Option<String>,
+        preempt: bool,
+        preview_panes: bool,
+        chart: Option<super::rate::history::rollup::Request>,
+    ) {
         let generation = if preempt {
             self.generation.advance()
         } else {
@@ -278,6 +284,7 @@ impl Worker {
             squad,
             generation,
             preview_panes,
+            chart,
         }));
     }
     pub fn checklist(&self, task: super::checklist::load::Task) {
@@ -322,6 +329,7 @@ struct Reload {
     preview_panes: bool,
     squad: Option<String>,
     generation: u64,
+    chart: Option<super::rate::history::rollup::Request>,
 }
 
 struct Loaded {
@@ -352,12 +360,17 @@ struct HistoryJob {
     owner: String,
     cursor: Option<u64>,
     targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
+    chart: Option<super::rate::history::rollup::Request>,
 }
 
 pub(crate) struct HistoryRead {
     pub owner: String,
     pub targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
     pub seeds: super::rate::history::Seeds,
+    pub(in crate::board) retained: Option<(
+        super::rate::history::rollup::Request,
+        super::rate::history::rollup::Seeds,
+    )>,
     pub observed: Result<BTreeMap<String, Value>, ()>,
 }
 
@@ -375,6 +388,7 @@ impl HistoryJob {
             owner: owner.to_owned(),
             cursor: None,
             targets,
+            chart: None,
         })
     }
 
@@ -388,12 +402,19 @@ impl HistoryJob {
         if self.owner == super::ALL && longest.milliseconds() < 3_600_000 {
             longest = crate::config::TokenWindow::HOUR;
         }
-        let ids = self
+        let ids: std::collections::BTreeSet<_> = self
             .targets
             .values()
             .flat_map(|(_, input)| input.resumes.keys().cloned())
             .collect();
-        let seeds = cache.load(core, ids, longest, self.cursor, crate::status::now_ms());
+        let now = crate::status::now_ms();
+        let seeds = cache.load(core, ids.clone(), longest, self.cursor, now);
+        let retained = self.chart.map(|request| {
+            (
+                request,
+                cache.retained(core, ids, request, self.cursor, now),
+            )
+        });
         // The same worker serializes history before its next Usage event. Read a
         // fresh cumulative receipt rather than replaying the pre-history input.
         let observed = core
@@ -406,6 +427,7 @@ impl HistoryJob {
             owner: self.owner,
             targets: self.targets,
             seeds,
+            retained,
             observed,
         }
     }
@@ -714,6 +736,7 @@ fn serve(
         }
         if let Some(job) = history.as_mut() {
             job.cursor = seen.history_cursor();
+            job.chart = wanted.chart;
         }
         // A squad that failed to load keeps the default interval.
         let automatic = snapshot
@@ -725,6 +748,7 @@ fn serve(
                 squad: snapshot.squad.clone(),
                 preview_panes: wanted.preview_panes,
                 generation: wanted.generation,
+                chart: wanted.chart,
             },
             automatic,
             seen,
@@ -1595,6 +1619,7 @@ printf '%s\n' '{{}}'
                 squad: Some("product".into()),
                 generation: 1,
                 preview_panes: false,
+                chart: None,
             }))
             .unwrap();
         let steps = std::cell::RefCell::new(Vec::new());
@@ -2139,7 +2164,7 @@ printf '%s\n' '{{}}'
         let (trace, records) = timing::Trace::buffer();
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake), false, events, Some(trace));
-        worker.request(Some(ALL.into()), false, false);
+        worker.request(Some(ALL.into()), false, false, None);
         let super::super::BoardEvent::Snapshot {
             snapshot,
             cancellation,
@@ -2237,6 +2262,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
@@ -2250,6 +2276,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("infra".into()),
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
@@ -2267,6 +2294,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
@@ -2277,6 +2305,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
@@ -2317,6 +2346,7 @@ printf '%s\n' '{{}}'
                 squad: Some("product".into()),
                 preview_panes: false,
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         loads.recv_timeout(WAIT).unwrap();
@@ -2537,6 +2567,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("old".into()),
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         let generation = AtomicU64::new(0);
@@ -2563,6 +2594,7 @@ printf '%s\n' '{{}}'
                                 preview_panes: false,
                                 squad: Some(name.into()),
                                 generation: 1,
+                                chart: None,
                             }))
                             .unwrap();
                     }
@@ -2589,6 +2621,7 @@ printf '%s\n' '{{}}'
                     preview_panes: false,
                     squad: Some(ALL.into()),
                     generation: 0,
+                    chart: None,
                 }))
                 .unwrap();
             drop(sender);
@@ -2646,6 +2679,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
+                chart: None,
             }))
             .unwrap();
         drop(sender);
@@ -2736,6 +2770,7 @@ printf '%s\n' '{{}}'
                     squad: Some(squad.into()),
                     generation,
                     preview_panes: false,
+                    chart: None,
                 }))
                 .unwrap();
         };
@@ -2802,6 +2837,7 @@ printf '%s\n' '{{}}'
                                 targets: job.targets.clone(),
                                 seeds: seeds.clone(),
                                 observed: Ok(fresh.resumes.clone()),
+                                retained: None,
                             },
                             Instant::now()
                         ),
@@ -2822,6 +2858,7 @@ printf '%s\n' '{{}}'
                             targets: job.targets,
                             seeds: seeds.clone(),
                             observed: Ok(fresh.resumes.clone()),
+                            retained: None,
                         },
                         Instant::now()
                     ));
@@ -2894,6 +2931,7 @@ esac
                 owner: owner.into(),
                 cursor: None,
                 targets: [("product".into(), (settings, input))].into(),
+                chart: None,
             };
             let read = job.complete(&core, &mut Default::default());
             let request: Value =
@@ -2919,6 +2957,7 @@ esac
                     squad: Some("product".into()),
                     generation: 0,
                     preview_panes: false,
+                    chart: None,
                 }))
                 .unwrap();
             drop(sender);
@@ -2944,6 +2983,7 @@ esac
                         owner: "product".into(),
                         cursor: None,
                         targets: BTreeMap::new(),
+                        chart: None,
                     });
                     loaded
                 },
@@ -3017,6 +3057,7 @@ esac
                 preview_panes: false,
                 squad: Some(squad.into()),
                 generation: 0,
+                chart: None,
             })
         };
         sender.send(reload(ALL)).unwrap();
@@ -3079,6 +3120,7 @@ esac
                     preview_panes: false,
                     squad: Some(if home { ALL } else { "product" }.into()),
                     generation: 0,
+                    chart: None,
                 }))
                 .unwrap();
             let cursor = std::cell::Cell::new(0);
@@ -3143,6 +3185,7 @@ esac
                     preview_panes: false,
                     squad: Some(name.into()),
                     generation: 0,
+                    chart: None,
                 }))
                 .unwrap();
         }
@@ -3194,6 +3237,7 @@ esac
                 squad: Some(name.into()),
                 generation: 0,
                 preview_panes: false,
+                chart: None,
             })
         };
         let mut names = ["product", "product", "infra", "product"].into_iter();

@@ -4,19 +4,63 @@ use crate::action::{OpsUiAction, Verb};
 #[test]
 fn invalid_control_change_preserves_grid_and_inspected_bucket() {
     let mut state = State::default();
-    state.apply(Target::Range(15)).unwrap();
-    state.bar = 2;
-    assert!(state.apply(Target::Each(30)).is_err());
+    state.apply(Target::Range(360)).unwrap();
+    state.bar = 23;
+    assert!(state.apply(Target::Each(5)).is_err());
     assert_eq!(
         state.selection,
         Selection {
-            each_minutes: 5,
-            range_minutes: 15
+            each_minutes: 15,
+            range_minutes: 360
         }
     );
-    assert_eq!(state.bar, 2);
-    state.apply(Target::Each(15)).unwrap();
-    assert_eq!(state.bar, 0);
+    assert_eq!(state.bar, 23);
+    state.apply(Target::Each(60)).unwrap();
+    assert_eq!(state.bar, 5);
+}
+
+#[test]
+fn range_changes_keep_each_range_and_bucket_cursors_on_their_current_choice() {
+    let app = crate::board::app::workspace::tests::board();
+    for range_minutes in Selection::RANGE {
+        for &each_minutes in Selection::each_choices(range_minutes) {
+            let selection = Selection {
+                each_minutes,
+                range_minutes,
+            };
+            for next in Selection::RANGE {
+                for focus in [Focus::Each, Focus::Range, Focus::Bars] {
+                    let mut state = State {
+                        selection,
+                        bar: selection.bars().unwrap() - 1,
+                        ..Default::default()
+                    };
+                    state.set_focus(focus);
+                    let last_bar = state.bar;
+                    state.apply(Target::Range(next)).unwrap();
+                    assert_eq!(state.bar, last_bar.min(state.selection.bars().unwrap() - 1));
+                    match focus {
+                        Focus::Each => assert_eq!(
+                            Selection::each_choices(next).get(state.draft),
+                            Some(&state.selection.each_minutes)
+                        ),
+                        Focus::Range => assert_eq!(Selection::RANGE.get(state.draft), Some(&next)),
+                        Focus::Bars => assert_eq!(state.draft, state.bar),
+                    }
+                    let area = Rect::new(0, 0, 60, controls::height(60, state.selection));
+                    let hits = controls::paint(
+                        &mut Buffer::empty(area),
+                        area,
+                        state.selection,
+                        state.focus,
+                        state.draft,
+                        &app,
+                    );
+                    assert_eq!(hits.len(), Selection::each_choices(next).len() + 5);
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -26,7 +70,7 @@ fn source_and_geometry_invalidation_have_distinct_lifetimes() {
     state.visible = true;
     state.hits.push(Hit {
         area: Rect::new(1, 2, 3, 1),
-        target: Target::Range(15),
+        target: Target::Range(360),
     });
     state.observed = Some(Rc::new(series::project(
         [],
@@ -73,6 +117,156 @@ fn text(buffer: &Buffer) -> String {
 }
 
 #[test]
+fn every_range_control_fits_with_complete_padding_and_exact_hit_bounds() {
+    let app = board();
+    for range_minutes in Selection::RANGE {
+        for &each_minutes in Selection::each_choices(range_minutes) {
+            let selection = Selection {
+                each_minutes,
+                range_minutes,
+            };
+            for width in [37, 53, 54, 55, 60, 63, 80, 103, 148] {
+                let rows = controls::height(width, selection);
+                let area = Rect::new(1, 1, width, rows);
+                let mut buffer = Buffer::empty(Rect::new(0, 0, width + 2, rows + 2));
+                let hits = controls::paint(&mut buffer, area, selection, None, 0, &app);
+                assert_eq!(hits.len(), Selection::each_choices(range_minutes).len() + 5);
+                for hit in hits {
+                    assert_eq!(hit.area.intersection(area), hit.area);
+                    let label = match hit.target {
+                        Target::Each(value) if range_minutes == 60 => format!("{value:>2}m"),
+                        Target::Each(value) => super::super::format::interval(value),
+                        Target::Range(value) => super::super::format::range(value),
+                        _ => unreachable!(),
+                    };
+                    let shown: String = (hit.area.x..hit.area.right())
+                        .map(|x| buffer[(x, hit.area.y)].symbol())
+                        .collect();
+                    assert_eq!(shown, format!(" {label} "), "{selection:?}/{width}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn header_preserves_full_caption_and_publishes_all_chips_or_the_modal_target() {
+    let app = board();
+    for range_minutes in Selection::RANGE {
+        for &each_minutes in Selection::each_choices(range_minutes) {
+            let selection = Selection {
+                each_minutes,
+                range_minutes,
+            };
+            let title = format!(
+                "Usage · last {} · ~123.4k tok",
+                super::super::format::range(range_minutes)
+            );
+            for width in [60, 79, 80, 81, 84, 85, 103, 148] {
+                let area = Rect::new(0, 0, width, 1);
+                let mut buffer = Buffer::empty(area);
+                let hits =
+                    controls::header(&mut buffer, area, selection, &title, &app, (None, 0), true);
+                assert!(
+                    text(&buffer).contains(&title),
+                    "full caption at {selection:?}/{width}: {}",
+                    text(&buffer)
+                );
+                if hits.len() == 1 {
+                    assert_eq!(hits[0].target, Target::Controls);
+                } else {
+                    assert_eq!(hits.len(), Selection::each_choices(range_minutes).len() + 5);
+                    let last = hits
+                        .iter()
+                        .find(|hit| hit.target == Target::Range(43_200))
+                        .unwrap();
+                    assert_eq!(
+                        last.area.right(),
+                        area.right() - 1,
+                        "the final gap is one cell; the dot is one display cell"
+                    );
+                }
+                assert_eq!(
+                    controls::header_fits(width, selection, &title),
+                    hits.len() > 1
+                );
+                if width >= 103 {
+                    assert!(hits.len() > 1);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn long_ranges_render_exact_buckets_and_reject_old_or_inactive_demand() {
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for range_minutes in Selection::RANGE.into_iter().skip(1) {
+            for &each_minutes in Selection::each_choices(range_minutes) {
+                let mut app = board();
+                fixtures::mixed(&mut app);
+                let selection = Selection {
+                    each_minutes,
+                    range_minutes,
+                };
+                app.usage_chart
+                    .borrow_mut()
+                    .selection
+                    .change(selection)
+                    .unwrap();
+                let request = app.retained_history_request().unwrap();
+                let stale = fixtures::retained(
+                    &app,
+                    selection
+                        .with_range(if range_minutes == 360 { 1_440 } else { 360 })
+                        .unwrap(),
+                );
+                assert!(!app.apply_history(stale, std::time::Instant::now()));
+                let read = fixtures::retained(&app, selection);
+                assert!(app.apply_history(read, std::time::Instant::now()));
+                for width in [40, 53, 54, 55, 60, 103, 148] {
+                    let shown = text(&paint(&mut app, width, 51));
+                    let state = app.usage_chart.borrow();
+                    let observed = state.observed.as_ref().unwrap();
+                    assert_eq!(observed.buckets.len(), request.buckets());
+                    assert_eq!(observed.buckets[0].tokens, None);
+                    assert!(!observed.buckets[1].complete());
+                    assert_eq!(observed.buckets[2].tokens, Some(153));
+                    if width >= 103 {
+                        assert!(shown.contains(&format!(
+                            "Usage · last {}",
+                            super::super::format::range(range_minutes)
+                        )));
+                        assert!(
+                            state
+                                .hits
+                                .iter()
+                                .any(|hit| hit.target == Target::Bar(request.buckets() - 1))
+                        );
+                    }
+                }
+                assert_eq!(
+                    clock_mark(&app, fixtures::NOW),
+                    clock_mark(&app, fixtures::NOW + 5_000)
+                );
+                assert_ne!(
+                    clock_mark(&app, fixtures::NOW),
+                    clock_mark(&app, fixtures::NOW + 300_000)
+                );
+                app.shell.tab = OpsTab::Agents;
+                assert!(app.retained_history_request().is_none());
+                let read = fixtures::retained(&app, selection);
+                assert!(!app.apply_history(read, std::time::Instant::now()));
+                app.shell.tab = OpsTab::Digest;
+                assert_eq!(app.retained_history_request(), Some(request));
+                paint(&mut app, 148, 51);
+            }
+        }
+    });
+}
+
+#[test]
 fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
@@ -90,25 +284,29 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
         assert_eq!(app.usage_chart.borrow().selection.each_minutes, 15);
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Tab);
-        press(&mut app, KeyCode::Left);
+        press(&mut app, KeyCode::Right);
         press(&mut app, KeyCode::Enter);
-        assert_eq!(app.usage_chart.borrow().selection.range_minutes, 30);
+        assert_eq!(app.usage_chart.borrow().selection.range_minutes, 360);
         paint(&mut app, 100, 36);
         press(&mut app, KeyCode::Esc);
         press(&mut app, KeyCode::Char('3'));
         let shown = text(&paint(&mut app, 100, 36));
-        assert!(shown.contains("Usage · last 30m"));
+        assert!(shown.contains("Usage · last 6h"));
         press(&mut app, KeyCode::Char('u'));
         paint(&mut app, 100, 36);
         assert_eq!(app.workspace.selected, target);
         assert!(app.input.is_none());
+        let buffer = paint(&mut app, 100, 36);
         for hit in &app.usage_chart.borrow().hits {
-            if matches!(hit.target, Target::Each(_) | Target::Range(_)) {
-                assert_eq!(
-                    hit.area.width, 5,
-                    "interval labels retain numeric alignment inside shared chip padding"
-                );
-            }
+            let label = match hit.target {
+                Target::Each(value) => super::super::format::interval(value),
+                Target::Range(value) => super::super::format::range(value),
+                _ => continue,
+            };
+            let shown: String = (hit.area.x..hit.area.right())
+                .map(|x| buffer[(x, hit.area.y)].symbol())
+                .collect();
+            assert_eq!(shown, format!(" {label} "));
         }
         let previously_enabled = app
             .usage_chart
@@ -123,32 +321,43 @@ fn current_controls_and_keyboard_share_grid_without_recipient_or_draft_changes()
             .borrow()
             .hits
             .iter()
-            .find(|hit| hit.target == Target::Range(15))
+            .find(|hit| hit.target == Target::Range(1_440))
             .unwrap()
             .area;
         click(&mut app, range);
-        assert_eq!(app.usage_chart.borrow().selection.range_minutes, 15);
-        paint(&mut app, 100, 36);
-        assert!(
-            app.usage_chart
-                .borrow()
-                .hits
-                .iter()
-                .all(|hit| hit.target != Target::Each(30)),
-            "a disabled interval paints its shape but publishes no hit"
-        );
+        assert_eq!(app.usage_chart.borrow().selection.range_minutes, 1_440);
+        assert!(app.usage_chart.borrow().hits.is_empty());
         let notice = app.notice.clone();
         click(&mut app, previously_enabled);
         assert_eq!(
             app.usage_chart.borrow().selection,
             Selection {
-                each_minutes: 15,
-                range_minutes: 15
+                each_minutes: 60,
+                range_minutes: 1_440
             }
         );
         assert_eq!(
             app.notice, notice,
-            "disabled clicks do not attempt a change"
+            "stale geometry does not attempt a change"
+        );
+        paint(&mut app, 100, 36);
+        let each: Vec<_> = app
+            .usage_chart
+            .borrow()
+            .hits
+            .iter()
+            .filter_map(|hit| {
+                if let Target::Each(value) = hit.target {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            each,
+            [60, 120],
+            "only the new range's valid intervals publish hits"
         );
         assert_eq!(app.workspace.selected, target);
     });
@@ -388,7 +597,7 @@ fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_
             app.shell.tab = tab;
             let selected = app.workspace.selected.clone();
             let shown = text(&paint(&mut app, 60, 14));
-            assert!(shown.contains("Usage · last 60m · ~689 tok"));
+            assert!(shown.contains("Usage · last 1h · ~689 tok"));
             assert!(
                 app.usage_chart
                     .borrow()
@@ -491,12 +700,12 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
                 "no-positive data must not expose bars: {shown}"
             );
             assert!(
-                shown.contains("Usage · last 60m")
-                    && shown.contains(" 5m   15m   30m   60m   ·  15m   30m   60m  ")
+                shown.contains("Usage · last 1h")
+                    && shown.contains(" 5m   15m   30m   60m   ·  1h   6h   24h   7d   30d ")
             );
             let expected = if known_zero {
                 format!(
-                    "Usage · last 60m · {}0 tok",
+                    "Usage · last 1h · {}0 tok",
                     if data.buckets.iter().all(|bucket| bucket.complete()) {
                         ""
                     } else {
@@ -504,7 +713,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
                     }
                 )
             } else {
-                "Usage · last 60m · — tok".into()
+                "Usage · last 1h · — tok".into()
             };
             assert!(shown.contains(&expected), "{shown}");
             drop(state);
@@ -653,6 +862,10 @@ fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover(
 #[ignore = "writes task-owned current Overview evidence; never frozen fixtures"]
 fn capture_overview_usage_packet() {
     use tmt_cli_style::{Depth, Theme, theme::Base};
+    if let Ok(path) = std::env::var("TMT_USAGE_LONG_CAPTURE") {
+        capture_long_usage_packet(&path);
+        return;
+    }
     let path = std::env::var("TMT_OVERVIEW_CAPTURE").expect("task-owned evidence path");
     let mut captures = Vec::new();
     crate::status::with_now_ms(fixtures::NOW, || {
@@ -690,5 +903,55 @@ fn capture_overview_usage_packet() {
         }
     });
     assert_eq!(captures.len(), 120);
+    std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+fn capture_long_usage_packet(path: &str) {
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(fixtures::NOW, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for range in Selection::RANGE {
+            for width in [103, 148] {
+                for (base, depth) in [
+                    (Base::Tmt, Depth::TrueColor),
+                    (Base::TmtLight, Depth::TrueColor),
+                    (Base::Tmt, Depth::None),
+                ] {
+                    for empty in [false, true] {
+                        let mut app = board();
+                        if empty {
+                            fixtures::unreported(&mut app);
+                        } else {
+                            fixtures::mixed(&mut app);
+                        }
+                        app.usage_chart
+                            .borrow_mut()
+                            .apply(Target::Range(range))
+                            .unwrap();
+                        let selection = app.usage_chart.borrow().selection;
+                        if range > 60 && !empty {
+                            let read = fixtures::retained(&app, selection);
+                            assert!(app.apply_history(read, std::time::Instant::now()));
+                        }
+                        app.view.as_mut().unwrap().look = crate::look::Look {
+                            theme: Theme::new(base),
+                            depth,
+                        };
+                        app.local_zone = Some(jiff::tz::TimeZone::UTC);
+                        let buffer = paint(&mut app, width, 51);
+                        let cells: Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect();
+                        let lines: Vec<_> = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                            .collect();
+                        captures.push(serde_json::json!({"scene":if empty {"long-empty"}else{"long-partial"},"range":range,"each":selection.each_minutes,"width":width,"height":51,"base":base.name(),"depth":format!("{depth:?}"),"cells":cells,"lines":lines,"chartHits":app.usage_chart.borrow().hits.len()}));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 60);
     std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
 }

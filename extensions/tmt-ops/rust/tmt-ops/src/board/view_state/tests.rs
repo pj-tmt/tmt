@@ -432,7 +432,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
         &mut app,
         &AtomicUsize::new(0),
         &input,
-        |_, _, _| {},
+        |_, _, _, _| {},
         |_, _| {},
         |_| {},
         |job| match job {

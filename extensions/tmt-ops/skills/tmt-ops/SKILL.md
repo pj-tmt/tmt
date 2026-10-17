@@ -309,7 +309,12 @@ anchors. `e` opens full observed member values. Authored sort changes the curren
 layer within waiting/nonwaiting groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
-the selected window and total, followed by the shipped interval/window choices.
+the selected window and total. Range choices are 1h, 6h, 24h, 7d and 30d. Each
+choices follow them: 5/15/30/60m, 15/30/60m, 1/2h, 6/12h or 1d, and 1/2d. A range
+change keeps a valid Each choice or selects the first shown interval. Long ranges
+use retained five-minute Core observations; history before collection is unknown,
+and gaps are never filled with zero. Configured short token-meter windows stay
+independent.
 Muted TOK, % of all and left headings label the numeric tracks. The share track
 is eight cells wide. Interval/window chips have padded labels with one-cell gaps.
 Each acquired driver has a neutral-grey trend row, observed total and share;

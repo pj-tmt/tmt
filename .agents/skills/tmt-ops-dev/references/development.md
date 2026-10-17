@@ -93,8 +93,10 @@ CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase
   samples/outliers and match baseline/candidate source, toolchain and profile.
   The agreed local regression profile is Mac16,8, 12 logical CPUs, 48 GiB RAM,
   macOS 26.6.2, arm64 Rust 1.98.1/LLVM 22.1.8, release opt-level 3. Event+draw
-  p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector; the ANSI
-  probe's whole-process user+system CPU must be ≤6.2 s and footprint ≤51 MB.
+  p95 must be ≤10/50/50 ms at 150/1,000/10,000 agents for each vector, with footprint
+  ≤51 MB. Run main and candidate once, back to back on the same quiet machine and
+  build mode; the ANSI probe's candidate whole-process user+system CPU must be
+  ≤main × 1.05. Retain both results and all samples, without retries or dropped samples.
   Unchanged content keeps identical ANSI-byte/changed-cell vectors; approved new
   surfaces change only their expected regions. Input/paint performs no source I/O.
   An exceeded limit requires diagnosis or an agreed adjustment, not relabelling.

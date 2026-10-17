@@ -131,7 +131,7 @@ fn workspace_header_paints_uncovered_known_history_as_partial_at_each_width_and_
                     .collect();
                 let header = summary
                     .iter()
-                    .find(|line| line.contains("Usage · last 60m · ~21 tok"))
+                    .find(|line| line.contains("Usage · last 1h · ~21 tok"))
                     .unwrap_or_else(|| panic!("actual partial chart summary missing: {lines:#?}"));
                 assert!(!header.contains("models "));
                 // The approved mock replaces the old top-share headline with the chart;

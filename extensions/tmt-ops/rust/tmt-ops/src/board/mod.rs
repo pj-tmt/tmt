@@ -403,7 +403,7 @@ fn session(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
-    request: impl Fn(Option<String>, bool, bool),
+    request: impl Fn(Option<String>, bool, bool, Option<rate::history::rollup::Request>),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
@@ -423,6 +423,7 @@ fn session(
     let mut spinner = view::spinner_frame(app, Instant::now());
     let mut last_input = Instant::now();
     let mut wanted: Option<usage_report::Since> = None;
+    let mut retained_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         // An overlay opens once: a second request for one waits for the first.
@@ -482,6 +483,21 @@ fn session(
         if want != wanted {
             usage_wants(want);
             wanted = want;
+        }
+        let chart = app.retained_history_request();
+        let demand = chart.map(|request| {
+            (
+                request,
+                crate::status::now_ms() / rate::history::rollup::RESOLUTION_MS,
+            )
+        });
+        if demand != retained_demand {
+            retained_demand = demand;
+            revision += 1;
+            requested = None;
+            request(app.current.clone(), true, app.settings.is_some(), chart);
+            refreshed = Instant::now();
+            dirty = true;
         }
         if dirty {
             draw(app)?;
@@ -724,7 +740,12 @@ fn session(
                 if sends {
                     revision += 1;
                     requested = None;
-                    request(app.current.clone(), false, app.settings.is_some());
+                    request(
+                        app.current.clone(),
+                        false,
+                        app.settings.is_some(),
+                        app.retained_history_request(),
+                    );
                     refreshed = Instant::now();
                 }
                 Effect::None
@@ -755,7 +776,12 @@ fn session(
                         if reload {
                             revision += 1;
                             requested = None;
-                            request(app.current.clone(), true, app.settings.is_some());
+                            request(
+                                app.current.clone(),
+                                true,
+                                app.settings.is_some(),
+                                app.retained_history_request(),
+                            );
                             refreshed = Instant::now();
                         }
                     }
@@ -772,7 +798,12 @@ fn session(
                         app.set_notice(Some(notice), false);
                         revision += 1;
                         requested = None;
-                        request(app.current.clone(), true, app.settings.is_some());
+                        request(
+                            app.current.clone(),
+                            true,
+                            app.settings.is_some(),
+                            app.retained_history_request(),
+                        );
                         refreshed = Instant::now();
                     }
                     Err(error) => app.finished(Err(error)),
@@ -816,13 +847,19 @@ fn session(
             Effect::Load(squad) => {
                 revision += 1;
                 requested = None;
-                request(Some(squad), true, false);
+                request(Some(squad), true, false, app.retained_history_request());
                 refreshed = Instant::now();
             }
             Effect::Refresh => {
                 revision += 1;
                 requested = None;
-                request(app.current.clone(), false, app.settings.is_some());
+                let chart = app.retained_history_request();
+                request(
+                    app.current.clone(),
+                    chart.is_some(),
+                    app.settings.is_some(),
+                    chart,
+                );
                 refreshed = Instant::now();
             }
             Effect::Checklist(task) => checklist(task),
@@ -837,7 +874,12 @@ fn session(
                     app.settings_preview();
                     revision += 1;
                     requested = None;
-                    request(app.current.clone(), true, true);
+                    request(
+                        app.current.clone(),
+                        true,
+                        true,
+                        app.retained_history_request(),
+                    );
                     refreshed = Instant::now();
                 }
             }
@@ -854,7 +896,12 @@ fn session(
                     }
                     revision += 1;
                     requested = None;
-                    request(app.current.clone(), true, true);
+                    request(
+                        app.current.clone(),
+                        true,
+                        true,
+                        app.retained_history_request(),
+                    );
                     refreshed = Instant::now();
                 }
             }
@@ -868,7 +915,12 @@ fn session(
                             app.set_notice(Some(notice), false);
                             revision += 1;
                             requested = None;
-                            request(app.current.clone(), true, true);
+                            request(
+                                app.current.clone(),
+                                true,
+                                true,
+                                app.retained_history_request(),
+                            );
                             refreshed = Instant::now();
                         }
                     } else {
@@ -879,7 +931,12 @@ fn session(
             Effect::CancelSettings => {
                 revision += 1;
                 requested = None;
-                request(app.current.clone(), true, false);
+                request(
+                    app.current.clone(),
+                    true,
+                    false,
+                    app.retained_history_request(),
+                );
                 refreshed = Instant::now();
             }
             Effect::PickTheme => {
@@ -906,7 +963,12 @@ fn session(
                             app.finished(Ok(message));
                             revision += 1;
                             requested = None;
-                            request(app.current.clone(), false, app.settings.is_some());
+                            request(
+                                app.current.clone(),
+                                false,
+                                app.settings.is_some(),
+                                app.retained_history_request(),
+                            );
                             refreshed = Instant::now();
                         }
                         Err(error) => picker.notice = Some(error.message),
@@ -930,7 +992,12 @@ fn session(
         if reload_interval(app).is_some_and(|interval| refreshed.elapsed() >= interval) {
             revision += 1;
             requested = None;
-            request(app.current.clone(), false, app.settings.is_some());
+            request(
+                app.current.clone(),
+                false,
+                app.settings.is_some(),
+                app.retained_history_request(),
+            );
             refreshed = Instant::now();
         }
     }
@@ -1096,7 +1163,7 @@ pub fn run(
     let (signal, query) =
         terminal::background::observe(value.as_deref(), eligible, || guard.query_background());
     crate::look::configure_background(signal);
-    worker.request(squad.clone(), false, false);
+    worker.request(squad.clone(), false, false, None);
     let filter = query
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
@@ -1142,7 +1209,7 @@ pub fn run(
         &mut app,
         &stop,
         &input,
-        |squad, preempt, preview| worker.request(squad, preempt, preview),
+        |squad, preempt, preview, chart| worker.request(squad, preempt, preview, chart),
         |revision, identity| worker.selected(revision, identity),
         |task| worker.checklist(task),
         |job| lane.submit(job),
@@ -1216,7 +1283,7 @@ mod tests {
         app: &mut App,
         stop: &AtomicUsize,
         input: &Receiver<BoardEvent>,
-        request: impl Fn(Option<String>, bool, bool),
+        request: impl Fn(Option<String>, bool, bool, Option<rate::history::rollup::Request>),
         selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
         checklist: impl Fn(checklist::load::Task),
         io: impl Fn(lane::Job),
@@ -1329,7 +1396,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |revision, selected| {
                 let Some(refresh::SelectedRead::Message(key)) = selected else {
                     return;
@@ -1432,7 +1499,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |owner, preempt, preview| {
+            |owner, preempt, preview, _| {
                 reloads.borrow_mut().push((owner.clone(), preempt, preview));
                 let mut fresh = app::workspace::tests::board();
                 fresh
@@ -1523,7 +1590,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| reloads.set(reloads.get() + 1),
+            |_, _, _, _| reloads.set(reloads.get() + 1),
             |_, _| {},
             |_| {},
             |job| match job {
@@ -1570,7 +1637,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             |job| {
@@ -1620,7 +1687,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| panic!("a failed save must not reload or retry"),
+            |_, _, _, _| panic!("a failed save must not reload or retry"),
             |_, _| {},
             |_| {},
             |job| {
@@ -1696,7 +1763,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             |job| lane.submit(job),
@@ -1746,7 +1813,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             |_| jobs.set(jobs.get() + 1),
@@ -1871,7 +1938,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             no_io,
@@ -1890,6 +1957,80 @@ mod tests {
     }
 
     #[test]
+    fn long_chart_demand_uses_existing_refresh_and_cancels_on_leaving_usage() {
+        crate::status::with_now_ms(1_791_600_000_000, || {
+            let mut app = theme_board();
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(103, 51)).unwrap();
+            let paint =
+                |app: &mut App, terminal: &mut ratatui::Terminal<ratatui::backend::TestBackend>| {
+                    terminal
+                        .draw(|frame| {
+                            view::prepare(app, frame.area());
+                            view::render(frame, app);
+                        })
+                        .unwrap();
+                };
+            paint(&mut app, &mut terminal);
+            for code in [
+                KeyCode::Char('u'),
+                KeyCode::Tab,
+                KeyCode::Right,
+                KeyCode::Enter,
+                KeyCode::Esc,
+            ] {
+                assert_eq!(
+                    app.key(KeyEvent::new(code, KeyModifiers::NONE)),
+                    Effect::None
+                );
+                paint(&mut app, &mut terminal);
+            }
+            let expected = rate::history::rollup::Request::new(900_000, 21_600_000).unwrap();
+            assert_eq!(app.retained_history_request(), Some(expected));
+            let (events, input) = channel();
+            let requests = std::cell::RefCell::new(Vec::new());
+            let draws = std::cell::Cell::new(0);
+            let ended = session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |owner, preempt, preview, chart| {
+                    assert_eq!(owner.as_deref(), Some(ALL));
+                    assert!(preempt && !preview);
+                    requests.borrow_mut().push(chart);
+                    match requests.borrow().len() {
+                        1 => {
+                            for code in [
+                                KeyCode::Down,
+                                KeyCode::Down,
+                                KeyCode::Up,
+                                KeyCode::Char('2'),
+                            ] {
+                                events.send(key(code)).unwrap();
+                            }
+                        }
+                        2 => events.send(key(KeyCode::Char('3'))).unwrap(),
+                        3 => events.send(key(KeyCode::Char('q'))).unwrap(),
+                        _ => panic!("unchanged closed range must not reacquire"),
+                    }
+                },
+                |_, _| {},
+                |_| {},
+                |_| panic!("read-only controls must not act"),
+                |app| {
+                    draws.set(draws.get() + 1);
+                    paint(app, &mut terminal);
+                    Ok(())
+                },
+            )
+            .unwrap();
+            assert_eq!(ended, None);
+            assert_eq!(*requests.borrow(), [Some(expected), None, Some(expected)]);
+            assert!(draws.get() >= 6);
+        });
+    }
+
+    #[test]
     fn quit_signal_and_lost_input_each_end_the_session() {
         let run = |event, signal| {
             let (events, input) = channel();
@@ -1900,7 +2041,7 @@ mod tests {
                 &mut app,
                 &stop,
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -1931,7 +2072,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 |job| {
@@ -1974,7 +2115,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -2045,7 +2186,7 @@ mod tests {
             &mut App::new(None),
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             no_io,
@@ -2069,7 +2210,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -2129,7 +2270,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -2189,7 +2330,7 @@ mod tests {
                     &mut app,
                     &AtomicUsize::new(0),
                     &input,
-                    |squad, _, _| {
+                    |squad, _, _, _| {
                         requested.send(squad).unwrap();
                     },
                     |_, _| {},
@@ -2236,7 +2377,7 @@ mod tests {
                 &mut App::new(None),
                 &read,
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -2283,7 +2424,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -2301,7 +2442,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             no_io,
@@ -2326,7 +2467,7 @@ mod tests {
             &mut app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             no_io,
@@ -2376,7 +2517,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| {},
+                |_, _, _, _| {},
                 |_, _| {},
                 |_| {},
                 no_io,
@@ -2439,7 +2580,7 @@ mod tests {
             app,
             &AtomicUsize::new(0),
             &input,
-            |_, _, _| {},
+            |_, _, _, _| {},
             |_, _| {},
             |_| {},
             no_io,
@@ -2530,7 +2671,7 @@ mod tests {
                 &mut app,
                 &AtomicUsize::new(0),
                 &input,
-                |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
+                |_, _, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 |_, _| {},
                 |_| {},
                 no_io,
