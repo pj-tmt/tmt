@@ -1,6 +1,15 @@
 import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { holdSpace, openChapter, prepareToday } from './chapter.js';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react';
+import { holdSpace, openChapter, prepareToday, useOpenChapter } from './chapter.js';
+import { ChapterSurfaceSlot, useChapterSurfaces, useChapterCounts } from './chapter-surfaces.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { HomeTitleLink, type HomeTitleHints } from './home-titles.js';
@@ -90,6 +99,19 @@ function Chapter({
   /** The chapter that is open beside Today. */
   open: boolean;
 }) {
+  const router = useRouter();
+  const title = useRef<HTMLHeadingElement>(null);
+  const openPassage = useCallback(() => {
+    openChapter(router, page.id, {
+      scroll: window.scrollY,
+      link: title.current?.querySelector('a') ?? null,
+      replace: false,
+    });
+  }, [router, page.id]);
+  const url = new URL(router.history.createHref(`/pages/${page.id}`), location.href).href;
+  const liveCounts = useChapterCounts();
+  const count = liveCounts.get(page.id) ?? page.summary?.needsYou;
+  const needsOwner = count !== undefined ? count > 0 : waiting;
   const updated = pageUpdate(page.lastUpdateAtMs, now);
   const when = updated.dateTime ? t.kickerUpdated(updated.label) : updated.label;
   const comments = page.summary?.comments;
@@ -106,7 +128,7 @@ function Chapter({
       <article>
         <div className="today-chapter-main">
           <p className="today-kicker">
-            {waiting ? (
+            {needsOwner ? (
               <>
                 <span className="today-mark" aria-hidden="true">
                   ◆
@@ -117,12 +139,12 @@ function Chapter({
               when
             )}
           </p>
-          <h2 className="today-title">
+          <h2 className="today-title" ref={title}>
             <HomeTitleLink page={page} hints={hints} onClick={(event) => onOpen(event, page)} />
           </h2>
           <p className="today-meta">
             {author ? <span>{t.byAuthor(author)}</span> : null}
-            {waiting && (updated.dateTime ? <span>{when}</span> : <span>{updated.label}</span>)}
+            {needsOwner && (updated.dateTime ? <span>{when}</span> : <span>{updated.label}</span>)}
             {page.labels?.length ? (
               <span className="today-labels">
                 {page.labels.map((name) => (
@@ -135,8 +157,14 @@ function Chapter({
           </p>
         </div>
         <div className="today-chapter-state">
-          {waiting && <NeedsYouBar tone="needs" word={t.pendingCount(page.summary!.needsYou)} />}
+          {count !== undefined && (waiting || liveCounts.has(page.id)) && (
+            <NeedsYouBar
+              tone={count > 0 ? 'needs' : 'done'}
+              word={count > 0 ? t.pendingCount(count) : text.needsYouNothingWord}
+            />
+          )}
           <TodayReadingLinks pageId={page.id} details={details} />
+          <ChapterSurfaceSlot id={page.id} open={openPassage} url={url} />
           {comments ? (
             <span className="today-comments">{text.pageList.commentCount(comments)}</span>
           ) : null}
@@ -161,6 +189,7 @@ export function TodayView({
   held?: { scroll: number; open: string };
 }) {
   const router = useRouter();
+  const openedChapter = useOpenChapter();
   const { transport } = rootRoute.useRouteContext();
   const { pages, hints } = useHomeSpace(space);
   // The held copy hides the column the reading links sit in, so it reads none.
@@ -204,16 +233,25 @@ export function TodayView({
       replace: !!held,
     });
   }
-  const model = todayModel(pages, now);
-  const { counts } = model;
+  const model = useMemo(() => todayModel(pages, now), [pages, now]);
+  const liveCounts = useChapterCounts();
+  const counts = useMemo(() => todayModel(pages, now, liveCounts).counts, [pages, now, liveCounts]);
   const startOfDay = new Date(now).setHours(0, 0, 0, 0);
-  const chapters = [
-    ...model.waiting.map((page) => ({ page, waiting: true })),
-    ...model.recent.map((page) => ({ page, waiting: false })),
-  ];
+  const chapters = useMemo(
+    () => [
+      ...model.waiting.map((page) => ({ page, waiting: true })),
+      ...model.recent.map((page) => ({ page, waiting: false })),
+    ],
+    [model],
+  );
+  const chapterOrder = useMemo(() => chapters.map(({ page }) => page.id), [chapters]);
+  useChapterSurfaces(chapterOrder, space.pages, !held && !openedChapter);
   const isToday = (page: PageSummary) =>
     page.lastUpdateAtMs != null && page.lastUpdateAtMs >= startOfDay;
   const firstToday = chapters.findIndex(({ page }) => isToday(page));
+  const firstWaiting = chapters.findIndex(
+    ({ page }) => (liveCounts.get(page.id) ?? page.summary?.needsYou ?? 0) > 0,
+  );
   return (
     <section ref={section} className="today">
       <HomeNav current="today" waiting={counts.waiting} />
@@ -296,7 +334,7 @@ export function TodayView({
                 waiting={waiting}
                 today={isToday(page)}
                 first={[
-                  ...(waiting && index === 0 ? (['waiting'] as const) : []),
+                  ...(index === firstWaiting ? (['waiting'] as const) : []),
                   ...(index === firstToday ? (['updated-today'] as const) : []),
                 ]}
                 now={now}

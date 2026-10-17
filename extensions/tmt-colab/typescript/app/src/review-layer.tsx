@@ -24,7 +24,13 @@ export function useReviewLayer({
   statusCoordinator,
   slotPositions,
   questionThreads,
+  onWorking,
+  passage,
+  pageUrl,
 }: {
+  onWorking?(id: string, working: boolean): void;
+  passage?: { id?: string };
+  pageUrl?: string;
   reviews: readonly Review[];
   questions: readonly Question[];
   snapshot: PageSnapshot;
@@ -81,6 +87,8 @@ export function useReviewLayer({
     rows,
     resolving,
     questions,
+    onWorking,
+    pageUrl,
   });
   context.current = {
     view,
@@ -91,6 +99,8 @@ export function useReviewLayer({
     rows,
     resolving,
     questions,
+    onWorking,
+    pageUrl,
   };
   const admitted = useRef(new AdmittedView());
   const actions = useMemo(() => {
@@ -127,8 +137,11 @@ export function useReviewLayer({
         context.current.binding.current?.ask === ask,
       admitted: admitted.current,
       title: () => context.current.view.title || context.current.snapshot.title,
-      url: () => location.href,
-      changed: (id, outcome) => setOutcomes((previous) => new Map(previous).set(id, outcome)),
+      url: () => context.current.pageUrl ?? location.href,
+      working: (id, working) => context.current.onWorking?.(id, working),
+      changed: (id, outcome) => {
+        setOutcomes((previous) => new Map(previous).set(id, outcome));
+      },
     });
   }, [snapshot.id, questionThreads]);
   useEffect(() => admitted.current.update(), [view.threads]);
@@ -176,6 +189,7 @@ export function useReviewLayer({
                 if (node) targets.current.set(review.id, node);
                 else targets.current.delete(review.id);
               }}
+              hidden={passage && passage.id !== review.id}
               data-inline-review={review.id}
               data-inline-slot={review.id}
               className="proposal-inline review-inline"

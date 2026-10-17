@@ -1,3 +1,4 @@
+import { MountedPages } from './mounted-pages.js';
 import { readReadingDetails } from './reading-details.js';
 import { RemotePresence } from './remote-presence.js';
 import { createRemoteClient, type RemoteClient } from './ask-remote.js';
@@ -190,6 +191,60 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       return replacement;
     },
   } satisfies LiveSessionOwner;
+  async function admitPage(id: string, signal?: AbortSignal) {
+    const pageSignal = scopedSignal(signal);
+    let bound = current;
+    const read = () =>
+      owned(() =>
+        discover(
+          mount,
+          (space, owner) => verifyRegistration(bound.registration, space, owner),
+          pageSignal,
+        ),
+      );
+    let boot;
+    try {
+      boot = await read();
+    } catch (error) {
+      if (
+        !(error instanceof AdmissionRefusedError) ||
+        (error.status !== 403 && error.status !== 503) ||
+        classify(error).recovery !== 'reopen'
+      )
+        throw error;
+      // One same-device refresh per page attempt; PageReopener owns all retry timing.
+      await owner.reconnect(bound.registration, pageSignal);
+      pageSignal.throwIfAborted();
+      bound = current;
+      boot = await read();
+    }
+    pageSignal.throwIfAborted();
+    if (bound !== current) throw new Error('Remote session replaced');
+    const page = boot.pages.find((page) => page.pageId === id);
+    if (!page) throw new Error('Page unavailable');
+    return { boot, bound, page };
+  }
+  function openPage(admitted: Awaited<ReturnType<typeof admitPage>>, signal: AbortSignal) {
+    signal.throwIfAborted();
+    if (admitted.bound !== current) throw new Error('Remote session replaced');
+    return new Live(
+      mount,
+      admitted.boot,
+      admitted.bound.registration,
+      admitted.page,
+      scopedSignal(signal),
+      admitted.bound.remote,
+      owner,
+      'chapter',
+    );
+  }
+  const pages = new MountedPages(
+    async (id, signal) => {
+      const admitted = await admitPage(id, signal);
+      return openPage(admitted, signal);
+    },
+    (page) => page.registration === current.registration,
+  );
   return {
     space: bootstrap.space,
     close: () => {
@@ -324,52 +379,21 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         );
         return request;
       },
+      chapter(id, signal) {
+        return pages.acquire(id, 'chapter', scopedSignal(signal));
+      },
       async page(id, signal) {
-        const pageSignal = scopedSignal(signal);
-        let bound = current;
-        const read = () =>
-          owned(() =>
-            discover(
-              mount,
-              (space, owner) => verifyRegistration(bound.registration, space, owner),
-              pageSignal,
-            ),
-          );
-        let boot;
-        try {
-          boot = await read();
-        } catch (error) {
-          if (
-            !(error instanceof AdmissionRefusedError) ||
-            (error.status !== 403 && error.status !== 503) ||
-            classify(error).recovery !== 'reopen'
-          )
-            throw error;
-          // One same-device refresh per page attempt; PageReopener owns all retry timing.
-          await owner.reconnect(bound.registration, pageSignal);
-          pageSignal.throwIfAborted();
-          bound = current;
-          boot = await read();
-        }
-        pageSignal.throwIfAborted();
-        if (bound !== current) throw new Error('Remote session replaced');
-        const page = boot.pages.find((page) => page.pageId === id);
-        if (!page) throw new Error('Page unavailable');
-        const live = new Live(
-          mount,
-          boot,
-          bound.registration,
-          page,
-          pageSignal,
-          bound.remote,
-          owner,
-        );
-        try {
-          return await live.snapshot();
-        } catch (error) {
-          live.close();
-          throw error;
-        }
+        // Foreground opening still checks current admission even when a passive chapter can
+        // lend its Live. A cached projection can never bypass a new discovery refusal.
+        const admitted = await admitPage(id, signal);
+        const lease = await pages.acquire(id, 'page', scopedSignal(signal), {
+          create: async (ownedSignal) => openPage(admitted, ownedSignal),
+          current: (page) =>
+            page.registration === current.registration &&
+            page.registration === admitted.bound.registration &&
+            page.epoch === admitted.page.epoch,
+        });
+        return lease.snapshot;
       },
     },
   };

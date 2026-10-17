@@ -47,6 +47,11 @@ export interface PageSnapshot extends PageSummary {
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
 }
+/** A chapter borrows the mounted page owner and joins its release before replacement. */
+export interface PageLease {
+  readonly snapshot: PageSnapshot;
+  release(): Promise<void>;
+}
 /** What a Save did: `merged` when the page had changed meanwhile and the edit was merged into it. */
 export interface SaveOutcome {
   merged: boolean;
@@ -96,6 +101,8 @@ export interface PageTransport {
   readTitle?(id: string, budget: TitleReadBudget, signal: AbortSignal): Promise<string | undefined>;
   /** Optional, owner-only cached metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
+  /** Passive local-live chapter; deliberately absent for hosted/member adapters. */
+  chapter?(id: string, signal: AbortSignal): Promise<PageLease>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
 }
 

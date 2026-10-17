@@ -33,6 +33,7 @@ const connections = vi.hoisted(
       failed(error: Error): void;
       publish(value: PageView): void;
       close: ReturnType<typeof vi.fn>;
+      closeAndJoin: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
       admission: {
         head: { revision: bigint; hash: Uint8Array } | null;
@@ -52,6 +53,7 @@ const connectionPlans = vi.hoisted(
 );
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
 const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn() }));
+const cleanup = vi.hoisted(() => ({ join: vi.fn(async () => {}) }));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
   submitOwnRecords: vi.fn(),
@@ -148,6 +150,10 @@ vi.mock('../src/connection.js', () => ({
     }
     send = vi.fn();
     close = vi.fn();
+    closeAndJoin = vi.fn(async () => {
+      this.close();
+      await cleanup.join();
+    });
   },
 }));
 const writerFailures = vi.hoisted(() => [] as Error[]);
@@ -259,6 +265,126 @@ it('tunnel disconnects and resyncs preserve the Session and Remote without reope
     live.close();
     other.close();
   }
+});
+
+it('a passive chapter admits local updates and reconnects without foreground Subscribe', async () => {
+  connections.length = 0;
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
+    undefined,
+    null,
+    undefined,
+    'chapter',
+  );
+  const views: string[] = [];
+  live.subscribe(
+    (view) => views.push(view.source),
+    () => {},
+  );
+  try {
+    expect((await live.snapshot()).source).toBe('verified');
+    let connection = connections.at(-1)!;
+    expect(connection.send).not.toHaveBeenCalled();
+    connection.publish({ source: 'A local update', title: 'Page' });
+    await vi.waitFor(() => expect(views).toContain('A local update'));
+    for (const reason of ['Sync disconnected', 'RESYNC_REQUIRED']) {
+      connection.failed(new Error(reason));
+      expect((await live.snapshot()).source).toBe('verified');
+      expect(connection.close).toHaveBeenCalledOnce();
+      connection = connections.at(-1)!;
+      expect(connection.send).not.toHaveBeenCalled();
+    }
+  } finally {
+    live.close();
+  }
+});
+
+it('a borrowed chapter becomes foreground once and returns to passive reconnect after release', async () => {
+  connections.length = 0;
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
+    undefined,
+    null,
+    undefined,
+    'chapter',
+  );
+  live.subscribe(
+    () => {},
+    () => {},
+  );
+  try {
+    await live.snapshot();
+    const first = connections.at(-1)!;
+    expect(first.send).not.toHaveBeenCalled();
+    live.foreground(true);
+    live.foreground(true);
+    expect(first.send).toHaveBeenCalledExactlyOnceWith('subscribe', { cursors: [] });
+    first.failed(new Error('RESYNC_REQUIRED'));
+    await live.snapshot();
+    const foreground = connections.at(-1)!;
+    expect(foreground.send).toHaveBeenCalledExactlyOnceWith('subscribe', { cursors: [] });
+    live.foreground(false);
+    foreground.failed(new Error('RESYNC_REQUIRED'));
+    await live.snapshot();
+    expect(connections.at(-1)!.send).not.toHaveBeenCalled();
+  } finally {
+    live.close();
+  }
+});
+
+it('last-consumer cleanup joins the connection exactly once before it is confirmed', async () => {
+  let joined!: () => void;
+  cleanup.join.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        joined = resolve;
+      }),
+  );
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  await live.snapshot();
+  const connection = connections.at(-1)!;
+  let confirmed = false;
+  const closing = live.closeAndJoin();
+  expect(live.closeAndJoin()).toBe(closing);
+  void closing.then(() => {
+    confirmed = true;
+  });
+  await Promise.resolve();
+  expect(live.closed).toBe(true);
+  expect(confirmed).toBe(false);
+  expect(connection.closeAndJoin).toHaveBeenCalledOnce();
+  joined();
+  await closing;
+  expect(confirmed).toBe(true);
 });
 
 it('exports admitted committed view/head and denies blocked, missing-key and closed bindings', async () => {

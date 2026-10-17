@@ -4334,7 +4334,7 @@ The JSON result is exactly one of:
   Read state uses the same canonical device comment and person Resolve as the
   page; labels or agent prose never count as a read. Pending reading IDs must
   agree with the shared pending-target projection, including cross-kind ID
-  deduplication. Today links only unread readings; it never offers Mark read.
+  deduplication. These descriptor links only open unread readings; they never mark read.
 - `{pageId, state:"pending"}` when no fresh cached fold is available and it has
   not failed at the current fingerprint. The existing bounded summary refresher
   may schedule it; the request itself never waits for a decoder or starts another
@@ -4377,6 +4377,57 @@ band, followed by at most three unread reading titles as links. Each has one mut
 `+N more` link to the first unread reading. Pending/unavailable details show no list
 or empty-state statement; the existing count stays. The comment count follows the
 list. These links never offer Mark read or notify.
+
+### Live chapter passages (#3540)
+
+Owner/paired mounted Today chapters can borrow the existing admitted page binding
+for a live passage. Hosted and member adapters retain their counts and reading
+links; they gain no acquisition or write capability. A passive chapter catch-up
+omits the existing explicit Subscribe, so it does not select the active cloud
+page. Opening that page in the foreground reuses its Live/Writer owner and sends
+the normal foreground Subscribe. No protocol flag or new Remote operation is added.
+The existing chapter opener owns panel/full-page navigation. Its read-only open
+signal and held-Today flag suspend passive previews behind the opened chapter;
+returning to Today starts the visible acquisitions again.
+
+At most three intersecting chapters retain a source, each within the renderer's
+existing 2 MiB source bound. Acquisition/fold is serial. Leaving view, hiding the
+tab or replacing Home cancels acquisition and retires an idle frame immediately;
+replacement joins the previous release before acquiring a successor. An admitted
+parent action already in flight keeps its binding and admitted view until it
+settles, counting toward the three-surface bound. While its slot exists, its
+hidden, inert surface also retains its frame. Removing the slot retires that
+frame; an in-flight answer still records and notifies once, but does not attempt
+the follow-on review close. The full page keeps the review open for explicit
+Confirm, without an error. Draft text and selections remain parent-local when
+the frame retires. A failed or unconfirmed release prevents successor acquisition.
+
+Each chapter selects a waiting review first, then an unanswered question group
+(or standalone question), then an unread reading. Authored order within a kind
+and the ID break ties. Otherwise it shows the latest admitted agent reply, then
+the page opening. Proposals keep their count and full-page entry, without inline
+proposal actions. Existing review, question and reading layers own every action,
+ordinary record, notification and refusal; source HTML and cosmetic frame bounds
+cannot confirm, answer or mark read. Frame messages report only current-render,
+current-request bounds for the parent-selected passage.
+On the existing channel, the parent request has exactly
+`{type:"colab.render.passage",renderId,requestId,target}`. The target is exactly
+`{kind:"opening"}` or `{kind:"review"|"answer"|"reading",id}`, naming a parent-parsed
+UUID. The response has exactly
+`{type:"colab.render.passage",renderId,requestId,bounds}`; only the current render
+and request are accepted. Bounds are `null` or exactly `{top,height}` with finite
+numbers, `top >= 0`, `height > 0` and `top + height <= 1000000` CSS px. An unresolved
+target or inner-scroll fallback makes the preview unavailable, never actionable.
+
+The authored viewport clips at 420 CSS px on wide screens and 320 CSS px on narrow
+screens. Trusted controls remain outside and below the clip. Only actual clipping
+adds `Continue on the page →`. Finishing an action retains its done passage;
+`Next ›` explicitly chooses another pending target. Counts use the same admitted
+pending-target projection as the page header. A complete live count updates the
+chapter and Today total without moving that chapter; an unknown page still
+prevents a complete-zero claim. Home navigation/reload starts a new generation.
+Loading adds no spinner, beyond-cap chapters keep their links, and a refused,
+failed or unavailable acquisition shows `Preview unavailable · Open the page`.
 
 A reading link reuses the existing validated owner/paired reading-link builder and
 its `read=<UUID>` hint. It only opens the page and scrolls/highlights a resolved

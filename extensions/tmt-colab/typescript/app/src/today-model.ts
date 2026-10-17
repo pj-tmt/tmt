@@ -16,7 +16,11 @@ export interface TodayModel {
 }
 
 /** Today shows active pages only; the archived ones stay in All pages. */
-export function todayModel(pages: readonly PageSummary[], now: number): TodayModel {
+export function todayModel(
+  pages: readonly PageSummary[],
+  now: number,
+  liveCounts: ReadonlyMap<string, number> = new Map(),
+): TodayModel {
   const ordered = orderPages(pages.filter((page) => !page.archived));
   const waiting = ordered.filter((page) => page.summary?.waiting === true);
   const others = ordered.filter((page) => page.summary?.waiting !== true);
@@ -27,8 +31,11 @@ export function todayModel(pages: readonly PageSummary[], now: number): TodayMod
     recent: others.slice(0, RECENT_CHAPTERS),
     folded: others.slice(RECENT_CHAPTERS),
     counts: {
-      complete: ordered.every((page) => page.summary !== undefined),
-      waiting: waiting.reduce((total, page) => total + (page.summary?.needsYou ?? 0), 0),
+      complete: ordered.every((page) => liveCounts.has(page.id) || page.summary !== undefined),
+      waiting: ordered.reduce(
+        (total, page) => total + (liveCounts.get(page.id) ?? page.summary?.needsYou ?? 0),
+        0,
+      ),
       updatedToday: ordered.filter(
         (page) => page.lastUpdateAtMs != null && page.lastUpdateAtMs >= startOfDay.getTime(),
       ).length,

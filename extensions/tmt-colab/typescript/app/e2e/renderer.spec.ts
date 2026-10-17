@@ -59,6 +59,9 @@ async function mount(page: Page, source: string) {
         onReadings: (readings: unknown[]) => {
           host.dataset.readings = JSON.stringify(readings);
         },
+        onPassage: (bounds: unknown) => {
+          host.dataset.passage = JSON.stringify(bounds);
+        },
         onOpenThread: (id: string) => {
           host.dataset.opened = id;
         },
@@ -1822,3 +1825,95 @@ for (const admitted of [false, true])
     await expect.poll(() => page.locator('#probe').getAttribute('data-slots')).toContain(id);
     expect(JSON.parse((await page.locator('#probe').getAttribute('data-slots'))!)).toHaveLength(1);
   });
+
+test('chapter passage reports the requested reading bounds without changing the page scroll', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const id = '80000000-0000-4000-8000-000000000004';
+  await mount(
+    page,
+    `<style>body{margin:0} tmt-read{height:180px}</style><p style="height:200px;margin:0">Earlier text</p><tmt-read data-id="${id}" data-agent="Agent" style="display:flow-root;margin:0"><h2 data-title>Read this</h2><p>A passage to read.</p></tmt-read><p>Later text</p>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const before = await page.evaluate(() => window.scrollY);
+  await page.evaluate((id) => {
+    const w = window as unknown as {
+      probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+    };
+    w.probe.handle.questions([], [], [], [], [{ id, title: 'Read this', closed: false }]);
+    w.probe.handle.passage({ kind: 'reading', id });
+  }, id);
+  await expect
+    .poll(async () =>
+      JSON.parse((await page.locator('#probe').getAttribute('data-passage')) ?? 'null'),
+    )
+    .toMatchObject({ top: 200, height: 180 });
+  expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  await expect(page.locator('#probe iframe')).toHaveAttribute('sandbox', 'allow-scripts');
+});
+
+test('chapter passage geometry rejects stale, oversized and extra-field frame responses', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          Object.assign(window, { passagePort: this.port1 });
+          const post = this.port1.postMessage.bind(this.port1);
+          this.port1.postMessage = (value: { type?: string }) => {
+            if (value.type === 'colab.render.passage')
+              Object.assign(window, { passageRequest: value });
+            post(value);
+          };
+        }
+      },
+    });
+  });
+  await mount(page, '<p>Opening</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+      passageRequest: { renderId: string; requestId: string };
+      passagePort: MessagePort;
+    };
+    w.probe.handle.passage({ kind: 'opening' });
+    const stale = w.passageRequest.requestId;
+    w.probe.handle.passage({ kind: 'opening' });
+    const response = {
+      type: 'colab.render.passage',
+      renderId: w.passageRequest.renderId,
+      requestId: w.passageRequest.requestId,
+      bounds: { top: 20, height: 100 },
+    };
+    const emit = (data: unknown) =>
+      w.passagePort.dispatchEvent(new MessageEvent('message', { data }));
+    const read = () => document.getElementById('probe')!.dataset.passage;
+    emit(response);
+    const valid = read();
+    const rejected: boolean[] = [];
+    for (const bad of [
+      { ...response, requestId: stale },
+      { ...response, renderId: 'old' },
+      { ...response, action: 'mark-read' },
+      { ...response, bounds: { top: -1, height: 100 } },
+      { ...response, bounds: { top: 20, height: Infinity } },
+      { ...response, bounds: { top: 999999, height: 2 } },
+      { ...response, bounds: { top: 20, height: 100, id: 'foreign' } },
+    ]) {
+      emit(bad);
+      rejected.push(read() === valid);
+    }
+    w.probe.handle.release();
+    emit({ ...response, bounds: { top: 0, height: 1 } });
+    return { valid: JSON.parse(valid!), rejected, afterRelease: read() };
+  });
+  expect(result.valid).toEqual({ top: 20, height: 100 });
+  expect(result.rejected).toEqual(Array(7).fill(true));
+  expect(result.afterRelease).toBe(JSON.stringify(result.valid));
+});

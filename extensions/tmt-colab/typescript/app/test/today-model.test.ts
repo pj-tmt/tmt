@@ -112,3 +112,17 @@ describe('greeting and date', () => {
     expect(dateLine(now)).toBe('Saturday, October 17');
   });
 });
+
+it('uses admitted live counts without moving a completed chapter or claiming unknown pages are empty', () => {
+  const first = page('first', hour, waiting);
+  const unknown = page('unknown', 2 * hour);
+  const counts = new Map([['first', 0]]);
+  const model = todayModel([first, unknown], now, counts);
+  expect(model.waiting).toEqual([first]);
+  expect(model.counts).toMatchObject({ waiting: 0, complete: false });
+  counts.set('unknown', 2);
+  expect(todayModel([first, unknown], now, counts).counts).toMatchObject({
+    waiting: 2,
+    complete: true,
+  });
+});

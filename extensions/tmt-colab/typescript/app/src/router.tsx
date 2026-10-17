@@ -1,3 +1,4 @@
+import { usePageLayers } from './page-layers.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
@@ -19,7 +20,6 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { NoticeCard } from './notice-card.js';
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -48,31 +48,20 @@ import { rememberPages } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
-import { useQuestionLayer } from './question-layer.js';
-import { useReviewLayer } from './review-layer.js';
-import { useReadingLayer } from './reading-layer.js';
 import { NeedsYouHeader } from './needs-you-header.js';
 import { pendingNeedsYou } from './needs-you.js';
-import { useInlineSlots } from './inline-slots.js';
-import { inspectQuestions } from './questions.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
 import { ReplyNotificationContext } from './reply-notification-context.js';
 import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
-import type { QuoteSelector, DiscussionRef, ThreadView } from './thread-records.js';
+import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
 import { Today } from './today.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
-import type {
-  AnchorPosition,
-  QuestionAnchor,
-  RenderState,
-  ReviewAnchor,
-  SelectionRect,
-} from './renderer.js';
+import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -1336,72 +1325,28 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const { questions, groups, reviews, readings } = useMemo(
-    () => inspectQuestions(view.source),
-    [view.source],
-  );
-  const inlineSlots = useInlineSlots({
+  const { read: readingHint } = page.useSearch();
+  const {
+    readings,
+    inlineSlots,
+    reviewLayer,
+    readingLayer,
+    questionLayer,
+    onQuestionAnchors,
+    onReadingAnchors,
+  } = usePageLayers({
+    transport,
+    snapshot,
+    view,
+    binding,
     renderer,
     host,
     state,
-    source: view.source,
-    identity: `${(view.threads ?? [])
-      .filter((thread) => thread.proposal && !thread.deleted)
-      .map((thread) => thread.threadId)
-      .join(
-        ',',
-      )}|${groups.map((group) => group.id).join(',')}|${reviews.map((review) => review.id).join(',')}|${readings.map((reading) => reading.id).join(',')}`,
-  });
-  const associatedQuestionThreads = useRef<(id: string) => readonly ThreadView[]>(() => []);
-  const reviewLayer = useReviewLayer({
-    reviews,
-    questions,
-    snapshot,
-    view,
-    binding,
     discussionBlocked,
     statusCoordinator,
-    slotPositions: inlineSlots.positions,
-    questionThreads: associatedQuestionThreads,
-  });
-  const { read: readingHint } = page.useSearch();
-  const readingLayer = useReadingLayer({
-    readings,
-    snapshot,
-    view,
-    binding,
-    blocked: discussionBlocked,
-    status: statusCoordinator,
-    renderer,
-    hint: space ? readingHint : undefined,
-    slotPositions: inlineSlots.positions,
-    readingIds: inlineSlots.readingIds,
-  });
-  const questionLayer = useQuestionLayer({
-    questions,
-    groups,
-    reviews: reviewLayer.blocks,
-    readings: readingLayer.blocks,
-    onRecorded: reviewLayer.answered,
-    snapshot,
-    view,
-    renderer,
-    state,
-    slots: inlineSlots.positions,
-    blocked: discussionBlocked,
     connectionPresentation,
+    readingHint: space ? readingHint : undefined,
   });
-  associatedQuestionThreads.current = questionLayer.associated;
-  const { onQuestions } = questionLayer;
-  const { onAnchors: onReviewAnchors } = reviewLayer;
-  const { onAnchors: onReadingAnchors } = readingLayer;
-  const onQuestionAnchors = useCallback(
-    (anchored: QuestionAnchor[], reviewed: ReviewAnchor[], checked = true) => {
-      onQuestions(anchored, checked);
-      onReviewAnchors(reviewed, checked);
-    },
-    [onQuestions, onReviewAnchors],
-  );
   const proposalLayer = useProposalLayer({
     slotPositions: inlineSlots.positions,
     snapshot,

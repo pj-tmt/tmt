@@ -4,6 +4,7 @@ import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
 import { StrictMode } from 'react';
+import { ChapterSurfaces } from '../src/chapter-surfaces.js';
 import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
@@ -19,7 +20,7 @@ import type { DocumentFiles } from '../src/document-files.js';
 import { AttachmentReadError } from '../src/attachments.js';
 import { ExportBundle } from '../src/export.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
-import type { PageView, PageBinding } from '../src/transport.js';
+import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
@@ -68,6 +69,16 @@ let prepareRelease: (() => void) | undefined;
 let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
 let failNextStatus = false;
+let releaseStatusNotice: (() => void) | undefined;
+let chapterAcquisitions = 0;
+let chapterReleases = 0;
+export function chapterProof() {
+  return { acquisitions: chapterAcquisitions, releases: chapterReleases };
+}
+export function finishStatusNotice() {
+  releaseStatusNotice?.();
+  releaseStatusNotice = undefined;
+}
 /** The next status action fails before it is published, like a lost connection. */
 export function failStatusOnce() {
   failNextStatus = true;
@@ -118,6 +129,9 @@ function sessionDrafts(mode: 'session' | 'failing', wait?: Promise<void>): Draft
 }
 export async function mount(
   options: {
+    /** Render the real Today route with its mounted-only chapter acquisition port. */
+    todayPassages?: boolean;
+    refuseChapter?: boolean;
     creator?: boolean;
     /** Comment-capable binding without the independent Ask facade. */
     commentOnly?: boolean;
@@ -135,6 +149,8 @@ export async function mount(
     holdQuestionDirectory?: boolean;
     /** The status coordinator resolves mentions against the directory and records each notice. */
     statusAgents?: boolean;
+    /** Hold only notification completion, after the ordinary record and status are admitted. */
+    holdStatusNotice?: boolean;
     drafts?: 'session' | 'failing';
     /** Hold the existing draft-store read to test shortcut lifetime fences. */
     holdDraftRead?: boolean;
@@ -159,11 +175,14 @@ export async function mount(
   } = {},
 ) {
   resumeAttachmentUploads();
+  finishStatusNotice();
   finishQuestionDirectory();
+  chapterAcquisitions = 0;
+  chapterReleases = 0;
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  location.hash = '/pages/welcome';
+  location.hash = options.todayPassages ? '/' : '/pages/welcome';
   const host = document.createElement('div');
   host.id = 'ask-page-fixture';
   document.body.append(host);
@@ -638,6 +657,11 @@ export async function mount(
   };
   presentationAsk = ask;
   presentationClient = options.commentOnly ? undefined : ask;
+  const statusNotice = options.holdStatusNotice
+    ? new Promise<void>((resolve) => {
+        releaseStatusNotice = resolve;
+      })
+    : undefined;
   const binding: PageBinding = {
     get ask() {
       return presentationClient;
@@ -650,6 +674,7 @@ export async function mount(
       destinations: async () => (options.statusAgents ? await ask.destinations() : []),
       notify: async (_status, recipient) => {
         if (options.statusAgents) actions.push(`notify:${recipient.agentName}`);
+        await statusNotice;
         return { adopted: true };
       },
     }),
@@ -664,8 +689,8 @@ export async function mount(
       next(current);
       emit();
       return () => {
-        publish = undefined;
-        fail = undefined;
+        if (publish === next) publish = undefined;
+        if (fail === failed) fail = undefined;
       };
     },
     async edit() {
@@ -741,32 +766,56 @@ export async function mount(
         releaseDraftRead = resolve;
       })
     : undefined;
+  const transport: PageTransport = {
+    management: options.management,
+    drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
+    async spaceHome() {
+      return {
+        title: 'Fixture space',
+        pages: options.todayPassages
+          ? [
+              {
+                id: id(1),
+                title: 'Chapter fixture',
+                sharing: 'private',
+                summary: { comments: 0, waiting: true, needsYou: 2 },
+              },
+            ]
+          : [],
+      };
+    },
+    async page(pageId) {
+      if (pageId === 'notes')
+        return {
+          id: id(2),
+          sharing: 'private',
+          title: 'Another fixture page',
+          source: '<p id="other-page">Another fixture page</p>',
+          own: {},
+        };
+      return {
+        id: id(1),
+        sharing: 'private',
+        ...current,
+        binding,
+      };
+    },
+  };
+  if (options.todayPassages)
+    transport.chapter = async (pageId) => {
+      chapterAcquisitions++;
+      if (options.refuseChapter) throw new Error('Chapter refused');
+      return {
+        snapshot: await transport.page(pageId),
+        async release() {
+          chapterReleases++;
+        },
+      };
+    };
   const app = (
-    <RouterProvider
-      router={createAppRouter({
-        management: options.management,
-        drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
-        async spaceHome() {
-          return { title: 'Fixture space', pages: [] };
-        },
-        async page(pageId) {
-          if (pageId === 'notes')
-            return {
-              id: id(2),
-              sharing: 'private',
-              title: 'Another fixture page',
-              source: '<p id="other-page">Another fixture page</p>',
-              own: {},
-            };
-          return {
-            id: id(1),
-            sharing: 'private',
-            ...current,
-            binding,
-          };
-        },
-      })}
-    />
+    <ChapterSurfaces transport={transport}>
+      <RouterProvider router={createAppRouter(transport)} />
+    </ChapterSurfaces>
   );
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }
@@ -1721,12 +1770,19 @@ export function resumeAttachmentUploads() {
 }
 
 /** Inert reading markup exercises the real page parser, renderer and person-status owner. */
-export function reading(options: { count?: number; darkPage?: boolean; forged?: boolean } = {}) {
+export function reading(
+  options: { count?: number; darkPage?: boolean; forged?: boolean; tall?: boolean } = {},
+) {
+  const details = Array.from(
+    { length: 24 },
+    (_, paragraph) =>
+      `<p>Decision detail ${paragraph + 1}: read the evidence, review the trade-offs, and confirm the next step with the team before continuing.</p>`,
+  ).join('');
   current = {
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p></tmt-read>`).join('')}<p>The page continues here.</p>`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read${options.tall ? ' style="min-height:900px;display:block"' : ''} data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p>${options.tall ? details : ''}</tmt-read>`).join('')}<p>The page continues here.</p>`,
   };
   emit();
 }

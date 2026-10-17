@@ -16,7 +16,7 @@ import { ArchivedDraft } from '../annotation-input.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
 import { compactRelativeTime } from '../display-time.js';
-import { NeedsYouBar } from './needs-you-bar.js';
+import { PassageBar } from '../passage-navigation.js';
 
 export interface QuestionDraft {
   choices: string[];
@@ -117,7 +117,8 @@ export function QuestionCard({
       }}
     >
       {(!titled || answer) && (
-        <NeedsYouBar
+        <PassageBar
+          complete={!!answer}
           role="status"
           tone={answer ? 'done' : 'needs'}
           word={answer ? 'Answered' : 'Please answer'}

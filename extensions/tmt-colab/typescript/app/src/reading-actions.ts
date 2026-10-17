@@ -21,6 +21,8 @@ export interface ReadingActionsOptions {
   title(): string;
   admitted: AdmittedView;
   changed(id: string, outcome: ReadingOutcome): void;
+  /** Lifetime is joined even when a stale presentation is suppressed. */
+  working?(id: string, active: boolean): void;
 }
 
 /** Only a trusted parent action calls this owner. Records and status use existing publication;
@@ -45,6 +47,7 @@ export class ReadingActions {
     const currentThread = this.options.thread(reading.id);
     if (readingState(reading, currentThread).kind === 'read') return;
     this.#inFlight.add(reading.id);
+    this.options.working?.(reading.id, true);
     const anchor = structuredClone(selector);
     const changed = (outcome: ReadingOutcome) => {
       if (this.options.current(binding)) this.options.changed(reading.id, outcome);
@@ -96,6 +99,7 @@ export class ReadingActions {
       changed({ state: step === 'recording' ? 'uncertain' : 'failed', step });
     } finally {
       this.#inFlight.delete(reading.id);
+      this.options.working?.(reading.id, false);
     }
   }
 }
