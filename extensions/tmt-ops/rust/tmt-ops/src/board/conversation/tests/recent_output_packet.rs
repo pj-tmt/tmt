@@ -95,7 +95,9 @@ fn native_recent_output_observation_and_display() {
     let _no_commands = crate::runner::forbid_commands();
     install(&mut app, observation);
     let screen = draw(&app, 100, 36);
-    assert!(screen.contains("NATIVE pane final"), "{screen}");
+    for marker in ["NATIVE", "pane final", "last line"] {
+        assert!(screen.contains(marker), "{marker}: {screen}");
+    }
     assert!(screen.contains("… truncated"), "{screen}");
     app.scroll_pane(Pane::Replies, Step::Top);
     let top = draw(&app, 100, 36);
