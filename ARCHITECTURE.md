@@ -95,9 +95,9 @@ declared roots, packaging and canonical generated inputs without cfg/reachabilit
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 
-Missing, failed, cancelled, unexpectedly skipped or empty selected work cannot satisfy gates.
-The [CI reference](.agents/skills/tmt-release/references/ci-selection.md) owns workers, caches and
-Colab's shared whole-file shard helper. `pr-title-check.mjs` owns
+Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
+cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md). `pr-title-check.mjs` owns
 released-path and cumulative squash-title gates; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
 owns edit-only feedback and explicit report-only compatibility. Publication reuses the native
 aggregate's scope-skip proof with check-suite provenance, not recomputed selection or bare skips.

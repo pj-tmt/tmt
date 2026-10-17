@@ -60,6 +60,9 @@ it('runs the measured whole-file split without changing coverage or execution li
   expect(app).toContain(
     `shard_files="$(node scripts/colab-acceptance-shards.mjs \${{ matrix.shard }} ${COMPONENT_SHARDS} component)"`
   );
+  expect(app).toContain(
+    `name: Colab app component specs (Chromium, shard \${{ matrix.shard }}/${COMPONENT_SHARDS})`
+  );
   expect(app).not.toContain('--shard=');
   expect(app).toContain('read -r -a files <<< "$shard_files"');
   expect(app).toContain('if [ "${#files[@]}" -eq 0 ]; then');
