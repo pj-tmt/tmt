@@ -18,8 +18,10 @@ const binary =
   process.env.COLAB_SERVE_EXECUTABLE ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-colab', import.meta.url));
 const mount = '/r/abcd/x/colab/';
-// The real socket needs the built executable; hosts without it (the CI component job) skip.
+// Component-only hosts may skip; the PR-selected native lane must fail if its binary is missing.
 test.beforeEach(() => {
+  if (process.env.COLAB_SERVE_REQUIRED === '1')
+    expect(existsSync(binary), 'COLAB_SERVE_REQUIRED needs the native serve executable').toBe(true);
   test.skip(
     !existsSync(binary),
     'Needs the native serve executable: cargo build -p tmt-colab or set COLAB_SERVE_EXECUTABLE',
@@ -218,7 +220,8 @@ for (let run = 1; run <= 2; run++) {
       // proves the actual compiled mounted entry ran, rather than a preview.
       await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
       await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
-      if (run === 1) await page.screenshot({ path: '/tmp/tmt-1253-mounted.png', fullPage: true });
+      if (run === 1)
+        await page.screenshot({ path: capturePath('colab-mounted.png'), fullPage: true });
       if (run === 1) await captureDesign(page, 'mounted-failure');
       // An inline handler injected into trusted chrome must not execute, while
       // a normal addEventListener is a valid positive control on the same button.
@@ -358,7 +361,8 @@ for (let run = 1; run <= 2; run++) {
         await frame.getByRole('heading').evaluate((heading) => getComputedStyle(heading).fontSize),
       ).toBe('34px');
       await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
-      if (run === 1) await page.screenshot({ path: '/tmp/tmt-1253-renderer.png', fullPage: true });
+      if (run === 1)
+        await page.screenshot({ path: capturePath('colab-renderer.png'), fullPage: true });
       expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);
 
       const captured: string[] = [];
