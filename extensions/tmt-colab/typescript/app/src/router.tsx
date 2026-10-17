@@ -59,6 +59,7 @@ import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef, ThreadView } from './thread-records.js';
 import { Home, validateHomeSearch } from './home.js';
+import { Today } from './today.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type {
@@ -605,16 +606,32 @@ const root = createRootRouteWithContext<{ transport: PageTransport; space?: stri
     </>
   ),
 });
+async function loadSpaceHome({
+  context,
+}: {
+  context: { transport: PageTransport; space?: string };
+}) {
+  const home = await context.transport.spaceHome();
+  // A quick switcher opened later shows this list at once and refreshes it.
+  rememberPages(context.transport, context.space, home.pages);
+  return home;
+}
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
+  // An old link or history entry that still carries list search belongs to the list.
   validateSearch: validateHomeSearch,
-  loader: async ({ context }) => {
-    const home = await context.transport.spaceHome();
-    // A quick switcher opened later shows this list at once and refreshes it.
-    rememberPages(context.transport, context.space, home.pages);
-    return home;
+  beforeLoad: ({ search }) => {
+    if (Object.keys(search).length) throw redirect({ to: '/all', search, replace: true });
   },
+  loader: loadSpaceHome,
+  component: Today,
+});
+const allPages = createRoute({
+  getParentRoute: () => root,
+  path: '/all',
+  validateSearch: validateHomeSearch,
+  loader: loadSpaceHome,
   component: Home,
 });
 const page = createRoute({
@@ -766,6 +783,7 @@ function Shell() {
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
+  const isHome = pathname === '/' || pathname === '/all';
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -773,18 +791,20 @@ function Shell() {
         space={space}
         pageId={isPage ? pathname.slice('/pages/'.length) : undefined}
         routeKey={pathname}
-        allowed={isPage || pathname === '/'}
+        allowed={isPage || isHome}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
       >
         {!isPage && (
           <AppHeader
-            remote={pathname === '/' ? { deviceName: transport.backendName } : undefined}
+            remote={isHome ? { deviceName: transport.backendName } : undefined}
             title={
               pathname.startsWith('/short/')
                 ? 'Open a page'
                 : pathname === '/'
-                  ? text.pages
-                  : text.error
+                  ? text.today.title
+                  : pathname === '/all'
+                    ? text.pages
+                    : text.error
             }
           />
         )}
@@ -2082,7 +2102,8 @@ export function createAppRouter(transport: PageTransport, space?: string) {
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
-          if (!/^\/(?:pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)) path = '/blocked';
+          if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+            path = '/blocked';
           const read = ownerReadingHint(new URL(location.href), space);
           const search = read ? `?read=${read}` : '';
           return {
@@ -2097,7 +2118,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
       })
     : createHashHistory();
   const router = createRouter({
-    routeTree: root.addChildren([home, page, shortPage, blocked]),
+    routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
     history,
     context: { transport, space },
   });

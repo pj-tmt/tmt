@@ -89,7 +89,7 @@ test('deleting the original page reserves old prefixes and never exposes its tit
   ).toBeVisible();
   await capture(page, 'deleted');
   await page.getByRole('link', { name: 'Back to pages' }).click();
-  await expect(page.locator('#short-fixture .home')).toBeVisible();
+  await expect(page.locator('#short-fixture .today')).toBeVisible();
   await page.evaluate(async (path) => (await import(path)).mount('12345678', true, true), fixture);
   await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Original proposal/ })).toHaveCount(0);

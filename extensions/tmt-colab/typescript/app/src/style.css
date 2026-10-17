@@ -31,8 +31,8 @@ button {
   cursor: pointer;
 }
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.question-chip):not(
-    :disabled
-  ):hover,
+    .today-control
+  ):not(:disabled):hover,
 a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }

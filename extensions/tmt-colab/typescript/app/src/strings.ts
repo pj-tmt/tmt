@@ -569,6 +569,25 @@ export const text = {
   shared: 'Shared',
   archived: 'Archived',
   showArchived: 'Show archived',
+  /** The Today home. The hero counts proposals because that is all the owner summary reports
+   * awaiting the owner; the words become "things" once the summary carries the full count. */
+  today: {
+    title: 'Today',
+    navLabel: 'Home views',
+    nav: { today: 'Today', waiting: 'Waiting', all: 'All pages' },
+    greeting: { morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening' },
+    waitingCount: (count: number) =>
+      count === 1 ? '1 proposal waits for you' : `${count} proposals wait for you`,
+    nothingWaiting: 'No open proposals',
+    metricsLabel: 'Overview',
+    metrics: { waiting: 'Proposals', updatedToday: 'Updated today', pages: 'All pages' },
+    chaptersLabel: 'Pages',
+    kickerWaiting: 'Waiting',
+    kickerUpdated: (when: string) => `Updated ${when}`,
+    waitingForYou: 'Waiting for you',
+    olderLabel: 'Older pages',
+    byAuthor: (name: string) => `by ${name}`,
+  },
   pageList: {
     searchLabel: 'Search pages',
     searchPlaceholder: 'Search pages · label:name · by:author',

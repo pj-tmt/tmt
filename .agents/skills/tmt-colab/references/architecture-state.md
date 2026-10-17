@@ -531,10 +531,20 @@ is added.
   `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive`, `delete` and
   `label` (`cli_labels.rs`).
 
-## Page list
+## Today and the page list
 
-`home.tsx` renders the space home from the loader's `spaceHome()` pages; `manage-page.tsx`
-holds the shared management dialog host. The filter lives in the route search
+The home route `/` is Today (`today.tsx`; `today-model.ts` is pure: waiting pages first, then the
+ten most recently updated, the older rest folded into one-line rows, counts over active pages
+and the viewer-clock greeting). Both views read the loader's `spaceHome()` pages through
+`useHomeSpace` (`home-space.ts`), which fills a missing title by the bounded hint read, and share
+`HomeNav` (Today, Waiting, All pages; the ⌘K search is the header's control). Waiting and the metric
+jumps are in-page scrolls: the mounted history keeps its route in the location hash and drops
+search, so a URL anchor cannot carry them. The hero counts proposals because the owner summary's
+`waiting` means exactly that; the words follow the data. A `/` location that still carries list
+search redirects to `/all` with it (`beforeLoad`).
+
+The list is the `/all` route ("All pages"). `home.tsx` renders it from the same pages;
+`manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
 (`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`), never in component state, so a
 reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `label:` and `by:`) holds only a draft until Enter

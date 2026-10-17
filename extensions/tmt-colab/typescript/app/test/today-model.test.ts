@@ -1,0 +1,86 @@
+import { describe, expect, it } from 'vite-plus/test';
+import { dateLine, greetingPart, RECENT_CHAPTERS, todayModel } from '../src/today-model.js';
+import type { PageSummary } from '../src/transport.js';
+
+const now = new Date(2026, 9, 17, 14, 30).getTime();
+const hour = 3_600_000;
+function page(id: string, ago: number | null, extra: Partial<PageSummary> = {}): PageSummary {
+  return {
+    id,
+    title: id,
+    sharing: 'private',
+    lastUpdateAtMs: ago === null ? null : now - ago,
+    ...extra,
+  };
+}
+const waiting = { summary: { comments: 0, waiting: true } };
+
+describe('todayModel', () => {
+  it('puts waiting pages first, newest first, then the recent pages', () => {
+    const model = todayModel(
+      [
+        page('old', 30 * hour),
+        page('wait-old', 5 * hour, waiting),
+        page('new', hour),
+        page('wait-new', 2 * hour, waiting),
+      ],
+      now,
+    );
+    expect(model.waiting.map((p) => p.id)).toEqual(['wait-new', 'wait-old']);
+    expect(model.recent.map((p) => p.id)).toEqual(['new', 'old']);
+    expect(model.folded).toEqual([]);
+  });
+
+  it('keeps waiting pages out of the recent limit and folds the older rest', () => {
+    const pages = Array.from({ length: RECENT_CHAPTERS + 3 }, (_, index) =>
+      page(`p${index}`, (index + 1) * hour),
+    );
+    const model = todayModel([page('w', 40 * hour, waiting), ...pages], now);
+    expect(model.waiting.map((p) => p.id)).toEqual(['w']);
+    expect(model.recent).toHaveLength(RECENT_CHAPTERS);
+    expect(model.folded.map((p) => p.id)).toEqual(['p10', 'p11', 'p12']);
+  });
+
+  it('leaves archived pages to All pages and never counts them', () => {
+    const model = todayModel([page('a', hour, { archived: true }), page('b', hour)], now);
+    expect(model.recent.map((p) => p.id)).toEqual(['b']);
+    expect(model.counts).toEqual({ waiting: 0, updatedToday: 1, pages: 1 });
+  });
+
+  it('counts pages updated since the start of the viewer day', () => {
+    const model = todayModel(
+      [
+        page('now', 0),
+        page('earlier', 10 * hour),
+        page('yesterday', 15 * hour),
+        page('none', null),
+      ],
+      now,
+    );
+    expect(model.counts).toEqual({ waiting: 0, updatedToday: 2, pages: 4 });
+  });
+
+  it('counts a page with no summary as not waiting and keeps pages without an update time last', () => {
+    const model = todayModel([page('none', null), page('known', hour)], now);
+    expect(model.counts.waiting).toBe(0);
+    expect(model.recent.map((p) => p.id)).toEqual(['known', 'none']);
+  });
+});
+
+describe('greeting and date', () => {
+  it.each([
+    [4, 'evening'],
+    [5, 'morning'],
+    [11, 'morning'],
+    [12, 'afternoon'],
+    [17, 'afternoon'],
+    [18, 'evening'],
+    [23, 'evening'],
+  ] as const)('hour %i is %s', (hours, part) => {
+    expect(greetingPart(new Date(2026, 9, 17, hours).getTime())).toBe(part);
+  });
+
+  it('writes the weekday, month and day', () => {
+    expect(dateLine(now)).toBe('Saturday, October 17');
+  });
+});

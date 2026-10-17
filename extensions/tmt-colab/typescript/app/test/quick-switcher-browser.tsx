@@ -85,7 +85,9 @@ export async function mount(
     },
   };
   location.hash =
-    mode === 'home' || mode === 'empty' || mode === 'navigation-rejected' ? '/' : `/pages/${id(1)}`;
+    mode === 'home' || mode === 'empty' || mode === 'navigation-rejected'
+      ? '/all'
+      : `/pages/${id(1)}`;
   const router = createAppRouter(transport);
   if (mode === 'navigation-rejected')
     router.navigate = async () => {

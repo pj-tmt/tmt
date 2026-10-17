@@ -4250,7 +4250,7 @@ a full page or space is `COLAB_CAPACITY`. `label ls` lists each name with its pa
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-list shows next to its title: `{comments, waiting, author?}`. Like labels it is **not signed**,
+Today home and the All pages list show with its title: `{comments, waiting, author?}`. Like labels it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.

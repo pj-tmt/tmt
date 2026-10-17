@@ -1,3 +1,4 @@
+import { openAllPages } from '../test/all-pages.js';
 import { pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -2609,6 +2610,8 @@ test('failed export preparation requests no files and closing clears pending pre
   await wire(context);
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
+  // Today lists the page title as a heading too: wait for the page route itself.
+  await expect(page.locator('section.today')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
   let downloads = 0;
   page.on('download', () => downloads++);
@@ -2664,6 +2667,9 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await wire(context, undefined, undefined, undefined, title);
   await page.goto(mount);
   const row = () => page.locator(`[data-page-id="${v.page}"]`);
+  // Today and All pages share the title fill.
+  await expect(row().locator('.today-title')).toHaveText(title);
+  await openAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();
@@ -2677,11 +2683,11 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
+  await expect(row().locator('.today-title')).toHaveText(title);
   await expect(page).toHaveTitle('Colab');
   await page.reload();
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
-  await expect(page.locator('.home img')).toHaveCount(0);
+  await expect(row().locator('.today-title')).toHaveText(title);
+  await expect(page.locator('.today img')).toHaveCount(0);
   const persisted = await page.evaluate(
     async ({ space, device, pageId }) => {
       const path = '/src/storage.ts';
@@ -2710,9 +2716,9 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
     { space: v.space, device: v.device, pageId: v.page },
   );
   await page.reload();
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
+  await expect(row().locator('.today-title')).toHaveText(title);
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
+  await expect(row().locator('.today-title')).toHaveText(title);
 });
