@@ -56,6 +56,40 @@ fn split_value(split: &Split) -> Value {
     }
 }
 
+/// The cold-start destination; `last` delegates to the retained view layer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum StartupTab {
+    #[default]
+    Last,
+    Overview,
+    Agents,
+    Digest,
+}
+impl StartupTab {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "last" => Some(Self::Last),
+            "overview" | "1" => Some(Self::Overview),
+            "agents" | "2" => Some(Self::Agents),
+            "digest" | "3" => Some(Self::Digest),
+            _ => None,
+        }
+    }
+    pub fn flag(value: &str) -> Result<Self, String> {
+        Self::parse(value)
+            .filter(|tab| *tab != Self::Last)
+            .ok_or_else(|| "Tab must be overview, agents or digest (also 1, 2 or 3).".into())
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Last => "last",
+            Self::Overview => "overview",
+            Self::Agents => "agents",
+            Self::Digest => "digest",
+        }
+    }
+}
+
 /// Per-squad observation/reminder policy; enabling never installs hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reminders {
@@ -1857,6 +1891,24 @@ impl Config {
             }
         }
         Ok(draft)
+    }
+
+    /// A bad authored startup preference never prevents the board opening.
+    pub fn startup_tab(&self) -> (StartupTab, Option<String>) {
+        let Some(item) = self
+            .document
+            .get("board")
+            .and_then(|board| board.get("startup_tab"))
+        else {
+            return (StartupTab::Last, None);
+        };
+        match item.as_str().and_then(StartupTab::parse) {
+            Some(tab) => (tab, None),
+            None => (
+                StartupTab::Last,
+                Some("Ignored board.startup_tab: use last, overview, agents or digest.".into()),
+            ),
+        }
     }
 
     /// Recognize the removed preview setting without interpreting or rewriting it.
@@ -4644,5 +4696,42 @@ filter = "not pending"
         assert_eq!(config.token_rate("other").unwrap().window, windows[0]);
         assert_eq!(config.rows("p").unwrap().columns[0].title, "OBSERVED");
         fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn startup_tab_setting_saves_through_the_existing_writer_and_keeps_comments() {
+        let path = temp("startup-tab");
+        fs::write(
+            &path,
+            "# keep\n[board]\nstartup_tab = 'last' # choice\nrefresh = '2s'\n",
+        )
+        .unwrap();
+        let mut cfg = Config::read(path.clone()).unwrap();
+        cfg.set_setting(None, "board.startup_tab", "digest")
+            .unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(
+            saved.contains("# keep")
+                && saved.contains("# choice")
+                && saved.contains("refresh = '2s'")
+        );
+        assert_eq!(
+            Config::read(path.clone()).unwrap().startup_tab(),
+            (StartupTab::Digest, None)
+        );
+        assert!(cfg.set_setting(None, "board.startup_tab", "bad").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), saved);
+        let mut stale = Config::read(path.clone()).unwrap();
+        cfg.set_setting(None, "board.startup_tab", "agents")
+            .unwrap();
+        assert!(
+            stale
+                .set_setting(None, "board.startup_tab", "overview")
+                .is_err()
+        );
+        assert_eq!(
+            Config::read(path.clone()).unwrap().startup_tab().0,
+            StartupTab::Agents
+        );
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

@@ -11,6 +11,24 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Cold-start policy never overrides an in-place reload's admitted destination.
+pub(super) fn startup_destination(
+    explicit: Option<crate::config::StartupTab>,
+    preference: crate::config::StartupTab,
+    exec_resume: bool,
+) -> Option<OpsTab> {
+    use crate::config::StartupTab;
+    if exec_resume {
+        return None;
+    }
+    match explicit.unwrap_or(preference) {
+        StartupTab::Last => None,
+        StartupTab::Overview => Some(OpsTab::Overview),
+        StartupTab::Agents => Some(OpsTab::Agents),
+        StartupTab::Digest => Some(OpsTab::Digest),
+    }
+}
+
 /// A layer name is admitted before it can become a cache path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Layer(String);
@@ -419,6 +437,10 @@ impl Session {
             explicit_startup,
             writer: Writer::new(path, saved),
         }
+    }
+
+    pub fn explicit_startup(&mut self) {
+        self.explicit_startup = true;
     }
 
     fn prepare(&mut self, app: &mut App) -> Option<(bool, ViewState)> {

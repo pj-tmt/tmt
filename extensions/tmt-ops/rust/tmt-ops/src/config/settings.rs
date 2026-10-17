@@ -48,6 +48,15 @@ impl Config {
         if let Some(notice) = self.obsolete_board_notice() {
             out.notices.push(notice.into());
         }
+        let (startup_tab, notice) = self.startup_tab();
+        out.push(
+            "board.startup_tab",
+            json!(startup_tab.name()),
+            self.source(&["board", "startup_tab"], "default:last"),
+        );
+        if let Some(notice) = notice {
+            out.notices.push(notice);
+        }
         self.row_settings(key, &mut out)?;
         self.notebook_settings(key, &mut out)?;
         self.meter_settings(key, &mut out)?;
@@ -365,5 +374,55 @@ mod tests {
         );
         assert_eq!(entry(&all, "bind.,").value, "settings");
         assert!(cfg.settings(Some("@tab:missing"), false, None).is_err());
+    }
+    #[test]
+    fn startup_tab_is_global_editable_and_invalid_authored_values_are_only_noticed() {
+        for (value, expected) in [
+            ("last", StartupTab::Last),
+            ("overview", StartupTab::Overview),
+            ("agents", StartupTab::Agents),
+            ("digest", StartupTab::Digest),
+        ] {
+            let cfg = config(&format!("[board]\nstartup_tab = {value:?} # retained\n"));
+            assert_eq!(cfg.startup_tab(), (expected, None));
+            let shown = cfg.settings(None, false, None).unwrap();
+            let row = shown
+                .entries
+                .iter()
+                .find(|row| row.key == "board.startup_tab")
+                .unwrap();
+            assert_eq!(row.value, json!(value));
+            assert!(row.editable);
+            assert!(!cfg.can_edit_setting("board.startup_tab", Some("worker")));
+        }
+        for value in ["\"invalid\"", "7", "true", "{}"] {
+            let cfg = config(&format!("[board]\nstartup_tab = {value} # keep this\n"));
+            let original = cfg.document.to_string();
+            assert_eq!(cfg.startup_tab().0, StartupTab::Last);
+            assert!(
+                cfg.startup_tab()
+                    .1
+                    .unwrap()
+                    .contains("Ignored board.startup_tab")
+            );
+            assert!(
+                cfg.settings(None, false, None)
+                    .unwrap()
+                    .notices
+                    .iter()
+                    .any(|notice| notice.contains("startup_tab"))
+            );
+            assert_eq!(cfg.document.to_string(), original);
+        }
+        let cfg = config("");
+        assert_eq!(cfg.startup_tab(), (StartupTab::Last, None));
+        assert!(
+            cfg.preview_setting(None, "board.startup_tab", "bad")
+                .is_err()
+        );
+        let draft = cfg
+            .preview_setting(None, "board.startup_tab", "digest")
+            .unwrap();
+        assert_eq!(draft.startup_tab(), (StartupTab::Digest, None));
     }
 }

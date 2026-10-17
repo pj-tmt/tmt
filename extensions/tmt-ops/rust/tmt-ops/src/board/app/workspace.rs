@@ -681,23 +681,26 @@ impl App {
             }
         }
         self.workspace.query = self.search.clone();
-        if let Some(id) = self.workspace_startup.take() {
-            if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
-                snapshot
-                    .roster
-                    .squads
-                    .iter()
-                    .find(|squad| squad.room_id == id)
-            }) {
-                self.workspace.selected = Some(OpsTarget::Squad(squad.room_id.clone()));
-                self.shell.tab = OpsTab::Agents;
-            } else {
-                self.set_notice(
-                    Some(format!(
-                        "Scoped squad '{id}' is unavailable; choose a visible target explicitly."
-                    )),
-                    false,
-                );
+        if let Some(startup) = self.workspace_startup.take() {
+            if let Some(id) = startup.room_id {
+                if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {
+                    snapshot
+                        .roster
+                        .squads
+                        .iter()
+                        .find(|squad| squad.room_id == id)
+                }) {
+                    self.workspace.selected = Some(OpsTarget::Squad(squad.room_id.clone()));
+                    self.shell.tab = OpsTab::Agents;
+                } else {
+                    self.set_notice(
+                        Some(format!("Scoped squad '{id}' is unavailable; choose a visible target explicitly.")),
+                        false,
+                    );
+                }
+            }
+            if let Some(tab) = startup.tab {
+                self.shell.tab = tab;
             }
         }
         let rows = self.workspace_rows();

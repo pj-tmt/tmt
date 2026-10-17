@@ -807,3 +807,57 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
         assert_eq!(Controls::decode(&value), Some(expected.clone()));
     }
 }
+
+#[test]
+fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
+    use crate::config::StartupTab;
+    let fixed = [
+        (StartupTab::Overview, OpsTab::Overview),
+        (StartupTab::Agents, OpsTab::Agents),
+        (StartupTab::Digest, OpsTab::Digest),
+    ];
+    assert_eq!(startup_destination(None, StartupTab::Last, false), None);
+    for (preference, expected) in fixed {
+        assert_eq!(startup_destination(None, preference, false), Some(expected));
+        for (flag, tab) in fixed {
+            assert_eq!(
+                startup_destination(Some(flag), preference, false),
+                Some(tab)
+            );
+            assert_eq!(startup_destination(Some(flag), preference, true), None);
+        }
+    }
+    let scratch = Scratch::new();
+    write(&scratch.file(), &saved());
+    for (_, tab) in fixed {
+        let mut app = cold();
+        app.workspace_startup = Some(crate::board::app::WorkspaceStartup {
+            room_id: Some(ROOM.into()),
+            tab: Some(tab),
+        });
+        app.workspace_reconcile();
+        assert_eq!(
+            app.shell.tab, tab,
+            "explicit tab beats scoped Agents launch"
+        );
+        assert!(app.workspace_startup.is_none());
+        let mut session = Session::load(scratch.file(), false, false);
+        session.explicit_startup();
+        assert!(session.prepare(&mut app).is_some());
+        assert_eq!(
+            app.shell.tab, tab,
+            "saved Agents tab cannot override fixed startup"
+        );
+        app.shell.tab = OpsTab::Overview;
+        app.workspace_reconcile();
+        assert_eq!(app.shell.tab, OpsTab::Overview, "startup is consumed once");
+    }
+    let mut app = cold();
+    let mut session = Session::load(scratch.file(), false, false);
+    session.prepare(&mut app).unwrap();
+    assert_eq!(
+        app.shell.tab,
+        OpsTab::Agents,
+        "last retains the existing layer destination"
+    );
+}

@@ -247,8 +247,13 @@ refused without a terminal and with `--reload-all`. Exec carry wins and does not
 repeat a reset from original argv. Nondefault layers appear in the shell header. Global attention wins over the
 optional layer caption, which ellipsizes first and disappears only when no name
 cell fits.
-For destination/selection, exec Resume wins, then an explicit startup squad,
-then the hint; an explicit squad still restores compatible expansion hints.
+For destination/selection, exec Resume wins. On cold start, `ui --tab` wins over
+global `board.startup_tab` (default `last`), then an explicit startup squad, then
+the retained hint. Fixed choices are `overview`, `agents` and `digest`; the flag
+also accepts `1`, `2` and `3`. An explicit destination keeps compatible expansion
+hints without restoring a selection from another destination. Invalid authored
+startup preferences are ignored with a notice; the original bytes are retained.
+The global Ops Config editor exposes this preference as `startup tab`.
 The first fresh Complete roster applies it; partial/failed views neither apply
 nor overwrite it. Complete-proven removal uses the ordinary cold default; an
 existing hidden target remains hidden and refuses actions. Changed projections
