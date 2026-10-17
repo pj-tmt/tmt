@@ -1,8 +1,26 @@
 import type { ReplyNotification } from './reply-notifications.js';
 import type { ComposerConnectionPresentation } from './router.js';
-import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
+import { BrowserAction } from '@tmt/browser-ui/react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
+import { NeedsYouBar } from './components/needs-you-bar.js';
+import { QuestionChip } from './components/question-chip.js';
 import { QuestionGroupCard } from './components/question-group-card.js';
-import { type Question, type QuestionGroup } from './questions.js';
+import {
+  canonicalQuestionThread,
+  currentAnswer,
+  type Question,
+  type QuestionGroup,
+} from './questions.js';
 import type { PageSnapshot, PageView } from './transport.js';
 import type {
   AnchorPosition,
@@ -46,6 +64,12 @@ export function useQuestionLayer({
     setAnchors(checked ? next : null);
   }, []);
   const [active, setActive] = useState<Record<string, string>>({});
+  // Chip-form panels the reader has opened. A panel stays mounted while collapsed, so its drafts survive.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const chips = useRef(new Map<string, HTMLButtonElement>());
+  const panels = useRef(new Map<string, HTMLElement>());
+  const focusPanel = useRef<string | undefined>(undefined);
+  const panelPrefix = useId();
   const threads = useMemo(
     () =>
       (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal && thread.anchor),
@@ -101,17 +125,56 @@ export function useQuestionLayer({
             })(),
     [questions, anchors, associated],
   );
+  const setOpen = useCallback((id: string, open: boolean) => {
+    setOpened((previous) => {
+      if (previous.has(id) === open) return previous;
+      const next = new Set(previous);
+      if (open) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    // Opening hands focus to the panel; the next render has it visible.
+    const id = focusPanel.current;
+    if (!id || !opened.has(id)) return;
+    focusPanel.current = undefined;
+    panels.current.get(id)?.querySelector<HTMLElement>('.question-group-card')?.focus({
+      preventScroll: true,
+    });
+  }, [opened]);
+  /** Opens the chip-form panel of a group (or of the group holding a question) and selects that
+   * question. False when the ID names no chip-form group, so a caller can fall back to jumping. */
+  const open = useCallback(
+    (id: string) => {
+      const group = groups.find((value) => value.id === id || value.questions.includes(id));
+      if (!group || group.form !== 'chip') return false;
+      if (group.questions.includes(id)) setActive((previous) => ({ ...previous, [group.id]: id }));
+      focusPanel.current = group.id;
+      setOpen(group.id, true);
+      return true;
+    },
+    [groups, setOpen],
+  );
   return {
     onQuestions,
     associated,
+    open,
     notificationThreads,
     activateNotification: (event: ReplyNotification) => {
       const group = groups.find((group) => group.questions.includes(event.questionId!));
       if (
         !group ||
-        !slots.some((slot) => slot.id === group.id && slot.descriptionHeight !== undefined)
+        !slots.some(
+          (slot) =>
+            slot.id === group.id &&
+            (group.form === 'chip'
+              ? slot.chip !== undefined
+              : slot.descriptionHeight !== undefined),
+        )
       )
         return false;
+      if (group.form === 'chip') return open(event.questionId!);
       setActive((previous) => ({ ...previous, [group.id]: event.questionId! }));
       return true;
     },
@@ -123,10 +186,36 @@ export function useQuestionLayer({
           );
           const current = selected(group);
           const slot = slots.find((slot) => slot.id === group.id);
-          const attached = !!slot && slot.descriptionHeight !== undefined;
-          return (
+          const chip = group.form === 'chip';
+          const attached = chip ? !!slot?.chip : !!slot && slot.descriptionHeight !== undefined;
+          const isOpen = opened.has(group.id);
+          const panelId = `${panelPrefix}-panel-${group.id}`;
+          const close = () => {
+            setOpen(group.id, false);
+            chips.current.get(group.id)?.focus({ preventScroll: true });
+          };
+          const unanswered = chip
+            ? members.filter(
+                (member) =>
+                  !currentAnswer(
+                    member,
+                    canonicalQuestionThread(member, associated(member.id))?.comments ?? [],
+                  ),
+              ).length
+            : 0;
+          const panel = (
             <div
-              key={group.id}
+              key={chip ? undefined : group.id}
+              id={chip ? panelId : undefined}
+              ref={
+                chip
+                  ? (node) => {
+                      if (node) panels.current.set(group.id, node);
+                      else panels.current.delete(group.id);
+                    }
+                  : undefined
+              }
+              hidden={chip && !isOpen ? true : undefined}
               data-inline-question={current}
               data-question-group={group.id}
               data-inline-slot={group.id}
@@ -134,11 +223,28 @@ export function useQuestionLayer({
               data-detached={!attached || undefined}
               data-tab-placement={slot?.beforeTop !== undefined || undefined}
               style={{
-                top: slot?.beforeTop ?? slot?.top ?? 0,
+                top: chip ? (slot?.top ?? 0) : (slot?.beforeTop ?? slot?.top ?? 0),
                 left: slot?.left,
                 width: slot?.width,
               }}
               onKeyDown={(event) => {
+                if (
+                  chip &&
+                  event.key === 'Escape' &&
+                  event.isTrusted &&
+                  !event.defaultPrevented &&
+                  !event.repeat &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229 &&
+                  !event.altKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey &&
+                  !event.shiftKey
+                ) {
+                  event.preventDefault();
+                  close();
+                  return;
+                }
                 if (
                   !event.isTrusted ||
                   event.defaultPrevented ||
@@ -168,6 +274,30 @@ export function useQuestionLayer({
                 }
               }}
             >
+              {chip && (
+                <NeedsYouBar
+                  role="status"
+                  tone={unanswered ? 'needs' : 'done'}
+                  word={
+                    unanswered
+                      ? `Please answer ${unanswered} ${unanswered === 1 ? 'question' : 'questions'}`
+                      : `Answered ${members.length} ${members.length === 1 ? 'question' : 'questions'}`
+                  }
+                  who={[...new Set(members.map((member) => member.agent).filter(Boolean))].join(
+                    ', ',
+                  )}
+                  actions={
+                    <BrowserAction
+                      label="Collapse"
+                      type="button"
+                      variant="text"
+                      onActivate={(event) => {
+                        if (event.isTrusted) close();
+                      }}
+                    />
+                  }
+                />
+              )}
               <QuestionGroupCard
                 key={`${snapshot.id}:${group.id}`}
                 group={group}
@@ -188,10 +318,38 @@ export function useQuestionLayer({
                 title={view.title || snapshot.title}
                 blocked={blocked}
                 readOnly={view.archived}
+                chip={chip}
                 connectionPresentation={connectionPresentation}
                 onRecorded={onRecorded}
               />
             </div>
+          );
+          if (!chip) return panel;
+          return (
+            <Fragment key={group.id}>
+              <div
+                data-inline-chip={group.id}
+                className="proposal-inline question-chip-inline"
+                data-detached={!slot?.chip || undefined}
+                style={{ top: slot?.chip?.top ?? 0, left: slot?.chip?.left ?? 0 }}
+              >
+                <QuestionChip
+                  ref={(node) => {
+                    if (node) chips.current.set(group.id, node);
+                    else chips.current.delete(group.id);
+                  }}
+                  answered={unanswered === 0}
+                  count={unanswered || members.length}
+                  open={isOpen}
+                  panelId={panelId}
+                  onToggle={() => {
+                    if (isOpen) close();
+                    else open(group.id);
+                  }}
+                />
+              </div>
+              {panel}
+            </Fragment>
           );
         })}
       </>

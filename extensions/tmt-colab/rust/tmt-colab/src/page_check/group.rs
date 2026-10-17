@@ -51,6 +51,31 @@ pub(super) const RULES: [GroupRule; 9] = [
 /// Warnings about a question's `data-label`; the tab then shows `Q<n>`.
 pub(super) const LABEL_CODES: [&str; 2] = ["group-label-too-long", "group-label-control"];
 
+/// Warnings about `data-form`: an unknown value on a group or a lone question, and any value on a
+/// group member (the group decides). The block form is shown either way.
+pub(super) const FORM_CODES: [&str; 3] = [
+    "group-form-invalid",
+    "question-form-invalid",
+    "question-form-member",
+];
+
+/// What a group's or lone question's `data-form` asks for. The one value is `chip`, exact and
+/// lowercase; any other present value is a warning.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Form {
+    Block,
+    Chip,
+    Invalid,
+}
+
+pub(super) fn form(raw: Option<&str>) -> Form {
+    match raw {
+        None => Form::Block,
+        Some("chip") => Form::Chip,
+        Some(_) => Form::Invalid,
+    }
+}
+
 fn failure(candidate: &GroupCandidate, duplicates: bool) -> Option<&'static str> {
     RULES
         .iter()

@@ -126,7 +126,10 @@ owns in-tab drafts, visible recipients and the shared footer; `question-card.tsx
 is controlled answer/conversation presentation. BrowserTabs and BrowserChips remain
 presentation leaves. `inline-slots.ts` owns the one
 measurement batch for proposal and answer cards; renderer-managed visual collapse
-keeps inactive authored questions in the canonical quote text map. The render-bound
+keeps inactive authored questions in the canonical quote text map. A chip-form group
+(`data-form="chip"`) renders through `question-layer.tsx` as the parent-drawn
+`components/question-chip.tsx` over a frame placeholder, with its panel kept mounted while
+collapsed; `open(id)` is the one entry that opens it, for the chip and for later callers. The render-bound
 group/slot shapes and publication rules live in [Answer blocks](../../../../extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 
 Review sections ride the same renderer handshake and slot batch: `review-layer.tsx` draws the

@@ -30,7 +30,9 @@ button {
   border-radius: 0;
   cursor: pointer;
 }
-button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(:disabled):hover,
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.question-chip):not(
+    :disabled
+  ):hover,
 a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }
@@ -1352,6 +1354,11 @@ footer {
   min-width: 0;
   pointer-events: none;
 }
+.question-chip-inline {
+  right: auto;
+  width: max-content;
+  padding: 0;
+}
 .question-inline .tmt-ui-tabs,
 .question-group-card {
   background: transparent;
@@ -1388,6 +1395,14 @@ footer {
 }
 .question-description-space {
   pointer-events: none;
+}
+.question-title {
+  margin: 0;
+  padding: 12px 16px 0;
+  background: var(--tmt-ui-surface-sheet);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
 }
 .question-group-footer:empty {
   display: none;

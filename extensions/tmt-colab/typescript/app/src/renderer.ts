@@ -39,6 +39,23 @@ export function isRenderRectangle(value: unknown): value is SelectionRect {
     (rect.height as number) >= 0
   );
 }
+/** The frame's inline placeholder of a chip, in page coordinates: a closed object of four numbers. */
+function validChipRect(rect: unknown): rect is ChipRect {
+  if (!rect || typeof rect !== 'object' || Array.isArray(rect)) return false;
+  const value = rect as Record<string, unknown>;
+  return (
+    Object.keys(value).length === 4 &&
+    ['top', 'left', 'width', 'height'].every(
+      (key) =>
+        typeof value[key] === 'number' &&
+        Number.isFinite(value[key]) &&
+        (value[key] as number) >= 0 &&
+        (value[key] as number) <= MAX_RENDER_HEIGHT,
+    ) &&
+    (value.width as number) > 0 &&
+    (value.height as number) > 0
+  );
+}
 export interface AnchorPosition {
   id: string;
   top: number;
@@ -46,17 +63,29 @@ export interface AnchorPosition {
   descriptionHeight?: number;
   left?: number;
   width?: number;
+  /** A chip-form group: where the frame left its inline placeholder (the chip is drawn there). */
+  chip?: ChipRect;
+}
+export interface ChipRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
 }
 export interface InlineSlot {
   id: string;
   height: number;
   before?: number;
+  /** A chip-form group: the chip's measured size, for the frame's inline placeholder. */
+  chip?: { width: number; height: number };
 }
 export interface QuestionRenderGroup {
   id: string;
   title: string | null;
   questions: string[];
   active: string;
+  /** The admitted compact form; the frame collapses the block to an inline placeholder. */
+  form?: 'chip';
 }
 export interface QuestionAnchor {
   id: string;
@@ -548,9 +577,12 @@ export async function mountRenderer(
       for (const slot of value.slots) {
         const requested = slotHeights.find((item) => item.id === slot?.id);
         const answer = requested?.before !== undefined;
-        const keys = answer
-          ? ['id', 'top', 'beforeTop', 'descriptionHeight', 'left', 'width']
-          : ['id', 'top'];
+        const chip = requested?.chip !== undefined;
+        const keys = chip
+          ? ['id', 'top', 'chip', 'left', 'width']
+          : answer
+            ? ['id', 'top', 'beforeTop', 'descriptionHeight', 'left', 'width']
+            : ['id', 'top'];
         if (
           !slot ||
           typeof slot !== 'object' ||
@@ -564,16 +596,20 @@ export async function mountRenderer(
           !Number.isFinite(slot.top) ||
           slot.top < 0 ||
           slot.top > MAX_RENDER_HEIGHT ||
-          (answer &&
+          (chip &&
+            (!questionGroups.some((group) => group.id === slot.id && group.form === 'chip') ||
+              !validChipRect(slot.chip))) ||
+          ((answer || chip) &&
             (!questionGroups.some((group) => group.id === slot.id) ||
-              typeof slot.beforeTop !== 'number' ||
-              !Number.isFinite(slot.beforeTop) ||
-              slot.beforeTop < 0 ||
-              slot.beforeTop > slot.top ||
-              typeof slot.descriptionHeight !== 'number' ||
-              !Number.isFinite(slot.descriptionHeight) ||
-              slot.descriptionHeight < 0 ||
-              slot.descriptionHeight > 2000 ||
+              (answer &&
+                (typeof slot.beforeTop !== 'number' ||
+                  !Number.isFinite(slot.beforeTop) ||
+                  slot.beforeTop < 0 ||
+                  slot.beforeTop > slot.top ||
+                  typeof slot.descriptionHeight !== 'number' ||
+                  !Number.isFinite(slot.descriptionHeight) ||
+                  slot.descriptionHeight < 0 ||
+                  slot.descriptionHeight > 2000)) ||
               typeof slot.left !== 'number' ||
               !Number.isFinite(slot.left) ||
               slot.left < 0 ||
@@ -595,6 +631,18 @@ export async function mountRenderer(
             ? {
                 beforeTop: slot.beforeTop,
                 descriptionHeight: slot.descriptionHeight,
+                left: slot.left,
+                width: slot.width,
+              }
+            : {}),
+          ...(chip
+            ? {
+                chip: {
+                  top: slot.chip.top,
+                  left: slot.chip.left,
+                  width: slot.chip.width,
+                  height: slot.chip.height,
+                },
                 left: slot.left,
                 width: slot.width,
               }
@@ -761,6 +809,7 @@ export async function mountRenderer(
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(group.id) ||
           (group.title !== null &&
             (typeof group.title !== 'string' || !group.title || [...group.title].length > 200)) ||
+          (group.form !== undefined && group.form !== 'chip') ||
           !group.questions.length ||
           group.questions.length > 12 ||
           !group.questions.includes(group.active) ||
@@ -801,11 +850,12 @@ export async function mountRenderer(
       slotRounds = 0;
       slotPositions = '';
     }
-    questionGroups = groups.map(({ id, title, questions, active }) => ({
+    questionGroups = groups.map(({ id, title, questions, active, form }) => ({
       id,
       title,
       questions: [...questions],
       active,
+      ...(form ? { form } : {}),
     }));
     questionBlocks = blocks.map(({ id, title }) => ({ id, title }));
     reviewBlocks = reviews.map(({ id, title, closed }) => ({ id, title, closed }));
@@ -847,14 +897,27 @@ export async function mountRenderer(
         (v) =>
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(v.id) ||
           !Number.isFinite(v.height) ||
-          (v.before !== undefined && !Number.isFinite(v.before)),
+          (v.before !== undefined && !Number.isFinite(v.before)) ||
+          (v.chip !== undefined &&
+            (v.before !== undefined ||
+              !questionGroups.some((group) => group.id === v.id && group.form === 'chip') ||
+              !Number.isFinite(v.chip.width) ||
+              !Number.isFinite(v.chip.height))),
       )
     )
       return;
-    const heights = input.map(({ id, height, before }) => ({
+    const heights = input.map(({ id, height, before, chip }) => ({
       id,
       height: Math.min(2000, Math.max(0, Math.ceil(height))),
       ...(before !== undefined ? { before: Math.min(2000, Math.max(0, Math.ceil(before))) } : {}),
+      ...(chip
+        ? {
+            chip: {
+              width: Math.min(1000, Math.max(1, Math.ceil(chip.width))),
+              height: Math.min(200, Math.max(1, Math.ceil(chip.height))),
+            },
+          }
+        : {}),
     }));
     // Trusted card updates change the page's content height independently of its
     // viewport. Restart the growth baseline only for changed parent dimensions;

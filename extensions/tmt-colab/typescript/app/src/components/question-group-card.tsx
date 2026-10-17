@@ -53,6 +53,7 @@ export function QuestionGroupCard({
   title,
   blocked,
   readOnly = false,
+  chip = false,
   connectionPresentation,
   onRecorded,
 }: {
@@ -70,6 +71,8 @@ export function QuestionGroupCard({
   title: string;
   blocked: boolean;
   readOnly?: boolean;
+  /** Chip-form panel: each card shows its admitted title and the band only once it is answered. */
+  chip?: boolean;
   connectionPresentation?: ComposerConnectionPresentation;
   /** Called after an explicit Send recorded answers, with the recorded comments. */
   onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
@@ -375,6 +378,7 @@ export function QuestionGroupCard({
         readOnly={readOnly}
         connectionPresentation={connectionPresentation}
         descriptionHeight={placement?.descriptionHeight ?? 0}
+        titled={chip}
         busy={sending.includes(question.id)}
         recorded={!!row.draft.pending}
         body={row.body}

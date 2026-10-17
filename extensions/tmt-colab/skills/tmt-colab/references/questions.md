@@ -27,6 +27,15 @@ the latest verified device answer in its canonical thread wins. Colab prefers an
 answered thread, using writer/thread identity order for ties. HTML names grant no
 routing authority. Removing the question keeps its thread.
 
+Place a block beside the passage it decides, one decision per block (one to a few related
+questions), never gathered at the end of the page. Give every choice question its options plus
+`data-other`, put who asks in `data-agent`, and write the question so it says why it matters.
+Choose the form: the full block (above) for a decision the reader must see, or the compact chip
+for a side decision inside running text: add `data-form="chip"` to the lone `tmt-question` or to
+the `tmt-questions` group (never to a member) and write the element inline inside a `div`, `li`
+or `td`, not a `p`. The reader sees `◆ Please answer N questions` in the sentence and opens a
+panel below that paragraph; the chip turns into `✓ Answered N questions`, still openable.
+
 In-tab drafts remain mounted while switching questions. The group's shared footer
 sends complete unsent drafts in one explicit action, including a partial group;
 untouched drafts stay for later. Each answer gets its own comment/thread, while

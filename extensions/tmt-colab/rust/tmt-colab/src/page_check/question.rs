@@ -283,6 +283,12 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                     .iter()
                     .map(|code| finding(id, Severity::Warning, code, None)),
             );
+            // The group decides the form; a member's own attribute is ignored.
+            if tree.attr(id, "data-form").is_some() {
+                report
+                    .findings
+                    .push(finding(id, Severity::Warning, group::FORM_CODES[2], None));
+            }
             authored.unwrap_or_else(|| format!("Q{number}"))
         });
         admitted.push(group);
@@ -301,19 +307,42 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
 
     // Groups the page shows, and a lone question as the internal group of itself.
     let mut shown: HashMap<Id, usize> = HashMap::new();
-    for (group, admitted_question) in admitted.iter().zip(&report.questions) {
+    for (index, (group, admitted_question)) in admitted.iter().zip(&report.questions).enumerate() {
         match group {
-            None => report.groups.push(QuestionGroup {
-                id: admitted_question.id.clone(),
-                title: None,
-                questions: vec![admitted_question.id.clone()],
-            }),
+            None => {
+                let node = admitted_nodes[index].0;
+                let form = group::form(tree.attr(node, "data-form"));
+                if form == group::Form::Invalid {
+                    report.findings.push(finding(
+                        node,
+                        Severity::Warning,
+                        group::FORM_CODES[1],
+                        None,
+                    ));
+                }
+                report.groups.push(QuestionGroup {
+                    id: admitted_question.id.clone(),
+                    title: None,
+                    questions: vec![admitted_question.id.clone()],
+                    chip: form == group::Form::Chip,
+                });
+            }
             Some(group) => {
                 let index = *shown.entry(*group).or_insert_with(|| {
+                    let form = group::form(tree.attr(*group, "data-form"));
+                    if form == group::Form::Invalid {
+                        report.findings.push(finding(
+                            *group,
+                            Severity::Warning,
+                            group::FORM_CODES[0],
+                            None,
+                        ));
+                    }
                     report.groups.push(QuestionGroup {
                         id: tree.attr(*group, "data-id").unwrap_or("").to_owned(),
                         title: Some(survey.title(*group).to_owned()),
                         questions: Vec::new(),
+                        chip: form == group::Form::Chip,
                     });
                     report.groups.len() - 1
                 });

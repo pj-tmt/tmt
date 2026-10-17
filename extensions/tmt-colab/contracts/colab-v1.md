@@ -1151,14 +1151,21 @@ card from admitted records; labels and author HTML never choose a destination.
 The shared inline renderer channel carries admitted proposal/question-group IDs and integer
 heights clamped to 0–2000 px (at most 250 slots: 200 proposals and 50 question groups),
 scoped to the render ID and request ID. A slot is `{id,height}` or, for an answer card,
-`{id,height,before}`; both heights have the same bound. The iframe inserts the after spacer
+`{id,height,before}`; both heights have the same bound. For a chip-form group (its entry in the
+questions request carries `form:"chip"`) a slot is `{id,height,chip:{width,height}}`: `height` is
+the open panel's, 0 while collapsed, and `chip` the chip's own integer size, 1–1000 by 1–200;
+`chip` is refused for any other group and next to `before`. The iframe inserts the after spacer
 beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]`,
 `tmt-questions[data-id]` or `tmt-review[data-id]`. A group uses its parent-selected active question for placement.
 Its before spacer reserves the trusted tabs/state band above the authored description;
 the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
 `{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
-an admitted question group with a requested `before` height. Answer geometry is
-not admitted for a proposal or an unrequested group. `left` and `width` are finite
+an admitted question group with a requested `before` height, or
+`{id,top,chip,left,width}` for a requested chip-form group, where `chip` is the closed
+`{top,left,width,height}` page rectangle of the frame's inline placeholder (finite, nonnegative,
+width and height positive, within the cosmetic bound), `top` the open panel spacer's top and
+`left`/`width` the content box of the block that holds the chip, with the bounds of an answer card.
+Answer geometry is not admitted for a proposal or an unrequested group. `left` and `width` are finite
 iframe-viewport CSS pixels measured from the actual authored group (or standalone
 question) bounds; `left` is nonnegative and `width` is positive. Their sum must fit
 the current frame width, each value must fit the existing 1,000,000px cosmetic
@@ -2195,6 +2202,28 @@ admitted order. The page markup check below owns the complete admission rules an
 the shared question/group ID namespace. A lone question is an internal group of one
 with no group title. One-member groups and lone questions omit the tab strip.
 
+**Chip form.** `data-form="chip"` on a lone `tmt-question` or on a `tmt-questions` group opts the
+block into a compact form. `chip` is the only value (exact, lowercase); any other value is a
+warning and the full block shows, and a group member's own `data-form` is ignored because the
+group decides. The author places the element inline in running text, inside an element that can
+hold it (a `div`, `li` or `td`, not a `p`, which its `p` children would end). The frame collapses
+the block to an inline placeholder sized by the parent, and its text stays in the text map as an
+inactive tab's does. The parent draws one chip in its place: `◆ Please answer N questions ▾`, or
+the neutral `✓ Answered N questions ▾` once every question has a verified answer, still openable.
+`N` counts the group's admitted questions that lack a verified answer (all of them once answered),
+never author text. Opening shows the existing group card, with tabs, drafts, recipients and the
+group Send unchanged, as a panel in the flow below the block that holds the chip: the frame
+reserves the panel's height after that containing block, so the text below makes room and
+nothing is overlaid. A shared band with `Collapse` tops the panel. The panel draws each admitted
+question title as plain text, never HTML, with the same 200 code point bound; this is the one
+exception to the authored question being the only visible title, because in chip form the authored
+text stays collapsed and remains the quote anchor. The panel stays mounted while collapsed, so
+drafts survive. Opening moves focus into the panel; Esc, when no inner popup has taken it, or
+`Collapse` closes the panel and returns focus to the chip. The panel has the width of the text
+column at every viewport width, so a narrow screen expands it in place. Reload derives the chip
+from verified answers like `N of M answered`. A chip-form block the frame cannot place (inner-scroll
+fallback, removed or duplicate markup) shows no chip.
+
 The authored question remains the only visible title and selectable quote text;
 admitted author choice children are hidden while the trusted parent draws controls
 and current answer, with conversation history and agent replies expanded. Groups use
@@ -2272,7 +2301,8 @@ Agents read these ordinary annotations through `tmt colab threads PAGE --json`.
 The existing `colab.render.questions` parent request is a closed
 `{type,renderId,requestId,blocks,threads,groups}` object, at most 256 KiB.
 Blocks are `{id,title}` (at most 50); threads are `{id,selector}` (at most 1000).
-Groups are closed `{id,title,questions,active}` objects (at most 50), with a
+Groups are closed `{id,title,questions,active}` objects, plus `form:"chip"` for an opted-in
+group and nothing else (at most 50), with a
 canonical UUID, a bounded title or `null`, and 1–12 unique admitted question IDs.
 Each block belongs to exactly one group; `active` is one of its members. An internal
 lone group has its member's ID and a `null` title. The frame neither parses nor
@@ -4689,6 +4719,8 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `group-questions-too-many`                                        | ignored  | more than 12 direct `tmt-question` children                                                                                                                                               |
 | `group-empty`                                                     | ignored  | the group passed its rules but none of its questions is shown                                                                                                                             |
 | `group-label-too-long` / `-control`                               | warning  | a shown question's `data-label` is over 24 code points or has a control character; its tab shows `Q<n>`; the finding is on the question                                                   |
+| `group-form-invalid` / `question-form-invalid`                    | warning  | `data-form` on a shown group or lone question has any value but `chip` (exact, lowercase); the full block shows                                                                           |
+| `question-form-member`                                            | warning  | a shown question inside a group carries `data-form`; it is ignored because the group decides; the finding is on the question                                                              |
 | `review-page-limit`                                               | ignored  | more than 50 `tmt-review` on the page; no section is shown (its questions are unaffected), and this is the only section finding (on the 51st)                                             |
 | `review-id-invalid` / `-duplicate`                                | ignored  | a section `data-id` missing or not a canonical lowercase UUID, or shared with another section, a question or a group; every holder is ignored                                             |
 | `review-nested`                                                   | ignored  | inside another `tmt-review`, a `tmt-question` or a `tmt-questions` group                                                                                                                  |
