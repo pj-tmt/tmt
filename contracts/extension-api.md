@@ -452,7 +452,7 @@ read **that moved tokens** in the bucket (an idle read claims none; a moving rea
 tier is unknown leaves the known one). Both are absent when the bucket saw none, never
 carried forward from an earlier bucket, and an absent `serviceTier` is unknown, never
 `default`. When `maxBuckets` merges several 5-minute rows into one bucket, `credits` is
-the newest by `observedAtMs` and `serviceTier` the newest row's, so a tier change shows
+the newest by `observedAtMs` and `serviceTier` the tier of the newest row that has one, so a tier change shows
 at the bucket resolution. Credits repeat across seats on one account: a reader dedupes by
 the newest `observedAtMs` and never sums them. Buckets from before schema 56 carry
 neither. The identity-level `reporting`, `availableFromMs`, `lastSampleAtMs` and `latest`
