@@ -120,6 +120,7 @@ pub(in crate::board) fn render_frame(
             .as_ref()
             .is_some_and(|view| view.home.is_some() && view.history_pending);
     let workspace = app.workspace_snapshot().is_some() || app.view.is_none();
+    let footer_plan = footer::plan(app, frame.area(), workspace);
     let shell_gap = u16::from(frame.area().height >= 24);
     let [tabs, boundary, summary, limits, meter_status, body, footer] = if workspace {
         Layout::vertical([
@@ -129,13 +130,7 @@ pub(in crate::board) fn render_frame(
             Constraint::Length(shell_gap),
             Constraint::Length(0),
             Constraint::Min(1),
-            Constraint::Length(
-                if app.shell.tab == super::shell::OpsTab::Agents && frame.area().height >= 24 {
-                    3
-                } else {
-                    1
-                },
-            ),
+            Constraint::Length(footer_plan.rows),
         ])
         .areas(frame.area())
     } else {
@@ -230,7 +225,7 @@ pub(in crate::board) fn render_frame(
     } else {
         app.pane_resize.invalidate();
     }
-    footer::render(frame, app, footer, look);
+    footer::render(frame, app, footer, look, footer_plan);
     overlays::render(frame, app, body, look);
     super::workspace::render::dialog(frame, app, body);
     waiting::prompt(frame, app, body);

@@ -152,12 +152,22 @@ fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
 pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
     overview_pairs(app, width).map(|pairs| hint_text(&pairs))
 }
-fn agents_pairs(app: &App, width: usize) -> Option<[Vec<Hint>; 2]> {
-    let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
-    Some([
-        fit_hints(hints.first, vec![], width),
-        fit_hints(hints.second, hints.tail, width),
-    ])
+/// Reserve only the rows the effective footer will paint. Conversation focus
+/// and editors replace the list legend, returning its space to the panes.
+pub(super) struct Plan {
+    pub rows: u16,
+    legend: Option<Hints>,
+}
+
+pub(super) fn plan(app: &App, area: Rect, workspace: bool) -> Plan {
+    let legend =
+        (workspace && area.height >= 24 && app.error.is_none() && app.migration_notice.is_none())
+            .then(|| workspace_legend(app, crate::board::shell::OpsTab::Agents))
+            .flatten();
+    Plan {
+        rows: if legend.is_some() { 2 } else { 1 },
+        legend,
+    }
 }
 fn paint_hints(hints: &[Hint], look: crate::look::Look, role: Role) -> Line<'static> {
     let pairs: Vec<_> = hints
@@ -533,29 +543,21 @@ pub(in crate::board) fn hint_line(text: &str, look: crate::look::Look) -> Line<'
     crate::board::key_hints::legacy_line(text, look, look.role(Role::Accent), "  ")
 }
 
-pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    if !app.modal_open()
+pub(super) fn render(
+    frame: &mut Frame,
+    app: &App,
+    footer: Rect,
+    look: crate::look::Look,
+    plan: Plan,
+) {
+    let resize = (!app.modal_open()
         && app.input.is_none()
         && !app.searching
         && app.notice.is_none()
         && app.error.is_none()
-        && app.migration_notice.is_none()
-        && let Some(hint) = app.pane_resize.hint()
-    {
-        let area = Rect::new(
-            footer.x + u16::from(footer.width > 0),
-            footer.y,
-            footer.width.saturating_sub(1),
-            footer.height.min(1),
-        );
-        let hints = resize_hints(app, hint, usize::from(area.width));
-        strip::paint_left(
-            frame.buffer_mut(),
-            area,
-            paint_hints(&hints, look, Role::Muted),
-        );
-        return;
-    }
+        && app.migration_notice.is_none())
+    .then(|| app.pane_resize.hint())
+    .flatten();
     let last_row = Rect::new(
         footer.x,
         footer.bottom().saturating_sub(1),
@@ -577,16 +579,13 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 look,
             )
         });
-    let legend = if footer.height >= 2 && app.error.is_none() && app.migration_notice.is_none() {
-        agents_pairs(
-            app,
-            usize::from(hint_area.width.saturating_sub(u16::from(
-                app.shell.tab == crate::board::shell::OpsTab::Agents,
-            ))),
-        )
-    } else {
-        None
-    };
+    let legend = plan.legend.map(|hints| {
+        let width = usize::from(hint_area.width.saturating_sub(1));
+        [
+            fit_hints(hints.first, vec![], width),
+            fit_hints(hints.second, hints.tail, width),
+        ]
+    });
     if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(
             input.compose,
@@ -638,7 +637,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         }
         return;
     }
-    let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
+    let mut footer_line = if let Some(hint) = resize {
+        let hints = resize_hints(app, hint, usize::from(hint_area.width.saturating_sub(1)));
+        let mut line = paint_hints(&hints, look, Role::Muted);
+        line.spans.insert(0, Span::raw(" "));
+        line
+    } else if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()
     }) {
