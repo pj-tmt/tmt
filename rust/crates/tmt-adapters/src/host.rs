@@ -420,9 +420,10 @@ impl<R: CommandRunner + Clone> Host<R> {
     }
 
     pub fn for_server_with(server: &ServerEvidence, runner: R) -> Self {
-        let host = Self::of(server.host, runner);
-        if let HostKind::External(_) = server.host {
-            host.external.set_resolved(server.clone());
+        let mut host = Self::of(server.host, runner);
+        match server.host {
+            HostKind::Tmux => host.tmux = host.tmux.on_socket(&server.socket_path),
+            HostKind::External(_) => host.external.set_resolved(server.clone()),
         }
         host
     }

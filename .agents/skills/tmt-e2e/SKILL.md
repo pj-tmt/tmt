@@ -36,7 +36,7 @@ including concrete defect coverage and meaningful positive/negative controls.
 - Prefer stable JSON fields, exit codes, pane IDs, metadata, and essential output over incidental formatting.
 - Identity scenarios must choose lifetime deliberately: plain `name`/`add` is
   temporary; use `-s` only when persistence is part of the scenario. Global
-  listing includes offline saved rows but does not expand cross-server routing.
+  listing includes offline saved rows; named routing separately verifies the recorded host/server.
   Correlate public UUID/lifetime with the existing read-only identity SQL oracle.
   If reconciliation refreshes `last_verified_at`, exclude only that field from
   preservation comparisons and validate its timestamp separately; retain every

@@ -276,11 +276,11 @@ describe('focus: show a verified pane in the invoking client', { concurrent: fal
           const client = clientIn(foreign, 'e2e');
           const before = clients(foreign).get(client);
           const refused = await foreign.runJsonCli(['focus', 'member'], { pane: foreign.pane });
-          expect(errorCode(refused)).toBe('NAME_NOT_FOUND');
+          expect(errorCode(refused)).toBe('HOST_UNSUPPORTED');
           const swapRefused = await foreign.runJsonCli(['focus', 'member', '--into', 'left'], {
             pane: foreign.pane,
           });
-          expect(errorCode(swapRefused)).toBe('NAME_NOT_FOUND');
+          expect(errorCode(swapRefused)).toBe('HOST_UNSUPPORTED');
           expect(clients(foreign).get(client)).toBe(before);
         },
         { globalDir: home.globalDir }

@@ -214,6 +214,7 @@ pub struct OperationOptions<'a> {
 
 pub struct Tmux<R = UnixCommandRunner> {
     runner: R,
+    selected_socket: Option<String>,
 }
 
 impl Default for Tmux {
@@ -224,7 +225,16 @@ impl Default for Tmux {
 
 impl<R: CommandRunner> Tmux<R> {
     pub fn new(runner: R) -> Self {
-        Self { runner }
+        Self {
+            runner,
+            selected_socket: None,
+        }
+    }
+
+    /// Select a recorded recipient locator without adopting its server.
+    pub(crate) fn on_socket(mut self, socket: &str) -> Self {
+        self.selected_socket = Some(socket.into());
+        self
     }
 
     fn execute(
@@ -405,17 +415,28 @@ impl<R: CommandRunner> Tmux<R> {
         &self,
         options: OperationOptions<'_>,
     ) -> Result<EndpointSnapshot, TmuxError> {
+        let socket = self.selected_socket.as_deref();
         let scope = evidence::scoped_ids(options.pane_ids)?;
         let output = self.execute(
-            list_args(None, scope.as_deref()),
+            list_args(socket, scope.as_deref()),
             options,
             TmuxFailure::Command,
         )?;
+        if output.trim().is_empty() && scope.is_some() {
+            return Ok(EndpointSnapshot {
+                server: self.server_evidence(socket, None, options)?,
+                panes: Vec::new(),
+            });
+        }
         evidence::parse_snapshot(&output, None)
     }
 
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, TmuxError> {
-        self.snapshot_on(None, options)
+        if self.selected_socket.is_some() {
+            self.observe_snapshot(options)
+        } else {
+            self.snapshot_on(None, options)
+        }
     }
 
     pub(crate) fn snapshot_on(

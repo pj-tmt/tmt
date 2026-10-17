@@ -90,8 +90,12 @@ impl<R: CommandRunner> BindingEndpoint for BindingSession<'_, R> {
     }
 
     fn current_snapshot(&mut self, panes: &[String]) -> Result<EndpointSnapshot, Self::Error> {
-        let socket = self.discovery.as_ref().map(|t| t.socket.as_str());
-        let mut snapshot = self.tmux.snapshot_on(socket, self.options(Some(panes)))?;
+        let mut snapshot = match &self.discovery {
+            Some(target) => self
+                .tmux
+                .snapshot_on(Some(&target.socket), self.options(Some(panes)))?,
+            None => self.tmux.snapshot(self.options(Some(panes)))?,
+        };
         if let Some(fence) = &self.discovery {
             let mut pids = vec![snapshot.server.server_pid];
             pids.extend(snapshot.panes.iter().map(|p| p.pane_pid));
