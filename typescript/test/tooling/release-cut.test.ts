@@ -636,62 +636,143 @@ describe('bounded REST-only state acquisition', () => {
     token: 'private-fixture-token',
     draftVisibility: 'trusted',
   };
-  it('fully paginates allocated releases and never exports credentials', () => {
+  const release = (id: number) => ({
+    id,
+    tag_name: `v5.0.0-alpha.${id}`,
+    draft: false,
+    assets: [] as { name: string }[],
+  });
+  function api(
+    count: number,
+    mutate?: (rows: ReturnType<typeof release>[], page: number, call: number) => void
+  ) {
+    const rows = Array.from({ length: count }, (_, i) => release(count - i));
     const execute = vi.fn((executable: string, args: string[]) => {
       expect(executable).toBe('gh');
+      expect(args).toContain('--include');
       expect(args.at(-1)).toBe('GET');
-      const endpoint = args[1];
-      if (endpoint.includes('/releases?')) {
-        const releases = endpoint.endsWith('page=1')
-          ? Array.from({ length: 100 }, (_, i) => ({
-              id: i + 1,
-              tag_name: `v5.0.0-alpha.${i}`,
-              draft: false,
-              assets: [],
-            }))
-          : [
-              {
-                id: 101,
-                tag_name: 'v5.0.0-alpha.101',
-                draft: true,
-                assets: [{ name: 'verification-failed.json', browser_download_url: 'unused' }],
-              },
-            ];
-        return JSON.stringify(releases);
-      }
-      throw new Error('Unexpected metadata endpoint: ' + endpoint);
+      const url = new URL(`https://api.github.com/${args[1]}`);
+      const page = Number(url.searchParams.get('page'));
+      mutate?.(rows, page, execute.mock.calls.length);
+      const pages = Math.max(1, Math.ceil(rows.length / 100));
+      const links =
+        pages > 1
+          ? `Link: <https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=${pages}>; rel="last"\r\n`
+          : '';
+      return `HTTP/2.0 200 OK\r\n${links}\r\n${JSON.stringify(rows.slice((page - 1) * 100, page * 100))}`;
     });
-    const result = readCutMetadata(input, execute);
-    expect(result.releases).toHaveLength(101);
-    expect(execute).toHaveBeenCalledTimes(2);
-    expect(result.releases!.at(-1)!.assets).toEqual([{ name: 'verification-failed.json' }]);
+    return { rows, execute };
+  }
+  const response = (rows: unknown) => `HTTP/2.0 200 OK\n\n${JSON.stringify(rows)}`;
+
+  it('fully paginates allocated releases and never exports credentials', () => {
+    const f = api(101);
+    f.rows[100].draft = true;
+    f.rows[100].assets = [{ name: 'verification-failed.json' }];
+    const result = readCutMetadata(input, f.execute);
+    expect(result.releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(4);
     expect(JSON.stringify(result)).not.toContain(input.token);
   });
+  it.each([0, 100, 1201, 5800])('reads %i releases under the P+2 request rule', (count) => {
+    const f = api(count);
+    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(Math.max(1, Math.ceil(count / 100)) + 2);
+  });
+  it('fails closed one page beyond the maximum without increasing the request cap', () => {
+    const f = api(5801);
+    expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
+    expect(f.execute).toHaveBeenCalledTimes(1);
+  });
+  it('restarts the entire sweep after an insertion between pages', () => {
+    const f = api(250, (rows, page, call) => {
+      if (call === 3 && page === 2) rows.unshift(release(251));
+    });
+    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(8); // Duplicate detection at 3, then a quiet five-request sweep.
+    expect(
+      f.execute.mock.calls.map(([, args]) =>
+        Number(new URL(`https://fixture/${args[1]}`).searchParams.get('page'))
+      )
+    ).toEqual([1, 3, 2, 1, 3, 2, 3, 1]);
+  });
+  it('detects a mid-list removal even when the first page remains unchanged', () => {
+    const f = api(350, (rows, page, call) => {
+      if (call === 4 && page === 3) rows.splice(120, 1);
+    });
+    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(10); // The anchored terminal converts the shift into a duplicate.
+  });
+  it.each([301, 350])('retries a terminal boundary changed by removal from %i records', (count) => {
+    const f = api(count, (rows, _page, call) => {
+      if (call === 5) rows.splice(120, 1);
+    });
+    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(count === 301 ? 11 : 12);
+  });
+  it('detects a first-page removal between discovery and the terminal anchor', () => {
+    const f = api(250, (rows, _page, call) => {
+      if (call === 2) rows.splice(10, 1);
+    });
+    expect(readCutMetadata(input, f.execute).releases).toEqual(f.rows);
+    expect(f.execute).toHaveBeenCalledTimes(10);
+  });
+  it('fails closed after three attempts when each attempt inserts another record', () => {
+    const f = api(250, (rows, page) => {
+      if (page === 2) rows.unshift(release(rows.length + 1));
+    });
+    expect(() => readCutMetadata(input, f.execute)).toThrow('three attempts');
+    expect(f.execute).toHaveBeenCalledTimes(9);
+  });
+  it('shares the request budget across retries instead of resetting it', () => {
+    const f = api(3001, (rows, page) => {
+      if (page === 2) rows.unshift(release(rows.length + 1));
+    });
+    expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
+    expect(f.execute.mock.calls.length).toBeLessThanOrEqual(60);
+  });
+  it('shares the time budget across attempts and calls', () => {
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(0);
+    const f = api(250, (_rows, _page, call) => {
+      if (call === 1) now.mockReturnValue(90_000);
+    });
+    try {
+      expect(() => readCutMetadata(input, f.execute)).toThrow('budget');
+      expect(f.execute).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
   it.each([undefined, null, {}, [null], [{}], [{ name: 42 }]])(
-    'refuses unavailable or malformed asset evidence (%j)',
+    'refuses malformed assets without retry (%j)',
     (assets) => {
-      expect(() =>
-        readCutMetadata(input, () =>
-          JSON.stringify([{ id: 1, tag_name: 'v5.0.0-alpha.49', draft: true, assets }])
-        )
-      ).toThrow('asset metadata');
+      const execute = vi.fn(() => response([{ ...release(1), assets }]));
+      expect(() => readCutMetadata(input, execute)).toThrow('asset metadata');
+      expect(execute).toHaveBeenCalledTimes(1);
     }
   );
-  it('refuses invisible drafts, incomplete pages and duplicate records', () => {
+  it.each([undefined, null, 1.5, '1'])('refuses invalid identities without retry (%j)', (id) => {
+    const execute = vi.fn(() => response([{ ...release(1), id }]));
+    expect(() => readCutMetadata(input, execute)).toThrow('identity');
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+  it('refuses invisible drafts, malformed records and malformed pagination', () => {
     expect(() => readCutMetadata({ ...input, draftVisibility: '' })).toThrow('visibility');
     expect(() =>
-      readCutMetadata(input, () =>
-        JSON.stringify(
-          Array.from({ length: 100 }, (_, i) => ({
-            id: i,
-            tag_name: 'v1.0.0-alpha.1',
-            draft: false,
-          }))
-        )
+      readCutMetadata(input, () => response([{ ...release(1), draft: undefined }]))
+    ).toThrow('metadata');
+    expect(() => readCutMetadata(input, () => JSON.stringify([]))).toThrow('headers');
+    expect(() =>
+      readCutMetadata(
+        input,
+        () => 'HTTP/2.0 200 OK\nLink: <https://fixture?page=2>; rel="next"\n\n[]'
       )
     ).toThrow('pagination');
-    expect(() => readCutMetadata(input, () => JSON.stringify([{ id: 1 }, { id: 1 }]))).toThrow(
-      'duplicate'
-    );
+  });
+  it('never accepts duplicate records as a deduplicated catalogue', () => {
+    const execute = vi.fn(() => response([release(1), release(1)]));
+    expect(() => readCutMetadata(input, execute)).toThrow('duplicate');
+    expect(execute).toHaveBeenCalledTimes(3);
   });
 });
