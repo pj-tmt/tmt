@@ -8,6 +8,7 @@ import {
   type CSSProperties,
   type Ref,
 } from 'react';
+import { assignRefs } from './utils.js';
 
 export type LayerCloseReason =
   | 'escape'
@@ -227,15 +228,7 @@ export function useLayerSurface(
   const ref = useCallback(
     (element: HTMLDivElement | null) => {
       if (element) onMount?.(element);
-      setNode(element);
-      const cleanup = typeof forwardedRef === 'function' ? forwardedRef(element) : undefined;
-      if (forwardedRef && typeof forwardedRef !== 'function') forwardedRef.current = element;
-      return () => {
-        setNode(null);
-        if (typeof cleanup === 'function') cleanup();
-        else if (typeof forwardedRef === 'function') forwardedRef(null);
-        else if (forwardedRef) forwardedRef.current = null;
-      };
+      return assignRefs(element, setNode, forwardedRef);
     },
     [forwardedRef, onMount],
   );
