@@ -624,7 +624,8 @@ const home = createRoute({
   // An old link or history entry that still carries list search belongs to the list.
   validateSearch: validateHomeSearch,
   beforeLoad: ({ search }) => {
-    if (Object.keys(search).length) throw redirect({ to: '/all', search, replace: true });
+    if (Object.values(search).some((value) => value !== undefined))
+      throw redirect({ to: '/all', search, replace: true });
   },
   loader: loadSpaceHome,
   component: Today,

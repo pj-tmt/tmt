@@ -163,6 +163,12 @@ test('a home location that still carries list search opens All pages with it', a
   await expect(app(page).locator('.home h1')).toBeVisible();
 });
 
+test('a home location whose list search cannot be read stays on Today', async ({ page }) => {
+  await mount(page, 'few', '/?label=design&q=123');
+  await expect(greeting(page)).toHaveText('Good morning');
+  expect(new URL(page.url()).hash).toBe('#/');
+});
+
 test('a chapter title opens its page; the search control works from Today', async ({ page }) => {
   await mount(page);
   await app(page).getByRole('button', { name: 'Search pages', exact: true }).click();
