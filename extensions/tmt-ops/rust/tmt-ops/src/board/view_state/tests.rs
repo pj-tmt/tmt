@@ -638,10 +638,10 @@ fn replaced_overview_filter_does_not_erase_other_layer_controls() {
     );
     assert_eq!(
         decoded.overview_view,
-        super::super::overview::monitor::View::Squads
+        super::super::overview::monitor::View::Agents
     );
     let current = decoded.json();
-    assert_eq!(current["overviewView"], "squads");
+    assert_eq!(current["overviewView"], "agents");
     assert!(current.get("overviewFilter").is_none());
     encoded["overviewView"] = json!(42);
     assert!(
@@ -711,4 +711,19 @@ fn pane_ratios_restore_from_the_selected_named_layer_and_exec_controls() {
     assert!(Session::open(left.clone(), false, false, true).is_ok());
     assert!(!left.exists());
     assert_eq!(fs::read(&right).unwrap(), right_bytes);
+}
+
+#[test]
+fn explicit_overview_choice_survives_the_new_agents_factory_default() {
+    use crate::board::overview::monitor::View;
+    for view in [View::Squads, View::Agents] {
+        let mut app = board();
+        app.overview_view = view;
+        let controls = Controls::capture(&app);
+        let decoded = Controls::decode(&controls.json()).unwrap();
+        assert_eq!(decoded.overview_view, view);
+        let mut old = controls.json();
+        old.as_object_mut().unwrap().remove("overviewView");
+        assert_eq!(Controls::decode(&old).unwrap().overview_view, View::Agents);
+    }
 }

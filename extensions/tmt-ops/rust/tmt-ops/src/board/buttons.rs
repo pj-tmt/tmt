@@ -50,6 +50,7 @@ impl State {
 pub(super) struct Button<'a> {
     label: &'a str,
     focused: bool,
+    selected: bool,
     enabled: bool,
     idle: Option<Style>,
 }
@@ -59,6 +60,7 @@ impl<'a> Button<'a> {
         Self {
             label,
             focused: false,
+            selected: false,
             enabled: true,
             idle: None,
         }
@@ -70,6 +72,11 @@ impl<'a> Button<'a> {
 
     pub(super) fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
+        self
+    }
+
+    pub(super) fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
         self
     }
 
@@ -98,7 +105,7 @@ pub(super) fn paint(
     let style = |button: &Button<'_>, hovered: bool| {
         let state = if !button.enabled {
             ChipState::Disabled
-        } else if active && (button.focused || hovered) {
+        } else if button.selected || active && (button.focused || hovered) {
             ChipState::Hot
         } else {
             ChipState::Idle

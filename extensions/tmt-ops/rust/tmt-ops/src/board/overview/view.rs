@@ -190,8 +190,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             for hit in filter_bar::paint(
                 frame.buffer_mut(),
                 slot,
-                &[("squads", "Squads"), ("agents", "Agents")],
-                usize::from(agents),
+                &[("agents", "Agents"), ("squads", "Squads")],
+                usize::from(!agents),
                 &app.workspace.query,
                 app,
             ) {

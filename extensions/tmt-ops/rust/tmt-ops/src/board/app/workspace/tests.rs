@@ -1126,7 +1126,7 @@ fn startup_help_uses_workspace_bindings_and_keeps_complete_editor_guidance() {
         .unwrap();
     for (key, action) in app.bindings() {
         let expected = if action.verb == crate::action::Verb::Ui(crate::action::OpsUiAction::Pin) {
-            "pin or unpin the selected agent".into()
+            "pin or unpin the selected agent or squad".into()
         } else {
             action.description()
         };
@@ -1464,6 +1464,7 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
         .retain(|target, _| *target == OpsTarget::Pool);
     app.workspace.selected = Some(OpsTarget::Pool);
     app.shell.tab = OpsTab::Overview;
+    app.overview_view = crate::board::overview::monitor::View::Squads;
     app.workspace_reconcile();
     assert!(app.workspace_rows().is_empty());
     assert!(paint(&app, 80, 24).join("\n").contains(" No squads yet."));
@@ -3698,6 +3699,7 @@ fn search_follows_first_match_and_clearing_restores_the_original_selection() {
     for tab in [OpsTab::Overview, OpsTab::Agents] {
         let mut app = populated_board(8, 28);
         app.shell.tab = tab;
+        app.overview_view = crate::board::overview::monitor::View::Squads;
         let original = OpsTarget::Squad(
             app.workspace_snapshot().unwrap().roster.squads[0]
                 .room_id
@@ -4086,4 +4088,241 @@ fn capture_search_notice_packet() {
     });
     assert_eq!(captures.len(), 84);
     std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+#[test]
+fn pin_view_agents_and_squads_share_saved_preferences_in_both_tabs() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        for member in [false, true] {
+            let mut app = board();
+            app.shell.tab = tab;
+            app.overview_view = if member {
+                crate::board::overview::monitor::View::Agents
+            } else {
+                crate::board::overview::monitor::View::Squads
+            };
+            app.workspace.selected = Some(if member {
+                OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: MEMBER.into(),
+                }
+            } else {
+                OpsTarget::Squad(ROOM.into())
+            });
+            app.workspace_reconcile();
+            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+                key(&mut app, KeyCode::Char('p'))
+            else {
+                panic!("{tab:?} member={member}: p must save the selected target pin");
+            };
+            assert_eq!(next.agent_pins.contains(MEMBER), member);
+            assert_eq!(next.pinned.contains(ROOM), !member);
+            app.finished_workspace_preferences(next, "Pinned target".into());
+            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+                key(&mut app, KeyCode::Char('p'))
+            else {
+                panic!("the same key must unpin");
+            };
+            assert!(next.agent_pins.is_empty() && next.pinned.is_empty());
+        }
+    }
+}
+
+#[test]
+fn pin_view_overview_factory_default_is_agents() {
+    assert_eq!(
+        crate::board::overview::monitor::View::default(),
+        crate::board::overview::monitor::View::Agents
+    );
+}
+
+#[test]
+fn individually_pinned_agents_keep_read_only_no_match_previews_and_dynamic_hints() {
+    let mut app = board();
+    let mut preferences = app.workspace_snapshot().unwrap().preferences.clone();
+    preferences.agent_pins.insert(MEMBER.into());
+    app.finished_workspace_preferences(preferences, "Pinned worker".into());
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
+    app.workspace.expanded.clear();
+    app.workspace_reconcile();
+    assert!(app.workspace_selection_visible());
+    assert_eq!(
+        crate::board::view::footer::hint_word(&app, &Action::parse("pin").unwrap()),
+        "unpin"
+    );
+    key(&mut app, KeyCode::Char('/'));
+    app.paste("no-match");
+    assert!(app.workspace_rows().is_empty());
+    assert!(app.workspace_retained_search_target().is_some());
+    assert!(
+        app.workspace_is_pinned().is_none(),
+        "preview never admits pin on a hidden row"
+    );
+    assert!(app.workspace_action_hits.borrow().is_empty());
+    assert!(app.input.is_none());
+    key(&mut app, KeyCode::Esc);
+    assert!(app.workspace_is_pinned() == Some(true));
+}
+
+#[test]
+fn overview_v_toggles_for_member_or_squad_from_either_pane_without_a_reader() {
+    use crate::board::overview::monitor::View;
+    for focus in [0, 1] {
+        let mut app = board();
+        app.shell.tab = OpsTab::Overview;
+        app.overview_view = View::Agents;
+        app.workspace_reconcile();
+        paint(&app, 148, 51);
+        app.focus = focus;
+        assert_eq!(app.bindings()["v"].text, "overview-view");
+        assert_eq!(key(&mut app, KeyCode::Char('v')), Effect::None);
+        assert_eq!(app.overview_view, View::Squads);
+        assert_eq!(app.bindings()["v"].text, "overview-view");
+        key(&mut app, KeyCode::Char('v'));
+        assert_eq!(app.overview_view, View::Agents);
+    }
+}
+
+#[test]
+#[ignore = "explicit agent pin and view-mode evidence export"]
+fn capture_agent_pin_packet() {
+    let output = std::env::var("TMT_AGENT_PIN_CAPTURE").expect("task-owned evidence path");
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for tab in [OpsTab::Overview, OpsTab::Agents] {
+            for scene in [
+                "default",
+                "agent-pinned",
+                "squad-pinned",
+                "typing",
+                "no-match",
+                "view-toggle",
+            ] {
+                if tab == OpsTab::Agents && scene == "view-toggle" {
+                    continue;
+                }
+                for width in [103, 148] {
+                    for (base, depth) in [
+                        ("tmt", tmt_cli_style::Depth::TrueColor),
+                        ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                        ("tmt", tmt_cli_style::Depth::None),
+                    ] {
+                        let mut app = populated_board(4, 12);
+                        app.shell.tab = tab;
+                        app.focus = 0;
+                        app.view.as_mut().unwrap().look = crate::look::Look {
+                            theme: tmt_cli_style::Theme::new(
+                                tmt_cli_style::Base::parse(base).unwrap(),
+                            ),
+                            depth,
+                        };
+                        let (room, identity) = {
+                            let roster = &app.workspace_snapshot().unwrap().roster;
+                            let squad = &roster.squads[1];
+                            (squad.room_id.clone(), squad.members[0].clone())
+                        };
+                        app.workspace.selected = Some(OpsTarget::Member {
+                            room_id: Some(room.clone()),
+                            identity_id: identity.clone(),
+                        });
+                        app.workspace_reconcile();
+                        if scene != "default" && scene != "view-toggle" {
+                            if scene == "squad-pinned" {
+                                app.workspace.selected = Some(OpsTarget::Squad(room));
+                                app.overview_view = crate::board::overview::monitor::View::Squads;
+                                app.workspace_reconcile();
+                            }
+                            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+                                key(&mut app, KeyCode::Char('p'))
+                            else {
+                                panic!("pin must use the preferences lane")
+                            };
+                            app.finished_workspace_preferences(next, "Pinned selection".into());
+                            if tab == OpsTab::Agents {
+                                app.workspace.filter =
+                                    crate::board::workspace::AgentsFilter::Pinned;
+                                app.workspace.expanded.clear();
+                                app.workspace_reconcile();
+                            }
+                        }
+                        if matches!(scene, "typing" | "no-match") {
+                            key(&mut app, KeyCode::Char('/'));
+                            app.paste(if scene == "typing" {
+                                "agent-00001"
+                            } else {
+                                "no-matching-agent"
+                            });
+                        }
+                        if scene == "view-toggle" {
+                            assert_eq!(
+                                app.overview_view,
+                                crate::board::overview::monitor::View::Agents
+                            );
+                            key(&mut app, KeyCode::Char('v'));
+                            assert_eq!(
+                                app.overview_view,
+                                crate::board::overview::monitor::View::Squads
+                            );
+                        }
+                        let mut terminal = Terminal::new(TestBackend::new(width, 51)).unwrap();
+                        terminal
+                            .draw(|frame| {
+                                crate::board::view::prepare(&mut app, frame.area());
+                                crate::board::view::render(frame, &app);
+                            })
+                            .unwrap();
+                        let buffer = terminal.backend().buffer();
+                        let cells = buffer.content.iter().map(|cell| json!({ "symbol":cell.symbol(), "fg":format!("{:?}",cell.fg), "bg":format!("{:?}",cell.bg), "modifier":format!("{:?}",cell.modifier) })).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        let pin = Action::parse("pin").unwrap();
+                        captures.push(json!({ "tab":format!("{tab:?}"), "scene":scene, "width":width,"height":51,"theme":base,"depth":format!("{depth:?}"),"cells":cells,"lines":lines,
+                            "selected":format!("{:?}",app.workspace.selected),"view":format!("{:?}",app.overview_view),"filter":format!("{:?}",app.workspace.filter),
+                            "pinState":app.workspace_is_pinned(),"pinHint":crate::board::view::footer::hint_word(&app,&pin),"bindings":app.bindings().iter().map(|(key,action)| (key.clone(),action.text.clone())).collect::<std::collections::BTreeMap<_,_>>(),
+                            "rows":app.workspace_rows().iter().map(|row| format!("{:?}",row.target)).collect::<Vec<_>>(), "hits":format!("{:?}",app.hits.borrow()),"actions":format!("{:?}",app.workspace_action_hits.borrow()),"searching":app.searching,"query":app.search,"hasComposer":app.input.is_some() }));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 66);
+    std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+#[test]
+fn member_pin_failure_and_cap_leave_the_current_saved_state_intact() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        let mut app = board();
+        app.shell.tab = tab;
+        app.workspace_reconcile();
+        let Effect::Act(Request::WorkspacePreferences { expected, next, .. }) =
+            key(&mut app, KeyCode::Char('p'))
+        else {
+            panic!("pin must use the save lane")
+        };
+        assert!(expected.agent_pins.is_empty());
+        assert!(next.agent_pins.contains(MEMBER));
+        assert_eq!(
+            app.workspace_snapshot().unwrap().preferences,
+            expected,
+            "requesting a write does not commit it"
+        );
+        app.finished(Err("Preference write refused".into()));
+        assert_eq!(app.workspace_snapshot().unwrap().preferences, expected);
+        let mut full = expected;
+        full.agent_pins = (0..1024)
+            .map(|n| format!("77777777-7777-4777-8777-{n:012}"))
+            .collect();
+        app.finished_workspace_preferences(full.clone(), "Pins loaded".into());
+        assert_eq!(key(&mut app, KeyCode::Char('p')), Effect::None);
+        assert_eq!(
+            app.workspace_snapshot().unwrap().preferences,
+            full,
+            "refusal never truncates the existing UUID set"
+        );
+    }
 }

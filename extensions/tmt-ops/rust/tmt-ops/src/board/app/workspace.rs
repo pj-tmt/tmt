@@ -211,7 +211,8 @@ impl App {
             };
             let pinned = self.shell.tab != OpsTab::Agents
                 || self.workspace.filter == AgentsFilter::All
-                || room.is_some_and(|room| snapshot.preferences.pinned.contains(room));
+                || room.is_some_and(|room| snapshot.preferences.pinned.contains(room))
+                || matches!(target, OpsTarget::Member { identity_id, .. } if snapshot.preferences.agent_pins.contains(identity_id));
             let visible = room.map_or_else(
                 || self.workspace.visibility.scope.is_empty(),
                 |room| {
@@ -226,6 +227,22 @@ impl App {
         }
         None
     }
+    pub(in crate::board) fn workspace_is_pinned(&self) -> Option<bool> {
+        if !matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
+            || !self.workspace_selection_visible()
+        {
+            return None;
+        }
+        let preferences = &self.workspace_snapshot()?.preferences;
+        match self.workspace.selected.as_ref()? {
+            OpsTarget::Member { identity_id, .. } => {
+                Some(preferences.agent_pins.contains(identity_id))
+            }
+            OpsTarget::Squad(room) => Some(preferences.pinned.contains(room)),
+            OpsTarget::Pool => None,
+        }
+    }
+
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
         let target_shown = match self.shell.tab {
             OpsTab::Overview => self
@@ -425,6 +442,7 @@ impl App {
                         .workspace_snapshot()
                         .is_some_and(|snapshot| snapshot.hidden_count > 0)
             }
+            Verb::Ui(OpsUiAction::Pin) => self.workspace_is_pinned().is_some(),
             Verb::Ui(OpsUiAction::ClearScope) => !self.workspace.visibility.scope.is_empty(),
             _ => true,
         });
@@ -864,12 +882,15 @@ impl App {
                 return self.changed_view_order(order);
             }
             Pin => {
+                if self.workspace_is_pinned().is_none() {
+                    return self.say("Select a visible agent or squad to pin.");
+                }
                 let Some(snapshot) = self.workspace_snapshot() else {
                     return Effect::None;
                 };
                 let mut next = snapshot.preferences.clone();
                 match action {
-                    Pin if self.shell.tab == OpsTab::Overview => {
+                    Pin if matches!(self.workspace.selected, Some(OpsTarget::Member { .. })) => {
                         if !self.workspace_selection_visible() {
                             return self.say("Select a visible agent to pin.");
                         }

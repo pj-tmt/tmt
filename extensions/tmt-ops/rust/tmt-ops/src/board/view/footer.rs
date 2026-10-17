@@ -30,12 +30,13 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
-        Verb::Ui(crate::action::OpsUiAction::Pin)
-            if app.shell.tab == crate::board::shell::OpsTab::Overview =>
-        {
-            "pin agent"
+        Verb::Ui(crate::action::OpsUiAction::Pin) => {
+            if app.workspace_is_pinned() == Some(true) {
+                "unpin"
+            } else {
+                "pin"
+            }
         }
-        Verb::Ui(crate::action::OpsUiAction::Pin) => "pin squad",
         Verb::Ui(crate::action::OpsUiAction::RevealHidden) => "show hidden",
         Verb::Ui(crate::action::OpsUiAction::Search) if !app.search.is_empty() => "edit filter",
         Verb::Ui(action) => action.spec().label,
@@ -67,6 +68,9 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
         && app.workspace_message_target().is_none()
     {
         return false;
+    }
+    if action.verb == Verb::Ui(crate::action::OpsUiAction::Pin) {
+        return app.workspace_is_pinned().is_some();
     }
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     if action.verb == Verb::ViewReply {
@@ -298,15 +302,19 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         (Verb::Ui(Ui::Pin), "p", "pin"),
     ] {
         if (tab == crate::board::shell::OpsTab::Overview
-            && matches!(verb, Verb::ViewReply | Verb::Open | Verb::Ui(Ui::Pin)))
+            && matches!(verb, Verb::ViewReply | Verb::Open))
             || seen.contains(&verb)
-            || (verb == Verb::Ui(Ui::Pin)
-                && tab == crate::board::shell::OpsTab::Overview
-                && app.workspace_selected_member().is_none())
         {
             continue;
         }
         if let Some(key) = find(verb, preferred) {
+            let word = if verb == Verb::Ui(Ui::Pin) {
+                bindings
+                    .get(&key)
+                    .map_or(word, |action| hint_word(app, action))
+            } else {
+                word
+            };
             first.push((key_label(&key).into(), word.into()));
             seen.push(verb);
         }
