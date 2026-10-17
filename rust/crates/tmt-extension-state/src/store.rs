@@ -179,7 +179,7 @@ fn migration_start(
     if !has_history {
         let existing: bool = connection
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%')",
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*')",
                 [],
                 |r| r.get(0),
             )

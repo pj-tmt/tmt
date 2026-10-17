@@ -518,8 +518,23 @@ fn store_database_and_sidecars_are_private_and_unsafe_inputs_are_not_repaired() 
     fs::set_permissions(&database, fs::Permissions::from_mode(0o600)).unwrap();
     let foreign = world.0.join("foreign");
     fs::write(&foreign, b"unchanged").unwrap();
-    symlink(&foreign, layout.directory.join("state.db-wal")).unwrap();
-    assert!(Store::open(&layout, "state.db", MIGRATIONS, RETRY).is_err());
+    fs::set_permissions(&foreign, fs::Permissions::from_mode(0o600)).unwrap();
+    let sidecar = layout.directory.join("state.db-wal");
+    symlink(&foreign, &sidecar).unwrap();
+    let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
+        .err()
+        .unwrap();
+    let tmt_extension_state::StateError::Io {
+        path,
+        operation,
+        source,
+    } = error
+    else {
+        panic!("the sidecar link must fail at no-follow admission, not later SQLite decoding");
+    };
+    assert_eq!(path, sidecar);
+    assert_eq!(operation, "admit SQLite sidecar");
+    assert_eq!(source.raw_os_error(), Some(nix::errno::Errno::ELOOP as i32));
     assert_eq!(fs::read(foreign).unwrap(), b"unchanged");
 }
 
@@ -544,25 +559,28 @@ fn a_kill_after_store_commit_keeps_the_complete_record() {
 
 #[test]
 fn an_unrecognized_database_is_refused_before_journal_or_schema_changes() {
-    let world = World::new();
-    let layout = world.layout();
-    drop(layout.file("state.db").unwrap());
-    let path = layout.directory.join("state.db");
-    let foreign = rusqlite::Connection::open(&path).unwrap();
-    foreign
-        .execute_batch(
-            "CREATE TABLE foreign_data(value TEXT); INSERT INTO foreign_data VALUES('keep');",
-        )
-        .unwrap();
-    drop(foreign);
-    let before = fs::read(&path).unwrap();
-    let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
-        .err()
-        .unwrap();
-    assert!(matches!(
-        error,
-        tmt_extension_state::StateError::Migration { .. }
-    ));
-    assert_eq!(fs::read(&path).unwrap(), before);
-    assert_eq!(fs::read_dir(layout.directory).unwrap().count(), 1);
+    for table in ["foreign_data", "sqlitex_data"] {
+        let world = World::new();
+        let layout = world.layout();
+        drop(layout.file("state.db").unwrap());
+        let path = layout.directory.join("state.db");
+        let foreign = rusqlite::Connection::open(&path).unwrap();
+        foreign
+            .execute_batch(&format!(
+                "CREATE TABLE {table}(value TEXT); INSERT INTO {table} VALUES('keep');"
+            ))
+            .unwrap();
+        drop(foreign);
+        let before = fs::read(&path).unwrap();
+        let error = match Store::open(&layout, "state.db", MIGRATIONS, RETRY) {
+            Ok(_) => panic!("unrecognized table {table} was admitted"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            tmt_extension_state::StateError::Migration { .. }
+        ));
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read_dir(layout.directory).unwrap().count(), 1);
+    }
 }
