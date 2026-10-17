@@ -197,21 +197,34 @@ fn fit_hints(mut hints: Vec<Hint>, tail: Vec<Hint>, width: usize) -> Vec<Hint> {
     hints
 }
 
-fn effective_key(
+pub(in crate::board) fn effective_key(
     app: &App,
     bindings: &crate::action::Bindings,
     verb: crate::action::Verb,
     preferred: &str,
 ) -> Option<String> {
     bindings
-        .get(preferred)
-        .filter(|action| action.verb == verb && row_allows(app, action))
-        .map(|_| preferred.to_owned())
+        .iter()
+        .find(|(key, action)| {
+            action.verb == verb
+                && row_allows(app, action)
+                && app
+                    .workspace_binding_sources()
+                    .and_then(|sources| sources.get(*key))
+                    .is_some_and(|source| source != "workspace default")
+        })
+        .map(|(key, _)| key.clone())
         .or_else(|| {
             bindings
-                .iter()
-                .find(|(_, action)| action.verb == verb && row_allows(app, action))
-                .map(|(key, _)| key.clone())
+                .get(preferred)
+                .filter(|action| action.verb == verb && row_allows(app, action))
+                .map(|_| preferred.to_owned())
+                .or_else(|| {
+                    bindings
+                        .iter()
+                        .find(|(_, action)| action.verb == verb && row_allows(app, action))
+                        .map(|(key, _)| key.clone())
+                })
         })
 }
 
@@ -355,11 +368,6 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     }
     let mut second = Vec::new();
     let mut tail = Vec::new();
-    let filter = if tab == crate::board::shell::OpsTab::Agents {
-        app.workspace.filter.next().label().to_owned()
-    } else {
-        app.overview_view.next().label().to_ascii_lowercase()
-    };
     let filter_verb = if tab == crate::board::shell::OpsTab::Agents {
         Ui::AgentsFilter
     } else {
@@ -377,7 +385,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     };
     let choices = if tab == crate::board::shell::OpsTab::Overview {
         vec![
-            (Verb::Ui(filter_verb), "v", "squads/agents"),
+            (Verb::Ui(filter_verb), "f", "view"),
             (Verb::Ui(Ui::Search), "/", search_word),
             (Verb::Settings, ",", "settings"),
             (Verb::Ui(Ui::Help), "?", "help"),
@@ -387,7 +395,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         vec![
             (Verb::Ui(Ui::Search), "/", search_word),
             (Verb::Ui(Ui::Timers), "c", "timers"),
-            (Verb::Ui(filter_verb), "f", filter.as_str()),
+            (Verb::Ui(filter_verb), "f", "filter"),
             (Verb::Ui(Ui::SavingsUnit), "$", "unit"),
             (Verb::Ui(Ui::UsageControls), "u", "chart"),
             (Verb::Settings, ",", "settings"),
@@ -395,6 +403,8 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             (Verb::Ui(Ui::Quit), "q", "quit"),
         ]
     };
+    let mut choices = choices;
+    choices.insert(0, (Verb::Ui(Ui::WorkspaceSnapshots), "w", "snapshots"));
     for (verb, preferred, word) in choices {
         if seen.contains(&verb) || (verb == Verb::Ui(Ui::SavingsUnit) && !app.savings_visible()) {
             continue;

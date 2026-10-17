@@ -85,12 +85,6 @@ impl View {
             Self::Agents => Self::Squads,
         }
     }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Squads => "Squads",
-            Self::Agents => "Agents",
-        }
-    }
 }
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,

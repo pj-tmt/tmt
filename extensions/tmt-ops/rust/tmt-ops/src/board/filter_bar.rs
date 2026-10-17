@@ -10,6 +10,7 @@ pub(in crate::board) fn paint(
     selected: usize,
     query: &str,
     app: &App,
+    toggle: crate::action::OpsUiAction,
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
     let area = Rect {
@@ -19,6 +20,32 @@ pub(in crate::board) fn paint(
     if area.is_empty() {
         return Vec::new();
     }
+    let key = super::keycap::key(app, toggle, "f");
+    let prefix = key
+        .as_deref()
+        .map(|key| super::keycap::span(key, false, look));
+    let prefix_width = prefix.as_ref().map_or(0, |span| span.width() + 1);
+    let prefix_width = if prefix_width <= usize::from(area.width) {
+        prefix_width
+    } else {
+        0
+    };
+    if prefix_width > 0 {
+        tmt_tui::components::strip::paint_left(
+            buffer,
+            Rect {
+                width: prefix_width as u16,
+                ..area
+            },
+            ratatui::text::Line::from(prefix.into_iter().collect::<Vec<_>>()),
+        );
+    }
+    let area = Rect::new(
+        area.x + prefix_width as u16,
+        area.y,
+        area.width - prefix_width as u16,
+        area.height,
+    );
     let groups = [chip_group::ChipGroup {
         label: " ".into(),
         choices: options
@@ -54,7 +81,15 @@ pub(in crate::board) fn paint(
     let search_width = available.min(34);
     if search_width > 0 {
         let search = Rect::new(x, area.y, search_width, area.height.min(1));
-        super::search_field::paint(buffer, search, query, app.searching, look);
+        let search_key = super::keycap::key(app, crate::action::OpsUiAction::Search, "/");
+        super::search_field::paint(
+            buffer,
+            search,
+            query,
+            app.searching,
+            search_key.as_deref(),
+            look,
+        );
         if search.width >= 3 {
             hits.push(chip_group::Hit {
                 area: search,
@@ -95,7 +130,15 @@ mod tests {
                         let area = Rect::new(0, 0, width, 1);
                         let mut buffer = Buffer::empty(area);
                         buffer.set_style(area, ratatui::style::Style::default().bg(Color::Magenta));
-                        let hits = paint(&mut buffer, area, &options, 0, query, &app);
+                        let hits = paint(
+                            &mut buffer,
+                            area,
+                            &options,
+                            0,
+                            query,
+                            &app,
+                            crate::action::OpsUiAction::OverviewView,
+                        );
                         let slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
                         assert_eq!(slot.width, 34);
                         assert_eq!(*geometry.get_or_insert(slot), slot);
@@ -105,6 +148,17 @@ mod tests {
                             .patch(app.look().role(Role::Track));
                         for x in slot.x..slot.right() {
                             let cell = &buffer[(x, 0)];
+                            if (slot.x + 1..slot.x + 4).contains(&x) {
+                                let cap = tmt_cli_style::theme::screen::keycap(
+                                    &app.look().theme,
+                                    depth,
+                                    false,
+                                );
+                                assert_eq!(cell.bg, cap.bg.unwrap_or(Color::Reset));
+                                assert_eq!(cell.fg, cap.fg.unwrap_or(Color::Reset));
+                                assert_eq!(cell.modifier, cap.add_modifier);
+                                continue;
+                            }
                             assert_eq!(
                                 cell.bg,
                                 style.bg.unwrap_or(Color::Reset),
@@ -131,7 +185,15 @@ mod tests {
                 let mut buffer = Buffer::empty(Rect::new(0, 0, width + 4, 5));
                 let mut app = App::default();
                 app.initial_look = Some(crate::look::Look::new(tmt_cli_style::Theme::default()));
-                let hits = paint(&mut buffer, area, &options, 1, "", &app);
+                let hits = paint(
+                    &mut buffer,
+                    area,
+                    &options,
+                    1,
+                    "",
+                    &app,
+                    crate::action::OpsUiAction::OverviewView,
+                );
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);
                     assert!(hit.id == "search" || options.iter().any(|(id, _)| *id == hit.id));
@@ -140,8 +202,7 @@ mod tests {
                     let text: String = (area.x..area.right())
                         .map(|x| buffer[(x, area.y)].symbol())
                         .collect();
-                    assert!(text.contains("/ Search"));
-                    assert!(text.starts_with(' '));
+                    assert!(text.contains("/  Search"));
                 }
                 assert_eq!(
                     buffer[(0, 0)].symbol(),

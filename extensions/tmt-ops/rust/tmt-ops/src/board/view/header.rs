@@ -37,13 +37,53 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
             ),
         }
     });
-    crate::board::top_bar::paint(
+    use crate::action::{Action, OpsUiAction};
+    let key = crate::board::keycap::key(app, OpsUiAction::WorkspaceSnapshots, "w");
+    let label = crate::board::keycap::label(key.as_deref(), "Snapshots", false, app.look());
+    let control = crate::board::top_bar::paint_with_control(
         frame.buffer_mut(),
         area,
         (app.view_layer.name() != "default").then(|| app.view_layer.name()),
         attention.as_ref(),
         app.look(),
+        if app.workspace_snapshot().is_some() {
+            (label.width() + 2) as u16
+        } else {
+            0
+        },
     );
+    if let Some(area) = control {
+        let label_text = label.to_string();
+        let enabled = !app.loading() && !app.modal_open() && app.input.is_none() && !app.searching;
+        let painted = crate::board::buttons::paint(
+            app,
+            frame.buffer_mut(),
+            area,
+            &[crate::board::buttons::Button::secondary(&label_text)
+                .idle(app.look().role(Role::Muted))
+                .enabled(enabled)],
+            tmt_cli_style::grid::Align::Left,
+            None,
+        );
+        if let Some(rect) = painted[0] {
+            if let Some(key) = key.as_deref() {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect::new(rect.x + 1, rect.y, rect.width - 2, 1),
+                    Line::from(crate::board::keycap::span(key, false, app.look())),
+                );
+            }
+            if enabled {
+                app.workspace_strip_hits.borrow_mut().push((
+                    rect,
+                    crate::board::app::Choice::Action(
+                        Action::parse(OpsUiAction::WorkspaceSnapshots.spec().name)
+                            .expect("registered snapshots action"),
+                    ),
+                ));
+            }
+        }
+    }
 }
 
 /// Scope and hidden-room reveal share the shell's existing boundary band.

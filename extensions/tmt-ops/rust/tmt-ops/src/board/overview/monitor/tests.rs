@@ -186,7 +186,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
                 .collect();
             let filter = lines
                 .iter()
-                .position(|line| line.starts_with("  Agents   Squads"))
+                .position(|line| line.contains("Agents") && line.contains("Squads"))
                 .unwrap();
             assert!(!lines[filter].contains(expected));
             assert!(
@@ -514,14 +514,7 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
     let mut app = board();
     app.select_overview_view(View::Squads);
     let squads = text(&paint(&mut app, 103, 51));
-    for required in [
-        "Squads",
-        "TEAM",
-        "TOK 1h",
-        "NOW",
-        "/ Search",
-        "v squads/agents",
-    ] {
+    for required in ["Squads", "TEAM", "TOK 1h", "NOW", "/  Search", "f view"] {
         assert!(squads.contains(required), "{required}");
     }
     app.select_overview_view(View::Agents);
@@ -678,7 +671,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
     let mut app = board();
     app.select_overview_view(View::Squads);
     assert!(matches!(app.workspace.selected, Some(OpsTarget::Squad(_))));
-    press(&mut app, KeyCode::Char('v'));
+    press(&mut app, KeyCode::Char('f'));
     assert_eq!(app.overview_view, View::Agents);
     assert!(matches!(
         app.workspace.selected,

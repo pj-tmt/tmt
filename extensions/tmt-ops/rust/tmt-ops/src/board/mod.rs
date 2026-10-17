@@ -30,6 +30,7 @@ mod input_field;
 mod inventory;
 mod key_hints;
 mod key_value;
+mod keycap;
 mod lane;
 mod limits;
 mod markdown;

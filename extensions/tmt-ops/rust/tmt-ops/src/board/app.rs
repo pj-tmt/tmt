@@ -4103,7 +4103,7 @@ impl App {
                 // Scope controls and the savings figure work on every tab that paints them.
                 let visibility = matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))
                     || matches!(&choice, Choice::Action(action) if matches!(action.verb,
-                    Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search)));
+                    Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {
                     self.focus = 0;

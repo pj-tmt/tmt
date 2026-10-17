@@ -47,8 +47,15 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
         .iter()
         .position(|tab| *tab == app.shell.tab)
         .unwrap_or(0);
+    use crate::action::OpsUiAction;
+    let keys = [
+        (OpsUiAction::Overview, "1"),
+        (OpsUiAction::Agents, "2"),
+        (OpsUiAction::DigestDashboard, "3"),
+    ]
+    .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
     let (line, hits) =
-        crate::board::tab_strip::line(&tabs.map(OpsTab::label), selected, area, app.look());
+        crate::board::tab_strip::line(&tabs.map(OpsTab::label), &keys, selected, area, app.look());
     app.tab_hits
         .borrow_mut()
         .extend(hits.into_iter().map(|(tab, area)| TabHit {
@@ -510,6 +517,7 @@ fn agents_controls(
         usize::from(app.workspace.filter == AgentsFilter::Pinned),
         &app.workspace.query,
         app,
+        crate::action::OpsUiAction::AgentsFilter,
     ) {
         let choice = match hit.id.as_str() {
             "all" => Choice::AgentsFilter(AgentsFilter::All),

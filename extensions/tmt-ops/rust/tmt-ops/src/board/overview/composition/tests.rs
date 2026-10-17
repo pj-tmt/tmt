@@ -175,9 +175,9 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         let text = paint(&mut app, width, 8);
         assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
         assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
-        key(&mut app, KeyCode::Char('v'));
+        key(&mut app, KeyCode::Char('f'));
         assert!(app.overview_view == crate::board::overview::monitor::View::Squads);
-        key(&mut app, KeyCode::Char('v'));
+        key(&mut app, KeyCode::Char('f'));
         assert!(app.overview_view == crate::board::overview::monitor::View::Agents);
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('e'));

@@ -420,9 +420,8 @@ impl crate::board::app::App {
         self.recovery.as_ref().is_some_and(|c| c.active)
     }
     pub(in crate::board) fn open_recovery(&mut self) -> crate::board::app::Effect {
-        use crate::board::{app::Effect, shell::OpsTab};
-        if self.shell.tab != OpsTab::Agents
-            || self.input.is_some()
+        use crate::board::app::Effect;
+        if self.input.is_some()
             || self.searching
             || self
                 .workspace_form
@@ -430,9 +429,7 @@ impl crate::board::app::App {
                 .is_some_and(|draft| draft.shown)
             || self.modal_open() && self.menu.is_none()
         {
-            return self.say(
-                "Open snapshots from the Agents list after closing the current input or overlay.",
-            );
+            return self.say("Open snapshots after closing the current input or overlay.");
         }
         self.menu = None;
         // This controller is never replaced while this App lives. Its frozen

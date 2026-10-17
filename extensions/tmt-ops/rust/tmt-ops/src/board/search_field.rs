@@ -70,15 +70,27 @@ pub(super) fn paste(query: &mut String, text: &str) -> bool {
     true
 }
 
-pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &str, editing: bool, look: Look) {
+pub(super) fn paint(
+    buffer: &mut Buffer,
+    area: Rect,
+    query: &str,
+    editing: bool,
+    key: Option<&str>,
+    look: Look,
+) {
     let value = if query.is_empty() && !editing {
         "Search"
     } else {
         query
     };
     let value = crate::board::notes::sanitize(value);
-    let text = if editing && area.width >= 4 {
-        let available = usize::from(area.width - 4); // Leading space, slash, space, caret.
+    let cap = key
+        .map(|key| super::keycap::span(key, false, look))
+        .filter(|cap| cap.width() + 2 <= usize::from(area.width));
+    let prefix = 1 + cap.as_ref().map_or(0, |cap| cap.width() + 1);
+    let available = usize::from(area.width).saturating_sub(prefix);
+    let text = if editing && available > 0 {
+        let available = available.saturating_sub(1); // Caret.
         let editor = Editor::from(value.as_str());
         let layout = editor.layout(u16::MAX);
         let cells = &layout.lines[0].cells;
@@ -96,26 +108,26 @@ pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &str, editing: bool,
             .collect();
         tail.reverse();
         format!(
-            "/ {}{}▏",
+            "{}{}▏",
             if clipped && available > 0 { "…" } else { "" },
             tail.concat()
         )
     } else {
-        crate::board::view::fit(
-            &format!("/ {value}"),
-            usize::from(area.width.saturating_sub(1)),
-        )
+        crate::board::view::fit(&value, available)
     };
-    let text = format!(" {text}");
+    let mut spans = vec![Span::raw(" ")];
+    if let Some(cap) = cap {
+        spans.push(cap);
+        spans.push(Span::raw(" "));
+    }
+    spans.push(Span::raw(text.clone()));
     let padding = usize::from(area.width)
-        .saturating_sub(unicode_width::UnicodeWidthStr::width(text.as_str()));
+        .saturating_sub(prefix + unicode_width::UnicodeWidthStr::width(text.as_str()));
+    spans.push(Span::raw(" ".repeat(padding)));
     strip::paint_left(
         buffer,
         area,
-        Line::styled(
-            format!("{text}{}", " ".repeat(padding)),
-            look.role(Role::Text).patch(look.role(Role::Track)),
-        ),
+        Line::from(spans).style(look.role(Role::Text).patch(look.role(Role::Track))),
     );
 }
 
@@ -235,10 +247,11 @@ mod tests {
             area,
             query,
             true,
+            Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
         );
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(text.starts_with(" / …"), "{text}");
+        assert!(text.starts_with("  /  …"), "{text}");
         assert!(text.contains("e\u{301}▏"), "{text}");
         assert!(!text.contains('�'));
         assert_eq!(text.matches('▏').count(), 1);

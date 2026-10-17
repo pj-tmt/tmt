@@ -209,6 +209,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 usize::from(!agents),
                 &app.workspace.query,
                 app,
+                crate::action::OpsUiAction::OverviewView,
             ) {
                 let choice = match hit.id.as_str() {
                     "agents" => Choice::OverviewView(monitor::View::Agents),

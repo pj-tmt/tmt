@@ -157,13 +157,6 @@ impl AgentsFilter {
             Self::Pinned => Self::All,
         }
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::All => "All",
-            Self::Pinned => "Pinned",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

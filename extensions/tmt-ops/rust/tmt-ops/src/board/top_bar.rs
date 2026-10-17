@@ -87,23 +87,49 @@ impl Attention {
     }
 }
 
-pub(in crate::board) fn paint(
+#[cfg(test)]
+fn paint(
     buffer: &mut Buffer,
     area: Rect,
     layer: Option<&str>,
     attention: Option<&Attention>,
     look: Look,
 ) {
+    paint_with_control(buffer, area, layer, attention, look, 0);
+}
+
+pub(in crate::board) fn paint_with_control(
+    buffer: &mut Buffer,
+    area: Rect,
+    layer: Option<&str>,
+    attention: Option<&Attention>,
+    look: Look,
+    control_width: u16,
+) -> Option<Rect> {
     let mut caption = Line::from(vec![
         Span::styled(" ▚ TMT   ", look.role(Role::Text)),
         Span::styled("OPS / UI", look.role(Role::Muted)),
     ]);
     let caption_width = caption.width() as u16;
     let attention = attention.map(|value| value.fitted(look, usize::from(area.width)));
-    let left_width = attention.as_ref().map_or(area.width, |line| {
+    let mut left_width = attention.as_ref().map_or(area.width, |line| {
         area.width
             .saturating_sub((line.width() as u16).saturating_add(2))
     });
+    let control = (control_width > 0
+        && control_width.saturating_add(caption_width + 1) <= left_width
+        && area.height > 0)
+        .then(|| {
+            Rect::new(
+                area.x + left_width - control_width,
+                area.y,
+                control_width,
+                1,
+            )
+        });
+    if control.is_some() {
+        left_width = left_width.saturating_sub(control_width + 1);
+    }
     let name_width = left_width.saturating_sub(caption_width + 3);
     if let Some(name) = layer.filter(|_| name_width > 0) {
         let name = super::notes::single_line(name);
@@ -129,11 +155,53 @@ pub(in crate::board) fn paint(
     if let Some(attention) = attention {
         strip::paint_right(buffer, area, attention);
     }
+    control
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_control_never_clips_the_shell_caption_or_attention() {
+        let attention = Attention {
+            online: "28".into(),
+            unread: Default::default(),
+            waiting: "9".into(),
+            blocked: "1".into(),
+            waiting_positive: true,
+            blocked_positive: true,
+            complete: true,
+            ascii: false,
+        };
+        for width in [60, 100] {
+            let area = Rect::new(0, 0, width, 1);
+            let mut buffer = Buffer::empty(area);
+            let control = paint_with_control(
+                &mut buffer,
+                area,
+                None,
+                Some(&attention),
+                Look::default(),
+                15,
+            );
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(text.contains("OPS / UI"), "{text}");
+            assert!(
+                text.contains("online") && text.contains("waiting") && text.contains("blocked"),
+                "{text}"
+            );
+            assert_eq!(control.is_some(), width == 100);
+            if let Some(control) = control {
+                assert_eq!(control.width, 15);
+                assert!(control.right() <= area.right());
+                assert!(
+                    buffer.content[usize::from(control.x)..usize::from(control.right())]
+                        .iter()
+                        .all(|cell| cell.symbol() == " ")
+                );
+            }
+        }
+    }
     #[test]
     fn only_nonzero_attention_glyphs_use_state_colour() {
         let look = Look::default();

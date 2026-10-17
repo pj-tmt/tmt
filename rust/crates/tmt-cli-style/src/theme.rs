@@ -38,10 +38,14 @@ pub enum Role {
     Track,
     /// A submitted reply the current actor has not opened.
     Unread,
+    /// A keyboard shortcut's neutral background.
+    Keycap,
+    /// A shortcut inside the selected control, one step brighter.
+    KeycapSelected,
 }
 
 impl Role {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -54,6 +58,8 @@ impl Role {
         Self::Selection,
         Self::Track,
         Self::Unread,
+        Self::Keycap,
+        Self::KeycapSelected,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -71,6 +77,8 @@ impl Role {
             Self::Selection => "selection",
             Self::Track => "track",
             Self::Unread => "unread",
+            Self::Keycap => "keycap",
+            Self::KeycapSelected => "keycap-selected",
         }
     }
 
@@ -291,6 +299,8 @@ impl Base {
             Role::Link => Paint::Ansi(AnsiColor::Cyan),
             Role::Selection => Paint::Reverse,
             Role::Track => Paint::Dimmed,
+            Role::Keycap => Paint::Ansi(AnsiColor::Black),
+            Role::KeycapSelected => Paint::Ansi(AnsiColor::BrightBlack),
         }
     }
 
@@ -308,6 +318,8 @@ impl Base {
             Role::Link => ((0x7D, 0xCF, 0xFF), (0x00, 0x6B, 0x8F)),
             Role::Selection => ((0x4A, 0x4A, 0x4A), (0xC8, 0xC8, 0xC8)),
             Role::Track => ((0x38, 0x38, 0x38), (0xE0, 0xE0, 0xE0)),
+            Role::Keycap => ((0x55, 0x55, 0x55), (0x55, 0x55, 0x55)),
+            Role::KeycapSelected => ((0x70, 0x70, 0x70), (0x70, 0x70, 0x70)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)
@@ -320,7 +332,7 @@ impl Base {
             Role::Accent | Role::Waiting | Role::Review | Role::Blocked | Role::Unread => {
                 Paint::Bold
             }
-            Role::Selection => Paint::Reverse,
+            Role::Selection | Role::Keycap | Role::KeycapSelected => Paint::Reverse,
         }
     }
 
@@ -438,7 +450,9 @@ impl Theme {
         let paint = self.paint(role, depth);
         let style = Style::new().effects(paint.effects(depth));
         match (role, paint.color(depth)) {
-            (Role::Selection | Role::Track, Some(color)) => style.bg_color(Some(color)),
+            (Role::Selection | Role::Track | Role::Keycap | Role::KeycapSelected, Some(color)) => {
+                style.bg_color(Some(color))
+            }
             (_, color) => style.fg_color(color),
         }
     }
@@ -506,6 +520,30 @@ pub mod screen {
     }
 
     const LIGHTER_PERCENT: u16 = 20;
+
+    /// A neutral key label. The caller owns its text, padding and activation.
+    pub fn keycap(theme: &Theme, depth: Depth, selected: bool) -> Style {
+        if depth == Depth::None {
+            return Style::new()
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                .remove_modifier(Modifier::DIM);
+        }
+        let role = if selected {
+            Role::KeycapSelected
+        } else {
+            Role::Keycap
+        };
+        let mut style = fill(theme, role, depth, Fill::Solid);
+        if style.fg.is_none() && style.bg.is_some() {
+            style = style.fg(ScreenColor::White);
+        }
+        if style.bg.is_some() {
+            style = style.remove_modifier(Modifier::REVERSED);
+        }
+        style
+            .add_modifier(Modifier::BOLD)
+            .remove_modifier(Modifier::DIM)
+    }
 
     /// A bar segment in the role's color, with a label color readable on it.
     /// Only TrueColor RGB paint is lightened; other depths preserve Solid.
