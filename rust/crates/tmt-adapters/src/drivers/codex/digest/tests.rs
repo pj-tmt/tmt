@@ -49,7 +49,13 @@ fn hooks(command: &RuntimeCommand) -> Value {
     let doc = hook_setting(command).parse::<DocumentMut>().unwrap();
     // Round-trip independently through the generated TOML's literal arrays.
     let mut result = json!({});
-    for event in ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"] {
+    for event in [
+        "SessionStart",
+        "SessionEnd",
+        "UserPromptSubmit",
+        "Stop",
+        "Interrupt",
+    ] {
         if let Some(entries) = doc["hooks"].get(event).and_then(Item::as_array) {
             result[event] = entries.iter().map(|v| {
                 let group = v.as_inline_table().unwrap();
@@ -316,6 +322,57 @@ fn attached_config_and_cd_preserve_foreign_hooks_and_inspect_the_selected_projec
             &d,
             &command(&[&cd]),
             &launch("11111111-1111-4111-8111-111111111111")
+        )
+        .is_err()
+    );
+}
+
+/// The interrupt observer (#3207) is composed like the other lifecycle
+/// observers: once, plain, and not when an eligible source already owns it.
+/// The existing events' definitions, and so their trust, are unchanged.
+#[test]
+fn the_interrupt_observer_is_composed_once_beside_unchanged_definitions() {
+    let d = TestDirectory::new();
+    let prepared = prepare_in(
+        &d,
+        &command(&[]),
+        &launch("11111111-1111-4111-8111-111111111111"),
+    )
+    .unwrap();
+    let observer = |args: &str| json!({"hooks":[{"command":format!("'/a b/tm'\\''t' __hook codex{args}"),"type":"command","timeout":3}]});
+    let digest = json!({"hooks":[{"command":"'/a b/tm'\\''t' __digest-hook codex --discover-launch","type":"command","timeout":3}]});
+    assert_eq!(
+        hooks(&prepared),
+        json!({
+            "SessionStart":[observer("")],
+            "SessionEnd":[observer("")],
+            "UserPromptSubmit":[observer("")],
+            "Stop":[observer(" --activity-only"), digest],
+            "Interrupt":[observer("")],
+        })
+    );
+    // Setup already owns it: no second observer. Two owners refuse.
+    fs::create_dir(d.path.join(".codex")).unwrap();
+    let owned = crate::runtime::hook_protocol::command_entry(super::super::NAME, "/stable/tmt");
+    let path = d.path.join(".codex/hooks.json");
+    let global = json!({"hooks":{"Interrupt":[owned]}}).to_string();
+    fs::write(&path, &global).unwrap();
+    let prepared = prepare_in(
+        &d,
+        &command(&[]),
+        &launch("11111111-1111-4111-8111-111111111111"),
+    )
+    .unwrap();
+    assert!(hooks(&prepared).get("Interrupt").is_none());
+    assert_eq!(hooks(&prepared)["SessionStart"], json!([observer("")]));
+    assert_eq!(fs::read_to_string(&path).unwrap(), global);
+    let session = json!({"Interrupt":[owned]});
+    let value = format!("hooks={}", settings::toml(&session).unwrap());
+    assert!(
+        prepare_in(
+            &d,
+            &command(&["-c", &value]),
+            &launch("11111111-1111-4111-8111-111111111111"),
         )
         .is_err()
     );

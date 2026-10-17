@@ -594,3 +594,41 @@ fn activity_locator_refuses_replaced_generation_and_malformed_record_before_prob
         );
     }
 }
+
+/// A shared-server hook waits for its exact session's admission. An
+/// interrupt (#3207) names its session like Stop does; unrelated or
+/// non-starting events wait for nothing.
+#[test]
+fn an_interrupt_waits_for_the_same_session_admission_as_its_turn_end() {
+    let session = ProviderSessionId::new("22222222-2222-4222-8222-222222222222").unwrap();
+    let payload = |event: &str, source: Option<&str>| {
+        let mut value = serde_json::json!({"hook_event_name": event,
+            "session_id": session.as_str(), "turn_id": "turn", "prompt": "go"});
+        if let Some(source) = source {
+            value["source"] = source.into();
+        }
+        value.to_string()
+    };
+    for (event, source) in [
+        ("Interrupt", None),
+        ("Stop", None),
+        ("UserPromptSubmit", None),
+        ("SessionStart", Some("startup")),
+    ] {
+        assert_eq!(
+            admission_session(payload(event, source).as_bytes()).as_ref(),
+            Some(&session),
+            "{event}"
+        );
+    }
+    for (event, source) in [
+        ("SessionEnd", None),
+        ("SubagentStop", None),
+        ("PermissionRequest", None),
+    ] {
+        assert!(
+            admission_session(payload(event, source).as_bytes()).is_none(),
+            "{event}"
+        );
+    }
+}

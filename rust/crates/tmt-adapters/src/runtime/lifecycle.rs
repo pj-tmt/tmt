@@ -84,6 +84,9 @@ pub struct TurnEnd {
     pub session: ProviderSessionId,
     pub transcript: Option<PathBuf>,
     pub final_text: Option<tmt_core::responses::FinalText>,
+    /// The turn was interrupted: it ends activity only. It carries no final
+    /// answer and no transcript, so nothing is read or captured for it.
+    pub interrupted: bool,
 }
 
 /// One bounded turn observation; final text never enters opaque driver state.
@@ -291,6 +294,13 @@ pub trait RuntimeLifecycle {
     /// A turn-end event, recognized even when it carries nothing to read.
     fn decode_turn(&self, _payload: &[u8]) -> Option<TurnEnd> {
         None
+    }
+
+    /// Provider events, beyond the shared lifecycle set, that only feed
+    /// activity. Setup and launch composition observe them with the lifecycle
+    /// hooks, independent of the Stop usage consent.
+    fn activity_events(&self) -> &'static [&'static str] {
+        &[]
     }
 
     /// The driver state after `turn`, given the remembered session's previous

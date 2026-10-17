@@ -92,6 +92,10 @@ pub fn decode_activity(
         hook_event_name: String,
         session_id: String,
         turn_id: Option<String>,
+        #[serde(default, rename = "agent_id", deserialize_with = "present")]
+        subagent_id: bool,
+        #[serde(default, rename = "agent_type", deserialize_with = "present")]
+        subagent_type: bool,
     }
     if bytes.len() > HOOK_INPUT_LIMIT {
         return None;
@@ -101,6 +105,13 @@ pub fn decode_activity(
     let phase = match payload.hook_event_name.as_str() {
         "UserPromptSubmit" => ActivityPhase::Working,
         "Stop" => ActivityPhase::Idle,
+        // An interrupted main turn ends without Stop. Only a provider that names
+        // the turn may end it this way: the turn ID is what fences a late or
+        // repeated interrupt. A subagent field rejects it here, whatever the
+        // provider's own emission guard does.
+        "Interrupt" if correlated && !payload.subagent_id && !payload.subagent_type => {
+            ActivityPhase::Idle
+        }
         _ => return None,
     };
     let turn = if correlated {
@@ -109,4 +120,9 @@ pub fn decode_activity(
         None
     };
     Some(Event { phase, turn })
+}
+
+/// Whether a payload field is present, an explicit null included.
+fn present<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    serde::de::Deserialize::deserialize(deserializer).map(|_: serde::de::IgnoredAny| true)
 }

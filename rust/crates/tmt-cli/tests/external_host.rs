@@ -1671,3 +1671,279 @@ fn a_hook_whose_locators_name_two_hosts_refuses() {
     let output = hook_with(&fixture, Some("f1"), &tmux, true, "SessionStart", || {});
     assert_hook_refused(&fixture, &output);
 }
+
+/// One Codex stand-in that runs each hook given to it from the same process,
+/// so that start, prompt and interrupt belong to one provider incarnation. As
+/// in `hook`, it is a link to `sh` named `codex`, the child of this test
+/// process (the pane shell). It is stopped and reaped on drop, also on panic.
+struct Codex {
+    child: std::process::Child,
+    steps: PathBuf,
+    next: usize,
+}
+
+impl Codex {
+    fn start(fixture: &Fixture, name: &str) -> Self {
+        let codex = fixture.root.join("bin/codex");
+        if !codex.exists() {
+            fs::create_dir_all(fixture.root.join("bin")).unwrap();
+            std::os::unix::fs::symlink("/bin/sh", &codex).unwrap();
+        }
+        let steps = fixture.root.join(name);
+        fs::create_dir_all(&steps).unwrap();
+        let tmt = fixture.command_in(Some("f1"), &[]);
+        // Each step waits at most 30 s, so a killed test process cannot
+        // leave the stand-in behind for long.
+        let child = std::process::Command::new(codex)
+            .args([
+                "-c",
+                "i=0; while :; do w=0
+                   while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
+                   [ -e \"$1/$i.json\" ] || exit 0
+                   \"$0\" __hook codex < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
+                   touch \"$1/$i.done\"; i=$((i+1))
+                 done",
+            ])
+            .arg(tmt.get_program())
+            .arg(&steps)
+            .env_clear()
+            .envs(
+                tmt.get_envs()
+                    .filter_map(|(name, value)| value.map(|value| (name, value))),
+            )
+            .current_dir(&fixture.root)
+            .stdin(Stdio::null())
+            .spawn()
+            .unwrap();
+        Self {
+            child,
+            steps,
+            next: 0,
+        }
+    }
+
+    /// Runs one hook with `payload` and returns its exit code, stdout and
+    /// stderr.
+    fn hook(&mut self, payload: Value) -> (i32, String, String) {
+        let step = self.steps.join(self.next.to_string());
+        let staged = step.with_extension("staged");
+        fs::write(&staged, payload.to_string()).unwrap();
+        fs::rename(&staged, step.with_extension("json")).unwrap();
+        wait_until("the Codex hook", || step.with_extension("done").exists());
+        self.next += 1;
+        let read = |extension| fs::read_to_string(step.with_extension(extension)).unwrap();
+        (
+            read("status").trim().parse().unwrap(),
+            read("out"),
+            read("err"),
+        )
+    }
+}
+
+impl Drop for Codex {
+    fn drop(&mut self) {
+        let _ = fs::write(self.steps.join("stop"), "");
+        if !matches!(self.child.try_wait(), Ok(Some(_))) {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+    }
+}
+
+/// A Codex hook payload for `event` in session `s-1`; `turn` adds `turn_id`.
+fn codex_event(event: &str, turn: Option<&str>) -> Value {
+    let mut payload = serde_json::json!({"hook_event_name": event, "session_id": "s-1",
+        "source": "startup", "cwd": "/src", "model": "gpt-test", "permission_mode": "default",
+        "transcript_path": null, "prompt": "go", "last_assistant_message": "done",
+        "stop_hook_active": false});
+    if let Some(turn) = turn {
+        payload["turn_id"] = turn.into();
+    }
+    payload
+}
+
+/// Every row of every table, so a rejected event can be shown to change no
+/// stored state at all: activity, usage, consumption, sources, responses and
+/// Digest claims included.
+fn stored_rows(fixture: &Fixture) -> Vec<String> {
+    let connection = rusqlite::Connection::open(fixture.state().join("tmt.db")).unwrap();
+    let mut tables = connection
+        .prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name")
+        .unwrap();
+    let names: Vec<String> = tables
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let mut rows = Vec::new();
+    for name in names {
+        let mut select = connection
+            .prepare(&format!("SELECT * FROM \"{name}\""))
+            .unwrap();
+        let columns = select.column_count();
+        let mut found = select.query([]).unwrap();
+        while let Some(row) = found.next().unwrap() {
+            let values: Vec<String> = (0..columns)
+                .map(|index| match row.get_ref(index).unwrap() {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        String::from_utf8_lossy(text).into_owned()
+                    }
+                    value => format!("{value:?}"),
+                })
+                .collect();
+            rows.push(format!("{name}: {}", values.join(" | ")));
+        }
+    }
+    // Some tables have no rowid; the sorted rows compare as a set.
+    rows.sort();
+    rows
+}
+
+/// The files under the provider and configuration homes, with their bytes:
+/// an observer hook writes no settings or hook trust.
+fn settings_files(fixture: &Fixture) -> Vec<(PathBuf, Vec<u8>)> {
+    fn walk(path: &std::path::Path, files: &mut Vec<(PathBuf, Vec<u8>)>) {
+        let Ok(entries) = fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.map(Result::unwrap) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, files);
+            } else {
+                files.push((path.clone(), fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    for directory in ["home", "xdg", "xdg-config"] {
+        walk(&fixture.root.join(directory), &mut files);
+    }
+    files.sort();
+    files
+}
+
+fn activity(fixture: &Fixture) -> Value {
+    worker(&fixture.json(&["ls", "--json"]))["session"]["activity"].clone()
+}
+
+/// An admitted Codex `Interrupt` ends its turn as idle (#3207), activity
+/// only. Every interrupt the activity fences refuse leaves all stored state
+/// and every settings file unchanged, and the provider always sees exit 0
+/// with no output, so it can never read a decision.
+#[test]
+fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() {
+    register();
+    let fixture = Fixture::new("codex-interrupt");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    // The consented usage hook makes an admitted Stop capture its response,
+    // so its absence after an interrupt is meaningful.
+    fs::create_dir_all(fixture.root.join("home/.codex")).unwrap();
+    let observer = tmt_adapters::runtime::hook_protocol::command_entry("codex", "/stable/tmt");
+    fs::write(
+        fixture.root.join("home/.codex/hooks.json"),
+        serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
+    )
+    .unwrap();
+    let mut codex = Codex::start(&fixture, "codex-steps");
+    let captured = |fixture: &Fixture| {
+        stored_rows(fixture)
+            .into_iter()
+            .filter(|row| row.starts_with("recent_responses:"))
+            .count()
+    };
+    let silent = |(status, out, err): (i32, String, String)| {
+        assert_eq!((status, out.as_str(), err.as_str()), (0, "", ""));
+    };
+    let unchanged = |codex: &mut Codex, payload: Value| {
+        let rows = stored_rows(&fixture);
+        let files = settings_files(&fixture);
+        silent(codex.hook(payload.clone()));
+        assert_eq!(stored_rows(&fixture), rows, "{payload}");
+        assert_eq!(settings_files(&fixture), files, "{payload}");
+    };
+
+    let (status, _, err) = codex.hook(codex_event("SessionStart", None));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(
+        worker(&fixture.json(&["ls", "--json"]))["resume"]["session"],
+        "s-1"
+    );
+    // No admitted start yet: an interrupt cannot end a turn.
+    unchanged(&mut codex, codex_event("Interrupt", Some("a")));
+    assert_eq!(activity(&fixture)["state"], "unknown");
+
+    let (status, _, err) = codex.hook(codex_event("UserPromptSubmit", Some("a")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    let working = activity(&fixture);
+    assert_eq!(working["state"], "working", "{working:#}");
+
+    // Not this turn's interrupt, or not a main-turn interrupt.
+    unchanged(&mut codex, codex_event("Interrupt", None));
+    unchanged(&mut codex, codex_event("Interrupt", Some("")));
+    let mut subagent = codex_event("Interrupt", Some("a"));
+    subagent["agent_id"] = "agent-1".into();
+    unchanged(&mut codex, subagent);
+    let mut typed = codex_event("Interrupt", Some("a"));
+    typed["agent_type"] = Value::Null;
+    unchanged(&mut codex, typed);
+    let mut other = codex_event("Interrupt", Some("a"));
+    other["session_id"] = "s-2".into();
+    unchanged(&mut codex, other);
+    {
+        // A replaced provider process: the same session from another
+        // incarnation is not the admitted one.
+        let mut replaced = Codex::start(&fixture, "replaced-steps");
+        unchanged(&mut replaced, codex_event("Interrupt", Some("a")));
+    }
+    assert_eq!(activity(&fixture), working);
+
+    let responses = stored_rows(&fixture)
+        .into_iter()
+        .filter(|row| row.starts_with("recent_responses:") || row.starts_with("consumption_"))
+        .collect::<Vec<_>>();
+    let files = settings_files(&fixture);
+    silent(codex.hook(codex_event("Interrupt", Some("a"))));
+    let idle = activity(&fixture);
+    assert_eq!(idle["state"], "idle", "{idle:#}");
+    assert!(
+        idle["sinceMs"].as_u64() >= working["sinceMs"].as_u64(),
+        "{idle:#}"
+    );
+    // Activity only: no response, consumption source or sample was written.
+    assert_eq!(
+        stored_rows(&fixture)
+            .into_iter()
+            .filter(|row| row.starts_with("recent_responses:") || row.starts_with("consumption_"))
+            .collect::<Vec<_>>(),
+        responses
+    );
+    assert_eq!(settings_files(&fixture), files);
+
+    // A repeated interrupt and the turn's own Stop are duplicates: the Stop
+    // may read its usage, but changes no activity and captures no response.
+    unchanged(&mut codex, codex_event("Interrupt", Some("a")));
+    let (status, _, err) = codex.hook(codex_event("Stop", Some("a")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(activity(&fixture), idle);
+    assert_eq!(captured(&fixture), 0);
+
+    // A late interrupt of the earlier turn cannot end the next one.
+    let (status, _, err) = codex.hook(codex_event("UserPromptSubmit", Some("b")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(activity(&fixture)["state"], "working");
+    unchanged(&mut codex, codex_event("Interrupt", Some("a")));
+    assert_eq!(activity(&fixture)["state"], "working");
+    silent(codex.hook(codex_event("Interrupt", Some("b"))));
+    assert_eq!(activity(&fixture)["state"], "idle");
+    assert_eq!(captured(&fixture), 0);
+
+    // Positive control: an admitted Stop of a running turn captures its answer.
+    let (status, _, err) = codex.hook(codex_event("UserPromptSubmit", Some("c")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    let (status, _, err) = codex.hook(codex_event("Stop", Some("c")));
+    assert_eq!((status, err.as_str()), (0, ""));
+    assert_eq!(activity(&fixture)["state"], "idle");
+    assert_eq!(captured(&fixture), 1);
+}

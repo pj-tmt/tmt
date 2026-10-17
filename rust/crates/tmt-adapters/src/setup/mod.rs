@@ -22,15 +22,37 @@ pub struct FileChange {
 
 impl SetupPlan {
     /// The TMT hooks this plan writes or removes, for its preview.
-    pub fn events(&self) -> &'static str {
-        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption, activity and recent responses) hooks";
-        const LIFECYCLE: &str = "SessionStart, SessionEnd and UserPromptSubmit hooks";
+    pub fn events(&self) -> String {
+        const USAGE: &str = "Stop (context usage, consumption, activity and recent responses)";
+        let lifecycle = ["SessionStart", "SessionEnd", "UserPromptSubmit"]
+            .into_iter()
+            .map(str::to_owned)
+            .chain(
+                self.activity
+                    .iter()
+                    .map(|event| format!("{event} (activity only)")),
+            );
+        let listed = |names: Vec<String>| match names.split_last() {
+            Some((last, [])) => format!("{last} hook"),
+            Some((last, rest)) => format!("{} and {last} hooks", rest.join(", ")),
+            None => String::new(),
+        };
         match (self.removing, self.usage_before, self.usage) {
-            (true, true, _) | (false, _, true) => ALL,
-            (false, true, false) => {
-                "Stop (context usage, consumption, activity and recent responses) hook"
+            (true, true, _) | (false, _, true) => {
+                listed(lifecycle.chain([USAGE.to_owned()]).collect())
             }
-            _ => LIFECYCLE,
+            (false, true, false) if self.activity_added => format!(
+                "{}; it also adds the {}",
+                listed(vec![USAGE.to_owned()]),
+                listed(
+                    self.activity
+                        .iter()
+                        .map(|event| format!("{event} (activity only)"))
+                        .collect()
+                )
+            ),
+            (false, true, false) => listed(vec![USAGE.to_owned()]),
+            _ => listed(lifecycle.collect()),
         }
     }
 }
@@ -50,6 +72,9 @@ pub struct SetupPlan {
     /// after the plan.
     pub usage_before: bool,
     pub usage: bool,
+    /// The driver's activity-only events, and whether this plan adds one.
+    pub activity: &'static [&'static str],
+    pub activity_added: bool,
     pub change: FileChange,
 }
 
@@ -138,10 +163,90 @@ pub fn plan(
         removing,
         usage_before: document::has_owned_hook(provider, text, document::USAGE),
         usage: document::has_owned_hook(provider, &after, document::USAGE),
+        activity: document::activity_events(provider),
+        activity_added: document::activity_events(provider).iter().any(|event| {
+            !document::has_owned_hook(provider, text, event)
+                && document::has_owned_hook(provider, &after, event)
+        }),
         change: FileChange {
             path,
             before,
             after,
         },
     })
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+    use crate::drivers::{claude, codex};
+
+    fn events(
+        provider: &DriverDefinition,
+        before: &str,
+        removing: bool,
+        usage: UsageHook,
+    ) -> String {
+        plan(
+            provider,
+            PathBuf::from("/settings.json"),
+            Some(before.into()),
+            PathBuf::from("/stable/tmt"),
+            removing,
+            usage,
+        )
+        .unwrap()
+        .events()
+    }
+
+    /// The preview names exactly the hooks a plan changes: Claude's text is
+    /// unchanged, Codex's adds its activity-only interrupt observer (#3207).
+    #[test]
+    fn the_preview_names_the_codex_interrupt_observer_only_for_codex() {
+        const ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption, activity and recent responses) hooks";
+        const CODEX_ALL: &str = "SessionStart, SessionEnd, UserPromptSubmit, Interrupt (activity only) and Stop (context usage, consumption, activity and recent responses) hooks";
+        assert_eq!(
+            events(&claude::DRIVER, "{}", false, UsageHook::Default),
+            ALL
+        );
+        assert_eq!(
+            events(&codex::DRIVER, "{}", false, UsageHook::Default),
+            CODEX_ALL
+        );
+        assert_eq!(
+            events(&claude::DRIVER, "{}", false, UsageHook::Remove),
+            "SessionStart, SessionEnd and UserPromptSubmit hooks"
+        );
+        assert_eq!(
+            events(&codex::DRIVER, "{}", false, UsageHook::Remove),
+            "SessionStart, SessionEnd, UserPromptSubmit and Interrupt (activity only) hooks"
+        );
+        let installed = document::settings(
+            &codex::DRIVER,
+            "{}",
+            "/stable/tmt",
+            false,
+            UsageHook::Install,
+        )
+        .unwrap();
+        assert_eq!(
+            events(&codex::DRIVER, &installed, true, UsageHook::Keep),
+            CODEX_ALL
+        );
+        let stop = "Stop (context usage, consumption, activity and recent responses) hook";
+        assert_eq!(
+            events(&codex::DRIVER, &installed, false, UsageHook::Remove),
+            stop
+        );
+        // An install from before the observer: removing usage also adds it.
+        let legacy = {
+            let mut value: serde_json::Value = serde_json::from_str(&installed).unwrap();
+            value["hooks"].as_object_mut().unwrap().remove("Interrupt");
+            value.to_string()
+        };
+        assert_eq!(
+            events(&codex::DRIVER, &legacy, false, UsageHook::Remove),
+            format!("{stop}; it also adds the Interrupt (activity only) hook")
+        );
+    }
 }

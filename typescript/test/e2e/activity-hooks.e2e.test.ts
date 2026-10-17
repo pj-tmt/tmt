@@ -37,7 +37,22 @@ it.each(['claude', 'codex'] as const)(
           list,
           hook('Stop', 'a', '22222222-2222-4222-8222-222222222222'),
           list,
-          ...(provider === 'codex' ? [hook('Stop', 'a'), list] : []),
+          ...(provider === 'codex'
+            ? [
+                hook('Stop', 'a'),
+                list,
+                // An interrupt ends only its own turn (#3207): a late one is ignored,
+                // a repeated one and the turn's own Stop are duplicates.
+                hook('Interrupt', 'a'),
+                list,
+                hook('Interrupt', 'b'),
+                list,
+                hook('Interrupt', 'b'),
+                list,
+                hook('Stop', 'b'),
+                list,
+              ]
+            : []),
         ];
         const scenario = path.join(fixture.root, 'activity-scenario.json');
         const report = path.join(fixture.root, 'activity-report.json');
@@ -89,7 +104,15 @@ it.each(['claude', 'codex'] as const)(
         expect(activity(10)).toEqual(activity(8));
         expect(activity(12).state).toBe('working');
         expect(activity(14)).toEqual(activity(12));
-        if (provider === 'codex') expect(activity(16)).toEqual(activity(12));
+        if (provider === 'codex') {
+          expect(activity(16)).toEqual(activity(12));
+          expect(activity(18)).toEqual(activity(12));
+          expect(activity(20).state).toBe('idle');
+          expect(activity(20).lastActivityMs).toBeGreaterThanOrEqual(activity(12).lastActivityMs);
+          expect(activity(22)).toEqual(activity(20));
+          expect(activity(24)).toEqual(activity(20));
+        }
+        const last = provider === 'codex' ? 20 : 12;
         // The fixture runtime has exited, while its shell pane remains. A process
         // observation overrides the last provider working event without renewing it.
         await fixture.waitFor(
@@ -106,7 +129,7 @@ it.each(['claude', 'codex'] as const)(
         expect(ended.state).toBe('ended');
         expect(row(current.stdout).driverSupport).toBe('full');
         expect(ended.sinceMs).toBeNull();
-        expect(ended.lastActivityMs).toBe(activity(12).lastActivityMs);
+        expect(ended.lastActivityMs).toBe(activity(last).lastActivityMs);
       },
       { mode: 'input-log' }
     );

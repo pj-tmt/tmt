@@ -138,3 +138,19 @@ never used for request attribution. Claude variants retain the recorded assistan
 `message.model` and `cache_creation_input_tokens` shapes; no user transcript, model
 call or credential is needed. Missing or malformed model fields and missing cache-write attribution stay
 unknown. Existing legacy counter validation remains unchanged.
+
+## Interrupted turn (#3207)
+
+`codex-interrupt.json` is **schema-derived, not a recording**. It holds the required
+fields of the `Interrupt` command input in the official codex-cli **0.160.0** source at
+commit [`a956835d020762cb2b570053af06f643a11c0ecc`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/hooks/schema/generated/interrupt.command.input.schema.json),
+retrieved 2026-10-17: `session_id`, `turn_id`, `model`, `permission_mode`, `cwd`,
+`transcript_path` (`string | null`) and the constant `hook_event_name`. The IDs and
+values are placeholders, because the source gives no example payload, and no model
+was run. In that commit Codex runs the hook only for a main-agent turn, with the
+interrupted turn's ID as `turn_id`
+([`run_turn_interrupt_hooks`](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/core/src/hook_runtime.rs#L502-L537)).
+TMT does not rely on that guard: an `Interrupt` that carries `agent_id` or
+`agent_type` is not decoded as activity. The turn-end decoder still recognizes it,
+so its hook stays silent and writes no activity. The output schema allows only
+`systemMessage`; the TMT observer prints nothing.

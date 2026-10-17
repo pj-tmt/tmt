@@ -52,6 +52,7 @@ pub fn located(root: &Path, value: &str, session: &ProviderSessionId) -> Option<
         session: session.clone(),
         transcript: Some(path),
         final_text: None,
+        interrupted: false,
     })
 }
 
@@ -98,6 +99,7 @@ pub fn codex_turn(root: &Path, session: &ProviderSessionId, deadline: Instant) -
         session: session.clone(),
         transcript: Some(found?),
         final_text: None,
+        interrupted: false,
     })
 }
 

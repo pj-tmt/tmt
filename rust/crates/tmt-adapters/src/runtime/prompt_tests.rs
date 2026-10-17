@@ -114,3 +114,52 @@ fn activity_uses_only_main_turn_events_and_codex_requires_a_turn_id() {
         }
     }
 }
+
+/// Codex `Interrupt` (#3207) ends its own turn as idle. Without a turn ID, for
+/// a subagent, or for Claude (which names no turn), it is no activity event.
+#[test]
+fn only_a_codex_main_turn_interrupt_with_its_turn_id_is_an_idle_end() {
+    use tmt_core::binding::session::{ProviderSessionId, activity::ActivityPhase};
+    let registry = RuntimeRegistry::first_party();
+    let codex = registry
+        .lifecycle(&HarnessId::new("codex").unwrap())
+        .unwrap();
+    let claude = registry
+        .lifecycle(&HarnessId::new("claude").unwrap())
+        .unwrap();
+    let fixture = include_bytes!("fixtures/codex-interrupt.json").as_slice();
+    let decoded = codex.decode_activity(fixture).unwrap();
+    assert_eq!(decoded.phase, ActivityPhase::Idle);
+    assert_eq!(
+        decoded.turn,
+        Some(ProviderSessionId::new("fixture-turn").unwrap())
+    );
+    assert!(claude.decode_activity(fixture).is_none());
+    let payload: Value = serde_json::from_slice(fixture).unwrap();
+    let variant = |edit: &dyn Fn(&mut serde_json::Map<String, Value>)| {
+        let mut value = payload.clone();
+        edit(value.as_object_mut().unwrap());
+        codex.decode_activity(value.to_string().as_bytes())
+    };
+    assert!(variant(&|value| drop(value.remove("turn_id"))).is_none());
+    for turn in [json!(""), json!(null), json!(7)] {
+        assert!(variant(&|value| drop(value.insert("turn_id".into(), turn.clone()))).is_none());
+    }
+    // Any subagent field rejects an interrupt, an explicit null included.
+    for field in ["agent_id", "agent_type"] {
+        for value in [json!("agent-1"), json!(null)] {
+            assert!(variant(&|v| drop(v.insert(field.into(), value.clone()))).is_none());
+        }
+    }
+    // The subagent rule is the interrupt's alone: a prompt keeps today's decoding.
+    let mut prompt = payload.clone();
+    prompt["hook_event_name"] = "UserPromptSubmit".into();
+    prompt["agent_id"] = "agent-1".into();
+    assert_eq!(
+        codex
+            .decode_activity(prompt.to_string().as_bytes())
+            .unwrap()
+            .phase,
+        ActivityPhase::Working
+    );
+}

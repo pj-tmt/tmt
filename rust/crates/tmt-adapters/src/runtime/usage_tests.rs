@@ -283,6 +283,7 @@ fn only_a_turn_end_is_decoded_as_one() {
                 transcript: Some("/t.jsonl".into()),
                 final_text: (driver.tree.starts_with(".codex"))
                     .then(|| tmt_core::responses::FinalText::new("<redacted>").unwrap()),
+                interrupted: false,
             })
         );
         // A null path is still a turn end, with nothing to read.
@@ -301,6 +302,25 @@ fn only_a_turn_end_is_decoded_as_one() {
                 .unwrap()
                 .replace("\"Stop\"", &format!("\"{other}\""));
             assert!(driver.lifecycle.decode_turn(payload.as_bytes()).is_none());
+        }
+        // A Codex interrupt is a turn end for activity only: its transcript
+        // and final text are dropped. Claude has no such event.
+        let interrupt = String::from_utf8(stop(Some(Path::new("/t.jsonl"))))
+            .unwrap()
+            .replace("\"Stop\"", "\"Interrupt\"");
+        let decoded = driver.lifecycle.decode_turn(interrupt.as_bytes());
+        if driver.tree.starts_with(".codex") {
+            assert_eq!(
+                decoded,
+                Some(TurnEnd {
+                    session: tmt_core::binding::session::ProviderSessionId::new(SESSION).unwrap(),
+                    transcript: None,
+                    final_text: None,
+                    interrupted: true,
+                })
+            );
+        } else {
+            assert!(decoded.is_none());
         }
     }
 }

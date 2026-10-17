@@ -243,6 +243,15 @@ pub(super) fn has_owned_hook(provider: &DriverDefinition, text: &str, event: &st
 
 /// The lifecycle events, in the order setup inserts them.
 const LIFECYCLE: [&str; 3] = ["SessionStart", "SessionEnd", "UserPromptSubmit"];
+
+/// The driver's own activity-only events (a Codex interrupt), installed with
+/// the lifecycle hooks after them; Claude has none.
+pub(super) fn activity_events(provider: &DriverDefinition) -> &'static [&'static str] {
+    provider
+        .runtime
+        .as_ref()
+        .map_or(&[], |runtime| (runtime.lifecycle)().activity_events())
+}
 /// The opt-in turn-end event that records context usage (#519).
 pub(super) const USAGE: &str = "Stop";
 
@@ -285,8 +294,9 @@ pub(super) fn settings(
     };
     let mut hooks = existing.unwrap_or("{}").to_owned();
     let actions = LIFECYCLE
-        .map(|event| (event, lifecycle))
         .into_iter()
+        .chain(activity_events(provider).iter().copied())
+        .map(|event| (event, lifecycle))
         .chain([(USAGE, turn_end)]);
     for (event, action) in actions {
         let fields = object(&hooks)?;
@@ -320,12 +330,12 @@ pub(super) fn removed(
     if result == text {
         return Ok(None);
     }
-    trim_inserted(
-        text,
-        result,
-        &[USAGE, LIFECYCLE[2], LIFECYCLE[1], LIFECYCLE[0]],
-    )
-    .map(Some)
+    let inserted: Vec<&str> = [USAGE]
+        .into_iter()
+        .chain(activity_events(provider).iter().rev().copied())
+        .chain(LIFECYCLE.into_iter().rev())
+        .collect();
+    trim_inserted(text, result, &inserted).map(Some)
 }
 
 /// Removes only the usage hook, restoring the bytes it was installed into.
@@ -618,5 +628,80 @@ mod tests {
             !has_owned_hook(&claude::DRIVER, &edited, "SessionStart"),
             "edited hooks count as absent"
         );
+    }
+
+    /// Codex's interrupt observer (#3207) goes with the lifecycle hooks, not
+    /// with the Stop usage consent; Claude has no such event.
+    #[test]
+    fn codex_alone_gets_the_interrupt_observer_whatever_the_usage_choice() {
+        use super::super::UsageHook;
+        let keys = |text: &str| -> Vec<String> {
+            let value: serde_json::Value = serde_json::from_str(text).unwrap();
+            value["hooks"]
+                .as_object()
+                .map(|hooks| hooks.keys().cloned().collect())
+                .unwrap_or_default()
+        };
+        for usage in [
+            UsageHook::Default,
+            UsageHook::Install,
+            UsageHook::Keep,
+            UsageHook::Remove,
+        ] {
+            let codex = settings(&codex::DRIVER, "{}", "/stable/tmt", false, usage).unwrap();
+            assert!(
+                has_owned_hook(&codex::DRIVER, &codex, "Interrupt"),
+                "{usage:?}"
+            );
+            let claude = settings(&claude::DRIVER, "{}", "/stable/tmt", false, usage).unwrap();
+            assert!(
+                !keys(&claude).iter().any(|key| key == "Interrupt"),
+                "{usage:?}"
+            );
+        }
+        let installed = settings(
+            &codex::DRIVER,
+            "{}",
+            "/stable/tmt",
+            false,
+            UsageHook::Install,
+        )
+        .unwrap();
+        assert_eq!(
+            keys(&installed),
+            [
+                "SessionStart",
+                "SessionEnd",
+                "UserPromptSubmit",
+                "Interrupt",
+                "Stop"
+            ]
+        );
+        // Removing only the usage hook keeps the activity observer.
+        let no_usage = usage_removed(&codex::DRIVER, &installed, "/stable/tmt").unwrap();
+        assert!(has_owned_hook(&codex::DRIVER, &no_usage, "Interrupt"));
+        assert!(!has_owned_hook(&codex::DRIVER, &no_usage, USAGE));
+        // Full removal restores the earlier bytes.
+        assert_eq!(
+            removed(&codex::DRIVER, &installed).unwrap().as_deref(),
+            Some("{}")
+        );
+        // An edited or repeated observer is refused like any owned entry.
+        let owned = super::super::hook_entry(&codex::DRIVER, "/stable/tmt").unwrap();
+        let mut edited = owned.clone();
+        edited["hooks"][0]["timeout"] = 30.into();
+        for entries in [vec![edited], vec![owned.clone(), owned]] {
+            let input = serde_json::json!({"hooks":{"Interrupt":entries}}).to_string();
+            assert_eq!(
+                settings(
+                    &codex::DRIVER,
+                    &input,
+                    "/stable/tmt",
+                    false,
+                    UsageHook::Keep
+                ),
+                Err(PlanError::EditedHook)
+            );
+        }
     }
 }
