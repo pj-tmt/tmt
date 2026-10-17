@@ -53,18 +53,26 @@ impl<R: CommandRunner> Drivers<R> {
             let Some(capabilities) = record.capabilities.host() else {
                 continue;
             };
-            let env: BTreeMap<String, String> = capabilities
-                .caller_env
-                .iter()
-                .filter_map(|name| {
-                    let value = environment.driver_env.get(name)?.to_str()?;
-                    Some((name.clone(), value.to_owned()))
-                })
-                .collect();
+            let mut env = BTreeMap::new();
+            for name in &capabilities.caller_env {
+                let Some(value) = environment.driver_env.get(name) else {
+                    continue;
+                };
+                // A set variable the driver can't be given proves nothing.
+                match value.to_str() {
+                    Some(value) => env.insert(name.clone(), value.to_owned()),
+                    None => {
+                        conclusive = false;
+                        continue;
+                    }
+                };
+            }
             let Some(host) = HostName::new(&record.name).filter(|_| !env.is_empty()) else {
                 continue;
             };
+            // A changed or unopenable approved executable was not asked.
             let Some(process) = self.open(host) else {
+                conclusive = false;
                 continue;
             };
             let pane = match process.call::<CallerResponse>(CallerRequest { env }, deadline) {

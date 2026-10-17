@@ -1109,6 +1109,10 @@ mod through_the_driver {
         Shell(u64),
         Missing,
         Fails,
+        /// The approved executable changed after approval, so it is not run.
+        Changed(u64),
+        /// The caller variable is set but is not text a driver can be given.
+        NotText(u64),
     }
 
     enum TmuxEnv {
@@ -1135,6 +1139,7 @@ mod through_the_driver {
         second: bool,
     ) -> Result<HostKind, HostError> {
         use crate::host::{CallerEnvironment, Host};
+        use std::os::unix::ffi::OsStringExt;
         let (pid, start) = live();
         let mut answers = answers("fake", "fake-", Some("f{n}"));
         answers[0].1["ok"]["callerEnv"] = json!(["FAKE_PANE_ID"]);
@@ -1146,13 +1151,22 @@ mod through_the_driver {
         );
         let shell = |shell: u64| json!({"ok": {"pane": {"id": "fake-1", "socket": SOCKET, "shellPid": shell}}});
         let caller = match pane {
-            Pane::Shell(pid) => shell(pid),
+            Pane::Shell(pid) | Pane::Changed(pid) | Pane::NotText(pid) => shell(pid),
             Pane::Missing => json!({"ok": {"pane": null}}),
             Pane::Fails => json!({"error": {"code": "failed", "message": "host is wedged"}}),
         };
         installed.answer("caller", &caller.to_string());
         let record = installed.approve().unwrap();
-        let value: OsString = "f1".into();
+        if matches!(pane, Pane::Changed(_)) {
+            let mut script = fs::read_to_string(&installed.executable).unwrap();
+            script.push_str("# changed after approval\n");
+            fs::write(&installed.executable, script).unwrap();
+        }
+        let value = if matches!(pane, Pane::NotText(_)) {
+            OsString::from_vec(vec![b'f', 0xff])
+        } else {
+            "f1".into()
+        };
         let mut records = vec![record];
         let mut driver_env: std::collections::BTreeMap<_, _> =
             [("FAKE_PANE_ID".to_owned(), value)].into();
@@ -1248,6 +1262,10 @@ mod through_the_driver {
         refused(chosen(Pane::Fails, Some(chain[0]), TmuxEnv::Absent));
         // A pane that is no ancestor of the caller is no proof either.
         refused(chosen(Pane::Shell(999_999), None, TmuxEnv::Absent));
+        // An approved executable that changed, or a set variable that is not
+        // text, is not a verification.
+        refused(chosen(Pane::Changed(chain[0]), None, TmuxEnv::Absent));
+        refused(chosen(Pane::NotText(chain[0]), None, TmuxEnv::Absent));
     }
 
     #[test]
@@ -1271,5 +1289,52 @@ mod through_the_driver {
             .unwrap();
             assert_eq!(host.primary, HostKind::Tmux);
         }
+    }
+
+    /// The probe itself, with no tmux involved: a driver that was not run, or
+    /// not given its set variable, leaves the answer inconclusive, while a
+    /// driver that ran and found no pane is a conclusive "no pane".
+    #[test]
+    fn an_unrun_or_ungiven_driver_leaves_the_caller_probe_inconclusive() {
+        use crate::host::CallerEnvironment;
+        use std::os::unix::ffi::OsStringExt;
+        let probe = |changed: bool, value: OsString| {
+            let mut declared = answers("fake", "fake-", Some("f{n}"));
+            declared[0].1["ok"]["callerEnv"] = json!(["FAKE_PANE_ID"]);
+            let installed = Installed::new("fake", declared);
+            installed.answer("caller", &json!({"ok": {"pane": null}}).to_string());
+            let drivers = Drivers::new(HostRunner, vec![installed.approve().unwrap()]);
+            if changed {
+                let mut script = fs::read_to_string(&installed.executable).unwrap();
+                script.push_str("# changed after approval\n");
+                fs::write(&installed.executable, script).unwrap();
+            }
+            let environment = CallerEnvironment {
+                tmux: None,
+                pane: None,
+                process_id: u64::from(std::process::id()),
+                driver_env: [("FAKE_PANE_ID".to_owned(), value)].into(),
+            };
+            let callers = drivers.callers(&environment, soon()).unwrap();
+            (callers.conclusive, callers.found.len(), installed.calls())
+        };
+        let (conclusive, found, calls) = probe(false, "f1".into());
+        assert!(conclusive && found == 0, "{calls:?}");
+        assert!(
+            calls.iter().any(|call| call.starts_with("caller")),
+            "{calls:?}"
+        );
+        let (conclusive, found, calls) = probe(true, "f1".into());
+        assert!(!conclusive && found == 0, "changed executable: {calls:?}");
+        assert!(
+            !calls.iter().any(|call| call.starts_with("caller")),
+            "{calls:?}"
+        );
+        let (conclusive, found, calls) = probe(false, OsString::from_vec(vec![b'f', 0xff]));
+        assert!(!conclusive && found == 0, "non-text variable: {calls:?}");
+        assert!(
+            !calls.iter().any(|call| call.starts_with("caller")),
+            "{calls:?}"
+        );
     }
 }
