@@ -639,13 +639,34 @@ fn committed_exact_selection_copies_the_raw_text_without_sending() {
     );
 }
 
+// Make forbidden Core invocation observable, with a positive control proving
+// the marker is live before exercising the clipboard-only worker.
+fn core_recorder(root: &std::path::Path) -> (crate::core::Core, std::path::PathBuf) {
+    let program = root.join("core-recorder");
+    let called = program.with_extension("invoked");
+    crate::test_support::write_ready_executable(
+        &program,
+        "#!/bin/sh\nprintf called > \"$0.invoked\"\nexit 9\n",
+    );
+    assert_eq!(
+        std::process::Command::new(&program)
+            .status()
+            .unwrap()
+            .code(),
+        Some(9)
+    );
+    assert_eq!(std::fs::read_to_string(&called).unwrap(), "called");
+    std::fs::remove_file(&called).unwrap();
+    (crate::core::Core::at(program), called)
+}
+
 #[test]
 fn selection_clipboard_feedback_counts_scalars_and_failure_keeps_quote_available() {
     let root = std::env::temp_dir().join(format!("ops-selection-clipboard-{}", std::process::id()));
     std::fs::create_dir(&root).unwrap();
     let program = root.join("clipboard");
     crate::test_support::write_ready_executable(&program, "#!/bin/sh\ncat > \"$1\"\nexit \"$2\"\n");
-    let core = crate::core::Core::at(root.join("must-not-run-core"));
+    let (core, core_called) = core_recorder(&root);
     for status in [0, 7] {
         let copied = root.join(format!("observed-{status}"));
         let mut app = fixture("漢字 e\u{301} **literal**");
@@ -694,7 +715,10 @@ fn selection_clipboard_feedback_counts_scalars_and_failure_keeps_quote_available
             "clipboard failure leaves Quote available"
         );
     }
-    assert!(!root.join("must-not-run-core").exists());
+    assert!(
+        !core_called.exists(),
+        "the clipboard worker must not invoke Core"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -1090,7 +1114,7 @@ fn capture_copy_quote_packet() {
         &clipboard,
         "#!/bin/sh\ncat > /dev/null\nexit \"$1\"\n",
     );
-    let core = crate::core::Core::at(root.join("must-not-run-core"));
+    let (core, core_called) = core_recorder(&root);
     let mut frames = Vec::new();
     for (base, depth) in [
         ("tmt", Depth::TrueColor),
@@ -1185,7 +1209,10 @@ fn capture_copy_quote_packet() {
         }
     }
     std::fs::write(path, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
-    assert!(!root.join("must-not-run-core").exists());
+    assert!(
+        !core_called.exists(),
+        "the clipboard worker must not invoke Core"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
