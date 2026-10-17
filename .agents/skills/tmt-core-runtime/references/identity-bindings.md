@@ -205,6 +205,10 @@ delivery. They install and launch nothing.
   ([contract](../../../../contracts/extension-api.md#consumption-history)) from that same
   line, with its own timestamp; an invalid object is dropped whole without affecting
   the counters, and it is omitted before attribution when the opaque bound is exceeded.
+  The same line's `credits` (balance text, never arithmetic) and the newest
+  `thread_settings_applied` `service_tier` in the attribution tail are read the same way:
+  each is dropped whole when invalid, absent tier means unknown (never `default`), and
+  both go before `rateLimits` under the opaque bound.
   History stores additive cache-write and `byModel` evidence
   in the existing buckets, coalesces every model change, and omits unknown mixed portions.
   The Claude scan gets half the hook's remaining deadline and keeps validated counts

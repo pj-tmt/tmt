@@ -81,7 +81,7 @@ pub(super) fn codex(entry: &Value) -> Option<RateLimits> {
 }
 
 /// `YYYY-MM-DDTHH:MM:SS[.fraction]Z`, the only form the rollout writes.
-fn timestamp_ms(text: &str) -> Option<u64> {
+pub(super) fn timestamp_ms(text: &str) -> Option<u64> {
     let bytes = text.as_bytes();
     if bytes.len() < 20
         || (bytes[4], bytes[7], bytes[10], bytes[13], bytes[16]) != (b'-', b'-', b'T', b':', b':')

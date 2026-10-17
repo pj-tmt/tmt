@@ -3,8 +3,10 @@
 //! formats are unofficial, and evidence loss establishes a new baseline.
 use super::transcript;
 mod attribution;
+mod credits;
 mod rate_limits;
 pub use attribution::ModelUsage;
+pub use credits::Credits;
 pub use rate_limits::{RateLimits, Window as RateWindow};
 pub(crate) const MAX_MODELS: usize = 4;
 use serde::{Deserialize, Serialize};
@@ -65,6 +67,14 @@ pub struct Consumption {
     /// Absent when the driver has no source or the line carries none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate_limits: Option<RateLimits>,
+    /// The Codex credit balance on the newest accepted source line. Absent when
+    /// the line carries none or any field is invalid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credits: Option<Credits>,
+    /// The provider's service tier id (`default`, `priority`) from the newest
+    /// settings event in the bounded tail. Absent means unknown, never `default`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
     pub epoch: String,
     pub sequence: u64,
     pub observed_at_ms: u64,
@@ -82,6 +92,8 @@ impl Consumption {
             model_id: None,
             delta_by_model: None,
             rate_limits: None,
+            credits: None,
+            service_tier: None,
             epoch: uuid::Uuid::new_v4().to_string(),
             sequence: 1,
             observed_at_ms: now,
@@ -130,6 +142,11 @@ impl Consumption {
                 .as_ref()
                 .is_none_or(|rows| attribution::valid(rows, self.counts()))
             && self.rate_limits.as_ref().is_none_or(RateLimits::valid)
+            && self.credits.as_ref().is_none_or(Credits::valid)
+            && self
+                .service_tier
+                .as_deref()
+                .is_none_or(attribution::valid_service_tier)
             && uuid::Uuid::parse_str(&self.epoch).is_ok()
             && self.sequence > 0
             && is_valid_js_safe_integer(self.sequence)
@@ -517,10 +534,11 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         };
         (entry["type"] == "event_msg" && entry["payload"]["type"] == "token_count").then(|| {
             // Invalid limits only omit themselves; they never invalidate counters.
-            codex_counts(&entry).map(|counts| (counts, rate_limits::codex(&entry)))
+            codex_counts(&entry)
+                .map(|counts| (counts, rate_limits::codex(&entry), credits::codex(&entry)))
         })
     })?;
-    let (counts, rate_limits) = latest?;
+    let (counts, rate_limits, credits) = latest?;
     let cursor = SourceCursor {
         dev: metadata.dev(),
         ino: metadata.ino(),
@@ -534,10 +552,12 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         let mut value = Consumption::baseline(now, false);
         value.set_counts(counts);
         value.rate_limits = rate_limits;
+        value.credits = credits;
         value.complete = complete;
         if let Some(details) = attribution::codex(&mut file, metadata.len(), None) {
             value.cache_write_tokens = details.0;
             value.model_id = details.1;
+            value.service_tier = details.3;
         }
         return Some(State {
             value,
@@ -567,8 +587,10 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
     };
     value.set_counts(counts);
     value.rate_limits = rate_limits;
+    value.credits = credits;
     value.cache_write_tokens = details.as_ref().and_then(|details| details.0);
     value.model_id = details.as_ref().and_then(|details| details.1.clone());
+    value.service_tier = details.as_ref().and_then(|details| details.3.clone());
     value.delta_by_model = if decreased {
         None
     } else {
