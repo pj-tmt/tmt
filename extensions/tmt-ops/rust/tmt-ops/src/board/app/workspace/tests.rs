@@ -2785,9 +2785,9 @@ fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() 
                                 .collect::<String>();
                             assert!(
                                 text.contains(if selected_squad {
-                                    "▾ product"
+                                    "▾   product"
                                 } else {
-                                    "└ worker"
+                                    "└   worker"
                                 }),
                                 "{width}x{height}: {text}"
                             );
@@ -4352,9 +4352,111 @@ fn pinned_filter_disclosure_matches_temporarily_shown_children() {
         assert!(
             lines
                 .iter()
-                .any(|line| line.contains(&format!("▾ {group}"))),
+                .any(|line| line.contains(&format!("▾   {group}"))),
             "{lines:?}"
         );
         assert!(app.workspace.expanded.is_empty() && !app.workspace.pool_expanded);
+    }
+}
+
+#[test]
+fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
+    use crate::board::overview::monitor::View;
+    for (tab, member) in [
+        (OpsTab::Overview, true),
+        (OpsTab::Overview, false),
+        (OpsTab::Agents, true),
+        (OpsTab::Agents, false),
+    ] {
+        for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+            let mut app = board();
+            app.shell.tab = tab;
+            app.overview_view = if member { View::Agents } else { View::Squads };
+            app.view.as_mut().unwrap().look.depth = depth;
+            let target = if member {
+                OpsTarget::Member {
+                    room_id: Some(ROOM.into()),
+                    identity_id: MEMBER.into(),
+                }
+            } else {
+                OpsTarget::Squad(ROOM.into())
+            };
+            app.workspace.selected = Some(target.clone());
+            app.workspace_reconcile();
+            let capture = |app: &App| {
+                let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, app))
+                    .unwrap();
+                let index = app
+                    .workspace_rows()
+                    .iter()
+                    .position(|row| row.target == target)
+                    .unwrap();
+                let y = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find_map(|hit| (hit.target == HitTarget::Row(index)).then_some(hit.y))
+                    .unwrap();
+                let state_x = app
+                    .workspace_state_cells
+                    .borrow()
+                    .iter()
+                    .find(|cell| cell.y == y)
+                    .unwrap()
+                    .x;
+                (terminal.backend().buffer().clone(), y, state_x)
+            };
+            app.workspace.selected = None;
+            let (before, before_y, before_state_x) = capture(&app);
+            app.workspace.selected = Some(target.clone());
+            let Effect::Act(Request::WorkspacePreferences { next, .. }) =
+                key(&mut app, KeyCode::Char('p'))
+            else {
+                panic!("pin save lane")
+            };
+            app.finished_workspace_preferences(next, "Pinned target".into());
+            app.workspace.selected = None;
+            let (after, after_y, after_state_x) = capture(&app);
+            assert_eq!(
+                before_state_x, after_state_x,
+                "pin must not shift later columns"
+            );
+            let name = if member { "worker" } else { "product" };
+            let name_x = |buffer: &ratatui::buffer::Buffer, y| {
+                (0..148)
+                    .find(|&x| {
+                        buffer[(x, y)].symbol() == &name[..1]
+                            && (0..name.len())
+                                .all(|n| buffer[(x + n as u16, y)].symbol() == &name[n..n + 1])
+                    })
+                    .unwrap()
+            };
+            let x = name_x(&after, after_y);
+            assert!(x >= 2, "name must reserve two cells for its pin mark");
+            assert_eq!(after[(x - 2, after_y)].symbol(), "▪");
+            let pinned_row = (0..148)
+                .map(|column| after[(column, after_y)].symbol())
+                .collect::<String>();
+            assert_eq!(crate::board::glyph_guard::glyph_error(&pinned_row), None);
+            assert_eq!(after[(x - 1, after_y)].symbol(), " ");
+            assert_eq!(
+                name_x(&before, before_y),
+                x,
+                "unpinned names reserve the same two cells"
+            );
+            assert_eq!(before[(x - 2, before_y)].symbol(), " ");
+            assert_eq!(
+                after[(x - 2, after_y)].fg,
+                app.look()
+                    .role(tmt_cli_style::Role::Muted)
+                    .fg
+                    .unwrap_or_default()
+            );
+            for column in before_state_x..148 {
+                assert_eq!(before[(column, before_y)], after[(column, after_y)]);
+            }
+        }
     }
 }

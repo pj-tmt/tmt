@@ -269,7 +269,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
                     return;
                 };
-                squad_line(squad, look)
+                squad_line(
+                    squad,
+                    look,
+                    crate::board::workspace::render::pin_mark(
+                        &row.target,
+                        &snapshot.preferences,
+                        look,
+                    ),
+                )
             };
             line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
@@ -340,7 +348,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         },
     );
 }
-fn squad_line(squad: &monitor::Squad, look: Look) -> Line<'static> {
+fn squad_line(squad: &monitor::Squad, look: Look, pin: Span<'static>) -> Line<'static> {
+    let name_width = 11usize.saturating_sub(pin.width());
     let members: Vec<_> = squad
         .members
         .iter()
@@ -359,8 +368,12 @@ fn squad_line(squad: &monitor::Squad, look: Look) -> Line<'static> {
     let padding = 10usize.saturating_sub(team.width());
     let mut spans = vec![
         Span::raw(" "),
+        pin,
         Span::styled(
-            crate::board::view::fit(&crate::board::workspace::render::safe(&squad.name), 11),
+            crate::board::view::fit(
+                &crate::board::workspace::render::safe(&squad.name),
+                name_width,
+            ),
             look.role(Role::Text),
         ),
         Span::raw(" "),
@@ -413,10 +426,16 @@ fn agent_line(
     let tokens = value
         .tokens
         .map_or_else(|| "—".into(), crate::source::tokens);
+    let pin = crate::board::workspace::render::pin_mark(&row.target, &snapshot.preferences, look);
+    let name_width = 23usize.saturating_sub(pin.width());
     Line::from(vec![
         Span::raw(" "),
+        pin,
         Span::styled(
-            crate::board::view::fit(&crate::board::workspace::render::safe(&row.title), 23),
+            crate::board::view::fit(
+                &crate::board::workspace::render::safe(&row.title),
+                name_width,
+            ),
             look.role(Role::Text),
         ),
         Span::raw(" "),

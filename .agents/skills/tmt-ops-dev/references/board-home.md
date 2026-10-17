@@ -53,6 +53,8 @@ Overview orders its chips Agents then Squads and starts in Agents unless a saved
 choice exists. Its default `v` toggles that view from either pane for any selected
 row; authored bindings retain precedence. `p` pins or unpins the selected visible
 agent or squad in either tab, and the effective footer reflects its saved state.
+Pinned names carry a Muted `▪` mark in both lists; the same two-cell name slot is
+reserved when unpinned, and NO_COLOR keeps the glyph. Other columns do not move.
 Selected chips keep their fill while search owns input; hover and activation
 eligibility remain independent.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
