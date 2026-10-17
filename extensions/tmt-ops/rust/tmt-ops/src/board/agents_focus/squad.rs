@@ -53,7 +53,8 @@ pub(super) fn render(
             .filter(|value| !value.is_empty());
         if *y < area.bottom() {
             key_value::paint(
-                frame.buffer_mut(),
+                frame,
+                app,
                 Rect::new(area.x, *y, area.width, 1),
                 &key_value::Row {
                     key,
@@ -62,7 +63,6 @@ pub(super) fn render(
                         key_value::Value::Observed,
                     ),
                 },
-                look,
             );
             *y += 1;
         }

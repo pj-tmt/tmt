@@ -294,17 +294,11 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             }
         },
     );
-    let text_area = Rect::new(
-        body.x + body.width.min(3),
-        body.y,
-        body.width.saturating_sub(3),
-        body.height,
-    );
     if surface.interactive() {
         super::super::member_links::paint_hits(
             frame,
             app,
-            text_area,
+            body,
             offset,
             shown,
             &mapped.mentions,

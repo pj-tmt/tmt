@@ -2,9 +2,8 @@
 use crate::{
     board::{app::App, digest_dashboard, key_value},
     config::SavingsUnit,
-    look::Look,
 };
-use ratatui::{buffer::Buffer, layout::Rect};
+use ratatui::{Frame, layout::Rect};
 
 pub(super) struct Metric {
     pub key: String,
@@ -21,7 +20,7 @@ impl Metric {
             note: None,
         }
     }
-    pub fn paint(&self, buffer: &mut Buffer, area: Rect, look: Look) {
+    pub fn paint(&self, frame: &mut Frame, app: &App, area: Rect) {
         let value = format!(
             "{}{}{}",
             self.amount.as_deref().unwrap_or("—"),
@@ -30,7 +29,8 @@ impl Metric {
                 .map_or_else(String::new, |note| format!(" ({note})"))
         );
         key_value::paint(
-            buffer,
+            frame,
+            app,
             area,
             &key_value::Row {
                 key: &self.key,
@@ -40,7 +40,6 @@ impl Metric {
                     key_value::Value::Unreported(&value)
                 },
             },
-            look,
         );
     }
 }

@@ -285,10 +285,7 @@ impl Session {
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
-        let identities = self
-            .text
-            .contains("#tmt:")
-            .then(|| std::sync::Arc::clone(&inventory.generation));
+        let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.rendered.as_ref().is_none_or(|rendered| {
             rendered.width != width
                 || rendered.gutter != gutter
@@ -309,7 +306,7 @@ impl Session {
             let mut lines = Vec::with_capacity(mapped.lines.len());
             let mut sources = Vec::with_capacity(mapped.sources.len());
             let mut mentions = Vec::with_capacity(mapped.mentions.len());
-            for ((mut line, source), links) in mapped
+            for ((mut line, source), mut links) in mapped
                 .lines
                 .into_iter()
                 .zip(mapped.sources)
@@ -325,6 +322,9 @@ impl Session {
                         span.style = span.style.patch(style);
                     }
                 }
+                for link in &mut links {
+                    link.column += gutter;
+                }
                 lines.push(line);
                 sources.push(source);
                 mentions.push(links);
@@ -334,7 +334,7 @@ impl Session {
                 sources,
                 mentions,
             };
-            let transcript = self.merge_pane_output(mapped, width, look);
+            let transcript = self.merge_pane_output(mapped, width, look, inventory);
             self.anchor.reconcile(&transcript.anchor_text);
             self.rendered = Some(Rendered {
                 width,
@@ -994,7 +994,7 @@ fn render_target(
             &mapped.mentions,
             super::member_links::Paint {
                 reader: true,
-                role: Role::Link,
+                role: Role::Text,
             },
         );
     }

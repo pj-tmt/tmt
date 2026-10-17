@@ -112,7 +112,8 @@ impl Renderer<'_> {
                 block.spans.push(Part::new(
                     mention.name,
                     style
-                        .patch(self.look.role(Role::Link))
+                        .patch(self.look.role(Role::Text))
+                        .remove_modifier(Modifier::BOLD)
                         .add_modifier(Modifier::UNDERLINED),
                     self.source_line,
                     Some((mention.identity, self.next_mention)),
@@ -146,17 +147,12 @@ impl Renderer<'_> {
         self.finish();
         let raw = self.source[range.clone()].trim_end_matches('\n');
         for (offset, line) in raw.split('\n').enumerate() {
-            self.blocks.push(Block {
-                prefix: String::new(),
-                indent: 0,
-                spans: vec![Part::new(
-                    line.to_owned(),
-                    Style::new(),
-                    self.source_line + offset,
-                    None,
-                )],
-                source_line: self.source_line + offset,
-            });
+            let source_line = self.source_line;
+            self.source_line += offset;
+            self.start(String::new(), 0);
+            self.push(line, Style::new());
+            self.finish();
+            self.source_line = source_line;
         }
         self.skip_until = range.end;
     }

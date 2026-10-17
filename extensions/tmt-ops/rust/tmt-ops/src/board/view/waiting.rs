@@ -328,7 +328,7 @@ pub(in crate::board) fn inline_prompt(
                     app,
                     editor_area,
                     text.as_str(),
-                    Role::Link,
+                    Role::Text,
                 ) {
                     // Display names have different widths from the exact raw editor.
                     // Clicking the preview focuses editing without fabricating a caret.
