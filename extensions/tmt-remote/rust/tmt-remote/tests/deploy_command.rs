@@ -858,6 +858,7 @@ mod cli_composition {
         )
         .unwrap();
         for (live, database, rules_line) in [
+            (None, true, "will be created"),
             (Some(expected.deployed_rules().to_vec()), true, "no change"),
             (
                 Some(b"foreign rules".to_vec()),
@@ -876,6 +877,16 @@ mod cli_composition {
                         assert!(out.human.starts_with("Firestore sharing plan\n"));
                         assert!(out.human.contains("Plan digest:"));
                         assert!(out.human.contains("Extensions and resources:"));
+                        assert!(
+                            out.human
+                                .contains(&format!("  Security rules  {rules_line}\n")),
+                            "{}",
+                            out.human
+                        );
+                        assert!(
+                            !out.human.contains("Security rules:"),
+                            "the interactive delta uses the shared states"
+                        );
                     } else {
                         assert!(
                             out.human
@@ -891,7 +902,7 @@ mod cli_composition {
                         assert!(!out.human.contains("Nothing to deploy"));
                         if !database {
                             assert!(out.human.contains(
-                                "will replace rules set outside TMT\n  Answering y replaces them.\n"
+                                "will replace rules set outside TMT\n                  Answering y replaces them.\n"
                             ));
                         }
                     }
@@ -998,7 +1009,10 @@ mod cli_composition {
             .unwrap()
             .hosting
             .unwrap();
-        for kind in ["foreign", "own", "absent", "empty"] {
+        for (kind, details) in ["foreign", "own", "absent", "empty"]
+            .into_iter()
+            .flat_map(|kind| [(kind, false), (kind, true)])
+        {
             let root = Root::new();
             let layout = root.layout();
             let mut store = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
@@ -1032,7 +1046,7 @@ mod cli_composition {
                 assert!(
                     out.human.contains(match kind {
                         "own" => "Website files   no change",
-                        "foreign" => "Website files   will replace the live website\n  Answering y replaces it.",
+                        "foreign" => "Website files   will replace the live website\n                  Answering y replaces it.",
                         _ => "Website files   will be published for the first time",
                     }),
                     "{kind}: {}",
@@ -1041,7 +1055,7 @@ mod cli_composition {
                 Ok(false)
             };
             deploy_cli::execute_with_confirmation(
-                &args(&[]).unwrap(),
+                &args(if details { &["--details"] } else { &[] }).unwrap(),
                 &mut source,
                 &["colab"],
                 || Ok(&mut provider),

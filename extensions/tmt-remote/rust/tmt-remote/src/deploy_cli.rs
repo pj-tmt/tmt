@@ -260,7 +260,6 @@ fn execute_prepared<P: FirestoreCommandPort>(
     let live_rules = provider
         .live_rules(&args.project)
         .map_err(DeployCliError::Provider)?;
-    let mut website_changed = false;
     let mut website_live = false;
     let hosting = discovered
         .hosting
@@ -295,7 +294,6 @@ fn execute_prepared<P: FirestoreCommandPort>(
                     record_path.to_path_buf(),
                 )
             })?;
-            website_changed = inventory.live.is_none() || view.replaces != "none";
             website_live = inventory.live.is_some();
             if let Some(checkpoint) = record
                 .run
@@ -364,8 +362,7 @@ fn execute_prepared<P: FirestoreCommandPort>(
                 preview.human.push_str(&confirmation_notice(
                     prepared.plan(),
                     prepared.record(),
-                    live_rules.as_deref() != Some(prepared.plan().deployed_rules()),
-                    hosting.as_ref().map(|_| website_changed),
+                    website_live,
                 ));
             } else {
                 preview.human = short_preview(
@@ -447,25 +444,13 @@ pub fn confirmation_answer(bytes: &[u8]) -> bool {
     answer.trim().eq_ignore_ascii_case("y") || answer.trim().eq_ignore_ascii_case("yes")
 }
 
-/// Display observations already captured for this decision, without a provider read.
+/// Display captured interactive changes, without another provider read.
 pub fn confirmation_notice(
     plan: &crate::deploy_run::DeployPlan,
     record: &crate::deploy_run::DeployRecord,
-    rules_changed: bool,
-    website_changed: Option<bool>,
+    website_live: bool,
 ) -> String {
-    let mut text = String::from(if rules_changed {
-        "Security rules: will be updated.\n"
-    } else {
-        "Security rules: no change.\n"
-    });
-    if let Some(changed) = website_changed {
-        text.push_str(if changed {
-            "Website files: will be updated.\n"
-        } else {
-            "Website files: no change.\n"
-        });
-    }
+    let mut text = change_lines(plan, website_live);
     text.push_str(&supersession_notice(plan, record));
     text
 }
@@ -501,26 +486,11 @@ fn supersession_notice(
     text
 }
 
-/// A terminal view of this frozen plan and its existing read-only observations.
-/// Unknown live state is a target, never inferred from an earlier completed run.
-fn short_preview(
-    plan: &crate::deploy_run::DeployPlan,
-    record: &crate::deploy_run::DeployRecord,
-    database_present: Option<bool>,
-    website_live: bool,
-) -> String {
-    use crate::deploy_run::{LiveRules, StepKind};
-    let view = plan.view();
+/// Both interactive views use the same states and value-column notes.
+fn change_lines(plan: &crate::deploy_run::DeployPlan, website_live: bool) -> String {
+    use crate::deploy_run::LiveRules;
     let mut text = format!(
-        "Deploy to Firebase\n  Account         {}\n  Project         {} ({})\n\n  Database        {}\n  Security rules  {}\n",
-        view.account,
-        view.project,
-        view.database.location,
-        match database_present {
-            Some(true) => "no change",
-            Some(false) => "will be created",
-            None => &view.database.location,
-        },
+        "  Security rules  {}\n",
         match plan.live_rules() {
             LiveRules::Absent => "will be created",
             LiveRules::Current => "no change",
@@ -529,9 +499,9 @@ fn short_preview(
         },
     );
     if matches!(plan.live_rules(), LiveRules::Foreign(_)) {
-        text.push_str("  Answering y replaces them.\n");
+        text.push_str("                  Answering y replaces them.\n");
     }
-    if let Some(hosting) = &view.hosting {
+    if let Some(hosting) = &plan.view().hosting {
         let website = if hosting.replaces == "foreign" {
             "will replace the live website".to_owned()
         } else if !website_live {
@@ -546,9 +516,34 @@ fn short_preview(
         };
         text.push_str(&format!("  Website files   {website}\n"));
         if hosting.replaces == "foreign" {
-            text.push_str("  Answering y replaces it.\n");
+            text.push_str("                  Answering y replaces it.\n");
         }
     }
+    text
+}
+
+/// A terminal view of this frozen plan and its existing read-only observations.
+/// Unknown live state is a target, never inferred from an earlier completed run.
+fn short_preview(
+    plan: &crate::deploy_run::DeployPlan,
+    record: &crate::deploy_run::DeployRecord,
+    database_present: Option<bool>,
+    website_live: bool,
+) -> String {
+    use crate::deploy_run::StepKind;
+    let view = plan.view();
+    let mut text = format!(
+        "Deploy to Firebase\n  Account         {}\n  Project         {} ({})\n\n  Database        {}\n",
+        view.account,
+        view.project,
+        view.database.location,
+        match database_present {
+            Some(true) => "no change",
+            Some(false) => "will be created",
+            None => &view.database.location,
+        },
+    );
+    text.push_str(&change_lines(plan, website_live));
     let indexes = plan
         .steps()
         .iter()
