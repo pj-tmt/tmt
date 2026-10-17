@@ -25,6 +25,7 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
         };
         crate::board::top_bar::Attention {
             online: number(counts.online),
+            unread: app.unread_global(),
             waiting: number(counts.waiting),
             blocked: number(counts.blocked),
             waiting_positive: counts.waiting > 0,

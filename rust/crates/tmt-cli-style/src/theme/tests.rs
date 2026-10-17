@@ -618,3 +618,41 @@ fn chips_honor_overrides_and_retain_readable_rgb_labels() {
     let hot = screen::chip(&same, ChipKind::Secondary, ChipState::Hot, Depth::Ansi16);
     assert_eq!(hot, idle.add_modifier(Modifier::BOLD));
 }
+
+#[test]
+fn unread_has_a_canonical_blue_role_and_honours_overrides_and_no_color() {
+    assert_eq!(Role::parse("unread"), Some(Role::Unread));
+    let dark = Theme::new(Base::Tmt);
+    let light = Theme::new(Base::TmtLight);
+    assert_eq!(
+        rgb(dark.style(Role::Unread, Depth::TrueColor)),
+        Some((0x7A, 0xA2, 0xF7))
+    );
+    assert_eq!(
+        rgb(light.style(Role::Unread, Depth::TrueColor)),
+        Some((0x1F, 0x5F, 0xBF))
+    );
+    assert_eq!(
+        dark.style(Role::Unread, Depth::Ansi16).get_fg_color(),
+        Some(AnsiColor::Blue.into())
+    );
+    assert_eq!(
+        crate::Token::Driver(Some(Role::Unread)).color(),
+        Some(AnsiColor::Blue)
+    );
+    let custom = dark.with(Role::Unread, Paint::Ansi(AnsiColor::Cyan));
+    assert_eq!(
+        custom.style(Role::Unread, Depth::TrueColor).get_fg_color(),
+        Some(AnsiColor::Cyan.into())
+    );
+    assert_eq!(
+        custom.style(Role::Waiting, Depth::TrueColor),
+        dark.style(Role::Waiting, Depth::TrueColor)
+    );
+    for base in Base::ALL {
+        assert_eq!(
+            Theme::new(base).style(Role::Unread, Depth::None),
+            Style::new()
+        );
+    }
+}

@@ -76,6 +76,31 @@ after four seconds, and the next key dismisses it. Notices resolve identity name
 from held observations, never perform acquisition or display raw UUIDs. Persistent
 migration and acquisition failures retain their existing footer priority.
 
+`board::unread` projects submitted finals from the existing originator-results
+page, limited to 50 with no continuation fetch just to count. Request IDs deduplicate
+repeated room evidence; squad/global counts deduplicate member UUIDs. Only the
+originator page supplies this count, never blended recipient histories or pane
+output. Optional failed/malformed reads retain the previous page for the same
+actor; actor changes discard it. A member's count is `N+ unread` only when
+`nextBefore` is present and that pair's marker precedes the page's oldest
+`submittedAtMs`. Aggregate `+` is the OR of eligible members' partial flags;
+observed zero renders no unread state, even when older replies are possible.
+
+StateCell supplies `● N unread` before the source working/idle/waiting display;
+only the glyph uses the canonical `unread` role, with neutral count/words and
+unchanged text under NO_COLOR. TeamStrip retains lead-first UUID order and admits
+whole labels or its existing overflow mark. A visible unread squad reserves a
+14-cell TEAM column for a full two-digit lower-bound label and overflow mark;
+the shared header and TOK/NOW columns move together. With no visible unread
+squad, the existing ten-cell TEAM column remains. Unread members sort first in Overview
+and within Agents tree sibling groups without rewriting raw state or waiting
+permission. Marker/page updates invalidate the existing row cache and reconcile
+the retained selected UUID. TopBar sums the global workspace independently of
+scope, hiding and the active tab, beside its waiting count. At narrow widths the
+partial `≥` counts take precedence over the redundant totals-unknown suffix and
+named layer caption. Conversation admission and shared marker publication belong
+to [the reply owner](board-notebooks.md#replies-and-verification).
+
 ## Shell, geometry and input
 
 `board::shell` owns Overview, Agents and Digest selection. Overview uses one
@@ -95,9 +120,9 @@ acquisition. Shell attention and provider quota remain global.
 Squads use lead-first, UUID-deduplicated team strips, the existing HOUR readings
 and per-room sum for TOK 1h, and NOW from pending questions before tasks. Missing
 readings remain unavailable and incomplete sums stay partial. The Agents view
-contains all admitted identities, with waiting agents first: proven oldest request
+contains all admitted identities, with unread agents first, followed by waiting agents: proven oldest request
 first, unknown request times last, then name/UUID. Authored sort operates within
-waiting/nonwaiting groups in Agents. Squads keeps TOK 1h ordering; its sort hints
+unread/waiting/other groups in Agents. Squads keeps TOK 1h ordering; its sort hints
 are hidden, and an authored sort key explains how to switch to Agents without
 changing that view's retained order. No waiting duration is rendered, and blocked state alone
 does not manufacture waiting. Pins retain their existing owners.

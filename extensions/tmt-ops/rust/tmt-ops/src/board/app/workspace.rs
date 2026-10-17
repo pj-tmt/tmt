@@ -165,7 +165,14 @@ impl App {
                         },
                     )
                 } else {
-                    self.workspace.rows(&snapshot.roster, &snapshot.preferences)
+                    let mut rows = self.workspace.rows(&snapshot.roster, &snapshot.preferences);
+                    for siblings in rows.chunk_by_mut(|a, b| {
+                        matches!((&a.target, &b.target),
+                            (OpsTarget::Member { room_id: a, .. }, OpsTarget::Member { room_id: b, .. }) if a == b)
+                    }) {
+                        siblings.sort_by_key(|row| std::cmp::Reverse(self.unread_target(&row.target).total > 0));
+                    }
+                    rows
                 }
             })
             .unwrap_or_default()
@@ -828,6 +835,7 @@ impl App {
                             self.workspace_reconcile();
                         }
                         self.focus = 1;
+                        self.unread.displayed = None;
                     }
                 } else {
                     let expanded = match &target {

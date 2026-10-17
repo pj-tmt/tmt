@@ -36,10 +36,12 @@ pub enum Role {
     Selection,
     /// The empty part of a meter, as a background.
     Track,
+    /// A submitted reply the current actor has not opened.
+    Unread,
 }
 
 impl Role {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -51,6 +53,7 @@ impl Role {
         Self::Link,
         Self::Selection,
         Self::Track,
+        Self::Unread,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -67,6 +70,7 @@ impl Role {
             Self::Link => "link",
             Self::Selection => "selection",
             Self::Track => "track",
+            Self::Unread => "unread",
         }
     }
 
@@ -279,7 +283,7 @@ impl Base {
             Role::Text => Paint::Plain,
             Role::Muted => Paint::Ansi(AnsiColor::White),
             Role::Dim => Paint::Dimmed,
-            Role::Accent => Paint::Ansi(AnsiColor::Blue),
+            Role::Accent | Role::Unread => Paint::Ansi(AnsiColor::Blue),
             Role::Waiting => Paint::Ansi(AnsiColor::Yellow),
             Role::Working => Paint::Ansi(AnsiColor::Green),
             Role::Review => Paint::Ansi(AnsiColor::Magenta),
@@ -296,7 +300,7 @@ impl Base {
             Role::Text => ((0xD8, 0xD8, 0xD8), (0x17, 0x17, 0x17)),
             Role::Muted => ((0xB0, 0xB0, 0xB0), (0x62, 0x62, 0x62)),
             Role::Dim => ((0x85, 0x85, 0x85), (0x76, 0x76, 0x76)),
-            Role::Accent => ((0x7A, 0xA2, 0xF7), (0x1F, 0x5F, 0xBF)),
+            Role::Accent | Role::Unread => ((0x7A, 0xA2, 0xF7), (0x1F, 0x5F, 0xBF)),
             Role::Waiting => ((0xFF, 0x9E, 0x64), (0x96, 0x50, 0x27)),
             Role::Working => ((0x9E, 0xCE, 0x6A), (0x4F, 0x6A, 0x33)),
             Role::Review => ((0xBB, 0x9A, 0xF7), (0x78, 0x47, 0xBD)),
@@ -313,7 +317,9 @@ impl Base {
         match role {
             Role::Text | Role::Working | Role::Link => Paint::Plain,
             Role::Muted | Role::Dim | Role::Track => Paint::Dimmed,
-            Role::Accent | Role::Waiting | Role::Review | Role::Blocked => Paint::Bold,
+            Role::Accent | Role::Waiting | Role::Review | Role::Blocked | Role::Unread => {
+                Paint::Bold
+            }
             Role::Selection => Paint::Reverse,
         }
     }
@@ -345,7 +351,7 @@ impl fmt::Display for ThemeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     pub base: Base,
-    overrides: [Option<Paint>; 11],
+    overrides: [Option<Paint>; Role::ALL.len()],
 }
 
 impl Default for Theme {
@@ -358,7 +364,7 @@ impl Theme {
     pub fn new(base: Base) -> Self {
         Self {
             base,
-            overrides: [None; 11],
+            overrides: [None; Role::ALL.len()],
         }
     }
 

@@ -651,6 +651,7 @@ pub struct App {
     pub(super) initial_look: Option<crate::look::Look>,
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
+    pub(super) unread: super::unread::publish::Session,
     /// What the configured label sources last supplied for member rows.
     pub(super) labels: crate::labels::Supplied,
     /// The Digest tab's Usage report: its window and the newest read.

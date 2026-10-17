@@ -300,13 +300,13 @@ Overview has one Agents/Squads list, starting in Agents unless a saved choice ex
 chips and idle search field; the section rule below owns counts. `v` switches
 views unless an authored binding replaces it. Squads show a lead-first TEAM strip,
 TOK 1h from existing HOUR readings, and NOW from pending questions before tasks.
-Agents show AGENT, SQUAD, STATE, TOK 1h and NOW. Waiting agents come first, ordered
+Agents show AGENT, SQUAD, STATE, TOK 1h and NOW. Unread agents come first, then waiting agents, ordered
 by oldest proven request, then unknown age and name/UUID; no waiting duration is
 shown. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
 rather than choosing another recipient. Search and refresh retain hidden UUID
 anchors. `e` opens full observed member values. Authored sort changes the current
-layer within waiting/nonwaiting groups. Retired summaries, Recent exchanges and
+layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
 the selected window and total. Range choices are 1h, 6h, 24h, 7d and 30d. Each
@@ -366,6 +366,16 @@ supplier observations. The idle field shows its effective start key; factory Ent
 replies to the selected incoming request, and authored bindings retain precedence.
 The active field uses Enter to send and Escape to retain its draft. Its fill is
 the boundary; there is no frame or heading rule. The Talk matrix is hidden until its data ships.
+
+A submitted reply you have not seen shows `● N unread` in STATE and squad team
+strips, before working/idle/waiting state. Only the unread glyph is blue; NO_COLOR
+keeps the mark and words. The top bar shows your global unread count beside
+waiting. `N+` is a lower bound from the existing 50-result page, not an all-history
+count; zero observed unread never invents an unread state. Opening the agent's
+acquired conversation or successfully jumping with `j` advances your shared read
+marker. It survives restart, named views and reset-view. A save failure keeps the
+unread count and names the cause; reopen the conversation or jump to retry. These
+Ops markers never acknowledge Core results.
 
 The Agents tree is a fixed-column table: SQUAD / AGENT, LEAD, MEMBERS / STATE,
 TOK 1h, DIGEST and ◷ CRON. LEAD and room token totals appear at 100 inner list cells;

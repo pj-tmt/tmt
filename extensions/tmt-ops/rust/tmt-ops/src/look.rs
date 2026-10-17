@@ -195,6 +195,7 @@ impl Look {
         let weak = [Role::Muted, Role::Dim].map(|role| self.role(role).fg);
         let colored = [
             Role::Accent,
+            Role::Unread,
             Role::Waiting,
             Role::Working,
             Role::Review,

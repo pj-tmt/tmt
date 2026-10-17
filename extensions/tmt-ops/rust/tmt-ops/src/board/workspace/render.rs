@@ -457,18 +457,37 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             unicode_width::UnicodeWidthStr::width(primary.as_str())
                                 .min(usize::from(cell.width)),
                         );
-                        let width = unicode_width::UnicodeWidthStr::width(primary.as_str()) as u16;
+                        let width =
+                            crate::board::state_cell::unread(app.unread_target(&row.target), look)
+                                .map_or_else(
+                                    || unicode_width::UnicodeWidthStr::width(primary.as_str()),
+                                    |line| line.width(),
+                                )
+                                .min(usize::from(cell.width)) as u16;
                         let state_cell = Rect::new(cell.x, y, width, 1);
                         app.workspace_state_cells.borrow_mut().push(state_cell);
                         let state_style =
                             columns::table_style(app, selected, columns::state_style(app, row));
-                        strip::paint_left(
-                            frame.buffer_mut(),
-                            state_cell,
-                            Line::styled(primary, state_style),
-                        );
+                        let line = if let Some(mut line) =
+                            crate::board::state_cell::unread(app.unread_target(&row.target), look)
+                        {
+                            for span in &mut line.spans {
+                                span.style = columns::table_style(app, selected, span.style);
+                            }
+                            line
+                        } else {
+                            Line::styled(primary, state_style)
+                        };
+                        strip::paint_left(frame.buffer_mut(), state_cell, line);
                         let suffix = if group {
-                            format!(" {state}")
+                            format!(
+                                "{} {state}",
+                                if app.unread_target(&row.target).total > 0 {
+                                    " ·"
+                                } else {
+                                    ""
+                                }
+                            )
                         } else {
                             format!(
                                 " · {}",
@@ -1025,14 +1044,18 @@ fn roster_preview(
                     } else {
                         look.role(Role::Text)
                     };
-                    strip::paint_left(
-                        frame.buffer_mut(),
-                        cell,
+                    let line = if *field == RosterField::State {
+                        crate::board::state_cell::unread(app.unread_target(&row.target), look)
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| {
                         Line::styled(
                             crate::board::view::fit(&text, usize::from(cell.width)),
                             style,
-                        ),
-                    );
+                        )
+                    });
+                    strip::paint_left(frame.buffer_mut(), cell, line);
                 }
                 if interactive {
                     app.workspace_action_hits.borrow_mut().push((

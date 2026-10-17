@@ -185,6 +185,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     {
         app.scrolls.reveal_range(Pane::Rows, i..i + 1, data, total);
     }
+    // A full two-digit lower-bound label plus the existing overflow mark.
+    // Only unread squads need this room; header and every numeric row align.
+    let team_width = if app.unread_global().total > 0
+        && scene.squads.iter().any(|squad| {
+            squad
+                .members
+                .iter()
+                .any(|(id, _)| app.unread_count(id).total > 0)
+        }) {
+        14
+    } else {
+        10
+    };
     let paint = |frame: &mut Frame, slot: Rect, index: usize| match index {
         0 => {
             for hit in filter_bar::paint(
@@ -224,7 +237,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         "AGENT", "SQUAD", "STATE", "TOK 1h"
                     )
                 } else {
-                    format!(" {:<12}{:<10}{:>7}   NOW", "SQUAD", "TEAM", "TOK 1h")
+                    format!(
+                        " {:<12}{:<team_width$}{:>7}   NOW",
+                        "SQUAD", "TEAM", "TOK 1h"
+                    )
                 },
                 look.role(Role::Muted),
             ),
@@ -270,7 +286,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     return;
                 };
                 squad_line(
+                    app,
                     squad,
+                    team_width,
                     look,
                     crate::board::workspace::render::pin_mark(
                         &row.target,
@@ -291,7 +309,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     let state = if agents {
                         (37..49).contains(&x)
                     } else {
-                        (13..23).contains(&x)
+                        (13..13 + team_width).contains(&x)
                     };
                     span.style = look.row_span(
                         true,
@@ -306,7 +324,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 Rect::new(
                     slot.x.saturating_add(if agents { 37 } else { 13 }),
                     slot.y,
-                    if agents { 12 } else { 10 },
+                    if agents { 12 } else { team_width as u16 },
                     1,
                 )
                 .intersection(slot),
@@ -348,7 +366,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         },
     );
 }
-fn squad_line(squad: &monitor::Squad, look: Look, pin: Span<'static>) -> Line<'static> {
+fn squad_line(
+    app: &App,
+    squad: &monitor::Squad,
+    team_width: usize,
+    look: Look,
+    pin: Span<'static>,
+) -> Line<'static> {
     let name_width = 11usize.saturating_sub(pin.width());
     let members: Vec<_> = squad
         .members
@@ -356,6 +380,7 @@ fn squad_line(squad: &monitor::Squad, look: Look, pin: Span<'static>) -> Line<'s
         .map(|(id, state)| team_strip::Member {
             id,
             state: state.as_deref(),
+            unread: app.unread_count(id),
         })
         .collect();
     let team = if members.is_empty()
@@ -363,9 +388,9 @@ fn squad_line(squad: &monitor::Squad, look: Look, pin: Span<'static>) -> Line<'s
     {
         Line::styled("—", look.role(Role::Muted))
     } else {
-        team_strip::line(&members, squad.lead.as_deref(), 10, look)
+        team_strip::line(&members, squad.lead.as_deref(), team_width, look)
     };
-    let padding = 10usize.saturating_sub(team.width());
+    let padding = team_width.saturating_sub(team.width());
     let mut spans = vec![
         Span::raw(" "),
         pin,
@@ -418,6 +443,7 @@ fn agent_line(
     look: Look,
 ) -> Line<'static> {
     let value = monitor::values(app, snapshot, row);
+    let unread = app.unread_target(&row.target);
     let state = if monitor::waits(snapshot, row) {
         Some("waiting")
     } else {
@@ -444,10 +470,15 @@ fn agent_line(
             look.role(Role::Muted),
         ),
         Span::raw(" "),
-        state_cell::mark(state, look),
+        state_cell::unread_mark(unread, look).unwrap_or_else(|| state_cell::mark(state, look)),
         Span::raw(" "),
         Span::styled(
-            crate::board::view::fit(&state_cell::word(state, look).content, 10),
+            crate::board::view::fit(
+                &unread
+                    .label()
+                    .unwrap_or_else(|| state_cell::word(state, look).content.into_owned()),
+                10,
+            ),
             look.role(Role::Muted),
         ),
         Span::raw(" "),

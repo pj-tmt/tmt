@@ -83,6 +83,18 @@ UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
 keeps long captures scrollable without displacing the composer. Overview keeps its
 question-only presentation and does not acquire or paint these captures.
 
+Unread markers are separate from Core acknowledgments. After a successful draw,
+App admits only the exact actor/member/request submission of an acquired displayed
+reply in Agents conversation. Loading, hidden, modal-covered or paused newer text
+cannot mark unseen output. A guarded `j` seals the actor/member and newest observed
+submission before leaving the UI; only successful focus publishes that marker.
+The existing ordered lane max-merges shared Config markers. Quiet coalesced writes
+own no action-progress overlay; visible unread clears only after successful
+publication. A failure retains unread evidence and pending updates for an explicit
+reopen/j retry, without an automatic retry loop. Shutdown drains admitted writes
+after restoring the terminal. Shared markers survive restart, named-view changes,
+reset-view and exec reload. Pane captures never supply request read watermarks.
+
 The selected agent's composer stays visible at the conversation bottom, including
 while unfocused and after Send. Default Enter focuses its retained editor; active
 Enter submits, and Esc keeps the draft and returns to the originating list.
