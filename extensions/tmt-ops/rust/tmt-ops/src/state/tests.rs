@@ -243,3 +243,12 @@ fn an_archive_runs_only_while_it_holds_the_database_write_lock() {
     database.read(&slot, keep).map_err(|_| ()).unwrap();
     assert_eq!(seen.borrow().len(), 2);
 }
+
+#[test]
+fn a_newer_database_is_told_by_the_leaf_not_by_its_display_text() {
+    let lookalike = StateError::Migration {
+        path: PathBuf::from("/data/ops/ops.db"),
+        reason: "store is newer than this binary, or so a message says",
+    };
+    assert_eq!(Refusal::from(lookalike).cause, Cause::Failed);
+}

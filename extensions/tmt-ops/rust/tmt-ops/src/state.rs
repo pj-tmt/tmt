@@ -85,16 +85,14 @@ impl From<StateError> for Refusal {
                 ),
                 may_not_be_saved: *may_not_be_saved,
             },
-            StateError::Migration { path, reason } if reason.contains("newer than this binary") => {
-                Self {
-                    cause: Cause::Newer,
-                    message: format!(
-                        "{} was written by a newer Ops and was not changed. Upgrade Ops (`tmt extension upgrade ops` or `tmt upgrade`), then run the command again.",
-                        path.display()
-                    ),
-                    may_not_be_saved: false,
-                }
-            }
+            StateError::Migration { path, .. } if error.is_newer() => Self {
+                cause: Cause::Newer,
+                message: format!(
+                    "{} was written by a newer Ops and was not changed. Upgrade Ops (`tmt extension upgrade ops` or `tmt upgrade`), then run the command again.",
+                    path.display()
+                ),
+                may_not_be_saved: false,
+            },
             _ => Self {
                 cause: Cause::Failed,
                 message: error.to_string(),
