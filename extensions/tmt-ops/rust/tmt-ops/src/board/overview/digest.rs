@@ -5,6 +5,7 @@ use crate::{
     look::Look,
 };
 use ratatui::{buffer::Buffer, layout::Rect};
+use unicode_width::UnicodeWidthStr;
 
 pub(super) struct Metric {
     pub key: String,
@@ -22,13 +23,25 @@ impl Metric {
         }
     }
     pub fn paint(&self, buffer: &mut Buffer, area: Rect, look: Look) {
+        let amount = self.amount.as_deref().unwrap_or("—");
         let value = format!(
             "{}{}{}",
-            self.amount.as_deref().unwrap_or("—"),
+            amount,
             self.coverage,
             self.note
                 .map_or_else(String::new, |note| format!(" ({note})"))
         );
+        // Keep the estimate and amount before the redundant price-basis note.
+        // The label's window is never traded for a longer value.
+        let value = if self.key.width() + value.width() + 3 > usize::from(area.width) {
+            if let Some(amount) = amount.strip_suffix(" at list price") {
+                format!("{amount}{}", self.coverage)
+            } else {
+                value
+            }
+        } else {
+            value
+        };
         key_value::paint(
             buffer,
             area,

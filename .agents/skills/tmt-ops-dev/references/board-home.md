@@ -172,6 +172,8 @@ a missing clock does not become a promised fire time. Countdown formatting uses
 the acquired read instant, with no new wall clock, scan or service read in paint.
 Observed empty and unavailable timer sources use distinct empty-state sentences.
 
+Key/value preserves whole labels, including their time windows, before fitting values;
+the narrow cost row drops its redundant list-price note before shortening an amount.
 Key/value uses the existing scoped numeric Summary and supplier estimate/price-table
 projection. Held and mode counts retain unknown/partial distinctions; values align
 right. Context and list-price quote rows use the existing unit/coverage formatter,
