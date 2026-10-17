@@ -279,3 +279,114 @@ fn responsive_and_short_focus_keep_an_admitted_editor_and_its_uuid() {
 }
 
 mod captures;
+
+#[test]
+fn overflowing_agents_panes_reach_the_painted_footer_in_both_focuses() {
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let body = (0..120)
+            .map(|n| format!("Observed line {n:03}  \n"))
+            .collect::<String>();
+        let mut failures = Vec::new();
+        let mut frames = Vec::new();
+        for (look, base, depth) in [
+            (
+                "tmt",
+                tmt_cli_style::Base::Tmt,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (
+                "tmt-light",
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (
+                "terminal",
+                tmt_cli_style::Base::Terminal,
+                tmt_cli_style::Depth::Ansi16,
+            ),
+            (
+                "NO_COLOR",
+                tmt_cli_style::Base::Tmt,
+                tmt_cli_style::Depth::None,
+            ),
+        ] {
+            for width in [103, 148] {
+                for height in [50, 51, 53] {
+                    for editing in [false, true] {
+                        for focus in [0, 1] {
+                            let mut app = observed(&body);
+                            app.view.as_mut().unwrap().look = Look {
+                                theme: tmt_cli_style::Theme::new(base),
+                                depth,
+                            };
+                            if editing {
+                                app.perform(&crate::action::Action::parse("talk").unwrap());
+                                assert!(app.input.is_some());
+                            }
+                            app.focus = focus;
+                            let _no_acquisition = crate::runner::forbid_commands();
+                            let buffer = draw(&mut app, width, height);
+                            let text = screen(&buffer);
+                            let lines = text.lines().collect::<Vec<_>>();
+                            let pane = app.conversation.borrow().pane.unwrap();
+                            let footer_rows = 2;
+                            let expected_bottom = height - footer_rows;
+                            let context =
+                                format!("{look} {width}x{height} focus={focus} editing={editing}");
+                            if pane.bottom() != expected_bottom {
+                                failures.push(format!(
+                                    "{context}: pane ends {}, footer starts {expected_bottom}",
+                                    pane.bottom()
+                                ));
+                            }
+                            let band = app.input_band.get().unwrap();
+                            if band.bottom() != pane.bottom() {
+                                failures.push(format!(
+                                    "{context}: overflowing input ends {}, pane ends {}",
+                                    band.bottom(),
+                                    pane.bottom()
+                                ));
+                            }
+                            // The footer stays intentionally blank while the composer is
+                            // focused; only the list legend must paint its two rows.
+                            if focus == 0 && !editing {
+                                for y in expected_bottom..height {
+                                    if lines[usize::from(y)].trim().is_empty() {
+                                        failures.push(format!("{context}: blank footer row {y}"));
+                                    }
+                                }
+                            }
+                            let last_body_y = expected_bottom - 1;
+                            let filled_input = band.y <= last_body_y
+                                && last_body_y < band.bottom()
+                                && (band.x..band.right()).all(|x| {
+                                    let fill =
+                                        super::super::input_field::style(app.look(), editing);
+                                    let cell = &buffer[(x, last_body_y)];
+                                    fill.bg.map_or_else(
+                                        || cell.modifier.contains(fill.add_modifier),
+                                        |bg| cell.bg == bg,
+                                    )
+                                });
+                            if lines[usize::from(last_body_y)].trim().is_empty() && !filled_input {
+                                failures.push(format!("{context}: blank band above footer"));
+                            }
+                            frames.push(json!({"look":look,"width":width,"height":height,"focus":focus,"editing":editing,
+                            "pane":format!("{pane:?}"),"input":format!("{band:?}"),
+                            "lines":lines,
+                            "cells":buffer.content.iter().map(|cell| json!([cell.symbol(),format!("{:?}",cell.fg),format!("{:?}",cell.bg),format!("{:?}",cell.modifier)])).collect::<Vec<_>>()}));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(path) = std::env::var_os("TMT_AGENTS_BOTTOM_CAPTURE") {
+            std::fs::write(
+                path,
+                serde_json::to_vec(&json!({"frames":frames,"failures":failures})).unwrap(),
+            )
+            .unwrap();
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}
