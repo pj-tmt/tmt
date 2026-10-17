@@ -96,6 +96,9 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
     })
 }
 
+/// The interrupted-turn end: an activity-only observer (#3207).
+pub(crate) const ACTIVITY_EVENTS: &[&str] = &["Interrupt"];
+
 /// `Stop`: the turn ended. A null transcript path leaves nothing to read.
 /// `Interrupt`: the turn was interrupted. It is recognized as a turn end for
 /// activity only, so its transcript path and any final text are dropped here.
@@ -732,6 +735,9 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
 
     fn decode_turn(&self, payload: &[u8]) -> Option<crate::runtime::lifecycle::TurnEnd> {
         decode_turn(payload)
+    }
+    fn activity_events(&self) -> &'static [&'static str] {
+        ACTIVITY_EVENTS
     }
 
     fn consumption_locator(

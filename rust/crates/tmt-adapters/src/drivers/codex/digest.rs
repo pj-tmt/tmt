@@ -41,7 +41,13 @@ fn compose(
     let session_text = session.to_string();
     let mut hooks = session.get("hooks").cloned().unwrap_or_else(|| json!({}));
     let observer = crate::runtime::hook_protocol::command_entry(super::NAME, launcher);
-    for event in ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"] {
+    // Codex keys hook trust by event, so an added activity event leaves the
+    // existing definitions' trust keys and hashes unchanged.
+    let events = ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"];
+    for event in events
+        .into_iter()
+        .chain(super::ACTIVITY_EVENTS.iter().copied())
+    {
         let mut owned = usize::from(
             setup::owned_event(&super::DRIVER, &session_text, event).map_err(io::Error::other)?,
         );

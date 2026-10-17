@@ -296,6 +296,13 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// Provider events, beyond the shared lifecycle set, that only feed
+    /// activity. Setup and launch composition observe them with the lifecycle
+    /// hooks, independent of the Stop usage consent.
+    fn activity_events(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// The driver state after `turn`, given the remembered session's previous
     /// state; `None` leaves it unchanged. Reads stay under the driver's own
     /// tree in `environment`. Context and Codex consumption use bounded tails;
