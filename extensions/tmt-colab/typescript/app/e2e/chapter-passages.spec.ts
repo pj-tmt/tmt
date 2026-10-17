@@ -85,6 +85,23 @@ test('chip-form answers expand in the chapter and use the existing explicit Send
   expect(records[0].comments[0].body).toContain('One column');
 });
 
+test('a selected review exposes its contained question through the ordinary answer owner', async ({
+  page,
+}) => {
+  const passage = await mount(page, 'review');
+  await run(page, 'review', { question: true });
+  await expect(passage.locator('.chapter-passage-kicker')).toHaveText('Please confirm');
+  const answer = passage.getByRole('textbox', { name: 'Your answer', exact: true });
+  await expect(answer).toBeVisible();
+  await answer.fill('Use the clearer heading.');
+  await passage.getByRole('button', { name: /^Send answer/ }).click();
+  await expect(passage.locator('[data-inline-review]').first()).toContainText('Closed');
+  const records = await run(page, 'discussionProof');
+  expect(records).toHaveLength(2);
+  expect(records.flatMap((thread: { comments: unknown[] }) => thread.comments)).toHaveLength(2);
+  expect((await run(page, 'proof')).actions).toEqual(['status:resolve']);
+});
+
 test('a chapter review draft follows its shared page owner into the foreground and back', async ({
   page,
 }) => {
@@ -103,6 +120,33 @@ test('a chapter review draft follows its shared page owner into the foreground a
   );
   expect(await run(page, 'discussionProof')).toHaveLength(0);
   expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
+test('answers to a review finish its existing close after the chapter frame retires', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', {
+    todayPassages: true,
+    statusAgents: true,
+    holdQuestionView: true,
+  });
+  await run(page, 'review', { question: true });
+  const passage = page.locator('[data-chapter-passage]');
+  await passage
+    .getByRole('textbox', { name: 'Your answer', exact: true })
+    .fill('A clearer heading.');
+  await run(page, 'pausePrepare');
+  await passage.getByRole('button', { name: /^Send answer/ }).click();
+  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+  await page.locator('#ask-page-fixture .today-title a').click();
+  await expect(passage.locator('iframe')).toHaveCount(0);
+  await run(page, 'releaseQuestionView');
+  await run(page, 'resumePrepare');
+  await expect.poll(async () => (await run(page, 'proof')).actions).toEqual(['status:resolve']);
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
+  expect(await run(page, 'discussionProof')).toHaveLength(2);
+  await expect(passage).toHaveCount(0);
 });
 
 test('a page opening retires the chapter frame while its existing notification finishes once', async ({
@@ -124,6 +168,55 @@ test('a page opening retires the chapter frame while its existing notification f
   await expect(passage).toHaveCount(0);
   expect(await run(page, 'discussionProof')).toHaveLength(1);
   expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'notify:Agent 1']);
+});
+
+test('an answer already recorded in a chapter finishes its one Send after opening the page', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { todayPassages: true, statusAgents: true });
+  await run(page, 'chipPage');
+  const passage = page.locator('[data-chapter-passage]');
+  const group = passage.locator('[data-question-group]').first();
+  await group.getByRole('radio', { name: 'One column', exact: true }).check();
+  await run(page, 'pausePrepare');
+  await group.getByRole('button', { name: /^Send 1 answer/ }).click();
+  await expect.poll(async () => (await run(page, 'discussionProof')).length).toBe(1);
+  await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toBeDisabled();
+  await page.locator('#ask-page-fixture .today-title a').click();
+  await expect(passage).toBeHidden();
+  await expect(passage.locator('iframe')).toHaveCount(0);
+  await run(page, 'resumePrepare');
+  await expect(passage).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
+  const records = await run(page, 'discussionProof');
+  expect(records).toHaveLength(1);
+  expect(records[0].comments).toHaveLength(1);
+});
+
+test('an archived chapter retains its passage without writable controls', async ({ page }) => {
+  const passage = await mount(page, 'reading');
+  await expect(passage.getByRole('button', { name: 'Mark read', exact: true })).toBeVisible();
+  await run(page, 'archive');
+  await expect(passage.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(0);
+  await expect(passage).toBeVisible();
+  await expect(passage.locator('iframe')).toHaveCount(1);
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
+test('a failed live chapter retires its frame and actions while retaining its page entry', async ({
+  page,
+}) => {
+  const passage = await mount(page, 'reading');
+  await expect(passage.getByRole('button', { name: 'Mark read', exact: true })).toBeVisible();
+  await run(page, 'block');
+  await expect(passage.getByText('Preview unavailable', { exact: false })).toBeVisible();
+  await expect(passage.getByRole('button', { name: 'Open the page', exact: true })).toBeVisible();
+  await expect(passage.locator('iframe')).toHaveCount(0);
+  await expect(passage.getByRole('button', { name: 'Mark read', exact: true })).toHaveCount(0);
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  expect((await run(page, 'proof')).actions).toEqual([]);
 });
 
 for (const width of [1440, 390]) {

@@ -47,6 +47,10 @@ export function usePageLayers({
     () => inspectQuestions(view.source),
     [view.source],
   );
+  const chapterQuestions =
+    chapter?.selected?.kind === 'review'
+      ? (reviews.find((review) => review.id === chapter.selected?.id)?.questions ?? [])
+      : [];
   const inlineSlots = useInlineSlots({
     renderer,
     host,
@@ -103,7 +107,13 @@ export function usePageLayers({
     onRecorded: reviewLayer.answered,
     pageUrl: chapter?.url,
     passage: chapter && {
-      id: chapter.selected?.kind === 'answer' ? chapter.selected.id : undefined,
+      ids: groups
+        .filter(
+          (group) =>
+            (chapter.selected?.kind === 'answer' && group.id === chapter.selected.id) ||
+            group.questions.some((id) => chapterQuestions.includes(id)),
+        )
+        .map((group) => group.id),
     },
     onWorking: chapter && ((id, working) => chapter.onWorking('answer', id, working)),
     snapshot,

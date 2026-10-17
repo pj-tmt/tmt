@@ -47,7 +47,7 @@ export function useQuestionLayer({
   pageUrl,
 }: {
   onWorking?(id: string, working: boolean): void;
-  passage?: { id?: string };
+  passage?: { ids: readonly string[] };
   pageUrl?: string;
   questions: readonly Question[];
   groups: readonly QuestionGroup[];
@@ -262,7 +262,9 @@ export function useQuestionLayer({
                 if (node) panels.current.set(group.id, node);
                 else panels.current.delete(group.id);
               }}
-              hidden={(passage && passage.id !== group.id) || (chip && !isOpen) || undefined}
+              hidden={
+                (passage && !passage.ids.includes(group.id)) || (chip && !isOpen) || undefined
+              }
               data-inline-question={current}
               data-question-group={group.id}
               data-inline-slot={group.id}
