@@ -1140,6 +1140,8 @@ test('a disconnected active tab replaces its session on its own, with no click a
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
   await expect.poll(() => f.connections).toBe(1);
   await page.getByRole('link', { name: 'Space home' }).click();
+  // Today owns a visible passage connection; All pages releases that owner too.
+  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 
