@@ -31,6 +31,14 @@ pub fn catalog(store: &Store, key: &Keyring) -> Result<Value> {
     })
 }
 
+/// The home summary, when one is stored (contract: Home summary).
+pub fn home_summary(
+    store: &Store,
+    key: &Keyring,
+) -> Result<Option<crate::home_summary::HomeSummary>> {
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| tx.home_summary())
+}
+
 pub fn detail(store: &Store, key: &Keyring, page: &Value) -> Result<Value> {
     let id = page["pageId"].as_str().ok_or(OwnerFault::Invalid)?;
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {

@@ -92,6 +92,10 @@ pub const COMPACT_REPLY: Duration = ACQUISITION
     .saturating_add(crate::decoder::DEADLINE)
     .saturating_add(RESPONSE);
 
+/// Absolute wait for a home summary reply, from the moment the client finished sending: the delay
+/// before the serve reads the request, its one store transaction and the response.
+pub const HOME_SUMMARY_REPLY: Duration = ACQUISITION.saturating_add(RESPONSE);
+
 /// One root-local attachment read answers with at most one whole plaintext attachment.
 pub const ATTACHMENT_READ_BYTES: usize = tmt_colab_model::attachment::PLAINTEXT_BYTES;
 /// The serve's interval to write that reply to its local reader.
@@ -153,6 +157,10 @@ pub const SPACE_LABELS: usize = 1000;
 /// Pages one `page.labels` request may change, in one store transaction (the payload stays under
 /// the 16 KiB management cap for ordinary names; a larger batch is several requests).
 pub const LABEL_REQUEST_PAGES: usize = 64;
+/// Home summary (contract: Home summary): the two display-only lines under Today's greeting, counted
+/// in code points. The app's `bootstrap.ts` and its test hold the same numbers.
+pub const HOME_SUMMARY_FIRST_POINTS: usize = 24;
+pub const HOME_SUMMARY_SECOND_POINTS: usize = 60;
 /// Page markup the browser admits (`questions.ts` holds the same numbers; the shared vectors in
 /// `contracts/vectors/page-markup-v1.json` fail when they differ).
 /// Elements a page may nest. A browser's parser stops nesting at the same depth (512), and the

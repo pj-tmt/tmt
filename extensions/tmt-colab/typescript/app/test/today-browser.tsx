@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import type { ReadingDetails } from '../src/reading-details.js';
 import { createAppRouter } from '../src/router.js';
+import type { HomeSummary } from '../src/bootstrap.js';
 import { localTransport, type PageSnapshot, type PageSummary } from '../src/transport.js';
 
 /** 2026-10-17 09:30 UTC, a Saturday morning; the spec runs in UTC. */
@@ -53,7 +54,19 @@ export type TodayKind =
   | 'long'
   | 'mixed'
   | 'checking'
-  | 'partial';
+  | 'partial'
+  | 'summary'
+  | 'summary-stale'
+  | 'summary-anonymous';
+
+/** The maintainer's two lines; the newest page of the default list changed two hours ago. */
+function summaryFor(kind: TodayKind): HomeSummary | undefined {
+  const lines: [string, string] = ['Two pages changed', 'Budget review waits on you'];
+  if (kind === 'summary') return { lines, author: 'Studio agent', atMs: todayNow - hour };
+  if (kind === 'summary-stale') return { lines, author: 'Studio agent', atMs: todayNow - 5 * hour };
+  if (kind === 'summary-anonymous') return { lines, atMs: todayNow - hour };
+  return undefined;
+}
 
 function pagesFor(kind: TodayKind): PageSummary[] {
   if (kind === 'none') return [];
@@ -183,7 +196,8 @@ export async function mountToday(kind: TodayKind = 'few', hash = '/') {
       : {}),
     spaceHome: async () => {
       homeReads++;
-      return { title: 'Studio pages', pages: homePages };
+      const homeSummary = summaryFor(kind);
+      return { title: 'Studio pages', pages: homePages, ...(homeSummary ? { homeSummary } : {}) };
     },
   });
   location.hash = hash;

@@ -558,6 +558,38 @@ fn serve(
         }
         return;
     }
+    if request.path == crate::home_summary::ipc::PATH {
+        // Root-local write of the home summary. Like the compact route the authority is this owned
+        // private socket; the lines are display-only owner data, so the write takes the
+        // registration mutex alone: no log statement, no stream and no sync state changes.
+        let result = (|| -> Result<Vec<u8>> {
+            if local_denied(&request) {
+                return Err(crate::page::Fault::Denied.into());
+            }
+            if request.method != "POST" || request.upgrade {
+                return Err(crate::page::Fault::Invalid.into());
+            }
+            let write = crate::home_summary::ipc::parse(&request.body)?;
+            let outcome = registration
+                .ok_or(crate::page::Fault::Unavailable)?
+                .lock()
+                .map_err(|_| crate::page::Fault::Unavailable)?
+                .set_home_summary(write)?;
+            Ok(serde_json::to_vec(&outcome)?)
+        })();
+        match result {
+            Ok(bytes) => {
+                let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            }
+            Err(error) => {
+                let failure = crate::page::ipc::WriteError::from_error(error.as_ref());
+                if let Ok(bytes) = serde_json::to_vec(&failure) {
+                    let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
+                }
+            }
+        }
+        return;
+    }
     if request.path == crate::attachments::ipc::PATH {
         // Native root-local admitted read through this serve's established object channel. The
         // authority is this owned private socket; it never activates storage, opens a backend
@@ -1644,6 +1676,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
             | crate::page::compact_ipc::PATH
+            | crate::home_summary::ipc::PATH
             | crate::attachments::ipc::PATH
             | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH
