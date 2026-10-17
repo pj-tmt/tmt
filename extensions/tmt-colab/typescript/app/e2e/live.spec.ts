@@ -2344,6 +2344,8 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
   ).toBeVisible();
   await page.getByRole('link', { name: 'Space home' }).click();
+  // Today owns a visible passage connection; All pages releases that owner too.
+  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
   await expect
     .poll(() =>
@@ -2407,6 +2409,8 @@ test('baseline finishes before a signed large statement; exact owner log survive
   expect(await persistedLog(page)).toEqual(log);
   expect(f.statementChunks).toBe(chunks);
   await page.getByRole('link', { name: 'Space home' }).click();
+  // Today owns a visible passage connection; All pages releases that owner too.
+  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 test('tampered statement reference blocks home metadata and preserves the verified prefix', async ({
@@ -2458,6 +2462,8 @@ test('signed catchup publishes detached own maps for two authors while source st
   expect(result.own!['00000000-0000-4000-8000-000000000126']).toEqual(ownVector.expectedPrefix);
   expect(result.subscriptionIsDetached).toBe(true);
   expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
+  // Today owns a visible passage connection; All pages releases that owner too.
+  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 
@@ -2606,6 +2612,8 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await closeExport.click();
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(urlCount).toBe(0);
+  // Today owns a visible passage connection; All pages releases that owner too.
+  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 
@@ -2680,7 +2688,9 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();
-  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(
+    page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
+  ).toBeVisible();
   await expect(page).toHaveTitle(`${title} · Colab`);
   await (await pageAction(page, 'Manage page')).click();
   const dialog = page.getByRole('dialog');
@@ -2725,7 +2735,9 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await page.reload();
   await expect(row().locator('.today-title')).toHaveText(title);
   await row().locator('a').click();
-  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(
+    page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
+  ).toBeVisible();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();
   await expect(row().locator('.today-title')).toHaveText(title);
 });
