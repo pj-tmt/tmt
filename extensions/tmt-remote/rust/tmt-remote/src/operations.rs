@@ -386,8 +386,8 @@ impl Operations {
         let payload = permit.with_store(|store| store.observe(&permit.grant, || {
             match operation {
                 "agents.list" => {
-                    let observed_at_ms = now_ms()?;
                     let value = self.core.agents(&self.stop)?;
+                    let observed_at_ms = now_ms()?;
                     let rows = value["identities"].as_array().ok_or_else(invalid)?;
                     let mut agents = Vec::new();
                     for row in rows {

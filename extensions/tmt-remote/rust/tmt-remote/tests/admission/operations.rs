@@ -654,6 +654,53 @@ fn agents_list_forwards_only_valid_activity_and_one_owner_clock_sample() {
 }
 
 #[test]
+fn agents_list_observation_time_follows_a_transition_during_the_core_read() {
+    let id = uuid_v4().unwrap();
+    let owner = OwnerDoor::with_limits(
+        vec!["agents.read".into()],
+        "direct",
+        json!([id]).to_string(),
+        None,
+    );
+    let core = Core::new();
+    fs::write(
+        core.root.join("agents"),
+        json!({"identities":[
+            {"id":id,"name":"Fresh transition","presence":"active"}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    // Observe the next real clock tick inside the Core call, bounded without a fixed sleep.
+    fs::write(core.root.join("core.py"), r#"import json,pathlib,sys,time
+root=pathlib.Path(__file__).parent
+assert sys.argv[1:]==['list','--json']
+with (root/'calls').open('a') as f: f.write(json.dumps({'operation':'list','argv':sys.argv[1:]})+'\n')
+value=json.loads((root/'agents').read_text())
+first=time.time_ns()//1000000
+until=time.monotonic()+1
+while time.time_ns()//1000000<=first:
+    if time.monotonic()>=until: raise RuntimeError('clock tick not observed')
+stamp=time.time_ns()//1000000
+value['identities'][0]['session']={'activity':{'state':'working','sinceMs':stamp}}
+print(json.dumps(value))
+"#).unwrap();
+    let session = owner.open();
+    let wire = owner.wire(&session, "1", "agents.list", b"{}");
+    let reply = append(&owner, core.operations(), &wire);
+    let row = &reply["identities"][0];
+    assert!(
+        row["observedAtMs"].as_u64().unwrap() >= row["activity"]["sinceMs"].as_u64().unwrap(),
+        "owner observation must follow the Core-stamped transition: {row}"
+    );
+    assert_eq!(
+        core.calls(),
+        vec![json!({"operation":"list","argv":["list","--json"]})]
+    );
+    assert_eq!(core.sends(), 0);
+}
+
+#[test]
 fn named_reads_project_authority_and_preserve_empty_final_without_dispatch() {
     let permitted = uuid_v4().unwrap();
     let other = uuid_v4().unwrap();

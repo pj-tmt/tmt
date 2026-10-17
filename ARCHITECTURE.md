@@ -568,10 +568,10 @@ Bundle: pages/CSS/SDK/wordlist, no companions/skills; [release gates](.agents/sk
 
 [Contract](contracts/remote-channel-v1.md) owns wire, pairing, sessions, operations, settings authority,
 mounts, serve lifecycle, discovery shapes and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; shared UI only presents; agent activity is advisory.
+Remote owns authority; shared components supply presentation only.
 `message`: signed envelopes/grants/scope/allowlist/hold/uncertainty/audit.
 Target design (proposed, #3290): `talk` → Remote interface → target host → driver.
-Receive: `routes`/`transport` → shared `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
+Receive: `transport` driver (`routes`) → shared `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK README](extensions/tmt-remote/typescript/remote-client/README.md))
 and owner-installed extensions. [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`;
 else public CLI/SDK/`tmt-extension-objects`, never Remote state files.
