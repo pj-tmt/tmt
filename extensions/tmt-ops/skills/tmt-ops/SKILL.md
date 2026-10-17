@@ -309,19 +309,28 @@ anchors. `e` opens full observed member values. Authored sort changes the curren
 layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
-the selected window and total. Range choices are 1h, 6h, 24h, 7d and 30d. Each
-choices follow them: 5/15/30/60m, 15/30/60m, 1/2h, 6/12h or 1d, and 1/2d. A range
-change keeps a valid Each choice or selects the first shown interval. Long ranges
-use retained five-minute Core observations; history before collection is unknown,
-and gaps are never filled with zero. Configured short token-meter windows stay
-independent.
-Muted TOK and % of all headings label the numeric tracks; quota has shared 7d/5h chips. The share track
-is eight cells wide. Interval/window chips have padded labels with one-cell gaps.
+the selected window and total. Independent Range and Each dropdowns use Enter to
+open/pick, arrows to navigate and Esc to close; the current choice is checked.
+Range offers 1h, 6h, 24h, 7d and 30d. Each offers Auto, 5m, 15m, 30m, 1h, 2h,
+6h, 12h and 1d, hiding intervals longer than the range. Choices exceeding 720 bars
+stay visible but disabled, with the minimum interval explained in the menu footer.
+Auto picks the finest interval fitting the plot width and 720; fixed choices
+survive resize. Range changes keep a valid fixed interval or choose the closest
+admitted one. These authored choices are saved per view layer, separately from
+configured token-meter windows. Long ranges use retained Core observations;
+history before collection is unknown, and gaps are never filled with zero.
+Muted TOK and % of all headings label the numeric tracks; quota retains its
+independent 7d/5h chips. The share track is eight cells wide.
 Each acquired driver has a neutral-grey trend row, observed total and share;
 unknown provenance has its own muted row. Shares include unknown tokens in the
 denominator. Trends start immediately after the names; unused cells follow the
-last exact bucket and time labels follow the drawn width. Narrowing shrinks the trend width; it never creates finer buckets or
-longer history. Provider quota occupies the same row; its header chips select
+last exact bucket and time labels follow the drawn width. Fixed intervals that do
+not fit use one-cell bars and horizontal scroll over the already-loaded series.
+Arrows and wheel move the window; Home/End reach oldest/newest. Muted ◂/▸ marks
+show off-screen history. Hover or keyboard selection replaces the title with the
+bucket span/total and the numeric columns with its provider values, with ~ for
+partial counts. A neutral column and axis ▲ mark the selection. Click or Enter
+pins it; click again or Esc unpins. There is no Usage Details window. Provider quota occupies the same row; its header chips select
 one remaining-balance window for all providers. That choice is saved per view layer. The Subscription quota toggle controls these inline cells;
 there is no separate Subscriptions block. Usage has a fixed header position. With no observed token bucket, provider names and available quota remain beside one muted empty-state line and em-dash totals; no axis or invented unknown row appears. A measured zero stays zero.
 Overview's default `c` uses `all-timers` and opens all-room Timers, matching the

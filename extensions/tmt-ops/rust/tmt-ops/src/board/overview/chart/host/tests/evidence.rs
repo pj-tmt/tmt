@@ -49,6 +49,7 @@ fn terminal_cell_evidence() {
                     if controls {
                         paint(&mut app, width, height);
                         press(&mut app, KeyCode::Char('u'));
+                        press(&mut app, KeyCode::Enter);
                         assert!(app.usage_controls);
                     }
                     let buffer = paint(&mut app, width, height);
@@ -62,7 +63,10 @@ fn terminal_cell_evidence() {
                     assert!(buffer.content.len() == usize::from(width) * usize::from(height));
                     if height == 36 {
                         assert!(state.visible);
-                        assert_eq!(state.observed.as_ref().unwrap().buckets.len(), 12);
+                        assert_eq!(
+                            state.observed.as_ref().unwrap().buckets.len(),
+                            state.selection.bars().unwrap()
+                        );
                     }
                     let value = json!({"tab":format!("{tab:?}"),"width":width,"height":height,"theme":if base == Base::TmtLight {"tmt-light"} else {"tmt"},"depth":format!("{depth:?}"),"cells":cells,"lines":lines,"chartVisible":state.visible,"controlsModal":controls,"barHits":state.hits.iter().filter_map(|hit| if let Target::Bar(index) = hit.target { Some(json!({"index":index,"x":hit.area.x,"y":hit.area.y,"width":hit.area.width,"height":hit.area.height})) } else { None }).collect::<Vec<_>>(),"sourceTotals":state.observed.as_ref().map(|source| source.buckets.iter().map(|bucket| json!({"fromMs":bucket.from_ms,"toMs":bucket.to_ms,"tokens":bucket.tokens.map(|value|value.to_string()),"coverageComplete":bucket.complete(),"identities":bucket.identities,"observedIdentities":bucket.observed_identities})).collect::<Vec<_>>())});
                     let file = root.join(format!(

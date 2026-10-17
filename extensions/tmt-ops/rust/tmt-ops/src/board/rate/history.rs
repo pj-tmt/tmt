@@ -131,7 +131,7 @@ fn read_slices(
 pub(in crate::board) struct Cache {
     key: Option<(u64, u64, u64)>,
     seeds: Seeds,
-    chart: RetainedCache,
+    chart: ChartCache,
     quota: RetainedCache,
 }
 
@@ -157,10 +157,10 @@ impl Cache {
         self.quota.load(core, ids, quota_request(), cursor, now)
     }
 
-    /// Only the active token selection and the fixed quota horizon are cached.
+    /// Leaving either surface releases its independently owned evidence cache.
     pub fn retain_demand(&mut self, demand: Option<Demand>) {
         if demand.and_then(|d| d.chart).is_none() {
-            self.chart = RetainedCache::default();
+            self.chart = ChartCache::default();
         }
         if !demand.is_some_and(|d| d.quota) {
             self.quota = RetainedCache::default();
@@ -219,6 +219,40 @@ pub(in crate::board) fn quota_request() -> rollup::Request {
         2 * crate::board::limits::pace::HORIZON_MS,
     )
     .expect("four hours in 48 closed five-minute intervals")
+}
+/// A pair cache cannot outlive the current source refresh tick, evidence cursor,
+/// or roster. Quota evidence has its independent fixed-horizon cache below.
+#[derive(Default)]
+struct ChartCache {
+    tick: Option<(u64, u64)>,
+    ids: BTreeSet<String>,
+    pairs: BTreeMap<rollup::Request, RetainedCache>,
+}
+impl ChartCache {
+    fn load(
+        &mut self,
+        core: &Core,
+        ids: BTreeSet<String>,
+        request: rollup::Request,
+        cursor: Option<u64>,
+        now: u64,
+    ) -> rollup::Seeds {
+        let tick = cursor.map(|cursor| (cursor, now / SLOT_MS));
+        if tick.is_none() || self.tick != tick || self.ids != ids {
+            self.pairs.clear();
+            self.tick = tick;
+            self.ids = ids.clone();
+        }
+        let result = self
+            .pairs
+            .entry(request)
+            .or_default()
+            .load(core, ids, request, cursor, now);
+        if self.pairs[&request].seeds.is_empty() {
+            self.pairs.remove(&request);
+        }
+        result
+    }
 }
 #[derive(Default)]
 struct RetainedCache {
@@ -341,9 +375,17 @@ mod tests {
             (Some(7), 30_299_999, other_range, false),
         ] {
             let mut cache = Cache {
-                chart: RetainedCache {
-                    key: Some((7, seed.through, request)),
-                    seeds: [("known".into(), Some(seed.clone()))].into(),
+                chart: ChartCache {
+                    tick: Some((7, 30_299_999 / SLOT_MS)),
+                    ids: ["known".into(), "new".into()].into(),
+                    pairs: [(
+                        request,
+                        RetainedCache {
+                            key: Some((7, seed.through, request)),
+                            seeds: [("known".into(), Some(seed.clone()))].into(),
+                        },
+                    )]
+                    .into(),
                 },
                 ..Default::default()
             };
@@ -357,13 +399,71 @@ mod tests {
             assert_eq!(result["known"].is_some(), reused);
             assert!(result["new"].is_none());
             assert!(
-                !cache.chart.seeds.contains_key("new"),
+                cache
+                    .chart
+                    .pairs
+                    .get(&selected)
+                    .is_none_or(|pair| !pair.seeds.contains_key("new")),
                 "failed reads are retryable"
             );
             assert!(
                 cache.seeds.is_empty(),
                 "coarse reuse cannot populate fine evidence"
             );
+        }
+    }
+
+    #[test]
+    fn chart_pairs_share_only_the_current_source_refresh_tick_and_exact_roster() {
+        let a = rollup::Request::new(3_600_000, 604_800_000).unwrap();
+        let b = rollup::Request::new(7_200_000, 604_800_000).unwrap();
+        let now = 900_000_000;
+        let seed = |request| rollup::Seed {
+            request,
+            through: now,
+            fine_through: now,
+            sampled: None,
+            latest: Value::Null,
+            buckets: Vec::new(),
+            limits: Vec::new(),
+        };
+        let make = || Cache {
+            chart: ChartCache {
+                tick: Some((7, now / SLOT_MS)),
+                ids: ["known".into()].into(),
+                pairs: [a, b]
+                    .into_iter()
+                    .map(|request| {
+                        (
+                            request,
+                            RetainedCache {
+                                key: Some((7, now, request)),
+                                seeds: [("known".into(), Some(seed(request)))].into(),
+                            },
+                        )
+                    })
+                    .collect(),
+            },
+            ..Default::default()
+        };
+        let core = Core::at("/nonexistent-ops-chart-pair-cache-test".into());
+        let mut cache = make();
+        for request in [a, b, a] {
+            assert!(
+                cache.retained(&core, ["known".into()].into(), request, Some(7), now + 1)["known"]
+                    .is_some()
+            );
+            assert_eq!(cache.chart.pairs.len(), 2);
+        }
+        for (cursor, at, ids) in [
+            (Some(7), now + SLOT_MS, ["known".into()].into()),
+            (Some(8), now + 1, ["known".into()].into()),
+            (None, now + 1, ["known".into()].into()),
+            (Some(7), now + 1, ["known".into(), "new".into()].into()),
+        ] {
+            let mut cache = make();
+            assert!(cache.retained(&core, ids, a, cursor, at)["known"].is_none());
+            assert!(cache.chart.pairs.is_empty());
         }
     }
 
@@ -405,7 +505,7 @@ mod tests {
             );
         }
         cache.retain_demand(None);
-        assert!(cache.chart.seeds.is_empty() && cache.quota.seeds.is_empty());
+        assert!(cache.chart.pairs.is_empty() && cache.quota.seeds.is_empty());
     }
 
     #[test]
@@ -506,7 +606,7 @@ mod tests {
             .collect();
         assert_eq!(sizes, [32, 32, 1]);
         std::fs::write(&calls, "").unwrap();
-        let request = rollup::Request::new(86_400_000, rollup::RETENTION_MS).unwrap();
+        let request = rollup::Request::new(3_600_000, rollup::RETENTION_MS).unwrap();
         let mut cache = Cache::default();
         let retained = cache.retained(
             &Core::at(fake),
@@ -517,7 +617,7 @@ mod tests {
         );
         assert_eq!(retained.keys().cloned().collect::<BTreeSet<_>>(), ids);
         assert!(retained.values().all(Option::is_none));
-        assert!(cache.chart.seeds.is_empty());
+        assert!(cache.chart.pairs.is_empty());
         let requests: Vec<Value> = std::fs::read_to_string(&calls)
             .unwrap()
             .lines()
@@ -528,7 +628,7 @@ mod tests {
             .map(|value| {
                 assert_eq!(value["operation"], "consumption.history");
                 assert_eq!(value["input"]["windowsMs"], json!([rollup::RETENTION_MS]));
-                assert_eq!(value["input"]["maxBuckets"], 30);
+                assert_eq!(value["input"]["maxBuckets"], 720);
                 value["input"]["identityIds"].as_array().unwrap().len()
             })
             .collect();

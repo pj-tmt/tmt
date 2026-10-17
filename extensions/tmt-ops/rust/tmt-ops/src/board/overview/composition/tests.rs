@@ -195,7 +195,7 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         assert!(app.usage_controls);
         let modal = paint(&mut app, width, 8);
         assert!(
-            modal.contains("5m") && modal.contains("60m"),
+            modal.contains("Range") && modal.contains("1h") && modal.contains("6h"),
             "short modal remains operable: {modal}"
         );
         key(&mut app, KeyCode::Esc);

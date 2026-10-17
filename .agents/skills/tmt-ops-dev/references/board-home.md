@@ -341,23 +341,25 @@ values. Paint and input perform no acquisition.
 
 `board::overview::chart::host` owns one session Each/Range selection for Overview
 and Digest. `u` resolves through effective bindings in their list scopes; Agents,
-Reader, search and composers retain their own input. Arrows draft a choice, Enter
-applies or inspects, Tab selects Each/Range/quota/buckets in Overview (without quota
-in Digest), and Esc returns to the list. The quota choice is retained per view layer;
-changing it does not change token controls or acquire source data.
-Ranges are 1h, 6h, 24h, 7d and 30d. Each choices follow the range: 5/15/30/60m,
-15/30/60m, 1/2h, 6/12h or 1d, and 1/2d respectively. A range change keeps a valid
-interval or selects its first visible choice; invalid direct pairs preserve both
-controls. Direct control and bucket hits come from
-admitted, clipped nodes; resize and source replacement revoke their authority.
+Reader, search and composers retain their own input. Tab selects Range, Each,
+quota and buckets in Overview (without quota in Digest). Enter opens a dropdown
+or pins a bucket; arrows choose menu entries or select/scroll buckets. Esc closes
+the dropdown or unpins and returns to the list. The quota choice is retained per
+view layer; changing it does not change token controls or acquire source data.
+The independent choices, Auto width rule and readout are defined under
+[Shared board components](#shared-board-components). A range transition keeps an
+admitted fixed interval or chooses the closest admitted interval; invalid direct
+pairs preserve both controls. Control and bucket hits come from admitted,
+clipped nodes; resize and source replacement revoke their authority.
 Overview retains provider rows when counts are missing or measured zero. With no
 observed token bucket, EmptyState paints one muted status in the trend track;
 provider names and available quotas remain, totals/shares are em dashes, and no
 axis, blank bar rows or invented unknown provider appears. Measured zero remains
 zero. Digest retains its existing summary collapse for nonpositive evidence. If
 placement would leave fewer than six target rows, the chart collapses to one
-summary line. Its effective shortcut, summary click or Actions entry opens the
-same controls in an opaque body modal; closing never replays input. A body with
+summary line. Its effective shortcut, summary click or Actions entry focuses the
+same controls; Enter opens the anchored dropdown. When the Usage band is omitted
+on a short Overview, the shortcut opens Range directly. Closing never replays input. A body with
 no spare target row omits the summary to retain the last usable row. At eight
 terminal rows, Overview reveals selected targets and omits the full Usage band; the
 effective view, Details and usage-control keys remain reachable.
@@ -393,22 +395,28 @@ Overview TEAM glyphs use the same activity label (request attention first, never
 a task state). Needs-you counts stay task and request facts.
 
 One identity-total series uses the existing Rate owner. Its header reads
-`Usage · last <range> · <total> tok`; two right-aligned selector groups expose the
-range-dependent Each choices and the five ranges, separated by a muted dot.
-Each chip has one space of padding on both sides, with a one-cell gap between
-chips and `·` between groups. Selected and hover states use the
-[shared chip styles](../../../../design/cli-style.md#themes). Unsupported intervals
-are omitted. Each provider has one neutral-grey spark row, then its observed
-total and share. The fixed tracks are name (8), a one-cell gap, spark, two spaces,
-total (7, right-aligned), two spaces and share (8, right-aligned, muted). The unknown
-row is muted. There is no y-axis or vertical plot. The row below the heading labels
-TOK and % of all, followed by the shared quota selector in the muted role. Start/midpoint/now ticks occupy only the drawn
-spark width. Received hover or keyboard bucket selection temporarily replaces the
-axis row with the same exact-evidence text used by Details; the idle layout keeps
-its axis and gains no extra row. Each exact bucket repeats one eighth-height glyph over
-`floor(spark_width / bucket_count)` cells, starting immediately after the name
-track; leftover cells pad the right. Narrowing
-changes only the spark track and never manufactures finer buckets.
+`Usage · last <range> · <total> tok`, with independent right-aligned Range and Each
+dropdowns. Range offers 1h, 6h, 24h, 7d and 30d; Each offers Auto, 5m, 15m, 30m,
+1h, 2h, 6h, 12h and 1d, omitting intervals longer than the range. Choices exceeding
+720 buckets remain visible but disabled, with their minimum interval in the menu
+footer. Auto selects the finest interval fitting both the plot width and 720;
+fixed choices survive resize. Authored controls belong to the selected view hint.
+Each provider has one neutral-grey spark row, then its observed total and share.
+The fixed tracks are name (8), a one-cell gap, spark, two spaces, total (7,
+right-aligned), two spaces and share (8, right-aligned, muted). Unknown provenance
+has its own muted row. TOK and % of all label the numeric tracks; quota controls
+keep their independent track. When all buckets fit, each slot is
+`floor(spark_width / bucket_count)` cells, with a one-cell gap inside slots at
+least three cells wide. Remainder cells stay on the right. Otherwise one-cell
+bars scroll over the loaded series, initially at the newest end. Arrow keys,
+wheel and Shift-wheel move the window; Home/End reach oldest/newest. Axis labels
+follow that window, with muted `◂`/`▸` at ends containing more history.
+
+Hover or keyboard selection replaces the title with the interval span and total,
+and TOK/share show that bucket's provider values. Partial numbers have `~`. The
+selected column has a neutral background across all provider rows and an `▲`
+axis marker. Click pins/unpins; Esc unpins, and leaving an unpinned chart restores
+the full-range summary. There is no Usage Details window or floating card.
 
 Provider shares divide by all observed tokens, including unknown provenance.
 Live continuous increments use their verified counter driver. History attributes
@@ -423,15 +431,13 @@ its existing whole-member UUID de-duplication. Held account IDs add quota-only
 rows without claiming token provenance. Numeric totals and shares retain the full
 source denominator even when a bucket exceeds the spark quantizer's range.
 Fine and retained resolutions share that owner and the refresh worker; their
-overlapping totals are never added. Details preserve exact
-half-open bounds, observed tokens, missing identities and source durations;
-click, keyboard and optional received hover share that formatter. Different
+overlapping totals are never added. Typed projection tests retain exact half-open
+bounds, observed tokens, missing identities and source durations. Different
 identities' durations are agent-time, not inferred joint elapsed coverage. An
 unreported, disabled or absent common-pool source stays unknown in the canonical
-roster scope. The chart caches at most 48 interval totals and one admitted
-scene; the existing Frame retains the terminal diff. A read-only details modal
-captures the inspected evidence, scrolls through the shared component, blocks
-reload while open and closes without replaying input.
+roster scope. The chart retains at most 720 interval totals and one admitted
+scene; the existing Frame retains the terminal diff. Paint and input acquire no
+data; the board paints before the existing asynchronous history read fills it.
 
 `board::app::workspace::tests` covers authority, modal lifecycle, pointer geometry,
 reload and scoped appearance. `board::workspace::tests` covers pure membership,

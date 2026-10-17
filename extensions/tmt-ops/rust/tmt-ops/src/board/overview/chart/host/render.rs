@@ -1,8 +1,6 @@
 //! Inline and modal placement share one chart painter and semantic scene cache.
 use super::*;
-use ratatui::{Frame, buffer::Buffer, text::Line};
-use tmt_cli_style::Role;
-use tmt_tui::components::{Modal, Placement, strip};
+use ratatui::{Frame, buffer::Buffer};
 
 fn list_capacity(app: &App, area: Rect) -> usize {
     let Some(placement) = app.workspace_placement(area) else {
@@ -29,10 +27,27 @@ fn display(app: &App, data: &Series, selection: Selection) -> super::super::mode
     view
 }
 fn fits_chart(app: &App, data: &Series, selection: Selection, width: u16) -> bool {
-    usize::from(width)
-        >= crate::board::spark_row::minimum_width(&project::spark_rows(&display(
-            app, data, selection,
-        )))
+    crate::board::spark_row::plot_layout(
+        width,
+        &project::spark_rows(&display(app, data, selection)),
+        app.shell.tab == OpsTab::Overview && quotas_visible(app),
+    )
+    .0 > 0
+}
+fn resolve(app: &App, state: &mut State, width: u16, now: u64) {
+    refresh(app, state, now);
+    let rows = project::spark_rows(&display(
+        app,
+        state.observed.as_ref().unwrap(),
+        state.selection,
+    ));
+    let (plot, _) = crate::board::spark_row::plot_layout(
+        width,
+        &rows,
+        app.shell.tab == OpsTab::Overview && quotas_visible(app),
+    );
+    state.resolve_width(plot);
+    refresh(app, state, now);
 }
 fn chart_rows(app: &App, data: &Series, selection: Selection) -> u16 {
     1 + Scene::rows_for(&project::spark_rows(&display(app, data, selection)))
@@ -62,7 +77,7 @@ pub(in crate::board) fn overview_demand(app: &App, width: u16, height: u16, now:
         return 0;
     }
     let mut state = app.usage_chart.borrow_mut();
-    refresh(app, &mut state, now);
+    resolve(app, &mut state, width, now);
     let selection = state.selection;
     let source = Rc::clone(state.observed.as_ref().expect("refreshed source"));
     let rows = chart_rows(app, &source, selection) + 1; // header breathing row and trailing gap
@@ -99,7 +114,6 @@ pub(in crate::board) fn demand(app: &App, width: u16, target_row_budget: u16, no
         .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0))
         && width >= 40
         && fits_chart(app, &data, state.selection, width)
-        && !app.usage_controls
         && target_row_budget >= used
         && list_capacity(app, Rect::new(0, used, width, target_row_budget - used)) >= 6
     {
@@ -126,10 +140,11 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
     if (positive || app.shell.tab == OpsTab::Overview)
         && area.width >= 40
         && fits_chart(app, &data, state.selection, area.width)
-        && !app.usage_controls
         && area.height >= chart_rows(app, &data, state.selection)
     {
-        if !positive && state.focus == Some(Focus::Bars) {
+        if !data.buckets.iter().any(|bucket| bucket.tokens.is_some())
+            && state.focus == Some(Focus::Bars)
+        {
             state.release_focus();
         }
         paint_chart(frame, app, &mut state, area, look, now);
@@ -144,8 +159,8 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             state.selection,
             &title,
             app,
-            (None, 0),
-            false,
+            None,
+            state.each,
         );
     }
     if state.focus == Some(Focus::Quota)
@@ -162,113 +177,13 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             .push(crate::board::view::ClockSurface::UsageChart);
     }
 }
-pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect) {
+pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, _body: Rect) {
     let look = app.look();
-    let quota_controls = app.quota_history_visible();
-    let modal = Modal {
-        title: if quota_controls {
-            "Usage · Each / Range / quota"
-        } else {
-            "Usage · Each / Range"
-        }
-        .into(),
-        placement: Placement::Body,
-    };
-    let mut areas = modal.areas(body, [body.width, body.height], true, false);
-    // This modal has no position indicator. At short heights its reserved row
-    // belongs to the controls before the optional keyboard reminder.
-    let control_rows = controls::height(areas.content.width, app.usage_chart.borrow().selection)
-        + u16::from(quota_controls);
-    if areas.content.height < control_rows {
-        areas.content.height += areas.position.height;
-        areas.position.height = 0;
-    }
-    if areas.content.height < control_rows {
-        areas.content.height += areas.footer.height;
-        areas.footer.height = 0;
-    }
-    modal.paint_flat(areas, frame.buffer_mut(), &look.theme, look.depth);
     let mut state = app.usage_chart.borrow_mut();
-    state.hits.clear();
-    state.visible = false;
-    let now = crate::status::now_ms();
-    refresh(app, &mut state, now);
-    let control_rows =
-        controls::height(areas.content.width, state.selection) + u16::from(quota_controls);
-    if areas.content.height >= control_rows {
-        state.visible = true;
-        if state.focus.is_none() {
-            state.set_focus(Focus::Each);
-        }
-        if areas.content.width >= 80
-            && controls::header_fits(
-                areas.content.width,
-                state.selection,
-                &title(app, state.observed.as_ref().unwrap(), state.selection),
-            )
-            && fits_chart(
-                app,
-                state.observed.as_ref().unwrap(),
-                state.selection,
-                areas.content.width,
-            )
-            && areas.content.height
-                >= chart_rows(app, state.observed.as_ref().unwrap(), state.selection)
-        {
-            paint_chart(frame, app, &mut state, areas.content, look, now);
-        } else {
-            state.hits = controls::paint(
-                frame.buffer_mut(),
-                Rect {
-                    height: control_rows - u16::from(quota_controls),
-                    ..areas.content
-                },
-                state.selection,
-                state.focus,
-                state.draft,
-                app,
-            );
-            if quota_controls {
-                let hits = controls::quota(
-                    frame.buffer_mut(),
-                    Rect::new(
-                        areas.content.x,
-                        areas.content.y + control_rows - 1,
-                        areas.content.width,
-                        1,
-                    ),
-                    state.quota_window,
-                    state.focus,
-                    state.draft,
-                    app,
-                );
-                state.hits.extend(hits);
-            }
-            if state.focus == Some(Focus::Bars) {
-                state.set_focus(Focus::Each);
-            }
-        }
-    }
-    if state.focus == Some(Focus::Quota)
-        && !state
-            .hits
-            .iter()
-            .any(|hit| matches!(hit.target, Target::Quota(_)))
-    {
-        state.set_focus(Focus::Each);
-    }
-    strip::paint_left(
-        frame.buffer_mut(),
-        areas.footer,
-        Line::styled(
-            "←→ choose · Enter apply/details · Tab fields · Esc close",
-            look.role(Role::Muted),
-        ),
-    );
-    if app.usage_controls_active() {
-        app.frame_clocks
-            .borrow_mut()
-            .push(crate::board::view::ClockSurface::UsageChart);
+    let State { dropdown, hits, .. } = &mut *state;
+    if let Some(dropdown) = dropdown {
+        dropdown.reanchor(hits);
+        dropdown.render(frame, look, frame.area());
     }
 }
 fn paint_chart(
@@ -279,37 +194,117 @@ fn paint_chart(
     look: crate::look::Look,
     now: u64,
 ) -> u16 {
+    resolve(app, state, area.width, now);
     let data = Rc::clone(state.observed.as_ref().unwrap());
     let active = state.focus.filter(|_| app.focused() == Pane::Rows);
-    let title = title(app, &data, state.selection);
+    let selected = state
+        .pinned
+        .and_then(|from| data.buckets.iter().position(|b| b.from_ms == from))
+        .or_else(|| {
+            state
+                .pinned
+                .is_none()
+                .then_some(
+                    state.hover.or(active
+                        .filter(|focus| *focus == Focus::Bars)
+                        .map(|_| state.bar)),
+                )
+                .flatten()
+        });
+    let title = selected.map_or_else(
+        || title(app, &data, state.selection),
+        |index| project::readout(&data.buckets[index]),
+    );
     state.hits.extend(controls::header(
         frame.buffer_mut(),
         area,
         state.selection,
         &title,
         app,
-        (active, state.draft),
-        app.usage_controls
-            || data
-                .buckets
-                .iter()
-                .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0)),
+        active,
+        state.each,
     ));
     let view = display(app, &data, state.selection);
     let drivers: Vec<_> = view.drivers.iter().cloned().collect();
-    let rows = project::spark_rows(&view);
-    let quota_width = if app.shell.tab == OpsTab::Overview && quotas_visible(app) {
-        crate::board::spark_row::quota_width(area.width, &rows)
-    } else {
-        0
-    };
-    if state.scene.as_ref().is_none_or(|(old, width, scene)| {
-        old != &rows || *width != area.width || scene.quota_width() != quota_width
-    }) {
-        let scene = Scene::new(&rows, area.width, quota_width).expect("bounded shared spark rows");
-        state.scene = Some((rows, area.width, scene));
+    let mut rows = selected.map_or_else(
+        || project::spark_rows(&view),
+        |index| project::inspected_rows(&view, &data.buckets[index]),
+    );
+    let (_, quota_width) = crate::board::spark_row::plot_layout(
+        area.width,
+        &rows,
+        app.shell.tab == OpsTab::Overview && quotas_visible(app),
+    );
+    let scale =
+        crate::board::spark_row::scale(rows.rows.iter().flat_map(|row| row.values.iter().copied()))
+            .unwrap_or(0);
+    let window = state.viewport.window(rows.buckets);
+    for row in &mut rows.rows {
+        row.values = row.values[window.clone()].to_vec();
     }
-    let scene = &state.scene.as_ref().unwrap().2;
+    rows.buckets = window.len();
+    rows.axis = if state.selection.range_minutes <= 1_440
+        && window.start == 0
+        && window.end == data.buckets.len()
+    {
+        super::super::format::axis(state.selection.range_minutes)
+    } else {
+        let at = |index: usize| {
+            if index == data.buckets.len() {
+                return "now".into();
+            }
+            let pattern = if (window.len() as u32 * state.selection.each_minutes) >= 1_440 {
+                "%b %-d"
+            } else {
+                "%H:%M"
+            };
+            jiff::Timestamp::from_millisecond(data.buckets[index].from_ms)
+                .map(|time| time.strftime(pattern).to_string())
+                .unwrap_or_else(|_| "—".into())
+        };
+        [
+            at(window.start),
+            at((window.start + window.end) / 2),
+            at(window.end),
+        ]
+    };
+    if window.start > 0 {
+        rows.axis[0].insert_str(0, "  ");
+    }
+    if window.end < data.buckets.len() {
+        rows.axis[2].push_str("  ");
+    }
+    if let Some(index) = selected.filter(|index| window.contains(index)) {
+        let bars = crate::board::spark_row::BarLayout::new(state.viewport.width, window.len());
+        let drawn = bars.drawn;
+        let marker = (index - window.start) * bars.pitch + bars.pitch / 2;
+        let lengths = rows.axis.each_ref().map(|s| s.chars().count());
+        let starts = [
+            0,
+            drawn.saturating_sub(lengths[1]) / 2,
+            drawn.saturating_sub(lengths[2]),
+        ];
+        for (label, (start, length)) in rows.axis.iter_mut().zip(starts.into_iter().zip(lengths)) {
+            if (start..start + length).contains(&marker) {
+                label.clear();
+            }
+        }
+    }
+    if state
+        .scene
+        .as_ref()
+        .is_none_or(|(old, width, old_scale, scene)| {
+            old != &rows
+                || *width != area.width
+                || *old_scale != scale
+                || scene.quota_width() != quota_width
+        })
+    {
+        let scene = Scene::with_scale(&rows, area.width, quota_width, scale)
+            .expect("bounded shared spark rows");
+        state.scene = Some((rows, area.width, scale, scene));
+    }
+    let scene = &state.scene.as_ref().unwrap().3;
     let plot = Rect::new(area.x, area.y + 1, area.width, scene.rows());
     let quotas: Vec<_> = drivers
         .iter()
@@ -330,20 +325,8 @@ fn paint_chart(
             .push(crate::board::view::ClockSurface::OverviewUsageQuota { width: quota_width });
     }
     let mut buffer = Buffer::empty(plot);
-    let inspection = state
-        .hover
-        .or(active
-            .filter(|focus| *focus == Focus::Bars)
-            .map(|_| state.bar))
-        .map(|index| project::details(&data.buckets[index]).join(" · "));
     let hits = scene
-        .paint(
-            &mut buffer,
-            &look.theme,
-            look.depth,
-            &quotas,
-            inspection.as_deref(),
-        )
+        .paint(&mut buffer, &look.theme, look.depth, &quotas, None)
         .expect("admitted provider rows");
     if quota_width > 0
         && let Some(heading) = hits.iter().find(|hit| {
@@ -383,11 +366,7 @@ fn paint_chart(
         }
     }
     state.hits.extend(hits.iter().filter_map(|hit| {
-        if !data
-            .buckets
-            .iter()
-            .any(|bucket| bucket.tokens.is_some_and(|tokens| tokens > 0))
-        {
+        if !data.buckets.iter().any(|bucket| bucket.tokens.is_some()) {
             return None;
         }
         let (_, suffix) = hit.id?.last()?.rsplit_once("bar-")?;
@@ -398,14 +377,50 @@ fn paint_chart(
                 hit.rect.width.try_into().ok()?,
                 hit.rect.height.try_into().ok()?,
             ),
-            target: Target::Bar(suffix.parse().ok()?),
+            target: Target::Bar(window.start + suffix.parse::<usize>().ok()?),
         })
     }));
-    if active == Some(Focus::Bars) {
-        for hit in &state.hits {
-            if hit.target == Target::Bar(state.bar) {
-                buffer.set_style(hit.area, look.selection());
-            }
+    // Selection is one neutral column across all provider rows, including the
+    // unknown row. Axis markers use this same scene geometry.
+    let mut column = None;
+    for hit in &state.hits {
+        if matches!(hit.target, Target::Bar(index) if Some(index) == selected) {
+            let selected = look.selection();
+            let fill = selected.bg.map_or_else(
+                || {
+                    ratatui::style::Style::default()
+                        .add_modifier(ratatui::style::Modifier::REVERSED)
+                },
+                |bg| ratatui::style::Style::default().bg(bg),
+            );
+            buffer.set_style(hit.area, fill);
+            column = Some(hit.area.x + hit.area.width / 2);
+        }
+    }
+    if let Some(axis) = hits.iter().find(|hit| {
+        hit.id
+            .and_then(|p| p.last())
+            .is_some_and(|id| id == "time-ticks")
+    }) {
+        let y = axis.rect.y as u16;
+        let x = axis.rect.x as u16;
+        let right = x + axis.rect.width as u16 - 1;
+        if let Some(x) = column {
+            buffer[(x, y)].set_symbol("▲");
+        }
+        // Keep an inspected edge bucket's marker. Its history arrow moves into
+        // the existing blank axis gutter, without moving the selected column.
+        if window.start > 0 {
+            let edge = if column == Some(x) { x - 1 } else { x };
+            buffer[(edge, y)].set_symbol("◂");
+        }
+        if window.end < data.buckets.len() {
+            let edge = if column == Some(right) {
+                right + 1
+            } else {
+                right
+            };
+            buffer[(edge, y)].set_symbol("▸");
         }
     }
     for y in plot.y..plot.bottom() {

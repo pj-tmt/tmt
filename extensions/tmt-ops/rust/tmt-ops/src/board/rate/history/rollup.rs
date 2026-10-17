@@ -7,9 +7,9 @@ pub(in crate::board) type Seeds = BTreeMap<String, Option<Seed>>;
 
 pub(in crate::board) const RESOLUTION_MS: u64 = 300_000;
 pub(in crate::board) const RETENTION_MS: u64 = 30 * 86_400_000;
-const MAX_BARS: u64 = 48;
+const MAX_BARS: u64 = 720;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::board) struct Request {
     each_ms: u64,
     range_ms: u64,
@@ -152,7 +152,7 @@ mod tests {
         ] {
             for each in intervals {
                 let request = Request::new(each * 60_000, range * 60_000).unwrap();
-                assert!(request.buckets() <= 48);
+                assert!(request.buckets() <= 720);
                 assert!(32 * request.buckets() <= 23_040);
                 let rounded = (request.range_ms / RESOLUTION_MS).div_ceil(request.buckets() as u64)
                     * RESOLUTION_MS;
