@@ -257,6 +257,15 @@ I/O occurs in the holding transaction. `api::digest` and the Digest adapter proj
 the trusted local consumer seam; the owning local API contract defines stats,
 legacy-counter provenance and the difference between idle and turn-boundary eligibility.
 
+Schema 55 adds `recent_responses`, local provider-final pane output with a ten-entry
+identity ring and frozen retention. `responses::FinalText` owns byte truncation;
+`storage::responses` appends within the existing binding/preferences observation CAS
+only when the activity owner admitted a new Stop. Claude shares the bounded usage tail;
+Codex supplies its hook payload. Retirement removes the ring independently of exchange
+retention. `api::responses` reads one snapshot without housekeeping; the
+[local API contract](../../../../contracts/extension-api.md#recent-agent-responses)
+owns consent, expiry and wire shapes. This output never completes an exchange.
+
 Schema 54 adds `consumption_tier5m`, the 30-day five-minute consumption rollup
 (see [identity bindings](identity-bindings.md)), with the usual change-cursor triggers.
 

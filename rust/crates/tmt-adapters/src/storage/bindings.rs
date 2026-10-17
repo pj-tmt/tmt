@@ -294,6 +294,12 @@ impl BindingRecords for BindingRows<'_> {
             .execute("DELETE FROM bindings WHERE identity_id = ?", [&identity.id])
             .map_err(|error| classify(error, "Detach identity binding"))?;
         session::forget(self.0, &identity.id)?;
+        self.0
+            .execute(
+                "DELETE FROM recent_responses WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|error| classify(error, "Remove recent responses"))?;
         if remove_content {
             self.0
                 .execute(

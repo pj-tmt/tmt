@@ -51,6 +51,7 @@ pub fn located(root: &Path, value: &str, session: &ProviderSessionId) -> Option<
     (locator(root, &path).as_deref() == Some(value)).then(|| TurnEnd {
         session: session.clone(),
         transcript: Some(path),
+        final_text: None,
     })
 }
 
@@ -96,6 +97,7 @@ pub fn codex_turn(root: &Path, session: &ProviderSessionId, deadline: Instant) -
     Some(TurnEnd {
         session: session.clone(),
         transcript: Some(found?),
+        final_text: None,
     })
 }
 

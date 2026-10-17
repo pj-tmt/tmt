@@ -180,17 +180,17 @@ fn observe_turn(
         return Ok(());
     };
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
-    let usage = (!activity_only)
-        .then(|| {
-            lifecycle.turn_state(
-                turn,
-                &environment,
-                remembered.state.as_ref(),
-                tmt_adapters::request_runtime::wall_time_ms(),
-                deadline,
-            )
-        })
-        .flatten();
+    let now_ms = tmt_adapters::request_runtime::wall_time_ms();
+    let observation = (!activity_only).then(|| {
+        lifecycle.turn_observation(
+            turn,
+            &environment,
+            remembered.state.as_ref(),
+            now_ms,
+            deadline,
+        )
+    });
+    let usage = observation.as_ref().and_then(|value| value.state.clone());
     let consumption = usage
         .as_ref()
         .and_then(|state| lifecycle.state_consumption(state));
@@ -205,21 +205,37 @@ fn observe_turn(
     let reading = ConsumptionReading {
         locator,
         consumption,
-        now_ms: tmt_adapters::request_runtime::wall_time_ms(),
+        now_ms,
     };
     let previous = usage.as_ref().or(remembered.state.as_ref());
-    let next = activity
+    let transition = activity
         .filter(|_| binding.session.state == tmt_core::binding::session::RuntimeState::Running)
         .and_then(|event| {
-            lifecycle.activity_state(
-                event,
-                &turn.session,
-                &process,
-                previous,
-                tmt_adapters::request_runtime::wall_time_ms(),
-            )
-        })
-        .or(usage);
+            lifecycle.activity_state(event, &turn.session, &process, previous, now_ms)
+        });
+    let response = if transition.is_some()
+        && !activity_only
+        && tmt_adapters::drivers::Registry::builtin()
+            .find(provider)
+            .is_some_and(tmt_adapters::setup::usage_hook_installed)
+    {
+        observation
+            .and_then(|value| value.final_text)
+            .and_then(|text| {
+                let retention_days = tmt_adapters::config::ConfigFiles {
+                    paths: paths.clone(),
+                }
+                .global_retention_days()
+                .ok()?;
+                Some(tmt_adapters::storage::ResponseCapture {
+                    text,
+                    retention_days,
+                })
+            })
+    } else {
+        None
+    };
+    let next = transition.or(usage);
     if Instant::now() >= deadline {
         return Err(());
     }
@@ -228,6 +244,7 @@ fn observe_turn(
         &stored,
         next,
         (!activity_only).then_some(reading),
+        response,
         deadline,
     )
     .map(|_| ())
@@ -604,6 +621,7 @@ fn observe(
                 locator: locator.as_deref(),
                 sampled: false,
                 consumption: None,
+                response: None,
                 now_ms: 0,
                 deadline,
             })
@@ -868,6 +886,7 @@ fn observe_prompt(
             &stored,
             next,
             reading.map(|(_, reading)| reading),
+            None,
             deadline,
         )?
     {
@@ -892,6 +911,7 @@ fn commit_observation(
     stored: &IdentityContextSnapshot,
     next: Option<tmt_core::binding::session::DriverState>,
     reading: Option<ConsumptionReading>,
+    response: Option<tmt_adapters::storage::ResponseCapture>,
     deadline: Instant,
 ) -> Result<bool, ()> {
     if Instant::now() + Duration::from_millis(100) >= deadline {
@@ -911,6 +931,7 @@ fn commit_observation(
         locator: reading.as_ref().and_then(|r| r.locator.as_deref()),
         sampled: reading.is_some(),
         consumption: reading.as_ref().and_then(|r| r.consumption.clone()),
+        response,
         now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
         deadline,
     });

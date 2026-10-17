@@ -81,6 +81,7 @@ pub struct RuntimeObservation<'a> {
     pub consumption: Option<Consumption>,
     pub now_ms: u64,
     pub deadline: Instant,
+    pub response: Option<super::ResponseCapture>,
 }
 
 fn integer(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
@@ -294,6 +295,20 @@ impl Storage {
             let id = &binding.identity_id;
             if observation.remember_source || observation.sampled {
                 connection.execute("INSERT INTO consumption_sources(identity_id,binding_id,driver,session,locator) VALUES(?,?,?,?,?) ON CONFLICT(identity_id) DO UPDATE SET binding_id=excluded.binding_id,driver=excluded.driver,session=excluded.session,locator=CASE WHEN consumption_sources.binding_id=excluded.binding_id AND consumption_sources.driver=excluded.driver AND consumption_sources.session=excluded.session THEN COALESCE(excluded.locator,consumption_sources.locator) ELSE excluded.locator END",params![id,binding.id,remembered.harness.as_str(),remembered.provider_session.as_str(),observation.locator]).map_err(|e|classify(e,"Remember consumption source"))?;
+            }
+            // The coordinator offers text only for a newly admitted Stop. A
+            // fresh sampler with unchanged preferences must never append it.
+            if let Some(response) = observation.response.as_ref()
+                && observation.preferences != &observation.expected.preferences
+            {
+                super::responses::append(
+                    connection,
+                    id,
+                    remembered.harness.as_str(),
+                    remembered.provider_session.as_str(),
+                    observation.now_ms,
+                    response,
+                )?;
             }
             if observation.sampled {
                 let latest = observation

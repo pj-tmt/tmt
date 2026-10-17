@@ -49,6 +49,7 @@ independent of storage access.
 | `changes.cursor`         | `{}`                                                                                               | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
 | `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before` | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                                                        | Request detail including retained prompt/final state                                                                                                              |
+| `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                 | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
 | `dispatch.show`          | `operationId`                                                                                      | Immutable acceptance receipt                                                                                                                                      |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`                                  | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                              | Room resource                                                                                                                                                     |
@@ -77,8 +78,6 @@ modify core's database/configuration or provider settings. Discovery does not
 create the root or read its files. `capabilities` remains a constant document.
 
 ## Recent agent responses
-
-Proposed contract; the operation is not implemented yet.
 
 `responses.recent` reads one exact identity's locally retained provider-final
 text. Input is `{identityId, limit?}`: a required canonical identity UUID and an
@@ -148,7 +147,7 @@ Callers read `capabilities` first. If `responses.recent` is absent, they report
 that recent responses cannot be read; they do not show an empty-success result.
 An older Core's unknown-operation `API_INPUT_INVALID` is also unavailable,
 without a scrape or private-storage fallback. Additive response fields remain
-compatible. Shared vectors will pin bounds, ordering, expiry and error shapes.
+compatible. [Shared vectors](recent-responses-v1.json) pin bounds, ordering, expiry and error shapes.
 
 ## Conditional identity rename
 

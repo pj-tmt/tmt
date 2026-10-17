@@ -298,7 +298,7 @@ the foreground observer and recipient pull. Reply notice windows are persisted a
 by `process::detached`. See the [request contract](contracts/request-response-v1.md)
 for behavior and limits; module rules: [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
 
-Core owns bounded local [provider-final history](contracts/extension-api.md#recent-agent-responses), separate from durable exchange completion (proposed).
+Core owns bounded local [provider-final history](contracts/extension-api.md#recent-agent-responses), separate from durable exchange completion.
 
 ### Tmux and process effects
 

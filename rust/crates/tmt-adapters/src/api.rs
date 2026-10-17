@@ -10,6 +10,7 @@ mod identity_hooks;
 mod notes;
 mod references;
 mod requests;
+mod responses;
 mod rooms;
 mod skills;
 
@@ -44,6 +45,7 @@ const OPS: &[&str] = &[
     "changes.cursor",
     "requests.list",
     "requests.show",
+    "responses.recent",
     "dispatch.show",
     "dispatch.create",
     "rooms.write",
@@ -168,6 +170,10 @@ pub enum DispatchIdentity {
 pub enum Request {
     Digest(Box<digest::Operation>),
     Capabilities,
+    RecentResponses {
+        identity_id: String,
+        limit: u64,
+    },
     ConsumptionHistory {
         identities: Vec<String>,
         windows: Vec<u64>,
@@ -304,6 +310,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         op if op.starts_with("digest.") => digest::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
         "requests.show" => Request::Detail(requests::decode_show(input)?),
+        "responses.recent" => responses::decode(input)?,
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
         "dispatch.create" => Request::Dispatch {
             identity: wire.identity.map(DispatchIdentity::Explicit),
@@ -403,6 +410,9 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
+        Request::RecentResponses { identity_id, limit } => {
+            responses::recent(&mut storage, &identity_id, limit)
+        }
         Request::ConsumptionHistory {
             identities,
             windows,
@@ -478,6 +488,38 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn recent_responses_default_and_explicit_limit_are_admitted_without_an_originator() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        for input in [
+            json!({"identityId": id}),
+            json!({"identityId": id, "limit": 1}),
+            json!({"identityId": id, "limit": 10}),
+        ] {
+            let body = json!({"version": 1, "operation": "responses.recent", "input": input});
+            assert!(decode(&body.to_string()).is_ok(), "{body}");
+        }
+        assert!(capabilities_list().contains(&"responses.recent".to_owned()));
+        for input in [
+            json!({"identityId": id, "limit": 0}),
+            json!({"identityId": id, "limit": 11}),
+            json!({"identityId": id, "limit": null}),
+            json!({"identityId": "Ada"}),
+            json!({"identityId": id, "extra": true}),
+        ] {
+            let body = json!({"version": 1, "operation": "responses.recent", "input": input});
+            assert_eq!(
+                decode(&body.to_string()).err().unwrap().code(),
+                "API_INPUT_INVALID"
+            );
+        }
+        let body = json!({"version": 1, "operation": "responses.recent", "identity": "Ada", "input": {"identityId": id}});
+        assert_eq!(
+            decode(&body.to_string()).err().unwrap().code(),
+            "API_INPUT_INVALID"
+        );
+    }
 
     #[test]
     fn storage_root_reports_selected_directory_without_creating_or_opening_state() {

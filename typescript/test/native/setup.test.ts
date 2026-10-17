@@ -98,9 +98,13 @@ describe('consented provider setup and bounded hook boundary', () => {
         const installedBeforePreview = fs.readFileSync(settings, 'utf8');
         const preview = await runCli(sandbox, ['setup', name]);
         expect(preview.stdout).toContain(
-          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption and activity) hooks'
+          'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption, activity and recent responses) hooks'
         );
-        expect(preview.stdout).toContain('no transcript content is stored');
+        expect(preview.stdout).toContain(
+          'keeps the last 10 final responses locally (up to 8 KiB each)'
+        );
+        expect(preview.stdout).toContain('--no-usage stops new collection');
+        expect(preview.stdout).not.toContain('no transcript content is stored');
         expect(fs.readFileSync(settings, 'utf8')).toBe(installedBeforePreview);
 
         expect(await setup()).toMatchObject({ changed: false, usage: true });
@@ -113,7 +117,7 @@ describe('consented provider setup and bounded hook boundary', () => {
 
         const opted = await runCli(sandbox, ['setup', name, '--no-usage']);
         expect(opted.stdout).toContain(
-          `Remove TMT-owned ${name} Stop (context usage, consumption and activity) hook`
+          `Remove TMT-owned ${name} Stop (context usage, consumption, activity and recent responses) hook`
         );
         expect(await setup('--no-usage')).toMatchObject({
           usage: false,

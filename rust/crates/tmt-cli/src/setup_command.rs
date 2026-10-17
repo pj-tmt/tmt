@@ -27,7 +27,7 @@ pub fn execute(
 }
 
 /// What the usage hook reads, shown wherever setup plans it.
-const USAGE_NOTE: &str = "Context and consumption: after each turn, TMT reads token counts from the agent's own transcript; no transcript content is stored.";
+const USAGE_NOTE: &str = "Usage collection: after each turn, TMT reads token counts and keeps the last 10 final responses locally (up to 8 KiB each), until they expire under exchange.retentionDays. --no-usage stops new collection.";
 
 fn failure(error: impl std::error::Error + 'static) -> Failure {
     Failure::new("SETUP_ERROR", error.to_string(), 1).caused_by(error)

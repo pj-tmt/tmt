@@ -318,6 +318,7 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
             .commit_runtime_observation(RuntimeObservation {
                 expected,
                 preferences,
+                response: None,
                 remember_source: true,
                 locator: Some("project/session.jsonl"),
                 sampled: true,
@@ -592,4 +593,276 @@ fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model()
         history["identities"][0]["latest"]["consumption"]["modelId"],
         "a"
     );
+}
+
+#[test]
+fn recent_responses_share_the_binding_cas_without_text_deduplication() {
+    use crate::storage::ResponseCapture;
+    use tmt_core::responses::FinalText;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let first = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    let commit = |storage: &mut Storage,
+                  expected: &IdentityContextSnapshot,
+                  state: &str,
+                  now,
+                  text: Option<&str>| {
+        let mut preferences = expected.preferences.clone();
+        preferences.remembered.as_mut().unwrap().state =
+            Some(tmt_core::binding::session::DriverState::new(1, state).unwrap());
+        storage
+            .commit_runtime_observation(RuntimeObservation {
+                expected,
+                preferences: &preferences,
+                remember_source: false,
+                locator: None,
+                sampled: false,
+                consumption: None,
+                now_ms: now,
+                deadline: Instant::now() + std::time::Duration::from_secs(1),
+                response: text.map(|text| ResponseCapture {
+                    text: FinalText::new(text).unwrap(),
+                    retention_days: 1,
+                }),
+            })
+            .unwrap()
+    };
+    assert!(commit(
+        &mut storage,
+        &first,
+        r#"{"model":"turn-one"}"#,
+        6000,
+        Some("identical final text")
+    ));
+    assert!(
+        !commit(
+            &mut storage,
+            &first,
+            r#"{"model":"turn-one"}"#,
+            6000,
+            Some("identical final text")
+        ),
+        "duplicate stale Stop loses the full CAS"
+    );
+    let second = Storage::context_by_identity(&path, &id, 7000)
+        .unwrap()
+        .unwrap();
+    // A fresh unchanged observation remains valid for sampling, but never captures.
+    assert!(commit(
+        &mut storage,
+        &second,
+        r#"{"model":"turn-one"}"#,
+        7000,
+        Some("duplicate Stop text")
+    ));
+    assert!(commit(
+        &mut storage,
+        &second,
+        r#"{"model":"turn-two"}"#,
+        8000,
+        Some("identical final text")
+    ));
+    let before = storage
+        .connection()
+        .unwrap()
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    let value = storage.recent_responses(&id, 10, 9000).unwrap();
+    assert_eq!(value["items"].as_array().unwrap().len(), 2);
+    assert_eq!(value["items"][0]["text"], "identical final text");
+    assert_eq!(value["items"][1]["text"], "identical final text");
+    assert_eq!(value["items"][0]["endedMs"], 8000);
+    assert_eq!(value["items"][1]["endedMs"], 6000);
+    assert_eq!(value["items"][0]["provider"], "claude");
+    assert_eq!(value["items"][0]["sessionId"], "fixture-session");
+    assert_eq!(
+        before,
+        storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        "reads do not advance the cursor"
+    );
+    assert_eq!(
+        storage
+            .recent_responses(&id, 10, 6000 + 86_400_000)
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "expiry is hidden at equality without cleanup"
+    );
+    assert_eq!(
+        storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT count(*) FROM recent_responses", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    let old_binding = Storage::context_by_identity(&path, &id, 10000)
+        .unwrap()
+        .unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute("UPDATE bindings SET pane_pid=12", [])
+        .unwrap();
+    assert!(!commit(
+        &mut storage,
+        &old_binding,
+        r#"{"model":"replaced"}"#,
+        10000,
+        Some("must not commit")
+    ));
+    storage.close().unwrap();
+}
+
+#[test]
+fn recent_responses_keep_ten_in_capture_order_and_retirement_removes_them() {
+    use crate::storage::ResponseCapture;
+    use tmt_core::responses::FinalText;
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    for sequence in 0..12 {
+        let expected = Storage::context_by_identity(&path, &id, 20000)
+            .unwrap()
+            .unwrap();
+        let mut preferences = expected.preferences.clone();
+        preferences.remembered.as_mut().unwrap().state = Some(
+            tmt_core::binding::session::DriverState::new(
+                1,
+                &format!(r#"{{"model":"turn-{sequence}"}}"#),
+            )
+            .unwrap(),
+        );
+        assert!(
+            storage
+                .commit_runtime_observation(RuntimeObservation {
+                    expected: &expected,
+                    preferences: &preferences,
+                    remember_source: false,
+                    locator: None,
+                    sampled: false,
+                    consumption: None,
+                    now_ms: 20000 - sequence,
+                    deadline: Instant::now() + std::time::Duration::from_secs(1),
+                    response: Some(ResponseCapture {
+                        text: FinalText::new(&format!("response-{sequence}")).unwrap(),
+                        retention_days: if sequence == 11 { 2 } else { 1 }
+                    }),
+                })
+                .unwrap()
+        );
+    }
+    let value = storage.recent_responses(&id, 10, 20001).unwrap();
+    assert_eq!(value["items"].as_array().unwrap().len(), 10);
+    assert_eq!(value["items"][0]["text"], "response-11");
+    assert_eq!(value["items"][9]["text"], "response-2");
+    assert_eq!(
+        storage.recent_responses(&id, 1, 20001).unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        storage
+            .recent_responses(&id, 10, 20000 + 86_400_000)
+            .unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "each capture freezes its own retention"
+    );
+    let unknown = "11111111-1111-4111-8111-111111111111";
+    assert_eq!(
+        storage.recent_responses(unknown, 10, 20001).unwrap()["items"],
+        serde_json::json!([])
+    );
+    let identity = storage.find_identity_by_id(&id).unwrap().unwrap();
+    use tmt_core::binding::BindingRecords;
+    BindingRows(storage.connection().unwrap())
+        .retire_identity(&identity, false)
+        .unwrap();
+    assert_eq!(
+        storage.recent_responses(&id, 10, 20001).unwrap()["items"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT count(*) FROM recent_responses", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn recent_response_failure_rolls_back_preferences_and_the_change_cursor() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let expected = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    let mut preferences = expected.preferences.clone();
+    preferences.remembered.as_mut().unwrap().state = Some(
+        tmt_core::binding::session::DriverState::new(1, r#"{"model":"must roll back"}"#).unwrap(),
+    );
+    let cursor = || {
+        storage
+            .connection()
+            .unwrap()
+            .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    let before = cursor();
+    let result = storage.commit_runtime_observation(RuntimeObservation {
+        expected: &expected,
+        preferences: &preferences,
+        remember_source: true,
+        locator: Some("project/session.jsonl"),
+        sampled: false,
+        consumption: None,
+        now_ms: 6000,
+        deadline: Instant::now() + std::time::Duration::from_secs(1),
+        response: Some(crate::storage::ResponseCapture {
+            text: tmt_core::responses::FinalText::new("must roll back").unwrap(),
+            retention_days: 3651,
+        }),
+    });
+    assert!(result.is_err());
+    let actual = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    assert_eq!(actual.preferences, expected.preferences);
+    let after = storage
+        .connection()
+        .unwrap()
+        .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    assert_eq!(after, before);
+    assert_eq!(
+        storage.recent_responses(&id, 10, 6000).unwrap()["items"],
+        json!([])
+    );
+    storage.close().unwrap();
 }
