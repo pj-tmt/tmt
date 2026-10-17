@@ -281,6 +281,7 @@ pub(super) fn paint_hits(
                     .remove_modifier(Modifier::BOLD)
                     .add_modifier(Modifier::UNDERLINED);
                 frame.buffer_mut()[(x, hit.area.y)]
+                    .set_fg(style.fg.unwrap_or(ratatui::style::Color::Reset))
                     .set_style(ratatui::style::Style::new().remove_modifier(Modifier::BOLD));
                 frame.buffer_mut()[(x, hit.area.y)].set_style(if focused || hover {
                     style

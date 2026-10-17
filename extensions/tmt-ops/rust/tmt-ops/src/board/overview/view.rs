@@ -305,6 +305,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     ),
                 )
             };
+            let task_text = line
+                .spans
+                .last()
+                .map_or_else(String::new, |span| span.content.to_string());
+            let task_start = line
+                .width()
+                .saturating_sub(line.spans.last().map_or(0, Span::width));
             line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
             line.spans.push(Span::raw(" ".repeat(remaining)));
@@ -327,7 +334,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
                 }
             }
-            let displayed = line.to_string();
             strip::paint_left(frame.buffer_mut(), slot, line);
             let source = if agents {
                 monitor::summary_text(snapshot.rows.get(&row.target))
@@ -337,8 +343,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     .get(at - LIST_HEADER_ROWS)
                     .map_or_else(String::new, |squad| squad.now.clone())
             };
+            let task_start = task_start.min(usize::from(slot.width)) as u16;
+            let task_area = Rect::new(slot.x + task_start, slot.y, slot.width - task_start, 1);
             crate::board::member_links::paint_plain_hits(
-                frame, app, slot, &source, &displayed, false,
+                frame, app, task_area, &source, &task_text, false,
             );
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(

@@ -991,7 +991,7 @@ fn render_target(
             &mapped.mentions,
             super::member_links::Paint {
                 reader: true,
-                role: Role::Link,
+                role: Role::Text,
             },
         );
     }

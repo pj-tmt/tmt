@@ -1082,4 +1082,63 @@ mod named_surface_tests {
             look.selection().bg.unwrap()
         );
     }
+    #[test]
+    fn rendered_exchange_names_use_text_color_even_after_reader_hit_paint() {
+        for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth: tmt_cli_style::Depth::TrueColor,
+            };
+            let (app, terminal) = rendered_scene("exchange", 160, look);
+            let links = app.member_links.borrow();
+            assert!(!links.hits.is_empty());
+            for hit in &links.hits {
+                for x in hit.area.x..hit.area.right() {
+                    let cell = &terminal.backend().buffer()[(x, hit.area.y)];
+                    assert_eq!(
+                        cell.fg,
+                        look.role(tmt_cli_style::Role::Text)
+                            .fg
+                            .unwrap_or(ratatui::style::Color::Reset)
+                    );
+                    assert!(cell.modifier.contains(Modifier::UNDERLINED));
+                    assert!(!cell.modifier.contains(Modifier::BOLD));
+                }
+            }
+        }
+    }
+    #[test]
+    fn overview_task_mentions_do_not_take_a_same_named_row_title_as_their_geometry() {
+        let (mut app, mut terminal) = rendered_scene("task", 160, crate::look::Look::default());
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.roster.members.get_mut(MEMBER).unwrap().name = "night-2".into();
+        snapshot.rows.get_mut(&test_target()).unwrap()["name"] = serde_json::json!("night-2");
+        app.overview_rows.borrow_mut().clear();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let index = app
+            .workspace_rows()
+            .iter()
+            .position(|row| row.target == test_target())
+            .unwrap();
+        let row = app
+            .hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.target == crate::board::app::HitTarget::Row(index))
+            .cloned()
+            .unwrap();
+        let links = app.member_links.borrow();
+        let task_links: Vec<_> = links
+            .hits
+            .iter()
+            .filter(|hit| !hit.reader && hit.area.y == row.y)
+            .collect();
+        assert_eq!(task_links.len(), 2);
+        assert!(
+            task_links.iter().all(|hit| hit.area.x >= row.x + 60),
+            "task links must stay in the Now column, not the same named NAME column: {task_links:?}"
+        );
+    }
 }
