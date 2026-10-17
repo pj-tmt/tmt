@@ -840,22 +840,28 @@ fn a_filtered_out_recipient_cannot_receive_a_keyboard_or_direct_quote() {
 }
 
 #[test]
-fn an_outside_details_press_clears_selection_and_still_opens_its_control() {
+fn an_outside_tab_press_clears_selection_and_still_opens_its_control() {
     let mut app = fixture("selected source");
     enter(&mut app);
     draw(&mut app, 160, 36);
     select(&mut app, 4);
     draw(&mut app, 160, 36);
-    let details = app.conversation.borrow().header_hits.first().unwrap().area;
+    let tab = app
+        .tab_hits
+        .borrow()
+        .iter()
+        .find(|hit| hit.tab == 0)
+        .copied()
+        .unwrap();
     mouse(
         &mut app,
         MouseEventKind::Down(MouseButton::Left),
-        details.x,
-        details.y,
+        tab.x,
+        tab.y,
     );
     assert!(
-        app.monitor_details.is_some(),
-        "clearing selection must not steal Details' valid hit"
+        app.shell.tab == crate::board::shell::OpsTab::Overview,
+        "clearing selection must not steal the tab's valid hit"
     );
     assert!(
         app.conversation
@@ -885,6 +891,16 @@ fn task_fixture() -> App {
     app.workspace.selected = Some(OpsTarget::Squad(
         crate::board::app::workspace::tests::ROOM.into(),
     ));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
     app.workspace_reconcile();
     app
 }
@@ -929,16 +945,13 @@ fn task_fields_open_the_same_exact_selector_and_insert_compact_chat_text_without
     else {
         panic!("exact task selection copies through the same worker");
     };
-    assert_eq!(text, "Review **literal**\n漢字 → Ship the fix");
+    assert_eq!(text, "Review **literal**\n漢字");
     assert_eq!(
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
         Effect::None
     );
     let input = app.input.as_ref().unwrap();
-    assert_eq!(
-        input.text.as_str(),
-        "> \"Review **literal** 漢字 → Ship the fix\"\n"
-    );
+    assert_eq!(input.text.as_str(), "> \"Review **literal** 漢字\"\n");
     assert_eq!(input.draft_key.as_ref().unwrap().1, MEMBER);
     assert!(
         input.response_quotes.is_empty(),

@@ -64,6 +64,20 @@ pub(super) fn render(
                 },
                 look,
             );
+            if key == "task"
+                && let Some(value) = value
+                && let Some(id) = squad.lead.as_ref()
+            {
+                crate::board::conversation::task::publish(
+                    app,
+                    &OpsTarget::Member {
+                        room_id: Some(squad.room_id.clone()),
+                        identity_id: id.clone(),
+                    },
+                    crate::board::conversation::task::Field::Task,
+                    key_value::value_area(Rect::new(area.x, *y, area.width, 1), value),
+                );
+            }
             *y += 1;
         }
     }

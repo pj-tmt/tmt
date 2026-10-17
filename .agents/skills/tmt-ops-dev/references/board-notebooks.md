@@ -120,7 +120,7 @@ Retained row text alone grants no authority after its membership disappears.
 sanitized Markdown display. Dragging a rendered response opens a labelled exact
 source view without guessing a byte range; selection on its freshly painted raw
 editor provides the exact range. The full response Reader remains a keyboard
-fallback (`s` opens exact source). Held Task/Next cells and the Overview task field
+fallback (`s` opens exact source). Held Task/Next cells, the squad Board task and the Overview task field
 use the same raw editor, never a byte range inferred from sanitized cells. Pending
 questions are selectable only after the full body is acquired; previews and failed
 reads are not sources.

@@ -1034,7 +1034,7 @@ and later renames do not rewrite it. Colab addressing has its own semantics; a p
 link in the conversation does not authorize native page/thread writes.
 
 Dragging rendered response text opens a labelled exact source view; it does not
-guess raw byte ranges from styled text. Task/Next fields use the same exact-source
+guess raw byte ranges from styled text. Task/Next fields and the squad Board task use the same exact-source
 view. In the full response reader, `s` opens exact source. Shift with movement or
 mouse drag selects a range; committing a nonempty selection copies its exact text.
 The notice reports the character count; a clipboard failure leaves Quote available.

@@ -11,6 +11,7 @@ use ratatui::{
 pub(in crate::board) enum Field {
     TaskAndNext,
     OverviewTask,
+    Task,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +25,10 @@ pub(in crate::board) struct Key {
 /// One held-field projection feeds both paint and source validation.
 pub(in crate::board) fn text(row: &serde_json::Value, field: Field) -> Option<String> {
     match field {
+        Field::Task => row["fields"]["task"]
+            .as_str()
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned),
         Field::OverviewTask => crate::board::overview::monitor::task_source(row)
             .filter(|text| !text.is_empty())
             .map(str::to_owned),
@@ -78,7 +83,7 @@ pub(in crate::board) struct Drag {
 impl Field {
     fn pane(self) -> crate::config::Pane {
         match self {
-            Self::TaskAndNext => crate::config::Pane::Replies,
+            Self::TaskAndNext | Self::Task => crate::config::Pane::Replies,
             Self::OverviewTask => crate::config::Pane::Rows,
         }
     }

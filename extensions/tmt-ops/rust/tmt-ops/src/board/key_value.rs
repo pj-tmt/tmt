@@ -25,6 +25,22 @@ pub(in crate::board) struct Row<'a> {
     pub value: Value<'a>,
 }
 
+pub(in crate::board) fn value_area(area: Rect, value: &str) -> Rect {
+    let width = value_width(usize::from(area.width), value) as u16;
+    Rect::new(
+        area.right().saturating_sub(1 + width),
+        area.y,
+        width,
+        area.height.min(1),
+    )
+}
+
+fn value_width(width: usize, value: &str) -> usize {
+    crate::board::notes::sanitize(value)
+        .width()
+        .min(width.saturating_sub(4))
+}
+
 pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'static> {
     if width < 3 {
         return Line::raw(" ".repeat(width));
@@ -32,7 +48,7 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
     let key = crate::board::notes::sanitize(row.key);
     let value = crate::board::notes::sanitize(row.value.text());
     let inner = width - 2;
-    let value_width = value.width().min(inner.saturating_sub(2));
+    let value_width = value_width(width, &value);
     let key_width = inner.saturating_sub(value_width + 1);
     Line::from(vec![
         Span::raw(" "),

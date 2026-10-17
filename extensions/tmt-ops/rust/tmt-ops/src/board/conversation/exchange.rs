@@ -180,7 +180,13 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         );
         if !body.is_empty() {
             source::paint_with_interactivity(
-                frame, app, source, &target, body, look, surface.interactive(),
+                frame,
+                app,
+                source,
+                &target,
+                body,
+                look,
+                surface.interactive(),
             );
         }
         return;
