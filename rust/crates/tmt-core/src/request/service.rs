@@ -281,6 +281,7 @@ fn prepare_records<E>(
     }
     let attempt = RequestAttempt {
         kind: input.kind,
+        origin: input.origin,
         room_id: input.room_id,
         attempt_id: attempt_id.clone(),
         request_id: input.request_id.clone(),

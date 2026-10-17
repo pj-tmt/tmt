@@ -671,12 +671,12 @@ impl RequestRecords for RequestRows<'_> {
                 retention_expires_at_ms, attention_revision,
                 attention_acknowledged_revision, recipient_attention_revision,
                 recipient_attention_acknowledged_revision, message_text, message_bytes,
-                message_expires_at_ms, request_kind, room_id, host
+                message_expires_at_ms, request_kind, room_id, host, origin
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?
             )",
                 params![
                     attempt.attempt_id,
@@ -716,6 +716,7 @@ impl RequestRecords for RequestRows<'_> {
                     attempt.kind.as_str(),
                     attempt.room_id,
                     endpoint.map(|e| e.server.host.as_str()),
+                    attempt.origin.stored(),
                 ],
             )
             .map_err(|error| classify(error, "Create request attempt"))?;

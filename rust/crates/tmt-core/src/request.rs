@@ -82,6 +82,34 @@ impl RequestKind {
     }
 }
 
+/// Who made a request, recorded once at creation and never derived from names or content.
+/// Callers create `Person` or `Automation`; only a row from before origins were recorded
+/// is `Unknown`, which consumers treat as `Person`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestOrigin {
+    Person,
+    Automation,
+    Unknown,
+}
+
+impl RequestOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::Automation => "automation",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// The stored value; a row from before origins were recorded has none.
+    pub fn stored(self) -> Option<&'static str> {
+        match self {
+            Self::Unknown => None,
+            known => Some(known.as_str()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttemptStatus {
     Prepared,
@@ -169,6 +197,7 @@ impl Originator {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAttempt {
     pub kind: RequestKind,
+    pub origin: RequestOrigin,
     /// Original communication scope, independent of current room membership.
     pub room_id: Option<String>,
     pub attempt_id: String,
@@ -233,6 +262,7 @@ pub struct PreambleReservation {
 
 pub struct PrepareRequest {
     pub kind: RequestKind,
+    pub origin: RequestOrigin,
     pub room_id: Option<String>,
     pub request_id: String,
     pub message: String,

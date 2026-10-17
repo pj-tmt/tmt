@@ -413,6 +413,71 @@ describe('public local extension API', () => {
     });
   });
 
+  it('records who made a request: a person by default, automation only when an extension declares it', async () => {
+    await withSandbox(async (sandbox) => {
+      const sender = await identity(sandbox, 'Sender');
+      const recipient = await identity(sandbox, 'Recipient');
+      // A person's message that looks exactly like a scheduler notice stays a person's.
+      const message = '▚ ⏱ product c1 · every 30m · added by Ben';
+      const base = { recipientIds: [recipient], message };
+      const typed = await api(
+        sandbox,
+        'dispatch.create',
+        { ...base, operationId: randomUUID() },
+        sender
+      );
+      const operationId = randomUUID();
+      const scheduled = { ...base, operationId, origin: 'automation' };
+      const automated = await api(sandbox, 'dispatch.create', scheduled, sender);
+      expect([typed.status, automated.status]).toEqual([0, 0]);
+      // The origin is part of the intent: the other value conflicts, the same value replays.
+      expect((await api(sandbox, 'dispatch.create', { ...base, operationId }, sender)).status).toBe(
+        1
+      );
+      const { wake: _wake, ...receipt } = automated.body;
+      expect((await api(sandbox, 'dispatch.create', scheduled, sender)).body).toEqual(receipt);
+      for (const origin of ['person', 'robot', '', true]) {
+        const rejected = await api(
+          sandbox,
+          'dispatch.create',
+          { ...base, operationId: randomUUID(), origin },
+          sender
+        );
+        expect(rejected.status).toBe(1);
+        expect(rejected.body.error.code).toBe('API_INPUT_INVALID');
+      }
+      const talked = await runCli(sandbox, [
+        'talk',
+        'Recipient',
+        message,
+        '--inbox',
+        '--detach',
+        '--identity',
+        'Sender',
+        '--json',
+      ]);
+      expect(talked.status).toBe(0);
+      // Renaming the sender changes no request's origin.
+      expect((await runCli(sandbox, ['rename', 'Sender', 'Renamed', '--json'])).status).toBe(0);
+      const listed = await api(sandbox, 'requests.list', { recipientId: recipient, limit: 50 });
+      expect(listed.status).toBe(0);
+      const origins = new Map(
+        listed.body.items.map((item: { requestId: string; origin: string }) => [
+          item.requestId,
+          item.origin,
+        ])
+      );
+      expect(origins.get(typed.body.items[0].requestId)).toBe('person');
+      expect(origins.get(automated.body.items[0].requestId)).toBe('automation');
+      expect(origins.get(JSON.parse(talked.stdout).requestId)).toBe('person');
+      expect(origins.size).toBe(3);
+      const detail = await api(sandbox, 'requests.show', {
+        requestId: automated.body.items[0].requestId,
+      });
+      expect(detail.body.origin).toBe('automation');
+    });
+  });
+
   it('recovers immutable dispatches and pages concurrent history without acknowledging work', async () => {
     await withSandbox(async (sandbox) => {
       const sender = await identity(sandbox, 'Sender');

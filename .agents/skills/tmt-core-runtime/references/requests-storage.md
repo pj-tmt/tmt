@@ -137,6 +137,11 @@ owns event cardinality, direction, window rounding, `--bucket` summing
   operation lookup and dispatch replay share one immutable ledger decoder, and a
   lookup cannot resubmit. Browser transports own scope checks, not request caches
   or another completion policy.
+- `RequestAttempt.origin` (person, automation, or unknown for a row from before schema 57)
+  is set once by the producer: CLI talk/send, `room send` and MCP record a person, only
+  `dispatch.create` carries an extension's declared automation. It joins the dispatch intent
+  digest only when automation, no operation updates it afterwards, and the history projection
+  never derives it from names or text.
 - Schema 47 indexes the originator results view by submission-time keyset. Results use an
   observation snapshot without housekeeping; storage reuses the canonical attempt/response
   row decoders rather than introducing another request store.

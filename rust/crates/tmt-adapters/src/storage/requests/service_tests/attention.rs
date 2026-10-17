@@ -20,6 +20,7 @@ fn prepare_sent(
     let prepared = service(fixture)
         .prepare(
             PrepareRequest {
+                origin: tmt_core::request::RequestOrigin::Person,
                 room_id: None,
                 kind: tmt_core::request::RequestKind::Request,
                 request_id: request_id.into(),
@@ -786,6 +787,7 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
     let prepared = service(&mut fixture)
         .prepare(
             PrepareRequest {
+                origin: tmt_core::request::RequestOrigin::Person,
                 room_id: None,
                 kind: tmt_core::request::RequestKind::Request,
                 request_id: "inbox-roundtrip".into(),
@@ -893,6 +895,7 @@ fn queue_inbox(
     let prepared = service(fixture)
         .prepare(
             PrepareRequest {
+                origin: tmt_core::request::RequestOrigin::Person,
                 room_id: None,
                 kind: tmt_core::request::RequestKind::Request,
                 request_id: request_id.into(),
@@ -981,6 +984,7 @@ fn queue_rejects_a_recipient_retired_after_resolution_without_retargeting_reused
     let prepared = service(&mut fixture)
         .prepare(
             PrepareRequest {
+                origin: tmt_core::request::RequestOrigin::Person,
                 room_id: None,
                 kind: tmt_core::request::RequestKind::Request,
                 request_id: "retired-before-queue".into(),

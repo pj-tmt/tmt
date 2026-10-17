@@ -7,7 +7,7 @@ use tmt_core::{
     limits::is_valid_js_safe_integer,
     request::{
         AttemptStatus, FinalResponse, Originator, RawRequestContext, RequestAttempt,
-        RequestEndpoint, RequestKind, RequestRoute,
+        RequestEndpoint, RequestKind, RequestOrigin, RequestRoute,
         attention::{AttentionRecord, ResponseMetadata},
     },
 };
@@ -21,8 +21,8 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     expires_at_ms, retention_days, retention_expires_at_ms,
     attention_revision, attention_acknowledged_revision,
     recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id,
-    host, withdrawn_at_ms, withdrawal_reason";
-pub(super) const ATTEMPT_COLUMN_COUNT: usize = 36;
+    host, withdrawn_at_ms, withdrawal_reason, origin";
+pub(super) const ATTEMPT_COLUMN_COUNT: usize = 37;
 pub(super) fn qualified_attempt_columns() -> String {
     ATTEMPT_COLUMNS
         .split(',')
@@ -121,6 +121,12 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
             "request" => RequestKind::Request,
             "announcement" => RequestKind::Announcement,
             _ => return Err(invalid_row()),
+        },
+        origin: match row.get::<_, Option<String>>(36)?.as_deref() {
+            None => RequestOrigin::Unknown,
+            Some("person") => RequestOrigin::Person,
+            Some("automation") => RequestOrigin::Automation,
+            Some(_) => return Err(invalid_row()),
         },
         attempt_id: row.get(0)?,
         request_id: row.get(1)?,

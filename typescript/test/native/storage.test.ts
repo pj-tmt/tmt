@@ -126,6 +126,7 @@ function expectNativeSchema(
       version: 56,
       name: 'keep the last credit balance and service tier per consumption rollup bucket',
     },
+    { version: 57, name: 'record whether a person or automation made each request' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -456,6 +457,8 @@ function expectNativeSchema(
       host: null,
       withdrawn_at_ms: null,
       withdrawal_reason: null,
+      // Schema 57: rows from before origins were recorded stay NULL (unknown).
+      origin: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
@@ -464,6 +467,7 @@ function expectNativeSchema(
   for (const [name, type] of [
     ['withdrawn_at_ms', 'INTEGER'],
     ['withdrawal_reason', 'TEXT'],
+    ['origin', 'TEXT'],
   ]) {
     expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
       name,

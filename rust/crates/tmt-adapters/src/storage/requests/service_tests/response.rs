@@ -437,6 +437,7 @@ fn result_prefix_keeps_late_final_and_announcement_retention_semantics() {
     );
     let id = "req_abcdef12-0000-4000-8000-000000000000";
     let input = PrepareRequest {
+        origin: tmt_core::request::RequestOrigin::Person,
         kind: RequestKind::Announcement,
         room_id: None,
         request_id: id.into(),

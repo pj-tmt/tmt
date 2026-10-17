@@ -11,6 +11,7 @@ pub struct DispatchInput {
     /// Selected by a trusted adapter, never by an untrusted JSON envelope.
     pub originator: crate::request::Originator,
     pub kind: crate::request::RequestKind,
+    pub origin: crate::request::RequestOrigin,
     pub operation_id: String,
     pub recipient_ids: Vec<String>,
     pub message: String,

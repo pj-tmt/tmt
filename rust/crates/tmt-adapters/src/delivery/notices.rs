@@ -363,6 +363,7 @@ mod tests {
             service
                 .enqueue(
                     PrepareRequest {
+                        origin: tmt_core::request::RequestOrigin::Person,
                         kind: RequestKind::Request,
                         room_id: None,
                         request_id: id.into(),

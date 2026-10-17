@@ -449,6 +449,7 @@ fn policy(target: &str, owner: &str, revision: u64, until: u64) -> DigestPolicyW
 }
 fn request(target: &str, sender: Option<&str>, id: &str) -> PrepareRequest {
     PrepareRequest {
+        origin: tmt_core::request::RequestOrigin::Person,
         room_id: None,
         kind: RequestKind::Request,
         request_id: id.into(),

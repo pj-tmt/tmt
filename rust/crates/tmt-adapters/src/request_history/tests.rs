@@ -1,5 +1,5 @@
 use super::*;
-use tmt_core::request::{AttemptStatus, Originator, RequestKind, StoredPrompt};
+use tmt_core::request::{AttemptStatus, Originator, RequestKind, RequestOrigin, StoredPrompt};
 
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 const REQUEST: &str = "req_22222222-2222-4222-8222-222222222222";
@@ -64,6 +64,7 @@ fn history_admission_is_scoped_strict_and_bounded() {
 #[test]
 fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
     let item = HistoryItem {
+        origin: tmt_core::request::RequestOrigin::Person,
         delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
         request_id: REQUEST.into(),
         room_id: None,
@@ -81,6 +82,31 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
         },
     };
     let page = HistoryPage {
+        items: [
+            RequestOrigin::Person,
+            RequestOrigin::Automation,
+            RequestOrigin::Unknown,
+        ]
+        .map(|origin| HistorySummary {
+            item: HistoryItem {
+                origin,
+                ..item.clone()
+            },
+            preview: Some("Question".into()),
+            response_preview: None,
+        })
+        .into(),
+        next_before: None,
+    };
+    let value: Value = serde_json::from_slice(&encode_history_page(&page, false)).unwrap();
+    let origins: Vec<_> = value["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["origin"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(origins, ["person", "automation", "unknown"]);
+    let page = HistoryPage {
         items: vec![HistorySummary {
             item,
             preview: Some("Question".into()),
@@ -93,12 +119,13 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
         value,
         json!({"items":[{
         "requestId":REQUEST,"roomId":null,"recipientId":ID,"sender":{"kind":"unknown","identityId":null},
-        "kind":"request","urgent":false,"digestKind":"fyi","preparedAtMs":1000,"delivery":"queued","recipientAcknowledged":false,
+        "kind":"request","origin":"person","urgent":false,"digestKind":"fyi","preparedAtMs":1000,"delivery":"queued","recipientAcknowledged":false,
         "preview":"Question","final":{"status":"retained","submittedAtMs":2000,"bodyBytes":8,"expiresAtMs":3000}
     }],"nextBefore":null})
     );
     let detail = HistoryDetail {
         item: HistoryItem {
+            origin: tmt_core::request::RequestOrigin::Person,
             delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
             request_id: REQUEST.into(),
             room_id: None,
@@ -128,7 +155,7 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
     );
     assert_eq!(value["final"]["response"], "  answer\n");
     assert_eq!(value["recipientAcknowledged"], Value::Null);
-    assert_eq!(value.as_object().unwrap().len(), 12);
+    assert_eq!(value.as_object().unwrap().len(), 13);
     assert_eq!(value["urgent"], false);
     assert_eq!(value["digestKind"], "fyi");
     for private in ["proof", "attemptId", "nonce", "socketPath", "paneId"] {
@@ -177,6 +204,7 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
     let page = HistoryPage {
         items: vec![HistorySummary {
             item: HistoryItem {
+                origin: tmt_core::request::RequestOrigin::Person,
                 delivery_policy: tmt_core::request::digest::DeliveryPolicy::default(),
                 request_id: REQUEST.into(),
                 room_id: None,
@@ -211,5 +239,5 @@ fn results_wire_adds_only_preview_metadata_and_submission_cursor() {
         value["items"][0]["final"],
         json!({"status":"expired","submittedAtMs":2,"expiresAtMs":3})
     );
-    assert_eq!(value["items"][0].as_object().unwrap().len(), 14);
+    assert_eq!(value["items"][0].as_object().unwrap().len(), 15);
 }

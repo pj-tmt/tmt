@@ -29,6 +29,7 @@ fn seed_attempt(storage: &mut Storage, request_id: &str, attempt_id: &str) {
     service
         .prepare(
             PrepareRequest {
+                origin: tmt_core::request::RequestOrigin::Person,
                 room_id: None,
                 kind: tmt_core::request::RequestKind::Request,
                 request_id: request_id.into(),

@@ -79,6 +79,7 @@ pub fn prepare_input(
     preamble: bool,
 ) -> PrepareRequest {
     PrepareRequest {
+        origin: tmt_core::request::RequestOrigin::Person,
         room_id: None,
         kind: tmt_core::request::RequestKind::Request,
         request_id: request_id.into(),

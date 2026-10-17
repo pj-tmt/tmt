@@ -36,6 +36,8 @@ mod receipt_tests;
 #[cfg(test)]
 mod request_history_tests;
 #[cfg(test)]
+mod request_origin_tests;
+#[cfg(test)]
 mod request_room_tests;
 #[cfg(test)]
 mod rollup_account_tests;
@@ -277,6 +279,10 @@ const MIGRATIONS: &[Migration] = &[
     migration!(
         "keep the last credit balance and service tier per consumption rollup bucket",
         "schema/056.sql"
+    ),
+    migration!(
+        "record whether a person or automation made each request",
+        "schema/057.sql"
     ),
 ];
 

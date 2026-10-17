@@ -46,6 +46,7 @@ impl Fixture {
         service
             .enqueue(
                 PrepareRequest {
+                    origin: tmt_core::request::RequestOrigin::Person,
                     kind,
                     room_id: None,
                     request_id: id.into(),

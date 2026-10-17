@@ -351,6 +351,7 @@ impl Fixture {
     }
     fn input(&self) -> DispatchInput {
         DispatchInput {
+            origin: tmt_core::request::RequestOrigin::Person,
             originator: tmt_core::request::Originator::Unknown,
             kind: tmt_core::request::RequestKind::Request,
             operation_id: OPERATION.into(),

@@ -224,6 +224,7 @@ pub(super) fn prepare(
     let request = PrepareRequest {
         room_id: room.map(|room| room.id),
         kind: tmt_core::request::RequestKind::Request,
+        origin: tmt_core::request::RequestOrigin::Person,
         request_id: correlation.request_id.clone(),
         message: input.message.clone(),
         route: route.clone(),

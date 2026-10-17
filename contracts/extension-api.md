@@ -51,7 +51,7 @@ independent of storage access.
 | `requests.show`          | `requestId`                                                                                        | Request detail including retained prompt/final state                                                                                                              |
 | `responses.recent`       | `identityId` (canonical UUID), optional `limit` (1–10, default 10)                                 | `identityId`, `items`: locally retained provider-final pane output (see below)                                                                                    |
 | `dispatch.show`          | `operationId`                                                                                      | Immutable acceptance receipt                                                                                                                                      |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`                                  | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`                        | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                              | Room resource                                                                                                                                                     |
 | `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                            | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
 | `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                      | `room` resource and `members` with metadata and status                                                                                                            |
@@ -490,6 +490,15 @@ An acceptance receipt is not proof of delivery or processing. An absent `wake`
 on replay is intentional; an offline request remains queued without automatic
 re-wake. Recover with `dispatch.show` after uncertain process completion.
 
+`dispatch.create.origin` is optional and only `"automation"` is accepted; absent
+means a person made the request, and any other value is `API_INPUT_INVALID`. An
+extension that composes traffic no person typed, such as a scheduler or a notice,
+declares it once per operation. It is recorded on every request the operation
+creates, never changes, and is part of the intent, so replaying an operation id
+with the other value conflicts while an absent value keeps every earlier digest.
+`tmt talk`, `send`, `room send` and MCP always record a person. Like `sender`, the
+declaration is local attribution, not authentication.
+
 ### Admission, wake and completion
 
 `dispatch.create` commits immutable acceptance before attempting an advisory wake
@@ -655,6 +664,10 @@ Ordinary history and detail include `final:{status:"withdrawn",reason,withdrawnA
 after [originator withdrawal](request-response-v1.md#originator-withdrawal).
 This terminal state is not a recipient final or approval; consumers waiting on
 a person exclude it. Original prompt/history and delivery status remain intact.
+Every history item carries `origin`: `"person"`, `"automation"`, or `"unknown"` for
+a request created before origins were recorded. A consumer treats `unknown` as a
+person's request. Core records the value at creation and derives it from nothing
+else, so neither a sender's name nor the message text can change it.
 For submitted replies across rooms and recipients, call `requests.list` with
 `{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
 and cannot be combined with `recipientId` or `roomId`. The default limit is 8;
@@ -666,7 +679,7 @@ versa. Refresh the first page to discover newly submitted replies, including
 late finals on older requests; continuation does not include newer submissions.
 
 Results retain the ordinary history item fields: `requestId`, `roomId`,
-`recipientId`, `sender`, request `kind`, `preparedAtMs`, `delivery`,
+`recipientId`, `sender`, request `kind`, `origin`, `preparedAtMs`, `delivery`,
 `recipientAcknowledged`, `final`, and the unchanged prompt `preview`. They add
 `responsePreview` (string or null) and `previewTruncated` (boolean). A retained
 response preview is its first line, at most 160 Unicode scalar values / 640 UTF-8

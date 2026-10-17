@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tmt_core::request::{RequestKind, WakeState};
+use tmt_core::request::{RequestKind, RequestOrigin, WakeState};
 
 use tmt_core::{
     dispatch::{
@@ -29,6 +29,15 @@ struct InputWire {
     room: Option<RoomWire>,
     #[serde(default, skip_serializing_if = "KindWire::is_request")]
     kind: KindWire,
+    /// Only an extension composing automated traffic declares an origin; absent is a person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin: Option<OriginWire>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum OriginWire {
+    Automation,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -90,6 +99,10 @@ pub fn decode_input(bytes: &[u8]) -> Option<DispatchInput> {
             KindWire::Request => RequestKind::Request,
             KindWire::Announcement => RequestKind::Announcement,
         },
+        origin: match wire.origin {
+            None => RequestOrigin::Person,
+            Some(OriginWire::Automation) => RequestOrigin::Automation,
+        },
         operation_id: wire.operation_id,
         recipient_ids: wire.recipient_ids,
         message: wire.message,
@@ -108,6 +121,8 @@ pub(crate) fn intent_digest(input: &DispatchInput) -> String {
         recipient_ids: input.recipient_ids.clone(),
         message: input.message.clone(),
         room: input.room.as_ref().map(Into::into),
+        // A person's origin is the default, so historical intent digests are unchanged.
+        origin: (input.origin == RequestOrigin::Automation).then_some(OriginWire::Automation),
     };
     // Hash the complete normalized intent, including direct vs roster semantics.
     // Identity provenance participates only when the CLI supplies a known sender.
