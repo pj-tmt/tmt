@@ -99,6 +99,7 @@ pub(in crate::board) fn board() -> App {
         },
         window: crate::config::TokenWindow::MINUTE,
         windows: crate::config::TokenWindow::DEFAULTS,
+        reduced_motion: false,
         squads: vec![],
         failures: vec![],
         incomplete: false,
@@ -514,6 +515,23 @@ fn paint(app: &App, width: u16, height: u16) -> Vec<String> {
         .chunks(usize::from(width))
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect()
+}
+
+/// Paint the retained metadata header rather than inspecting a parallel status cache.
+fn painted_conversation_header(app: &App) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    terminal
+        .draw(|frame| crate::board::conversation::render(frame, app, frame.area()))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(160)
+        .take(3)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn painted_member_row(app: &App, width: u16, height: u16) -> String {
@@ -4756,13 +4774,6 @@ fn counters_state_and_status_turn_stale_together() {
     };
     let mut app = board();
     app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
-    let status = |app: &App| {
-        app.conversation
-            .borrow()
-            .active_agent_mark()
-            .unwrap_or_default()
-            .to_owned()
-    };
     let overview = |app: &mut App| {
         app.shell.tab = OpsTab::Overview;
         app.overview_view = monitor::View::Squads;
@@ -4786,7 +4797,7 @@ fn counters_state_and_status_turn_stale_together() {
         read(&mut app, at, observation);
         let (screen, summary) = overview(&mut app);
         let row = painted_member_row(&app, 160, 36);
-        let mark = status(&app);
+        let header = painted_conversation_header(&app);
         // The TEAM glyph is the counter this frame shows for the member.
         let team = screen
             .lines()
@@ -4797,8 +4808,8 @@ fn counters_state_and_status_turn_stale_together() {
             assert!(team.contains("product   ●"), "{case}: {team}");
             assert_eq!((summary.working, summary.unknown_activity), (1, 0));
             assert!(
-                row.contains("● working") && mark.ends_with("worker working"),
-                "{row} / {mark}"
+                row.contains("● working") && header.contains("working · product"),
+                "{row} / {header}"
             );
         } else {
             assert!(team.contains("product   ?"), "{case}: {team}");
@@ -4811,7 +4822,7 @@ fn counters_state_and_status_turn_stale_together() {
                 row.contains("? stale") && !row.contains("idle"),
                 "{case}: {row}"
             );
-            assert!(mark.contains("worker stale"), "{case}: {mark}");
+            assert!(header.contains("stale"), "{case}: {header}");
         }
     }
 }
@@ -5267,11 +5278,12 @@ fn collapsed_squad_lead_focus_and_status_share_stale_activity_without_global_wai
         !screen.contains("◆ waiting"),
         "global waiting cannot become room attention: {screen}"
     );
-    let state = app.conversation.borrow();
-    let mark = state
-        .active_agent_mark()
-        .expect("lead conversation is active");
-    assert!(mark.contains("worker stale"), "{mark}");
+    let header = painted_conversation_header(&app);
+    assert!(
+        header.contains("stale") && header.contains("product"),
+        "{header}"
+    );
+    assert!(!header.contains("waiting"), "{header}");
 }
 
 #[test]

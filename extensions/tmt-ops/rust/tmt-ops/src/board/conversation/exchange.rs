@@ -31,6 +31,20 @@ impl Surface {
     }
 }
 
+impl Session {
+    /// Outgoing turns own their headers. Only an actual earlier exchange needs
+    /// a separate incoming heading above them, using that exchange's age.
+    fn group_heading_reply(&self) -> Option<&Reply> {
+        if self.outgoing.is_empty() {
+            self.reply.as_ref()
+        } else {
+            self.before_send
+                .as_ref()
+                .filter(|reply| !reply.body.is_empty())
+        }
+    }
+}
+
 /// Measure the held group with the same wrapped body the painter uses. Empty
 /// observations never reserve a minimum transcript or impose a growth cap.
 pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
@@ -72,7 +86,7 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
                 .as_ref()
                 .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
         });
-    (usize::from(session.reply.is_some() || !session.outgoing.is_empty())
+    (usize::from(session.group_heading_reply().is_some())
         + session.rendered.as_ref().unwrap().mapped.lines.len()
         + usize::from(waiting)
         + usize::from(has_link))
@@ -172,8 +186,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
     });
     let age = session
-        .reply
-        .as_ref()
+        .group_heading_reply()
         .map_or("—", |reply| reply.age.as_str());
     let stamp = age_stamp(age);
     let stamp = if surface.is_agents() && session.change != Change::Current {
@@ -193,7 +206,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     let read_only = read_only || session.change != Change::Current;
     let header = Rect {
         height: area.height.min(u16::from(
-            session.reply.is_some() || !session.outgoing.is_empty(),
+            session.exact_source.is_some() || session.group_heading_reply().is_some(),
         )),
         ..area
     };
@@ -279,17 +292,13 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                 Some(AuthoredLine::ReplyHeading) => {
                     exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
                 }
-                Some(AuthoredLine::Status) => {
-                    let text = line.to_string();
-                    let suffix = format!(" · {}", session.agent_mark);
-                    exchange::feedback(
-                        text.trim_end()
-                            .strip_suffix(suffix.trim_end())
-                            .unwrap_or(text.trim_end())
-                            .trim_end(),
-                        look,
-                    )
-                }
+                Some(AuthoredLine::Status { .. }) => exchange::feedback(
+                    session
+                        .feedback_line(mapped.sources[index], line, crate::status::now_ms())
+                        .to_string()
+                        .trim_end(),
+                    look,
+                ),
                 None => exchange::body(line.clone(), look),
             }
         },
@@ -316,6 +325,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     }
     let mut hits = Vec::new();
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
+        session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
         if surface.interactive()
             && mapped.lines[index].width() > 0
             && let Some((key, sequence)) = session.response_key_at(mapped.sources[index])

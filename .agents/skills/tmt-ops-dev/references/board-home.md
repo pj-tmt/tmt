@@ -394,6 +394,7 @@ and a member's secondary task state is muted unless it is `blocked` (✗, red). 
 counts tally core activity once per identity and count a stale read as unknown;
 Overview TEAM glyphs use the same activity label (request attention first, never
 a task state). Needs-you counts stay task and request facts.
+Sent-message feedback shares that acquired activity; the [conversation owner](board-notebooks.md#replies-and-verification) defines its progress and visible clocks.
 
 One identity-total series uses the existing Rate owner. Its header reads
 `Usage · last <range> · <total> tok`; two right-aligned selector groups expose the
