@@ -323,7 +323,10 @@ own these layers:
   anonymous scheduled admission requires an enabled job and active owner membership. No
   dispatch runs under the jobs lock; core roster/identity state can still change after that
   snapshot and core owns final dispatch admission. `Core::api_write` reuses the bounded
-  process owner with an explicit identity or anonymous envelope.
+  process owner with an explicit identity or anonymous envelope. Scheduled sends, `cron send`
+  and the change announcements go through `Core::dispatch_automated`, which declares
+  `origin: "automation"` and repeats the same operation once without it when an older Core
+  refuses the field with `API_INPUT_INVALID` (nothing is stored on a refusal).
 - Owner hooks: `identityHooks` registration (consumer `squad-cron`) precedes job publication;
   a failed publication can leave a harmless unused reference. List, show and apply process
   one pending retirement page of at most 16 hooks, and clock ticks call the same drain.

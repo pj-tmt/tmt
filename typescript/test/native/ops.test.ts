@@ -3450,11 +3450,23 @@ describe('Squad cron clock', () => {
         expect(
           db
             .prepare(`SELECT recipient_identity_id AS recipient, originator_identity_id AS actor,
-          room_id AS room, message_text AS message FROM request_attempts WHERE request_kind='request' ORDER BY rowid`)
+          room_id AS room, message_text AS message, origin FROM request_attempts WHERE request_kind='request' ORDER BY rowid`)
             .all()
         ).toEqual([
-          { recipient: worker, actor: lead, room: added.body.job.roomId, message },
-          { recipient: worker, actor: user, room: added.body.job.roomId, message },
+          {
+            recipient: worker,
+            actor: lead,
+            room: added.body.job.roomId,
+            message,
+            origin: 'automation',
+          },
+          {
+            recipient: worker,
+            actor: user,
+            room: added.body.job.roomId,
+            message,
+            origin: 'automation',
+          },
         ]);
       } finally {
         db.close();

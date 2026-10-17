@@ -311,6 +311,29 @@ impl Core {
         }
         self.call(&["api".into()], request.to_string().as_bytes())
     }
+
+    /// `dispatch.create` for traffic no person typed (scheduled sends and their change
+    /// announcements). It declares `origin: "automation"`. A Core from before origins refuses
+    /// that unknown input without storing anything, so the same operation is repeated once
+    /// without it: the request is then recorded as a person's, which readers already treat
+    /// as the conservative `unknown`. Any other refusal is returned as is.
+    pub fn dispatch_automated(
+        &self,
+        mut input: Value,
+        identity: Option<&str>,
+    ) -> Result<Value, SquadError> {
+        input["origin"] = json!("automation");
+        match self.api_write("dispatch.create", input.clone(), identity) {
+            Err(error) if error.code == "API_INPUT_INVALID" => {
+                input
+                    .as_object_mut()
+                    .expect("dispatch input is an object")
+                    .remove("origin");
+                self.api_write("dispatch.create", input, identity)
+            }
+            result => result,
+        }
+    }
 }
 
 /// The JSON document a finished call printed, or the structured error it carried.

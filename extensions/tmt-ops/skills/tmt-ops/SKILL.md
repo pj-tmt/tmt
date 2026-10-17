@@ -823,7 +823,8 @@ Ctrl-C; stale leases can be taken over. Startup and takeover begin at now, so
 slots missed while no clock was running are not caught up. A running clock
 admits slots since its previous tick, capped at five minutes. `tick` makes one
 pass over the last 60 seconds and refuses an active clock. Scheduled messages
-are anonymous requests; the same room/job/slot operation is accepted once.
+are anonymous requests recorded with origin `automation`, so they are told apart from
+typed messages; the same room/job/slot operation is accepted once.
 
 `tmt ops sq cron send product c1` sends once now using the recorded or explicit
 user/lead actor. It can send a paused job with a current owner and changes no

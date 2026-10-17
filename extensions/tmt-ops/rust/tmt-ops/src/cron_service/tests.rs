@@ -263,6 +263,42 @@ fn notices_target_owners_suppress_actor_and_never_undo_a_committed_change() {
 }
 
 #[test]
+fn change_announcements_declare_automation_and_only_that_refusal_is_retried() {
+    let dispatches = |f: &Fixture| {
+        f.model()["calls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|call| call["request"]["operation"] == "dispatch.create")
+            .count()
+    };
+    let f = Fixture::new();
+    let user = f.actor(USER);
+    let job = f.add(&user, WORKER).unwrap().job.job;
+    let model = f.model();
+    assert_eq!(model["notices"].as_array().unwrap().len(), 1);
+    assert_eq!(model["notices"][0]["input"]["origin"], "automation");
+
+    // A Core from before origins refuses the field; the notice is sent again without it.
+    f.change_model(|m| m["rejectOrigin"] = json!(true));
+    let paused = f.mutate(&user, &job, Mutation::Pause).unwrap();
+    assert!(paused.warnings.is_empty());
+    let model = f.model();
+    assert_eq!(model["notices"].as_array().unwrap().len(), 2);
+    assert!(model["notices"][1]["input"].get("origin").is_none());
+
+    // Any other refusal is reported once, not retried.
+    f.change_model(|m| {
+        m["rejectOrigin"] = json!(false);
+        m["noticeFailure"] = json!(true);
+    });
+    let before = dispatches(&f);
+    let resumed = f.mutate(&user, &paused.job.job, Mutation::Resume).unwrap();
+    assert_eq!(resumed.warnings[0].code, "DISPATCH_FAILURE");
+    assert_eq!(dispatches(&f), before + 1);
+}
+
+#[test]
 fn retirement_is_durable_before_ack_and_obsolete_hooks_cannot_clear_a_new_owner() {
     let f = Fixture::new();
     let user = f.actor(USER);

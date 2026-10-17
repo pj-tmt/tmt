@@ -30,8 +30,7 @@ pub(super) fn send(
     message: &str,
     actor: Option<&CronActor>,
 ) -> Result<(), SquadError> {
-    let receipt = core.api_write(
-        "dispatch.create",
+    let receipt = core.dispatch_automated(
         json!({
             "operationId": operation(job, action, recipient), "recipientIds": [recipient],
             "message": message, "kind": "announcement"

@@ -129,6 +129,7 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     assert_eq!(calls[0]["request"]["identity"], LEAD);
     assert!(calls[0]["request"]["originator"].is_null());
     assert_eq!(calls[0]["request"]["input"]["message"], paused.message);
+    assert_eq!(calls[0]["request"]["input"]["origin"], "automation");
     assert_eq!(
         calls[0]["request"]["input"]["room"],
         json!({"kind":"direct","roomId":ROOM})
@@ -161,6 +162,27 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
         "SQUAD_CRON_PERMISSION_DENIED"
     );
     assert_eq!(request_calls(&f.model()).len(), 1);
+}
+
+#[test]
+fn an_older_core_that_refuses_origin_is_asked_again_once_without_it() {
+    let f = Fixture::new();
+    let lead = f.actor(LEAD);
+    let job = f.add(&lead, WORKER).unwrap().job.job;
+    f.change_model(|model| model["rejectOrigin"] = json!(true));
+    let id = manual_operation().unwrap();
+    let key = JobKey::of(&job);
+    let accepted = send_now(&f.core, &f.config, &key, &lead, job.revision, &id).unwrap();
+    assert_eq!(accepted["dispatch"]["operationId"], id);
+    let model = f.model();
+    let calls = request_calls(&model);
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0]["request"]["input"]["origin"], "automation");
+    assert!(calls[1]["request"]["input"].get("origin").is_none());
+    assert_eq!(calls[0]["request"]["input"]["operationId"], id);
+    assert_eq!(calls[1]["request"]["input"]["operationId"], id);
+    // The refused first attempt stored nothing: one request was accepted.
+    assert_eq!(model["wakes"].as_array().unwrap().len(), 1);
 }
 
 #[test]
