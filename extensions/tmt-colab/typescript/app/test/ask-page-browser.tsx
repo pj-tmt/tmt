@@ -127,6 +127,8 @@ export async function mount(
     checking?: boolean;
     /** Explicit admitted-directory presentation states; production discovery remains unchanged. */
     agents?: AgentDestination[];
+    /** Names the observed directory lists, as it does for a viewer who holds no Ask record. */
+    presentation?: readonly string[];
     agentsUnavailable?: boolean;
     /** One barrier shared by all destination reads in this mounted question page. */
     holdQuestionDirectory?: boolean;
@@ -200,7 +202,11 @@ export async function mount(
   };
   let preparationFailures = options.prepareFailures ?? 0;
   let askRefusals = options.refuseAsks ?? 0;
-  presentationAgents = [];
+  presentationAgents = (options.presentation ?? []).map((agentName) => ({
+    ...destination(),
+    agentName,
+    presence: 'active' as const,
+  }));
   presentationGate = undefined;
   releasePresentation = undefined;
   rejectPresentation = false;
