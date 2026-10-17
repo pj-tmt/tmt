@@ -13,6 +13,7 @@ export interface DraftRelease extends ReleaseObject {
 
 export interface ReleaseApi {
   listReleases(): DraftRelease[];
+  readRelease(tag: string): DraftRelease | null;
   upload(release: DraftRelease, name: string, file: string): unknown;
   deleteAsset(id: number): unknown;
 }

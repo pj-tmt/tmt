@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { retryReleaseRead } from './release-read-retry.mjs';
 import { runPackedCommand } from './packed-command.mjs';
 
 const SHA = /^[a-f0-9]{40}$/;
@@ -105,6 +106,80 @@ export function readReleaseCatalog({ repository, token }, execute = runPackedCom
   throw new Error(
     'Unstable cut REST catalogue after three attempts: duplicate records or shifted pages.'
   );
+}
+
+/** Exact release reads share one 60-request/90-second budget; no listing or pagination. */
+export function createReleaseReader({ repository, token, sleep }, execute = runPackedCommand) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? ''))
+    throw new Error('Release reader needs a repository.');
+  const [owner, name] = repository.split('/');
+  let requests = 0;
+  const deadline = Date.now() + 90_000;
+  const budgetFailure = new Error('Exact release read budget exceeded.');
+  const get = (args) => {
+    const result = retryReleaseRead(
+      () => {
+        if (++requests > 60 || Date.now() >= deadline) throw budgetFailure;
+        return JSON.parse(
+          execute('gh', ['api', ...args], {
+            cwd: process.cwd(),
+            env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },
+            timeoutMs: Math.min(10_000, deadline - Date.now()),
+          })
+        );
+      },
+      { label: 'Exact release read', retryIf: (failure) => failure !== budgetFailure, sleep }
+    );
+    if (result?.errors) throw new Error('Exact release discovery returned GraphQL errors.');
+    return result;
+  };
+  const byId = (id) => {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('Invalid release identity.');
+    const release = get([`repos/${repository}/releases/${id}`, '--method', 'GET']);
+    if (
+      release?.id !== id ||
+      typeof release.tag_name !== 'string' ||
+      typeof release.draft !== 'boolean' ||
+      typeof release.created_at !== 'string' ||
+      typeof release.target_commitish !== 'string' ||
+      (release.body != null && typeof release.body !== 'string') ||
+      !Array.isArray(release.assets) ||
+      release.assets.some(
+        (asset) =>
+          !Number.isSafeInteger(asset?.id) || asset.id <= 0 || typeof asset.name !== 'string'
+      )
+    )
+      throw new Error('Invalid exact release metadata.');
+    return { ...release, body: release.body ?? '' };
+  };
+  return {
+    byId,
+    byTag: (tag) => {
+      if (typeof tag !== 'string' || !tag || tag.length > 255)
+        throw new Error('Invalid release tag.');
+      // REST's /releases/tags endpoint excludes tagless drafts. Resolve only this
+      // tag's identity through GraphQL, then retain the ordinary REST record shape.
+      const result = get([
+        'graphql',
+        '-f',
+        'query=query($owner:String!,$name:String!,$tag:String!){repository(owner:$owner,name:$name){release(tagName:$tag){databaseId tagName}}}',
+        '-f',
+        `owner=${owner}`,
+        '-f',
+        `name=${name}`,
+        '-f',
+        `tag=${tag}`,
+      ]);
+      if (!result?.data?.repository || !Object.hasOwn(result.data.repository, 'release'))
+        throw new Error('Incomplete exact release discovery.');
+      const identity = result.data.repository.release;
+      if (identity === null) return null;
+      if (identity.tagName !== tag) throw new Error('Release discovery tag changed.');
+      const release = byId(identity.databaseId);
+      if (release.tag_name !== tag) throw new Error('Release identity changed during discovery.');
+      return release;
+    },
+  };
 }
 
 export function readCutMetadata(

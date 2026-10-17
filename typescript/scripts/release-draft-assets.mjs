@@ -6,6 +6,7 @@
 //   record-failure  upload verification-failed.json with the run URL
 // Publication is not done here: a draft that carries the bundle marker is complete, and
 // `release-publish.mjs` publishes it once the gates passed.
+import { createReleaseReader } from './release-cut-read.mjs';
 import { retryReleaseRead } from './release-read-retry.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -62,14 +63,20 @@ export function bundleFiles(product, manifest, tag) {
 
 const sha256 = (file) => `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
 
-function findDraft(releases, tag) {
-  const release = releases.find(({ tag_name: name }) => name === tag);
+function requireDraft(release, tag) {
   if (!release) throw new Error(`There is no release ${tag}.`);
+  if (release.tag_name !== tag) throw new Error(`Release identity differs from ${tag}.`);
   if (release.draft !== true) {
     throw new Error(`Release ${tag} is published; nothing can be attached to it.`);
   }
   return release;
 }
+
+const findDraft = (releases, tag) =>
+  requireDraft(
+    releases.find((release) => release.tag_name === tag),
+    tag
+  );
 
 const assetsOf = (release) => release.assets ?? [];
 const hasAsset = (release, name) => assetsOf(release).some((asset) => asset.name === name);
@@ -80,7 +87,7 @@ const hasAsset = (release, name) => assetsOf(release).some((asset) => asset.name
  * parks it, and a retry removes the marker so that this run owns the draft again.
  */
 export function checkDraft({ api, tag, retry = false }) {
-  const release = findDraft(api.listReleases(), tag);
+  const release = requireDraft(api.readRelease(tag), tag);
   if (hasAsset(release, BUNDLE_ASSET)) {
     return {
       todo: false,
@@ -267,7 +274,12 @@ export function ghApi({ repository, env = process.env, spawn = spawnSync, sleep 
     }
     return result.stdout;
   };
+  const reader = createReleaseReader(
+    { repository, token: env.GH_TOKEN, sleep },
+    (_command, args, options) => gh(args, options.timeoutMs, 2 * 1024 * 1024)
+  );
   return {
+    readRelease: (tag) => reader.byTag(tag),
     listReleases: () =>
       releasesFrom(
         retryReleaseRead(

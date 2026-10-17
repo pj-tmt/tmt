@@ -7,6 +7,8 @@ import {
   DECLARATION_OUTPUT,
   DECLARATION_SUPPORT,
   declarationBytes,
+  captureDeclaration,
+  readDeclarationReleases,
   declarationMarker,
   declarationSource,
   gitDeclarationAncestry,
@@ -20,7 +22,7 @@ import {
 import { publishDraft } from '../../scripts/release-publish.mjs';
 import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
-import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
+import { ghApi, type DraftRelease } from '../../scripts/release-draft-assets.mjs';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -391,6 +393,7 @@ describe('mandatory publication compatibility preflight', () => {
             ? () => ({ sha: f.context.cut, status: 'ahead' })
             : f.context.observeCli;
       const api = {
+        readRelease: (tag: string) => releases.find((release) => release.tag_name === tag) ?? null,
         listReleases: () => releases,
         publish: (name: string) => {
           mutations.push(name);
@@ -422,4 +425,122 @@ describe('mandatory publication compatibility preflight', () => {
       }
     });
   }
+});
+
+describe('targeted declaration evidence', () => {
+  it.each([3000, 6000])(
+    'checks frozen publications and guards publish independently of %i unrelated releases',
+    (count) => {
+      const f = fixture();
+      const tag = 'tmt-ops-v0.1.0-alpha.2';
+      const own: DraftRelease = {
+        id: count + 100,
+        tag_name: tag,
+        draft: true,
+        created_at: '2026-10-17T00:00:00Z',
+        target_commitish: f.context.cut,
+        body: declarationMarker(f.record),
+        assets: [{ id: 10, name: 'release-publication.json' }],
+      };
+      const unrelated = Array.from({ length: count }, (_, index): DraftRelease => ({
+        id: 100 + index,
+        tag_name: `unrelated-${index}`,
+        draft: false,
+        created_at: '2026-10-17T00:00:00Z',
+        target_commitish: f.context.cut,
+        assets: [],
+      }));
+      const releases = [...f.context.releases, ...unrelated, own];
+      const tags = new Map(releases.map((release) => [release.tag_name, release]));
+      const ids = new Map(releases.map((release) => [release.id, release]));
+      const calls: string[] = [];
+      const api = ghApi({
+        repository: 'pj-tmt/tmt',
+        spawn: (_command, args) => {
+          calls.push(args[1]);
+          let response;
+          if (args[1] === 'graphql') {
+            const requested = args.find((arg) => arg.startsWith('tag='))!.slice(4);
+            const release = tags.get(requested);
+            response = {
+              data: {
+                repository: {
+                  release: release ? { databaseId: release.id, tagName: requested } : null,
+                },
+              },
+            };
+          } else if (new RegExp('^repos/pj-tmt/tmt/releases/[0-9]+$').test(args[1])) {
+            response = ids.get(Number(args[1].split('/').at(-1)));
+          } else throw new Error(`Unexpected history access: ${args.join(' ')}`);
+          return { status: 0, stdout: JSON.stringify(response), stderr: '' };
+        },
+      });
+      const evidence = readDeclarationReleases({
+        ...f.context,
+        record: f.record,
+        readRelease: api.readRelease,
+      });
+      expect(verifyDeclaration({ ...f.context, record: f.record, releases: evidence })).toEqual(
+        f.record
+      );
+      expect(evidence.map((release) => release.tag_name)).toEqual([
+        f.record.cli.tag,
+        'tmt-remote-v0.1.0-alpha.1',
+      ]);
+      expect(calls).toHaveLength(4); // Two exact identity + REST reads, no catalogue.
+      calls.length = 0;
+      const mutations: string[] = [];
+      publishDraft({
+        api: {
+          ...api,
+          listReleases: () => {
+            throw new Error('No history in extension publication');
+          },
+          publish: (requested) => {
+            mutations.push(requested);
+          },
+          latestRelease: () => null,
+          setLatest: () => {
+            throw new Error('Extension cannot set latest');
+          },
+        },
+        product: 'ops',
+        tag,
+        declarationEvidence: { map: f.context.map, observeCli: f.context.observeCli },
+      });
+      expect(mutations).toEqual([tag]);
+      expect(calls).toHaveLength(6); // Own draft, frozen CLI, authored use; no other release.
+    }
+  );
+
+  it.each(['published', 'draft', 'bare'] as const)(
+    'tagless capture agrees with the complete oracle for an oldest %s candidate',
+    (state) => {
+      const f = fixture();
+      f.git(['tag', 'v5.0.0-alpha.2', f.registration]); // An older bare tag is never a publication.
+      let releases = f.context.releases;
+      if (state === 'draft')
+        releases = releases.map((release) => ({
+          ...release,
+          draft: release.tag_name === 'v5.0.0-alpha.3',
+        }));
+      if (state === 'bare')
+        releases = releases.filter((release) => release.tag_name !== 'v5.0.0-alpha.3');
+      const requested: string[] = [];
+      const git = (args: string[]) =>
+        f.git(args.map((arg) => (arg === DECLARATION_SUPPORT ? f.registration : arg)));
+      const actual = captureDeclaration({
+        ...f.context,
+        git,
+        readRelease: (tag) => {
+          requested.push(tag);
+          return releases.find((release) => release.tag_name === tag) ?? null;
+        },
+      });
+      expect(actual).toEqual(resolveDeclaration({ ...f.context, releases }));
+      expect(actual?.cli.tag).toBe(state === 'published' ? 'v5.0.0-alpha.3' : 'v5.0.0-alpha.5');
+      expect(requested).not.toContain('v5.0.0-alpha.1'); // Before both floors, never queried.
+      expect(requested).toContain('v5.0.0-alpha.2');
+    }
+  );
 });

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import history from '../fixtures/release-cut-history.json' with { type: 'json' };
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import { versionOfTag } from '../../scripts/release-versions.mjs';
-import { readCutMetadata } from '../../scripts/release-cut-read.mjs';
+import { createReleaseReader, readCutMetadata } from '../../scripts/release-cut-read.mjs';
 import { createCutClient } from '../../scripts/release-cut-live.mjs';
 import {
   attributeCutCommits,
@@ -856,5 +856,102 @@ describe('bounded REST-only state acquisition', () => {
     const execute = vi.fn(() => response([release(1), release(1)]));
     expect(() => readCutMetadata(input, execute)).toThrow('duplicate');
     expect(execute).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('exact release acquisition', () => {
+  const record = {
+    id: 42,
+    tag_name: 'tmt-ops-v0.1.0-alpha.122',
+    draft: true,
+    created_at: '2026-10-17T00:00:00Z',
+    target_commitish: 'a'.repeat(40),
+    body: 'frozen metadata',
+    assets: [{ id: 9, name: 'release-publication.json', digest: 'sha256:stored' }],
+  };
+  const discovery = (release: unknown = { databaseId: record.id, tagName: record.tag_name }) =>
+    JSON.stringify({ data: { repository: { release } } });
+
+  it('reads an exact draft by discovery identity and preserves its asset metadata', () => {
+    const execute = vi.fn((_command: string, args: string[]) =>
+      args[1] === 'graphql' ? discovery() : JSON.stringify(record)
+    );
+    const reader = createReleaseReader(
+      { repository: 'pj-tmt/tmt', token: 'fixture-token' },
+      execute
+    );
+    expect(reader.byTag(record.tag_name)).toEqual(record);
+    expect(execute.mock.calls.map(([, args]) => args[1])).toEqual([
+      'graphql',
+      'repos/pj-tmt/tmt/releases/42',
+    ]);
+    expect(reader.byId(42)).toEqual(record);
+    expect(execute).toHaveBeenCalledTimes(3);
+  });
+
+  it('treats an explicit absent identity as absence, without a list or REST fallback', () => {
+    const execute = vi.fn(() => discovery(null));
+    expect(
+      createReleaseReader({ repository: 'pj-tmt/tmt' }, execute).byTag(record.tag_name)
+    ).toBeNull();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['missing repository', {}],
+    [
+      'partial GraphQL failure',
+      { data: { repository: { release: null } }, errors: [{ message: 'denied' }] },
+    ],
+    ['missing release field', { data: { repository: {} } }],
+    [
+      'changed discovered tag',
+      { data: { repository: { release: { databaseId: 42, tagName: 'other' } } } },
+    ],
+  ])('fails closed on %s without retrying valid but invalid evidence', (_name, response) => {
+    const execute = vi.fn(() => JSON.stringify(response));
+    expect(() =>
+      createReleaseReader({ repository: 'pj-tmt/tmt' }, execute).byTag(record.tag_name)
+    ).toThrow();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { ...record, id: 43 },
+    { ...record, tag_name: 'changed' },
+    { ...record, draft: undefined },
+    { ...record, assets: [{ id: 0, name: 'bad' }] },
+  ])('fails closed on changed or incomplete exact REST evidence', (response) => {
+    const execute = vi.fn((_command: string, args: string[]) =>
+      args[1] === 'graphql' ? discovery() : JSON.stringify(response)
+    );
+    expect(() =>
+      createReleaseReader({ repository: 'pj-tmt/tmt' }, execute).byTag(record.tag_name)
+    ).toThrow();
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares the 60-request budget across discovery and exact reads', () => {
+    const execute = vi.fn((_command: string, args: string[]) =>
+      args[1] === 'graphql' ? discovery() : JSON.stringify(record)
+    );
+    const reader = createReleaseReader({ repository: 'pj-tmt/tmt' }, execute);
+    for (let index = 0; index < 30; index++) expect(reader.byTag(record.tag_name)?.id).toBe(42);
+    expect(() => reader.byId(42)).toThrow('budget exceeded');
+    expect(execute).toHaveBeenCalledTimes(60);
+  });
+
+  it('shares the deadline across exact operations and does not retry exhaustion', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      const execute = vi.fn(() => JSON.stringify(record));
+      const reader = createReleaseReader({ repository: 'pj-tmt/tmt' }, execute);
+      expect(reader.byId(42)).toEqual(record);
+      now.mockReturnValue(91_000);
+      expect(() => reader.byId(42)).toThrow('budget exceeded');
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 });

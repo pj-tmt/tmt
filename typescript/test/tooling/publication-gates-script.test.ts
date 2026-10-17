@@ -316,6 +316,8 @@ function scenario(options: Scenario = {}) {
         deleteAsset: () => {
           throw new Error('Unexpected publication delete');
         },
+        readRelease: (tag) =>
+          readState().releases.find((release) => release.tag_name === tag) ?? null,
         listReleases: () => readState().releases,
         latestRelease: () => ({ tag_name: 'v5.0.0-alpha.9' }),
         setLatest: () => {

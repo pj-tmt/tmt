@@ -28,3 +28,6 @@ export function verifyDeclaration(input: DeclarationContext & { record: Declarat
 export function declarationBytes(input: { record: DeclarationRecord; map: ComponentMap; product: string; cut: string }): Buffer;
 export function writeDeclaration(root: string, snapshot: { declaration?: DeclarationRecord | null; hashes: Record<string, string>; product: string; cut: string }, map: ComponentMap): void;
 export function verifyDeclarationBytes(file: string, snapshot: { declaration?: DeclarationRecord | null; product: string; cut: string }, map: ComponentMap): void;
+
+export function readDeclarationReleases(input: { record: DeclarationRecord | null; map: ComponentMap; product: string; cut: string; readRelease: (tag: string) => DeclarationRelease | null }): DeclarationRelease[];
+export function captureDeclaration(input: { map: ComponentMap; product: string; cut: string; git: (args: string[]) => string; readRelease: (tag: string) => DeclarationRelease | null }): DeclarationRecord | null;
