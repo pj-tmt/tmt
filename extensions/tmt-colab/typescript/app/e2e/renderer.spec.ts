@@ -1789,3 +1789,34 @@ test('reading headings resolve only requested IDs and jumps only highlight witho
     .toBe(true);
   await expect(page.locator('#probe')).not.toHaveAttribute('data-opened');
 });
+
+for (const admitted of [false, true])
+  test(`an ${admitted ? 'admitted' : 'unadmitted'} reading tag cannot steal an existing proposal slot`, async ({
+    page,
+  }) => {
+    const id = '10000000-0000-4000-8000-000000000401';
+    await page.goto('/');
+    await mount(
+      page,
+      `<tmt-proposal data-id="${id}"></tmt-proposal><tmt-read data-id="${id}" data-agent="Agent 1" data-why="Read this"><h2 data-title>Reading</h2></tmt-read>`,
+    );
+    await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+    await page.evaluate(
+      ({ id, admitted }) => {
+        const w = window as unknown as {
+          probe: { handle: Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>> };
+        };
+        w.probe.handle.questions(
+          [],
+          [],
+          [],
+          [],
+          admitted ? [{ id, title: 'Reading', closed: false }] : [],
+        );
+        w.probe.handle.slots([{ id, height: 20 }]);
+      },
+      { id, admitted },
+    );
+    await expect.poll(() => page.locator('#probe').getAttribute('data-slots')).toContain(id);
+    expect(JSON.parse((await page.locator('#probe').getAttribute('data-slots'))!)).toHaveLength(1);
+  });

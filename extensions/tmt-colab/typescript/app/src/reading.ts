@@ -6,6 +6,9 @@ import {
   type ThreadView,
 } from './thread-records.js';
 import { resolvedByPerson } from './reviews.js';
+import type { PageAsk } from './ask-panel.js';
+import { projectStatusNotifications } from './thread-status-notification.js';
+import { discussionRefKey } from './thread-status.js';
 
 /** Fixed ordinary-device comment; the reading UUID separates identical headings. */
 export function readingComment(
@@ -67,4 +70,13 @@ export function readingState(
   if (!thread || !currentReadingComment(reading, thread.comments) || !resolvedByPerson(thread))
     return { kind: 'unread' };
   return { kind: 'read', by: thread.status?.deviceName, at: thread.status?.at };
+}
+
+/** Reuse the ordinary notification ledger; adoption alone is never delivery confirmation. */
+export function readingNotification(thread: ThreadView | undefined, asks: readonly PageAsk[]) {
+  if (!thread?.status) return;
+  const current = discussionRefKey(thread.status.ref);
+  return projectStatusNotifications(thread, asks).find(
+    (outcome) => discussionRefKey(outcome.status) === current,
+  );
 }

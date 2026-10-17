@@ -6,6 +6,7 @@ import {
   isReadingComment,
   readingComment,
   readingState,
+  readingNotification,
 } from '../src/reading.js';
 import type { CommentView, ThreadView } from '../src/thread-records.js';
 
@@ -84,4 +85,58 @@ it('identical headings with distinct reading IDs never share state; siblings hav
   const another = { ...reading, id: '10000000-0000-4000-8000-000000000402' };
   expect(canonicalReadingThread(another, [first])).toBeUndefined();
   expect(readingState(another, first)).toEqual({ kind: 'unread' });
+});
+
+it('notification wording reads the existing ledger outcome, not a successful Resolve or adoption', () => {
+  const statusRef = { writer: 'device', id: 'status' };
+  const recipient = {
+    machine: 'machine',
+    agent: 'agent',
+    agentName: 'alpha',
+    operationId: 'operation',
+  };
+  const status = { ...thread([comment()]).status!, ref: statusRef, recipients: [recipient] };
+  const saved = { ...thread([comment()]), threadId: 'thread', status, statuses: [status] };
+  expect(readingNotification(saved, [])?.state).toBe('uncertain');
+  for (const state of [
+    'accepted',
+    'held',
+    'refused',
+    'uncertain',
+    'dispatching',
+    'failed',
+    'cancelled',
+    'expired',
+    'abandoned',
+  ] as const) {
+    const ask = {
+      writer: 'device',
+      operationId: 'operation',
+      machine: 'machine',
+      agent: 'agent',
+      thread: 'thread',
+      state,
+    } as import('../src/ask-panel.js').PageAsk;
+    expect(readingNotification(saved, [ask])?.state).toBe(state);
+  }
+  const replied = {
+    writer: 'device',
+    operationId: 'operation',
+    machine: 'machine',
+    agent: 'agent',
+    thread: 'thread',
+    state: 'accepted',
+    reply: 'Done',
+  } as import('../src/ask-panel.js').PageAsk;
+  expect(readingNotification(saved, [replied])).toMatchObject({ state: 'accepted', reply: 'Done' });
+  const failed = {
+    ...saved,
+    notifications: [
+      { status: statusRef, operationId: 'operation', reason: 'RECIPIENT_UNAVAILABLE' },
+    ],
+  } as ThreadView;
+  expect(readingNotification(failed, [])).toMatchObject({
+    state: 'unavailable',
+    reason: 'RECIPIENT_UNAVAILABLE',
+  });
 });

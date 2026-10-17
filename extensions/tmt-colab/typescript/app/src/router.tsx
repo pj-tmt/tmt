@@ -658,6 +658,7 @@ const shortPage = createRoute({
 });
 function ShortPageChoice() {
   const { pages, prefix } = shortPage.useLoaderData();
+  const search = shortPage.useSearch();
   const deleted = pages.length === 1 && pages[0].deleted;
   return (
     <NoticeCard
@@ -688,7 +689,7 @@ function ShortPageChoice() {
                 <code className="tmt-ui-code">{page.id}</code>
               </span>
             ) : (
-              <Link to="/pages/$pageId" params={{ pageId: page.id }}>
+              <Link to="/pages/$pageId" params={{ pageId: page.id }} search={search}>
                 <span>
                   <span className="short-page-title">
                     {page.title}

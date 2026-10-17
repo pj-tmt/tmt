@@ -578,9 +578,15 @@
             if (stopped || !slotRequestId) return;
             const positions = [];
             for (const slot of slots) {
-              const matches = document.querySelectorAll(
-                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"],tmt-read[data-id="${slot.id}"]`,
+              // Reading tags cannot displace an existing control, and an unrequested authored
+              // tag contributes no slot at all. The parent also reserves ordinary IDs first.
+              const ordinary = document.querySelectorAll(
+                `tmt-proposal[data-id="${slot.id}"],tmt-question[data-id="${slot.id}"],tmt-questions[data-id="${slot.id}"],tmt-review[data-id="${slot.id}"]`,
               );
+              const matches =
+                ordinary.length || !readingBlocks.some((reading) => reading.id === slot.id)
+                  ? ordinary
+                  : document.querySelectorAll(`tmt-read[data-id="${slot.id}"]`);
               const group = questionGroups.find((group) => group.id === slot.id);
               if (group?.form === 'chip') {
                 // The block collapses to an inline placeholder the parent draws its chip over; the

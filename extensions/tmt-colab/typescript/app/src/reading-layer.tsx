@@ -67,6 +67,7 @@ export function useReadingLayer({
     [jump],
   );
   const admitted = useRef(new AdmittedView());
+  const followed = useRef('');
   const actions = useMemo(() => {
     const page = snapshot.id;
     return new ReadingActions({
@@ -100,10 +101,14 @@ export function useReadingLayer({
   useEffect(() => {
     setAnchors(null);
     setOutcomes(new Map());
+    followed.current = '';
   }, [snapshot.id]);
-  const followed = useRef('');
   useEffect(() => {
-    if (!hint || anchors === null) return;
+    if (!hint) {
+      followed.current = '';
+      return;
+    }
+    if (anchors === null) return;
     const key = `${snapshot.id}:${hint}`;
     if (followed.current === key) return;
     followed.current = key;

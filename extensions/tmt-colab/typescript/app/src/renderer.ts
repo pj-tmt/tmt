@@ -17,6 +17,9 @@ export const MAX_SELECTION_BYTES = 16 * 1024;
 export const MAX_RENDER_HEIGHT = 1_000_000;
 const HEIGHT_UPDATE_MS = 100;
 const GROWTH_REPORT_LIMIT = 5;
+/** Shared inline geometry budget; reading bands use only slots left by existing controls. */
+export const INLINE_SLOT_LIMIT = 250;
+
 export interface SelectionRect {
   x: number;
   y: number;
@@ -920,7 +923,7 @@ export async function mountRenderer(
   const slots = (input: InlineSlot[]) => {
     if (
       stopped ||
-      input.length > 250 ||
+      input.length > INLINE_SLOT_LIMIT ||
       new Set(input.map((v) => v.id)).size !== input.length ||
       input.some(
         (v) =>
