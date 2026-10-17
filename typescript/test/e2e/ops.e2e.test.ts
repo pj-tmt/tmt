@@ -97,7 +97,8 @@ function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
 
 /** Select only after the committed filter has produced its current row geometry. */
 async function selectHostWorker(fixture: E2EFixture, board: string) {
-  fixture.tmux(['send-keys', '-t', board, '/', 'C-u', 'worker', 'Enter']);
+  await fixture.waitForCapture((screen) => screen.includes('/ Search'), board);
+  fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter']);
   await fixture.waitForCapture(
     (screen) => screen.includes('/ worker') && screen.includes('1 of 2 agents'),
     board
@@ -192,7 +193,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       // Selecting the squad targets its lead and reverses the exact exchange.
       fixture.tmux(['send-keys', '-t', panes.board, 'Tab']);
       await fixture.waitForCapture((screen) => screen.includes('↑↓ select'), panes.board);
-      fixture.tmux(['send-keys', '-t', panes.board, '/', 'C-u', 'Enter']);
+      fixture.tmux(['send-keys', '-t', panes.board, 'Escape']);
       await fixture.waitForCapture((screen) => screen.includes('/ Search'), panes.board);
       fixture.tmux(['send-keys', '-t', panes.board, 'Home']);
       await fixture.waitForCapture(
