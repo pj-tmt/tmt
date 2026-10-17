@@ -1082,8 +1082,13 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
         .map(String::as_str)
         .or(Some("cancel"));
     if draft.stage == Stage::Review {
-        let apply_label = draft.operation.as_ref().map(|operation| operation.confirm_label()).unwrap_or_default();
-        let apply_enabled = !apply_label.is_empty() && areas.content.height > 1
+        let apply_label = draft
+            .operation
+            .as_ref()
+            .map(|operation| operation.confirm_label())
+            .unwrap_or_default();
+        let apply_enabled = !apply_label.is_empty()
+            && areas.content.height > 1
             && (draft.kind != super::manage::Kind::RenameMember
                 || (draft.scroll.borrow().offset() == 0
                     && lines.len() <= usize::from(areas.content.height)));
@@ -1107,8 +1112,14 @@ pub(in crate::board) fn dialog(frame: &mut Frame, app: &App, body: Rect) {
             painted[0].filter(|_| areas.content.height > 1),
             painted[1].filter(|_| apply_enabled),
         ]);
-        let start = painted.iter().flatten().map(|area| area.right()).max()
-            .unwrap_or(areas.footer.x).saturating_add(1).min(areas.footer.right());
+        let start = painted
+            .iter()
+            .flatten()
+            .map(|area| area.right())
+            .max()
+            .unwrap_or(areas.footer.x)
+            .saturating_add(1)
+            .min(areas.footer.right());
         if start < areas.footer.right() {
             let hint = Rect::new(
                 start,
