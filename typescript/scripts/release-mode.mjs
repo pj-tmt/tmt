@@ -109,6 +109,8 @@ export function pushCadence(
         if (!Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1)
           throw new Error(`Run ${run.id} has no attempt identity.`);
         const jobs = pages(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, 'jobs');
+        // Replaced pending runs are cancelled before any job can admit a live cut.
+        if (run.conclusion === 'cancelled' && jobs.length === 0) continue;
         const cut = jobs.filter((job) => job.name === 'Cut releases from main');
         if (cut.length !== 1 || !Array.isArray(cut[0].steps))
           throw new Error(`Run ${run.id} has no cut admission evidence.`);
