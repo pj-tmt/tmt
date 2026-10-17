@@ -203,6 +203,7 @@ pub struct DeployFirestore<'a> {
     stop: &'a AtomicBool,
     hosting: Option<deploy_run::HostingCheckpoint>,
     compressed: std::collections::BTreeMap<String, Vec<u8>>,
+    content_digest: Option<String>,
     steps: Vec<deploy_run::StepRecord>,
     composite_started: Option<Instant>,
     composite_progress: Option<Box<dyn FnMut(Duration, Duration) + Send + 'a>>,
@@ -224,6 +225,7 @@ impl<'a> DeployFirestore<'a> {
             stop,
             hosting: None,
             compressed: std::collections::BTreeMap::new(),
+            content_digest: None,
             steps: Vec::new(),
             composite_started: None,
             composite_progress: None,
@@ -667,6 +669,7 @@ fn verify_steps(
 
 impl DeployFirestore<'_> {
     pub fn prepare_content(&mut self, composition: &crate::hosting::HostingComposition) {
+        self.content_digest = Some(composition.live_digest());
         self.compressed = composition
             .files()
             .iter()
@@ -706,7 +709,7 @@ impl DeployFirestore<'_> {
     ) -> Result<Value, DeployProviderError> {
         use base64::Engine;
         let checkpoint = self.hosting.as_ref().ok_or_else(unknown)?.clone();
-        let value = self.exchange(operation, json!({"project": plan.view().project, "deployment": plan.deployment_id(), "planDigest": plan.digest(), "hosting": plan.view().hosting, "checkpoint": checkpoint, "steps": self.steps, "action": action, "hash": hash, "bytesBase64": bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(b)), "source": std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?}), Some(plan.account()), deadline).map_err(provider_error)?;
+        let value = self.exchange(operation, json!({"project": plan.view().project, "deployment": plan.deployment_id(), "planDigest": plan.digest(), "contentDigest": self.content_digest.as_deref().ok_or_else(unknown)?, "hosting": plan.view().hosting, "checkpoint": checkpoint, "steps": self.steps, "action": action, "hash": hash, "bytesBase64": bytes.map(|b| base64::engine::general_purpose::STANDARD.encode(b)), "source": std::str::from_utf8(plan.deployed_rules()).map_err(|_| unknown())?}), Some(plan.account()), deadline).map_err(provider_error)?;
         if let Some(state) = value.get("checkpoint") {
             let output_error = || {
                 DeployProviderError::Unconfirmed(StepCause::new(
@@ -1009,6 +1012,7 @@ mod cause_tests {
                 composite_started: None,
                 hosting: None,
                 compressed: Default::default(),
+                content_digest: None,
                 steps: Vec::new(),
             };
             let error = adapter

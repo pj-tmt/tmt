@@ -736,6 +736,7 @@ function hostedFixture() {
     project: PROJECT,
     deployment: ID,
     planDigest: 'a'.repeat(64),
+    contentDigest: 'c'.repeat(64),
     hosting: {
       site: PROJECT,
       publicUrl: `https://${PROJECT}.web.app`,
@@ -772,15 +773,26 @@ function hostedFixture() {
   }
   return { f, state, calls, input, call };
 }
+test('Hosting requires the supplied Rust content digest before any provider read', async () => {
+  const valid = hostedFixture();
+  assert.equal((await valid.call('observe-hosting', 'web-app')).state, 'absent');
+  for (const digest of [undefined, null, ['c'.repeat(64)], '', 'a'.repeat(63), 'A'.repeat(64), 'g'.repeat(64)]) {
+    const f = hostedFixture();
+    if (digest === undefined) delete f.input.contentDigest;
+    else f.input.contentDigest = digest;
+    await failure(() => f.call('observe-hosting', 'web-app'), 'provider-rejected');
+    assert.equal(f.calls.length, 0);
+  }
+});
 test('Hosting associates the selected app before staging and verifies that same association', async () => {
-  const { state, calls, call } = hostedFixture();
+  const { state, calls, call, input } = hostedFixture();
   assert.equal((await call('observe-hosting', 'web-app')).state, 'absent');
   assert.equal((await call('apply-hosting', 'web-app')).state, 'done');
   assert.equal((await call('observe-hosting', 'web-app')).state, 'satisfied');
   await call('apply-hosting', 'site');
   await call('apply-hosting', 'configure');
   await call('apply-hosting', 'create');
-  assert.equal(state.versions[0].labels['tmt-content'].length, 32);
+  assert.equal(state.versions[0].labels['tmt-content'], input.contentDigest.slice(0, 32));
   assert.ok(Object.values(state.versions[0].labels).every((value) => value.length <= 63));
   await call('apply-hosting', 'populate');
   await call('apply-hosting', 'upload', {

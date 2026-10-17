@@ -377,14 +377,11 @@ fn available_binary_reports_missing_tool_and_missing_login_without_creating_a_pl
     }
 }
 
-#[test]
-fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readback() {
+fn declare_hosting(root: &Root, html: &[u8]) {
     use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::{Value, json};
     use sha2::{Digest, Sha256};
-    let root = Root::new();
-    available(&root);
-    let package = installed(&root, "process");
+    available(root);
     let mut reply: Value =
         serde_json::from_slice(&fs::read(root.0.join("reply.json")).unwrap()).unwrap();
     let mut declaration: Value =
@@ -395,7 +392,7 @@ fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readb
             .map(|b| format!("{b:02x}"))
             .collect::<String>()
     };
-    let manifest=tmt_remote::hosting::HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":hash(b"hello"),"length":5,"contentType":"text/html"}]})).unwrap();
+    let manifest=tmt_remote::hosting::HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":hash(html),"length":html.len(),"contentType":"text/html"}]})).unwrap();
     declaration["hosting"] = serde_json::to_value(&manifest).unwrap();
     let bytes = serde_json::to_string(&declaration).unwrap();
     reply["declarationDigest"] = json!(hash(bytes.as_bytes()));
@@ -405,12 +402,17 @@ fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readb
         serde_json::to_vec(&reply).unwrap(),
     )
     .unwrap();
-    fs::write(root.0.join("bundle.json"),serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]})).unwrap()).unwrap();
+    fs::write(root.0.join("bundle.json"),serde_json::to_vec(&json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(html)}]})).unwrap()).unwrap();
     executable_fixture::write_executable(&root.0.join("tmt"),&format!("case \"$*\" in
 'colab deploy-declaration --json') [ \"$PWD\" = / ] || exit 4; /bin/cat '{}';;
 'colab hosting-bundle --json') [ \"$PWD\" = / ] || exit 4; /bin/cat '{}';;
 api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"dataRoot\":\"{}\"}}';; *) exit 5;; esac;;
 *) exit 6;; esac",root.0.join("reply.json").display(),root.0.join("bundle.json").display(),root.0.display())).unwrap();
+}
+fn hosted_fixture(root: &Root, html: &[u8]) -> std::path::PathBuf {
+    use serde_json::{Value, json};
+    declare_hosting(root, html);
+    let package = installed(root, "process");
     let mut state: Value =
         serde_json::from_slice(&fs::read(package.join("state.json")).unwrap()).unwrap();
     state["hosting"] = json!({"apps":[],"site":null,"version":null,"files":[],"live":null});
@@ -419,6 +421,87 @@ api) input=$(/bin/cat); case \"$input\" in *storage.root*) printf '%s' '{{\"data
         serde_json::to_vec(&state).unwrap(),
     )
     .unwrap();
+    package
+}
+
+#[test]
+fn completed_hosting_is_own_on_identical_and_changed_bundle_replans() {
+    use serde_json::{Value, json};
+    use sha2::{Digest, Sha256};
+    let root = Root::new();
+    let package = hosted_fixture(&root, b"hello");
+    let planned = json_output(&invoke(&root, &["--json"]));
+    let complete = json_output(&invoke(
+        &root,
+        &[
+            "--authorize",
+            planned["planDigest"].as_str().unwrap(),
+            "--json",
+        ],
+    ));
+    assert_eq!(complete["record"]["run"]["state"], "complete");
+    let provider = fs::read(package.join("state.json")).unwrap();
+    let same = json_output(&invoke(&root, &["--json"]));
+    assert_eq!(
+        same["plan"]["hosting"]["replaces"], "none",
+        "an unmodified real-helper label must identify our identical bundle"
+    );
+    assert!(same["plan"]["hosting"]["replacedFingerprint"].is_null());
+
+    declare_hosting(&root, b"changed");
+    let changed = json_output(&invoke(&root, &["--json"]));
+    assert_eq!(changed["plan"]["hosting"]["replaces"], "own");
+    assert_eq!(
+        fs::read(package.join("state.json")).unwrap(),
+        provider,
+        "planning never mutates the provider"
+    );
+    declare_hosting(&root, b"hello");
+
+    let original: Value = serde_json::from_slice(&provider).unwrap();
+    // This is the old helper's sorted JSON oracle, not the new identity owner.
+    let mut legacy = json!({"files": original["hosting"]["files"], "config": original["hosting"]["version"]["config"]});
+    legacy.sort_all_objects();
+    let legacy: String = Sha256::digest(serde_json::to_vec(&legacy).unwrap())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_ne!(
+        &legacy[..32],
+        original["hosting"]["version"]["labels"]["tmt-content"]
+            .as_str()
+            .unwrap()
+    );
+    for old_label in [false, true] {
+        let mut state = original.clone();
+        for version in ["version", "live"] {
+            let labels = if version == "version" {
+                &mut state["hosting"]["version"]["labels"]
+            } else {
+                &mut state["hosting"]["live"]["version"]["labels"]
+            };
+            if old_label {
+                labels["tmt-content"] = json!(&legacy[..32]);
+            } else {
+                *labels = json!({});
+            }
+        }
+        let bytes = serde_json::to_vec(&state).unwrap();
+        fs::write(package.join("state.json"), &bytes).unwrap();
+        let foreign = json_output(&invoke(&root, &["--json"]));
+        assert_eq!(
+            foreign["plan"]["hosting"]["replaces"], "foreign",
+            "unlabelled and old-helper-labelled releases stay foreign"
+        );
+        assert_eq!(fs::read(package.join("state.json")).unwrap(), bytes);
+    }
+}
+
+#[test]
+fn declared_hosting_runs_through_the_binary_and_publishes_only_after_joint_readback() {
+    use serde_json::{Value, json};
+    let root = Root::new();
+    let package = hosted_fixture(&root, b"hello");
     let preview = json_output(&invoke(&root, &["--json"]));
     let digest = preview["planDigest"].as_str().unwrap();
     let calls = fs::read_to_string(package.join("calls.jsonl")).unwrap();

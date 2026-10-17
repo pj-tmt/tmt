@@ -196,6 +196,10 @@ public declaration file owned by the [contract](../../../../contracts/remote-cha
 and names captured site/web-app creation and foreign replacement in the same frozen envelope.
 The contract owns its schema, bounds, route allow-list and non-atomic publication order.
 The real port inventories Hosting and executes the frozen steps through the same deploy runner.
+`hosting` computes the [live-content identity](../../../../contracts/remote-channel-v1.md#extension-backend-declarations).
+The adapter captures it with prepared content and passes it only in its private helper request;
+the helper uses its prefix for labels/read-back without a second hash implementation. Full
+file/config checks remain; no frozen plan/record field or old-label migration is added.
 Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage
 substeps save resource handles and the frozen envelope in the versioned checkpoint; v1/v2 records
 remain readable without conversion. Unknown creates are reconciled by bounded identity lookup,
