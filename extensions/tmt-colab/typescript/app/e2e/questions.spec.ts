@@ -209,6 +209,22 @@ for (const change of [false, true]) {
   });
 }
 
+test('the answer conversation keeps an agent name with a space in one mention chip', async ({
+  page,
+}) => {
+  // The viewer holds no Ask record for the comment; the observed directory names the agent.
+  const card = await mount(page, {}, { presentation: ['Agent 1'] });
+  await card.getByLabel('Keep it', { exact: true }).check();
+  await send(page);
+  const body = card.locator('.question-history .comment-body');
+  await expect(body.locator('.message-mention-name')).toHaveText(['@Agent 1']);
+  await expect(body).toContainText('Page: Live shared page @Agent 1');
+  // The same chip stays whole once the viewer's own Ask record covers the comment.
+  await run(page, 'questionAsk', 'replied');
+  await expect(card.getByTestId('ask-reply')).toContainText('I read your answer in this thread.');
+  await expect(body.locator('.message-mention-name')).toHaveText(['@Agent 1']);
+});
+
 test('ordinary answer history growth keeps the inline card in window scrolling', async ({
   page,
 }) => {

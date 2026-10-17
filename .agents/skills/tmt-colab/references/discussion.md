@@ -157,9 +157,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   Ask again uses a distinct paper-plane Send icon through the same shared action,
   retaining its tooltip and 44px mobile target. Long labels wrap without hiding the actions.
   `components/message-text.tsx` and Lexical
-  mention nodes share a cosmetic grey token style. Sent text marks only supplied
-  bound recipient names; other `@text` remains plain. Display labels grant no routing
-  authority. `conversationAsks` owns admitted comment/Ask association, reply defaults
+  mention nodes share a cosmetic grey token style. Sent text keeps a name the caller
+  supplies (the comment's Ask records) or the observed agent directory lists, including a
+  name with a space, as one chip; other `@text` follows the plain token rule. Display
+  labels grant no routing authority. `conversationAsks` owns admitted comment/Ask association, reply defaults
   and captured context; `CommentExchange` presents it on both surfaces. A reply,
   including an empty one, removes pending status and delivery actions.
 - `thread-panel.tsx` exports `ThreadWindow`/`ThreadWindowProps` for the shared

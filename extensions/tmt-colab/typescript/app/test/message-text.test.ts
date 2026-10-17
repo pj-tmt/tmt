@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { MessageText } from '../src/components/message-text.js';
 import { MentionChip } from '../src/components/mention-chip.js';
+import { AgentPresentation } from '../src/agent-directory.js';
+import type { AgentDestination } from '../src/live-ask.js';
 
 function render(value: string, names?: readonly string[]) {
   const markup = renderToStaticMarkup(createElement(MessageText, { value, names }));
@@ -47,4 +49,18 @@ it('renders the explicit person presentation variant without adding a recipient 
   expect(markup).toContain('data-kind="person"');
   expect(markup).toContain('lucide-user-round');
   expect(markup).not.toContain('button');
+});
+it('keeps a directory name with a space whole when the caller names no agent', () => {
+  const directory = [{ agentName: 'Agent 1' }, { agentName: 'Agent' }] as AgentDestination[];
+  const markup = renderToStaticMarkup(
+    createElement(
+      AgentPresentation.Provider,
+      { value: directory },
+      createElement(MessageText, { value: 'Page: Notes\n@Agent 1 and @Agent.' }),
+    ),
+  );
+  const tokens = [...markup.matchAll(/class="message-mention-name">([^<]+)<\/span>/g)].map(
+    (match) => match[1],
+  );
+  expect(tokens).toEqual(['@Agent 1', '@Agent']);
 });

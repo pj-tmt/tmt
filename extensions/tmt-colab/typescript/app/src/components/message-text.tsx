@@ -1,7 +1,13 @@
+import { useContext } from 'react';
+import { AgentPresentation } from '../agent-directory.js';
 import { MentionChip } from './mention-chip.js';
-/** Cosmetic tokens only; sender labels and message text grant no recipient authority. */
+/** Cosmetic tokens only; sender labels and message text grant no recipient authority.
+ * A name with a space stays one chip when the caller or the presentation directory knows it. */
 export function MessageText({ value, names = [] }: { value: string; names?: readonly string[] }) {
-  const labels = [...new Set(names.filter(Boolean))]
+  const directory = useContext(AgentPresentation);
+  const labels = [
+    ...new Set([...names, ...directory.map((agent) => agent.agentName)].filter(Boolean)),
+  ]
     .sort((a, b) => b.length - a.length)
     .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const known = labels.length ? `(?:${labels.join('|')})(?=$|[^\\p{L}\\p{N}_-])|` : '';
