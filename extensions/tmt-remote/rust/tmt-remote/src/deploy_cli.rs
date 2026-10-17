@@ -21,7 +21,7 @@ pub struct FirestoreArgs {
 }
 /// Preserve the selected command's intent in local persistence-error guidance.
 fn retry_command(args: &FirestoreArgs) -> String {
-    let quote = |value: &str| format!("'{}'", value.replace('\'', "'\\''"));
+    use crate::state::shell_quote as quote;
     let mut command = "tmt remote".to_owned();
     if let Some(remote) = &args.remote {
         command.push_str(&format!(" --remote {}", quote(remote)));

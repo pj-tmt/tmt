@@ -1,7 +1,7 @@
 //! Public references only. Importing or removing one never grants access or changes cloud state.
 use crate::{
     error::RemoteError,
-    state::{Layout, document_error, document_result},
+    state::{Layout, document_error, document_result, shell_quote},
     wire,
 };
 use serde::{Deserialize, Serialize};
@@ -128,7 +128,7 @@ pub fn add(layout: &Layout, name: &str, url: &str) -> Result<RemoteReference, Re
     }
     update(
         layout,
-        &format!("tmt remote add {name} {url} --json"),
+        &format!("tmt remote add {} {}", shell_quote(name), shell_quote(url)),
         |entries| {
             if entries.iter().any(|e| e.name == name) {
                 return Err(RemoteError::new(
@@ -144,14 +144,18 @@ pub fn add(layout: &Layout, name: &str, url: &str) -> Result<RemoteReference, Re
     Ok(entry)
 }
 pub fn remove(layout: &Layout, name: &str) -> Result<(), RemoteError> {
-    update(layout, &format!("tmt remote rm {name} --json"), |entries| {
-        let index = entries
-            .iter()
-            .position(|e| e.name == name)
-            .ok_or_else(|| crate::remote_selector::missing(name))?;
-        entries.remove(index);
-        Ok(())
-    })
+    update(
+        layout,
+        &format!("tmt remote rm {}", shell_quote(name)),
+        |entries| {
+            let index = entries
+                .iter()
+                .position(|e| e.name == name)
+                .ok_or_else(|| crate::remote_selector::missing(name))?;
+            entries.remove(index);
+            Ok(())
+        },
+    )
 }
 fn update(
     layout: &Layout,
