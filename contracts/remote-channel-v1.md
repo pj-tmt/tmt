@@ -3,6 +3,7 @@
 **Implementation status:** the local door and its signed agent operations are shipped; Colab page
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
 through Firestore or Cloudflare, including their operation encryption profile, remain proposals.
+Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
 This document owns device identity, trust grants, wire values, admitted operations, the extension
 channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
 seams before runtime/SDK code. The
