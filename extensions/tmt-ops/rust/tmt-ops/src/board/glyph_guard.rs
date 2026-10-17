@@ -214,9 +214,9 @@ fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
         .content
         .chunks(160)
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-        .find(|row| row.contains("≈ $ avoided"))
+        .find(|row| row.contains("CTX 24h") && row.contains("≈ $"))
         .expect("actual matrix estimate caption");
-    assert!(row.contains("≈ $ avoided"), "{row}");
+    assert!(row.contains("CTX 24h") && row.contains("≈ $"), "{row}");
     assert_eq!(glyph_error(&row), None);
     assert!(glyph_error("≈\u{fe0f}").is_some());
     assert!(glyph_error("≒").is_some());

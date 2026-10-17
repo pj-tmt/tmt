@@ -138,8 +138,10 @@ when their named minimum widths cannot fit. Placement reserves their space below
 the primary list. Filter bar, section rule and column header remain fixed above the
 scrolling data rows; there is still only one list scroll/selection owner.
 The wide right column uses `digest_matrix` directly: all scoped identities,
-then highest observed HOUR-usage identities in ten-cell columns. Its fixed 24h
-estimate rows consume matching held supplier evidence; another acquired window
+then highest observed HOUR-usage identities, one row per agent limited by section
+height. Muted metric headers and right-aligned whole values share one table; the
+all row is bold. Its fixed 24h estimate columns consume matching held supplier
+evidence; another acquired window
 stays unavailable under those captions. Ratios and price-version conflicts keep
 the supplier's existing aggregation policy. There is no wide key/value copy.
 

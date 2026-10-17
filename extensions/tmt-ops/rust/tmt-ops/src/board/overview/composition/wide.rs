@@ -197,25 +197,29 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         .shown(crate::config::OverviewPanel::Digest)
         && area.bottom().saturating_sub(y) >= 8
     {
-        let matrix = matrix::Matrix::project(app, area.width);
+        let height = area.bottom().saturating_sub(y + 1);
+        let matrix = matrix::Matrix::project(app, height);
+        let drawn = digest_matrix::paint(
+            frame.buffer_mut(),
+            Rect::new(area.x, y + 1, area.width, height),
+            &matrix.rows,
+            look,
+        );
         section_rule::paint(
             frame.buffer_mut(),
             Rect::new(area.x, y, area.width, 1),
             "Digest",
-            Line::styled(matrix.note, look.role(tmt_cli_style::Role::Muted)),
+            Line::styled(
+                if drawn {
+                    matrix.note
+                } else {
+                    "widen pane".into()
+                },
+                look.role(tmt_cli_style::Role::Muted),
+            ),
             app.focused() == Pane::Replies,
             look,
         );
-        for row in 0..7 {
-            digest_matrix::paint(
-                frame.buffer_mut(),
-                Rect::new(area.x, y + 1 + row as u16, area.width, 1),
-                row,
-                &matrix.labels,
-                &matrix.columns,
-                look,
-            );
-        }
     }
 }
 

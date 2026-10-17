@@ -352,8 +352,9 @@ scoped roster, retain unknown values as `—`, and show list-price quotes separa
 from avoided context tokens. These fixed token/cost rows do not change the saved
 savings-unit preference. Small widths stack the lower modules. Wide screens put the selected waiting
 agent's exchange and a filled three-row reply field above Timers and a Digest
-matrix: all scoped identities, then the agents with the highest observed TOK 1h.
-Unreported cells stay `—`. The matrix's fixed 24h estimate rows require matching
+table: a bold all row for scoped totals, then the agents with the highest observed
+TOK 1h, one per row as height allows. Metric labels are muted and numbers align
+right without truncation. Unreported cells stay `—`. The fixed 24h estimate columns require matching
 supplier observations. The idle field shows its effective start key; factory Enter
 replies to the selected incoming request, and authored bindings retain precedence.
 The active field uses Enter to send and Escape to retain its draft. Its fill is
