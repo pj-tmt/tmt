@@ -4830,7 +4830,7 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         (false, "● working · blocked"),
         (true, "◆ waiting · blocked"),
     ] {
-        let look = crate::look::Look::new(tmt_cli_style::Theme::default());
+        let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
         assert!(tree.contains(words), "tree: {tree}");
@@ -4971,7 +4971,7 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
 fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
     use crate::board::overview::monitor;
     use std::time::{Duration, Instant};
-    let look = crate::look::Look::new(tmt_cli_style::Theme::default());
+    let look = crate::look::Look::default();
     for (read, glyph, state) in [
         (Some(Instant::now()), "●", "working"),
         (
