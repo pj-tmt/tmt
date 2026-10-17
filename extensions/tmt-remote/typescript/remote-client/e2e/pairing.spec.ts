@@ -321,6 +321,8 @@ test.beforeEach(async () => {
     BROWSER: 'true',
     TMT_EXECUTABLE: join(root, 'core.mjs'),
     TMT_FIXTURE_ROOT: root,
+    TMT_AGENT: '1',
+    BROWSER: '/usr/bin/true',
   };
   serve = spawn(BINARY, ['serve', '--json'], { env });
   const descriptor = await lines(serve).next();
@@ -1754,24 +1756,44 @@ test('agents list carries only verified runtime evidence through the served SDK'
       name: 'Claude live',
       presence: 'active',
       runningDriver: 'claude',
+      session: {
+        activity: {
+          state: 'working',
+          sinceMs: 17,
+          lastActivityMs: 99,
+          providers: { private: true },
+        },
+      },
     },
     {
       id: '00000000-0000-4000-8000-000000000002',
       name: 'Codex live',
       presence: 'active',
       runningDriver: 'codex',
+      session: {
+        activity: { state: 'idle', sinceMs: 0, lastActivityMs: 99, providers: { private: true } },
+      },
     },
     {
       id: '00000000-0000-4000-8000-000000000003',
       name: 'Future',
       presence: 'active',
       runningDriver: 'future-driver',
+      session: {
+        activity: {
+          state: 'unknown',
+          sinceMs: null,
+          lastActivityMs: 99,
+          providers: { private: true },
+        },
+      },
     },
     {
       id: '00000000-0000-4000-8000-000000000004',
       name: 'Codex remembered',
       presence: 'offline',
       driver: 'codex',
+      session: { activity: { state: 'ended', sinceMs: 33, lastActivityMs: 99, providers: {} } },
     },
   ];
   await writeFile(join(root, 'agents.json'), JSON.stringify({ identities }));
@@ -1789,17 +1811,24 @@ test('agents list carries only verified runtime evidence through the served SDK'
   expect((await events.next()).reason).toBe('paired');
   await exited(pair);
   await expect(page.locator('#status')).toContainText('This browser is paired.');
+  const before = Date.now();
   const listed = await page.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
     const rows = await sdk.operations(await sdk.reopenSession()).listAgents();
     return { rows, keys: rows.map((row) => Object.hasOwn(row, 'runningDriver')) };
   });
+  const observedAtMs = listed.rows[0]!.observedAtMs;
+  expect(Number.isSafeInteger(observedAtMs)).toBe(true);
+  expect(observedAtMs).toBeGreaterThanOrEqual(before);
+  expect(observedAtMs).toBeLessThanOrEqual(Date.now());
   expect(listed.keys).toEqual([true, true, false, false]);
   expect(listed.rows).toEqual(
     identities.map((row) => ({
       id: row.id,
       name: row.name,
       presence: row.presence,
+      activity: { state: row.session.activity.state, sinceMs: row.session.activity.sinceMs },
+      observedAtMs,
       ...(row.runningDriver === 'claude' || row.runningDriver === 'codex'
         ? { runningDriver: row.runningDriver }
         : {}),
