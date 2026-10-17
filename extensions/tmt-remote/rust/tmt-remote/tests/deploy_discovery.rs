@@ -301,6 +301,7 @@ fn public_bundle_command_has_fixed_argv_and_capture_precedes_any_provider_setup(
         region: "asia-east1".into(),
         sign_in: vec![tmt_remote::deploy_run::SignInProvider::Anonymous],
         authorize: None,
+        details: false,
         json: true,
     };
     let mut source = Captured {
@@ -455,6 +456,7 @@ fn serving_config_boundary_is_checked_before_provider_setup() {
         region: "asia-east1".into(),
         sign_in: vec![tmt_remote::deploy_run::SignInProvider::Anonymous],
         authorize: None,
+        details: false,
         json: true,
     };
     let result = tmt_remote::deploy_cli::execute::<tmt_remote::deploy_firestore::DeployFirestore<'_>>(

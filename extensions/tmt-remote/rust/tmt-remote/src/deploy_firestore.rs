@@ -268,11 +268,12 @@ impl<'a> DeployFirestore<'a> {
         rules_bytes(&value).map_err(Into::into)
     }
     /// Read-only live+planned field-config ceiling, including unrelated configurations.
+    /// Returns database presence from that same inventory, without another request.
     pub fn check_index_budget(
         &mut self,
         project: &str,
         plan: &crate::deploy_plan::Plan,
-    ) -> Result<(), DeployPreflightError> {
+    ) -> Result<bool, DeployPreflightError> {
         let fields: std::collections::BTreeSet<_> = plan
             .view()
             .extensions
@@ -296,10 +297,12 @@ impl<'a> DeployFirestore<'a> {
                 Instant::now() + limits::DEPLOY_PROVIDER_CALL,
             )
             .map_err(preflight_error)?;
-        if value != "within-budget" {
+        if value["status"] != "within-budget" {
             return Err(unknown().into());
         }
-        Ok(())
+        value["databasePresent"]
+            .as_bool()
+            .ok_or_else(|| unknown().into())
     }
     pub fn login_account(&mut self) -> Result<String, DeploySetupError> {
         let value = self

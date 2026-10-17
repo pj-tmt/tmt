@@ -1037,7 +1037,7 @@ async function execute(request, deps) {
           .map((index) => `${index.collectionGroup}/${indexSpec(index)}`)
       );
       if (composites.length + missing.size > 200) fail('quota-exceeded');
-      return 'within-budget';
+      return { status: 'within-budget', databasePresent: present !== null };
     }
     if (r.operation.endsWith('database')) {
       const existing = await api('firestore', database, 'GET', undefined, true);
