@@ -88,7 +88,7 @@ use ratatui::{
 use std::{
     io,
     sync::{
-        atomic::AtomicUsize,
+        atomic::{AtomicUsize, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     time::{Duration, Instant},
@@ -409,6 +409,7 @@ fn session(
     io: impl Fn(lane::Job),
     labels_window: impl Fn(crate::config::DigestWindow),
     usage_wants: impl Fn(Option<usage_report::Since>),
+    mut suspend: impl FnMut() -> io::Result<()>,
     mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
@@ -448,7 +449,22 @@ fn session(
     };
     loop {
         if let Some(signal) = terminal::stop_signal(stop) {
-            return Ok(Some(signal));
+            if signal != signal_hook::consts::SIGTSTP {
+                return Ok(Some(signal));
+            }
+            // Keep the session's source revisions and pending work across a pause.
+            // Never clear a TERM/HUP that superseded the suspension request.
+            if let Err(signal) = stop.compare_exchange(
+                signal_hook::consts::SIGTSTP as usize,
+                0,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                return Ok(i32::try_from(signal).ok());
+            }
+            suspend()?;
+            dirty = true;
+            continue;
         }
         let now = Instant::now();
         if let Some(state) = &mut state {
@@ -1096,7 +1112,7 @@ pub fn run(
     // Once admitted, paint the placeholder before configuration, worker setup
     // and the terminal background query. A later failure drops the guard and
     // restores the terminal before the error is reported.
-    let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
+    let mut guard = terminal::Guard::enter(terminal::Crossterm::default()).map_err(failed)?;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
     timing::measure(startup.as_ref(), "startup.placeholder", || {
         screen.draw(|frame| {
@@ -1167,7 +1183,9 @@ pub fn run(
     let filter = query
         .as_ref()
         .map(|reply| terminal::background::ReplyFilter::seed(&reply.received, Instant::now()));
+    let keyboard_enhanced = guard.enable_keyboard_enhancement().map_err(failed)?;
     let mut app = App::new(squad);
+    app.keyboard_enhanced = keyboard_enhanced;
     app.invoker_tmux = invoker_tmux;
     app.workspace_startup = scope.first().map(|squad| squad.room_id.clone());
     app.workspace.visibility.scope = scope.into_iter().map(|squad| squad.room_id).collect();
@@ -1205,6 +1223,7 @@ pub fn run(
         events.clone(),
     );
     spawn_input(events, filter);
+    let resumed = std::cell::Cell::new(false);
     let result = session(
         &mut app,
         &stop,
@@ -1219,8 +1238,18 @@ pub fn run(
             }
         },
         |want| usage_wants.set(want),
+        || {
+            guard.suspend(|| signal_hook::low_level::raise(signal_hook::consts::SIGSTOP))?;
+            resumed.set(true);
+            Ok(())
+        },
         view_state.as_mut(),
         |app| {
+            if resumed.replace(false) {
+                // Fullscreen resize resets the diff buffer without clear()'s
+                // cursor-position query competing with the active input reader.
+                screen.resize(screen.size()?.into())?;
+            }
             screen
                 .draw(|frame| {
                     // The vertical board bands, including its body, occupy the full width.
@@ -1311,6 +1340,7 @@ mod tests {
                 io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 None,
                 draw,
             );
@@ -1944,6 +1974,7 @@ mod tests {
             no_io,
             |window| windows.borrow_mut().push(window),
             |_| {},
+            || Ok(()),
             None,
             |_| Ok(()),
         )
@@ -2028,6 +2059,68 @@ mod tests {
             assert_eq!(*requests.borrow(), [Some(expected), None, Some(expected)]);
             assert!(draws.get() >= 6);
         });
+    }
+
+    #[test]
+    fn suspension_resumes_the_same_session_and_pending_selected_read() {
+        let mut app = app::workspace::tests::board();
+        app.view.as_mut().unwrap().replies = vec![serde_json::json!({
+            "recipientId": app::workspace::tests::MEMBER,
+            "requestId": "req-pending",
+            "submittedAtMs": 20,
+            "response": null
+        })];
+        app.workspace.selected = Some(workspace::OpsTarget::Member {
+            room_id: Some(app::workspace::tests::ROOM.into()),
+            identity_id: app::workspace::tests::MEMBER.into(),
+        });
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| {
+                view::prepare(&mut app, frame.area());
+                view::render(frame, &app);
+            })
+            .unwrap();
+        assert!(
+            app.selected_read().is_some(),
+            "painted fixture has an unread source"
+        );
+        let stop = AtomicUsize::new(0);
+        let (events, input) = channel();
+        events.send(BoardEvent::Input(Event::FocusGained)).unwrap();
+        events.send(BoardEvent::InputClosed).unwrap();
+        let reads = std::cell::Cell::new(0);
+        let pauses = std::cell::Cell::new(0);
+        let paints = std::cell::Cell::new(0);
+        super::session(
+            &mut app,
+            &stop,
+            &input,
+            |_, _, _, _| {},
+            |_, _| {
+                reads.set(reads.get() + 1);
+                stop.store(signal_hook::consts::SIGTSTP as usize, Ordering::Relaxed);
+            },
+            |_| {},
+            no_io,
+            |_| {},
+            |_| {},
+            || {
+                pauses.set(pauses.get() + 1);
+                events.send(BoardEvent::InputClosed).unwrap();
+                Ok(())
+            },
+            None,
+            |_| {
+                paints.set(paints.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(pauses.get(), 1);
+        assert_eq!(reads.get(), 1, "the pending selected read is not restarted");
+        assert!(paints.get() >= 2, "resume repaints the retained state");
     }
 
     #[test]
@@ -2216,6 +2309,7 @@ mod tests {
                 no_io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 None,
                 |app| {
                     painted
@@ -2276,6 +2370,7 @@ mod tests {
                 no_io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 None,
                 |app| {
                     *app.hits.borrow_mut() = vec![app::Hit {
@@ -2338,6 +2433,7 @@ mod tests {
                     no_io,
                     |_| {},
                     |_| {},
+                    || Ok(()),
                     None,
                     |_| {
                         painted.send(()).unwrap();
@@ -2383,6 +2479,7 @@ mod tests {
                 no_io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 None,
                 |_| {
                     painted.send(()).unwrap();

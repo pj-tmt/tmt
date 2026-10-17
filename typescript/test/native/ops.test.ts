@@ -5305,6 +5305,64 @@ describe('verified former-board switching', () => {
   }, 60_000);
 });
 
+describe('composer terminal input', () => {
+  it.each([
+    { enhanced: true, lifecycle: 'quit' },
+    { enhanced: false, lifecycle: 'quit' },
+    { enhanced: true, lifecycle: 'suspend' },
+    { enhanced: true, lifecycle: 'reload' },
+    { enhanced: true, lifecycle: 'term' },
+  ])(
+    'preserves multiline source and restores terminal modes: %j',
+    async (scenario) => {
+      await withSandbox(async (sandbox) => {
+        installSquad(sandbox);
+        const sender = await identity(sandbox, 'Ben');
+        const recipient = await identity(sandbox, 'worker');
+        expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+        expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+        expect(
+          (await runCli(sandbox, ['config', 'set', '--global', 'theme.base', 'tmt', '--json']))
+            .status
+        ).toBe(0);
+        const peer = fileURLToPath(new URL('./ops-keyboard-pty.py', import.meta.url));
+        const result = spawnSync(
+          'python3',
+          [
+            peer,
+            JSON.stringify({
+              cli: [sandbox.cli.executable, ...sandbox.cli.args],
+              sender,
+              recipient,
+              ...scenario,
+            }),
+          ],
+          {
+            cwd: sandbox.cwd,
+            env: { ...sandbox.env, TMT_AGENT: '1', BROWSER: '/usr/bin/true' },
+            encoding: 'utf8',
+            timeout: 90_000,
+            maxBuffer: 1024 * 1024,
+          }
+        );
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+        const proof = JSON.parse(result.stdout);
+        expect(proof.message).toBe(scenario.enhanced ? 'first\nsecond' : 'first\nmiddle\nsecond');
+        expect(proof.terminalRestored).toBe(true);
+        expect(proof.queries).toBeGreaterThan(0);
+        if (scenario.enhanced) {
+          expect(proof.pushes).toBeGreaterThan(0);
+          expect(proof.pops).toBe(proof.pushes);
+        } else {
+          expect(proof.pushes).toBe(0);
+          expect(proof.pops).toBe(0);
+        }
+      });
+    },
+    120_000
+  );
+});
+
 // #2342: a large board (72 panes, 30 members) paints at once and switches tabs without
 // waiting. Measured on a release build: placeholder 0.5 ms, first frame 111 ms, fresh
 // board 235 ms, a tab switch repaints in 10 ms. The budgets are ten times that, so only

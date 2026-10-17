@@ -110,7 +110,10 @@ pub(super) fn prompt(
         frame.buffer_mut(),
         areas.footer,
         Line::styled(
-            "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste",
+            format!(
+                "Enter send · Esc keep draft · {} · Ctrl-P paste",
+                app.newline_hint()
+            ),
             look.role(tmt_cli_style::Role::Muted),
         ),
     );
@@ -364,7 +367,7 @@ pub(in crate::board) fn inline_prompt(
             }
             if hint_rows > 0 {
                 let mut hint = if projection.focused {
-                    "Enter send · Shift+Enter newline · Esc list".to_owned()
+                    format!("Enter send · {} · Esc list", app.newline_hint())
                 } else {
                     app.composer_focus_hint()
                 };
@@ -374,7 +377,10 @@ pub(in crate::board) fn inline_prompt(
                         && unicode_width::UnicodeWidthStr::width(hint.as_str())
                             > usize::from(content.width)
                     {
-                        hint = "Enter send · Esc list · Alt-⌫ remove · Shift+Enter newline".into();
+                        hint = format!(
+                            "Enter send · Esc list · Alt-⌫ remove · {}",
+                            app.newline_hint()
+                        );
                     }
                 }
                 // Keep each hint phrase whole; never paint half of a key name.
@@ -576,11 +582,15 @@ pub(in crate::board) fn inline_prompt(
         )
     } else if !input.others.is_empty() {
         format!(
-            "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste · Tab {}",
+            "Enter send · Esc keep draft · {} · Ctrl-P paste · Tab {}",
+            app.newline_hint(),
             input.modes().join("/")
         )
     } else {
-        "Enter send · Esc keep draft · Ctrl-N newline · Ctrl-P paste".into()
+        format!(
+            "Enter send · Esc keep draft · {} · Ctrl-P paste",
+            app.newline_hint()
+        )
     };
     if !input.response_quotes.is_empty() {
         hint.push_str(" · Alt-⌫ remove");
