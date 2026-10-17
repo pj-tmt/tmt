@@ -70,7 +70,18 @@ fn valid(record: &DeployRecord) -> bool {
     {
         return false;
     }
-    if let Some(run) = &record.run {
+    if record
+        .run
+        .as_ref()
+        .is_some_and(|r| r.state == RunState::Superseded)
+        || record
+            .superseded_runs
+            .iter()
+            .any(|r| r.state != RunState::Superseded)
+    {
+        return false;
+    }
+    for run in record.run.iter().chain(&record.superseded_runs) {
         let mut ids = std::collections::BTreeSet::new();
         if !digest(&run.plan_digest)
             || run.account.is_empty()
@@ -127,7 +138,8 @@ fn valid(record: &DeployRecord) -> bool {
         {
             return false;
         }
-    } else if record.binding.is_some() {
+    }
+    if record.run.is_none() && record.binding.is_some() {
         return false;
     }
     true

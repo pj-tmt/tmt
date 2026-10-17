@@ -49,6 +49,8 @@ pub enum DeployRefusal {
     AccountChanged,
     AccountUnreadable,
     HostingUnavailable,
+    PreviousCreateUnconfirmed,
+    PreviousVersionStaged,
 }
 impl DeployRefusal {
     pub fn code(self) -> &'static str {
@@ -61,6 +63,8 @@ impl DeployRefusal {
             Self::AccountChanged => "REMOTE_DEPLOY_ACCOUNT_CHANGED",
             Self::AccountUnreadable => "REMOTE_DEPLOY_ACCOUNT_UNREADABLE",
             Self::HostingUnavailable => "REMOTE_DEPLOY_HOSTING_UNAVAILABLE",
+            Self::PreviousCreateUnconfirmed => "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
+            Self::PreviousVersionStaged => "REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED",
         }
     }
 }
@@ -629,6 +633,7 @@ pub enum RunState {
     Applying,
     Complete,
     Partial,
+    Superseded,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -658,6 +663,9 @@ pub struct DeployRecord {
     /// The last deploy that finished completely, while it still describes the project.
     pub binding: Option<DeployBinding>,
     pub run: Option<Run>,
+    /// Prior unfinished outcomes, retained without deleting any provider resources.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub superseded_runs: Vec<Run>,
 }
 impl DeployRecord {
     pub fn new(deployment_id: &str) -> Self {
@@ -665,6 +673,7 @@ impl DeployRecord {
             deployment_id: deployment_id.to_owned(),
             binding: None,
             run: None,
+            superseded_runs: Vec::new(),
         }
     }
     /// The binding routes may use. Once a run may have switched the Rules and has not
@@ -714,6 +723,9 @@ pub fn run(
     }
     if authorization.plan_digest != plan.digest || record.deployment_id != plan.deployment_id() {
         return Err(DeployError::Refused(DeployRefusal::AuthorizationStale));
+    }
+    if let Some(reason) = supersession_refusal(plan, &record) {
+        return Err(DeployError::Refused(reason));
     }
     match port.account() {
         Ok(account) if account == plan.account() => {}
@@ -831,6 +843,12 @@ fn begin(record: &mut DeployRecord, plan: &DeployPlan, now_ms: u64) {
         .is_some_and(|run| run.publication_may_have_changed() && run.state != RunState::Complete)
     {
         record.binding = None;
+    }
+    if let Some(mut previous) = record.run.take()
+        && previous.state != RunState::Complete
+    {
+        previous.state = RunState::Superseded;
+        record.superseded_runs.push(previous);
     }
     record.run = Some(Run {
         plan_digest: plan.digest.clone(),
@@ -1272,7 +1290,10 @@ pub fn retain_hosting_plan(
         .map_err(|_| DeployRefusal::AuthorizationStale)?;
     if sha256_hex(&serde_json::to_vec(&view).map_err(|_| DeployRefusal::AuthorizationStale)?)
         != run.plan_digest
-        || view.account != candidate.view.account
+    {
+        return Err(DeployRefusal::AuthorizationStale);
+    }
+    if view.account != candidate.view.account
         || view.project != candidate.view.project
         || view.database != candidate.view.database
         || view.deployment_id != candidate.view.deployment_id
@@ -1282,7 +1303,7 @@ pub fn retain_hosting_plan(
         || view.hosting.as_ref().map(|h| &h.content)
             != candidate.view.hosting.as_ref().map(|h| &h.content)
     {
-        return Err(DeployRefusal::AuthorizationStale);
+        return Ok(candidate);
     }
     candidate
         .steps
@@ -1297,6 +1318,52 @@ pub fn retain_hosting_plan(
     candidate.digest = run.plan_digest.clone();
     candidate.view = view;
     Ok(candidate)
+}
+
+/// Whether this plan would replace an unfinished authorization. No provider work.
+pub fn superseded_run<'a>(plan: &DeployPlan, record: &'a DeployRecord) -> Option<&'a Run> {
+    record
+        .run
+        .as_ref()
+        .filter(|run| run.state != RunState::Complete && run.plan_digest != plan.digest)
+}
+/// A changed intent cannot discard an ambiguous creation or a staged Version.
+/// The existing explicit expired-Version plan is the sole abandonment path here.
+pub fn supersession_refusal(plan: &DeployPlan, record: &DeployRecord) -> Option<DeployRefusal> {
+    let previous = superseded_run(plan, record)?;
+    if previous.steps.iter().any(|step| {
+        matches!(
+            step.id.as_str(),
+            "web-app:create"
+                | "hosting-site:create"
+                | "hosting-site:configure"
+                | "hosting:stage:create"
+        ) && (step.state == StepState::Unknown
+            || (step.id == "web-app:create" && step.state == StepState::Building))
+    }) {
+        return Some(DeployRefusal::PreviousCreateUnconfirmed);
+    }
+    let abandoned = plan
+        .view
+        .hosting
+        .as_ref()
+        .and_then(|h| h.abandoned_version.as_ref());
+    let version = previous.hosting.as_ref().and_then(|h| h.version.as_ref());
+    if version.is_some() && abandoned == version {
+        return None;
+    }
+    if version.is_some()
+        || previous.steps.iter().any(|step| {
+            step.id == "hosting:stage:create"
+                && matches!(
+                    step.state,
+                    StepState::Done | StepState::Adopted | StepState::Building
+                )
+        })
+    {
+        return Some(DeployRefusal::PreviousVersionStaged);
+    }
+    None
 }
 
 impl Run {

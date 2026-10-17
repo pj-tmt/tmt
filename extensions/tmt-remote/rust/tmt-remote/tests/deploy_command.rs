@@ -1390,4 +1390,66 @@ fn frozen_hosting_plan_covers_content_and_foreign_release_but_cannot_run_rules_a
         saved
     );
     assert!(port.calls.is_empty() && port.effects.is_empty());
+    // A real atomic partial checkpoint from an older bundle must not block preview.
+    let mut saved_record = preview.json["record"].clone();
+    saved_record["run"] = json!({"planDigest":preview.json["planDigest"],"account":ACCOUNT,"authorizedAtMs":1,"state":"partial","rulesAttempted":false,"steps":preview.json["plan"]["steps"].as_array().unwrap().iter().map(|id|json!({"id":id,"state":"pending"})).collect::<Vec<_>>(),"hosting":{"envelope":preview.json["plan"],"appId":"1:123:web:abc","operation":null,"version":null,"versionCreatedMs":null,"publication":null}});
+    let record: DeployRecord = serde_json::from_value(saved_record).unwrap();
+    store
+        .bind_target(request.project, request.location)
+        .unwrap();
+    store.persist(&record).unwrap();
+    let original = fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap();
+    let mut new_content = view.clone();
+    new_content.content["digest"] = json!(hash(b"updated bundle"));
+    let current = tmt_remote::deploy_command::execute_with_hosting(
+        &request,
+        &DeployCommandOptions::default(),
+        &mut store,
+        &mut port,
+        3,
+        Some(&new_content),
+    )
+    .unwrap();
+    assert_ne!(current.json["planDigest"], preview.json["planDigest"]);
+    assert!(current.human.contains("unfinished run"));
+    assert!(current.human.contains("Nothing has been undone."));
+    assert_eq!(current.json["supersededRun"]["safe"], true);
+    assert_eq!(
+        fs::read(root.remote().join("deployments/demo-remote-1/deploy.json")).unwrap(),
+        original
+    );
+    assert!(port.calls.is_empty() && port.effects.is_empty());
+}
+
+#[test]
+fn refused_replacement_keeps_typed_recovery_instead_of_the_preview_loop() {
+    for reason in [
+        DeployRefusal::PreviousCreateUnconfirmed,
+        DeployRefusal::PreviousVersionStaged,
+    ] {
+        let path = std::path::Path::new("/private/fixture/deploy.json");
+        for error in [
+            DeployCommandError::Refused(reason),
+            DeployCommandError::Run(DeployError::Refused(reason)),
+        ] {
+            let projected = tmt_remote::deploy_cli::command_error(error, path);
+            assert_eq!(projected.code, reason.code());
+            assert!(!projected.message.contains("Run without --authorize"));
+            if reason == DeployRefusal::PreviousCreateUnconfirmed {
+                assert_eq!(
+                    projected.message,
+                    tmt_remote::deploy_command::unconfirmed_creation_message(path)
+                );
+                assert!(projected.message.contains("tmt will not repeat it"));
+                assert!(projected.message.contains("do not delete"));
+            } else {
+                assert!(
+                    projected
+                        .message
+                        .contains("restore the earlier extension build")
+                );
+                assert!(projected.message.contains("12 hours"));
+            }
+        }
+    }
 }

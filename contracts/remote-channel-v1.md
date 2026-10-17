@@ -2443,6 +2443,16 @@ A Remote home retains one independent deployment identity per Firebase project u
 persist project-local v1 drafts without binding a region. The first authorized save binds
 `{project, region}` before any effect; a different region for that project refuses with
 `REMOTE_DEPLOY_PROJECT_CONFLICT` before provider setup, login or inventory, without reset.
+A changed unfinished intent never refuses a plan-only preview. Human output and optional
+`supersededRun:{planDigest,safe,reason,next}` explain replacement without undoing anything.
+Authorization of the current digest may replace it only without an unknown web-app/site/config
+or Version creation and without a staged Version, except the explicit expired-Version abandonment
+path. Unsafe replacement returns `REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED` with the existing
+no-repeat/recovery guidance or `REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED` with the earlier-build or
+expired-Version next step. The same digest resumes unchanged; an authorization of an older digest
+still refuses. Accepted replacement retains the prior run with `state:"superseded"` in optional
+`record.supersededRuns`, preserving all steps and checkpoints. Missing history stays omitted and
+old records read unchanged at the same version; no provider resources are deleted.
 A different project has its own identity and recovery history. Readers never migrate or
 infer a target. An old single `remote/deploy.json` refuses with `REMOTE_SELECTOR_LEGACY`,
 names that path and gives a command to move it aside; no legacy reader, conversion or move ships.
