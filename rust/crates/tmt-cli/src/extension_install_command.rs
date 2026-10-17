@@ -169,6 +169,11 @@ fn repair_command(required: &native_install::RepairRequired) -> String {
 }
 
 fn failure(code: &'static str, error: io::Error) -> Failure {
+    if native_install::cli_required(&error).is_some() {
+        return Failure::new(code, error.to_string(), 1)
+            .suggestion("tmt upgrade".into())
+            .caused_by(error);
+    }
     if let Some(required) = repair_required(&error) {
         let command = repair_command(required);
         return Failure::new("EXTENSION_REPAIR_REQUIRED", format!(
@@ -526,6 +531,34 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     #[test]
+    fn cli_requirement_preserves_install_and_upgrade_codes_with_one_channel_neutral_hint() {
+        for (code, wrapped) in [
+            ("EXTENSION_INSTALL_FAILED", false),
+            ("EXTENSION_UPGRADE_FAILED", true),
+        ] {
+            let required = native_install::CliRequired {
+                product: Product::Colab,
+                compatibility: native_install::CliCompatibility {
+                    minimum: "999.0.0".parse().unwrap(),
+                    running: "5.0.0-dev".parse().unwrap(),
+                },
+            };
+            let error = io::Error::new(io::ErrorKind::InvalidData, required);
+            let error = if wrapped {
+                io::Error::other(native_install::UpgradeFailure::from(error))
+            } else {
+                error
+            };
+            let failure = failure(code, error);
+            assert_eq!(failure.code, code);
+            assert_eq!(failure.document()["error"]["suggestion"], "tmt upgrade");
+            assert!(failure.message.contains("requires tmt 999.0.0"));
+            assert!(!failure.message.contains("Inspect with"));
+            assert!(!failure.message.contains("--channel"));
+        }
+    }
+
+    #[test]
     fn exact_install_still_requires_consent_before_creating_a_prefix() {
         let prefix = std::env::temp_dir().join(format!("tmt-exact-consent-{}", std::process::id()));
         assert!(!prefix.exists());
@@ -815,6 +848,7 @@ mod presentation_tests {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core("tmt upgrade", &[""], &[]),
     crate::cli_style_tests::HintSpec::core(
         "lifecycle hook consent; withdraw it with: tmt extension hooks disable {name}",
         &[""],

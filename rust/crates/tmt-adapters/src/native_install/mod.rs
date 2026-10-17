@@ -46,8 +46,9 @@ mod release;
 mod skills_tree;
 mod uses;
 pub use uses::{
-    Affected, CheckError, Unavailable, Use, UseStatus, affected, check as check_use,
-    declared as declared_uses, extension_named, statuses as use_statuses, valid_feature,
+    Affected, CheckError, CliCompatibility, CliRequired, Unavailable, Use, UseStatus, affected,
+    check as check_use, cli_required, declared as declared_uses, extension_named,
+    statuses as use_statuses, valid_feature,
 };
 mod upgrade;
 pub use upgrade::{
@@ -263,6 +264,7 @@ fn activate_with_local_schema(
     mut checkpoint: impl FnMut() -> io::Result<()>,
     mut local_schema: impl FnMut() -> io::Result<Vec<pr_catalog::DatabaseSchema>>,
 ) -> io::Result<InstallReport> {
+    uses::admit_cli(request.product, artifact.requires_cli.as_ref())?;
     let candidate_identity = request
         .provenance
         .as_ref()

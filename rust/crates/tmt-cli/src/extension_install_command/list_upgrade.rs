@@ -171,6 +171,7 @@ pub(super) fn listing(
         .filter(|product| *product != Product::Cli)
     {
         let name = product.as_str();
+        let mut cli = None;
         let mut state = None;
         let mut partial = false;
         let mut issue = None;
@@ -178,7 +179,10 @@ pub(super) fn listing(
             Ok(true) => partial = true,
             Ok(false) => match installed(product, prefix) {
                 Ok(true) => match native_install::inspect_product_prefix(product, prefix) {
-                    Ok(installation) => state = Some(installation.state),
+                    Ok(installation) => {
+                        cli = installation.cli_compatibility();
+                        state = Some(installation.state);
+                    }
                     Err(error) => issue = Some(Issue::io(product, prefix, &error)),
                 },
                 Ok(false) => {}
@@ -237,6 +241,15 @@ pub(super) fn listing(
             row["hint"] = hint.clone().into();
         }
         let mut notes = Vec::new();
+        if let Some(cli) = cli {
+            row["cli"] = cli.to_json();
+            if !cli.compatible() {
+                notes.push(format!(
+                    "requires tmt {} or newer (running {}); run tmt upgrade",
+                    cli.minimum, cli.running
+                ));
+            }
+        }
         let explicit = non_default(prefix);
         if state.is_some() {
             // A declaration that cannot be read is simply not shown: the entry
@@ -444,6 +457,12 @@ fn exists(path: &Path) -> io::Result<bool> {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "requires tmt {} or newer (running {}); run tmt upgrade",
+        &[""],
+        // The version subject is prose; the run clause is the command to parse.
+        &[("requires tmt {}", "requires CLI version"), ("{}", "5.0.0")],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "move or remove {}, then install the managed one with: tmt extension install {name} --yes --prefix {prefix}",
         &[""],

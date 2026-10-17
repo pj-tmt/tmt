@@ -27,6 +27,80 @@ fn assert_no_downloads(root: &Path) {
 }
 
 #[test]
+fn an_incompatible_extension_upgrade_keeps_the_active_release_and_receipt() {
+    use crate::native_install::{InstallRequest, Product, cli_required, install_product};
+    let directory = crate::test_support::TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let (_, manifest, archive, name) =
+        release::product_fixture(Product::Colab, "0.1.0-alpha.1", "aarch64-apple-darwin", 41);
+    let manifest_path = directory.path.join("dist-manifest.json");
+    let archive_path = directory.path.join(name);
+    fs::write(&manifest_path, manifest).unwrap();
+    fs::write(&archive_path, archive).unwrap();
+    let installed = install_product(
+        Product::Colab,
+        InstallRequest {
+            archive: &archive_path,
+            manifest: &manifest_path,
+            prefix: &prefix,
+            target: "aarch64-apple-darwin",
+            channel: Channel::Alpha,
+            pin: tmt_core::native_install::PinAction::Preserve,
+        },
+        None,
+        || Ok(()),
+    )
+    .unwrap();
+    let release_dir = installed.active_executable.parent().unwrap();
+    let receipt_path = release_dir.join("receipt.json");
+    let receipt_before = fs::read(&receipt_path).unwrap();
+    let executable_before = fs::read(&installed.active_executable).unwrap();
+    let current = prefix.join("lib/tmt-colab/current");
+    let current_before = fs::read_link(&current).unwrap();
+    let command_before = fs::read_link(&installed.executable).unwrap();
+    let declaration = br#"{"version":1,"requiresCli":">=999.0.0","uses":[]}"#;
+    let (release, manifest, archive, _) = release::companion_fixture(
+        Product::Colab,
+        "0.1.0-alpha.2",
+        "aarch64-apple-darwin",
+        42,
+        &[("TMT-USES.json", declaration)],
+    );
+    let error = upgrade_product_with(
+        Product::Colab,
+        UpgradeRequest {
+            executable: &installed.active_executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        None,
+        None,
+        || Ok(()),
+        release::indexed_download(release, manifest, archive),
+        |_, _, _, _, _| panic!("extension must not delegate CLI installation"),
+    )
+    .unwrap_err();
+    let error = io::Error::new(error.kind(), error);
+    assert!(cli_required(&error).is_some(), "{error}");
+    assert_eq!(fs::read(&receipt_path).unwrap(), receipt_before);
+    assert_eq!(
+        fs::read(&installed.active_executable).unwrap(),
+        executable_before
+    );
+    assert_eq!(fs::read_link(&current).unwrap(), current_before);
+    assert_eq!(
+        fs::read_link(&installed.executable).unwrap(),
+        command_before
+    );
+    assert_eq!(
+        fs::read_dir(release_dir.parent().unwrap()).unwrap().count(),
+        1
+    );
+    assert_no_downloads(&prefix.join("lib/tmt-colab"));
+}
+
+#[test]
 fn skill_refresh_holds_the_existing_install_lock_and_refuses_stale_releases() {
     let (_directory, layout, old) = published_layout();
     let executable = layout

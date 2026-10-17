@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -997,6 +998,119 @@ describe('tmt extension install surface', () => {
         affects: [{ extension: 'colab', feature: 'browser-access', label: 'Browser access' }],
       });
       expect(await listed()).toMatchObject({ available: false, reason: 'missing' });
+    });
+  }, 120_000);
+
+  it('checks CLI minima before publication and lists compatibility from the verified local receipt', async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = path.join(sandbox.root, 'minimum-cli-prefix');
+      const cli = (args: string[], selected = prefix) =>
+        runCli(sandbox, [...args, '--prefix', selected, '--json'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+      const args = (artifact: ArtifactFixture) => [
+        'extension',
+        'install',
+        'remote',
+        '--yes',
+        '--channel',
+        'alpha',
+        '--archive',
+        artifact.archive,
+        '--manifest',
+        artifact.manifest,
+      ];
+      const version = await runCli(sandbox, ['--version']);
+      expect(version.status).toBe(0);
+      const running = version.stdout.trim();
+      expect(running).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+      const noMinimum = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+      expect((await cli(args(noMinimum))).status).toBe(0);
+      const row = async () => {
+        const listed = parseWholeStdout(await cli(['extension', 'ls']));
+        return (
+          listed.extensions as {
+            name: string;
+            cli?: { requires: string; running: string; compatible: boolean };
+            status?: string;
+            uses?: unknown[];
+          }[]
+        ).find((extension) => extension.name === 'remote')!;
+      };
+      expect((await row()).cli).toBeUndefined();
+      const current = path.join(prefix, 'lib', 'tmt-remote', 'current');
+      const oldTarget = readlinkSync(current);
+      const oldRelease = realpathSync(current);
+      const oldReceipt = readFileSync(path.join(oldRelease, 'receipt.json'));
+      const oldExecutable = readFileSync(path.join(oldRelease, 'tmt-remote'));
+      const declaration = (requiresCli: string) =>
+        JSON.stringify({
+          version: 1,
+          requiresCli,
+          uses: [
+            { feature: 'board', label: 'Board', extension: 'ops', requires: '>=0.1.0-alpha.1' },
+          ],
+        });
+      const tooNew = await createArtifact(
+        sandbox,
+        '0.1.0-alpha.2',
+        new Uint8Array(),
+        'remote',
+        {},
+        undefined,
+        declaration('>=999.0.0')
+      );
+      const fresh = path.join(sandbox.root, 'refused-fresh-prefix');
+      for (const selected of [fresh, prefix]) {
+        const refused = expectError(await cli(args(tooNew), selected), 'EXTENSION_INSTALL_FAILED');
+        expect(refused.error).toMatchObject({ suggestion: 'tmt upgrade' });
+        expect((refused.error as { message: string }).message).toContain('requires tmt 999.0.0');
+        expect((refused.error as { message: string }).message).not.toContain('Inspect with');
+      }
+      expect(existsSync(fresh)).toBe(false);
+      expect(readlinkSync(current)).toBe(oldTarget);
+      expect(readFileSync(path.join(oldRelease, 'receipt.json')).equals(oldReceipt)).toBe(true);
+      expect(readFileSync(path.join(oldRelease, 'tmt-remote')).equals(oldExecutable)).toBe(true);
+
+      const accepted = await createArtifact(
+        sandbox,
+        '0.1.0-alpha.2',
+        new Uint8Array(),
+        'remote',
+        {},
+        undefined,
+        declaration('>=0.0.1')
+      );
+      const installed = await cli(args(accepted));
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+      expect((await row()).cli).toEqual({ requires: '>=0.0.1', running, compatible: true });
+      const release = realpathSync(current);
+      const receiptPath = path.join(release, 'receipt.json');
+      const receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) as {
+        requires_cli: string;
+        file_sha256: Record<string, string>;
+      };
+      expect(receipt.requires_cli).toBe('>=0.0.1');
+      // Simulate a verified release installed by a newer CLI. Both its declaration
+      // and frozen receipt name the same future requirement.
+      const future = declaration('>=999.0.0');
+      writeFileSync(path.join(release, 'TMT-USES.json'), future);
+      receipt.requires_cli = '>=999.0.0';
+      receipt.file_sha256['TMT-USES.json'] = createHash('sha256').update(future).digest('hex');
+      writeFileSync(receiptPath, JSON.stringify(receipt));
+      const before = readFileSync(receiptPath);
+      const observed = await row();
+      expect(observed.cli).toEqual({ requires: '>=999.0.0', running, compatible: false });
+      expect(observed.cli).not.toHaveProperty('installed');
+      expect(observed.status).toBeUndefined();
+      expect(observed.uses).toHaveLength(1);
+      const human = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix]);
+      expect(human.status).toBe(0);
+      expect(human.stdout.match(/requires tmt 999\.0\.0/g)).toHaveLength(1);
+      expect(human.stdout).toContain('run tmt upgrade');
+      expect(human.stdout).toContain('Board needs the Ops extension');
+      expect(readFileSync(receiptPath).equals(before)).toBe(true);
+      expect(readFileSync(path.join(release, 'TMT-USES.json'), 'utf8')).toBe(future);
     });
   }, 120_000);
 

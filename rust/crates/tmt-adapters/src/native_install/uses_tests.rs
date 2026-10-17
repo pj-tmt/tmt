@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::native_install::{
-    Affected, CheckError, Product, Unavailable, affected, check_use, declared_uses,
-    inspect_product, uninstall_extension, use_statuses,
+    Affected, CheckError, Product, Unavailable, affected, check_use, cli_required, declared_uses,
+    inspect_product, inspect_product_prefix, uninstall_extension, use_statuses,
 };
 use std::path::Path;
 use tmt_core::native_install::PinAction;
@@ -109,6 +109,91 @@ fn a_release_without_the_file_declares_nothing_and_still_verifies() {
     remote(&prefix, "0.1.0-alpha.1");
     assert!(declared_uses(Product::Remote, &prefix).unwrap().is_empty());
     assert!(use_statuses(Product::Remote, &prefix).unwrap().is_empty());
+    let inspected = inspect_product_prefix(Product::Remote, &prefix).unwrap();
+    assert!(inspected.requires_cli.is_none());
+    assert!(inspected.cli_compatibility().is_none());
+}
+
+#[test]
+fn a_compatible_cli_minimum_is_frozen_in_the_verified_receipt() {
+    let (_directory, prefix) = prefix();
+    let declaration = r#"{"version":1,"requiresCli":">=5.0.0-alpha.1","uses":[]}"#;
+    let fixture = extension(
+        Product::Colab,
+        "0.1.0-alpha.1",
+        Some((declaration, 0o644)),
+        None,
+    );
+    let report = install(Product::Colab, &fixture, &prefix).unwrap();
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            report
+                .active_executable
+                .parent()
+                .unwrap()
+                .join("receipt.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(receipt["requires_cli"], ">=5.0.0-alpha.1");
+    let inspected = inspect_product(Product::Colab, &report.executable).unwrap();
+    let compatibility = inspected.cli_compatibility().unwrap();
+    assert!(compatibility.compatible());
+    assert_eq!(compatibility.minimum.to_string(), "5.0.0-alpha.1");
+    assert!(declared_uses(Product::Colab, &prefix).unwrap().is_empty());
+}
+
+#[test]
+fn a_newer_required_cli_refuses_before_creating_the_prefix() {
+    let (_directory, prefix) = prefix();
+    let declaration = r#"{"version":1,"requiresCli":">=999.0.0","uses":[]}"#;
+    let fixture = extension(
+        Product::Colab,
+        "0.1.0-alpha.1",
+        Some((declaration, 0o644)),
+        None,
+    );
+    let error = install(Product::Colab, &fixture, &prefix).unwrap_err();
+    assert!(
+        error.to_string().contains("requires tmt 999.0.0"),
+        "{error}"
+    );
+    assert!(cli_required(&error).is_some());
+    assert!(!prefix.exists());
+}
+
+#[test]
+fn receipt_cli_metadata_must_be_well_formed_and_match_the_verified_declaration() {
+    let (_directory, prefix) = prefix();
+    let declaration = r#"{"version":1,"requiresCli":">=5.0.0-alpha.1","uses":[]}"#;
+    let fixture = extension(
+        Product::Colab,
+        "0.1.0-alpha.1",
+        Some((declaration, 0o644)),
+        None,
+    );
+    let report = install(Product::Colab, &fixture, &prefix).unwrap();
+    let receipt_path = report
+        .active_executable
+        .parent()
+        .unwrap()
+        .join("receipt.json");
+    let original = fs::read(&receipt_path).unwrap();
+    for invalid in [
+        serde_json::Value::Null,
+        serde_json::json!(1),
+        serde_json::json!("^5.0.0"),
+        serde_json::json!(">=4.0.0"),
+    ] {
+        let mut receipt: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        receipt["requires_cli"] = invalid;
+        fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        let error = inspect_product_prefix(Product::Colab, &prefix).unwrap_err();
+        assert!(error.to_string().contains("CLI requirement"), "{error}");
+    }
+    fs::write(&receipt_path, original).unwrap();
+    inspect_product_prefix(Product::Colab, &prefix).unwrap();
 }
 
 #[test]

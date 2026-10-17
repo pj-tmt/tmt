@@ -20,6 +20,7 @@ pub(super) struct Receipt {
     pub target: String,
     pub file_hashes: BTreeMap<String, String>,
     pub provenance: Option<Provenance>,
+    pub requires_cli: Option<semver::Version>,
 }
 
 fn inventory_changed() -> io::Error {
@@ -148,6 +149,7 @@ impl Receipt {
             target: artifact.target.clone(),
             file_hashes: artifact.file_hashes(),
             provenance: None,
+            requires_cli: artifact.requires_cli.clone(),
         }
     }
 
@@ -155,15 +157,18 @@ impl Receipt {
         let prefix = prefix
             .to_str()
             .ok_or_else(|| invalid("Installation prefix must be UTF-8."))?;
-        serde_json::to_vec_pretty(&json!({
+        let mut document = json!({
             "schema_version": 1, "release_id": self.id.to_string(), "prefix": prefix,
             "version": self.state.version.to_string(), "channel": self.state.channel.as_str(),
             "pinned_version": self.state.pinned_version.as_ref().map(ToString::to_string),
             "archive": self.archive_name, "archive_sha256": self.archive_sha256,
             "target": self.target, "file_sha256": self.file_hashes,
             "source": self.provenance.as_ref().map_or_else(|| json!("local-archive"), Provenance::encode)
-        }))
-        .map_err(io::Error::other)
+        });
+        if let Some(minimum) = &self.requires_cli {
+            document["requires_cli"] = format!(">={minimum}").into();
+        }
+        serde_json::to_vec_pretty(&document).map_err(io::Error::other)
     }
 
     #[cfg(test)]
@@ -331,6 +336,16 @@ impl Receipt {
         let hashes = value["file_sha256"]
             .as_object()
             .ok_or_else(|| invalid("Missing installed file digests."))?;
+        let requires_cli = value
+            .get("requires_cli")
+            .map(|value| {
+                value
+                    .as_str()
+                    .and_then(super::uses::minimum)
+                    .filter(|_| product != Product::Cli && hashes.contains_key(super::uses::FILE))
+                    .ok_or_else(|| invalid("Invalid installed CLI requirement."))
+            })
+            .transpose()?;
         let skill_hashes = hashes
             .keys()
             .filter(|name| skills_tree::is_skill_path(name))
@@ -375,6 +390,7 @@ impl Receipt {
             target: text("target")?.into(),
             file_hashes,
             provenance,
+            requires_cli,
         })
     }
 
@@ -457,6 +473,13 @@ impl Receipt {
             if &digest(&bytes) != expected {
                 return Err(invalid(
                     "Installed release file has changed; refusing replacement.",
+                ));
+            }
+            if name == super::uses::FILE
+                && super::uses::parse(product, &bytes)?.requires_cli != self.requires_cli
+            {
+                return Err(invalid(
+                    "Installed CLI requirement does not match its declaration.",
                 ));
             }
         }

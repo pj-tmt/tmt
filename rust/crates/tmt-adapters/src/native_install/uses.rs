@@ -1,7 +1,8 @@
 //! Optional cross-extension uses (#1575): the `TMT-USES.json` an extension
 //! release may carry, and the use-time answer about the extension it names.
 //! Core never interprets a feature; it only compares an installed version with a
-//! declared minimum. Nothing here installs, executes or reads application state.
+//! declared minimum. The same declaration may require a minimum CLI build.
+//! Nothing here installs, executes or reads application state.
 
 use super::{Product, inspect_product_prefix};
 use crate::{bounded_file, request_text::display_control};
@@ -17,6 +18,90 @@ pub(super) const FILE: &str = "TMT-USES.json";
 const LIMIT: usize = 4 * 1024;
 const MAXIMUM_USES: usize = 8;
 const MINIMUM_PREFIX: &str = ">=";
+
+pub(super) struct Declaration {
+    pub uses: Vec<Use>,
+    pub requires_cli: Option<Version>,
+}
+
+/// Receipt-supplied minimum compared with this CLI build, without acquisition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliCompatibility {
+    pub minimum: Version,
+    pub running: Version,
+}
+
+impl CliCompatibility {
+    pub fn compatible(&self) -> bool {
+        self.running >= self.minimum
+    }
+
+    pub fn to_json(&self) -> Value {
+        serde_json::json!({
+            "requires": format!(">={}", self.minimum),
+            "running": self.running.to_string(),
+            "compatible": self.compatible(),
+        })
+    }
+}
+
+pub(super) fn cli_compatibility(minimum: &Version) -> CliCompatibility {
+    CliCompatibility {
+        minimum: minimum.clone(),
+        running: Version::parse(env!("CARGO_PKG_VERSION"))
+            .expect("Cargo package version is SemVer"),
+    }
+}
+
+/// Candidate refusal; no installation mutation has started.
+#[derive(Debug)]
+pub struct CliRequired {
+    pub product: Product,
+    pub compatibility: CliCompatibility,
+}
+
+impl std::fmt::Display for CliRequired {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            output,
+            "{} requires tmt {} or newer; running tmt {}. No files were changed.",
+            self.product.as_str(),
+            self.compatibility.minimum,
+            self.compatibility.running
+        )
+    }
+}
+impl std::error::Error for CliRequired {}
+
+pub(super) fn admit_cli(product: Product, minimum: Option<&Version>) -> io::Result<()> {
+    if let Some(minimum) = minimum {
+        let compatibility = cli_compatibility(minimum);
+        if !compatibility.compatible() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                CliRequired {
+                    product,
+                    compatibility,
+                },
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Preserve the typed cause through install and upgrade's existing envelopes.
+pub fn cli_required(error: &io::Error) -> Option<&CliRequired> {
+    fn find<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a CliRequired> {
+        if let Some(required) = error.downcast_ref::<CliRequired>() {
+            Some(required)
+        } else if let Some(error) = error.downcast_ref::<io::Error>() {
+            error.get_ref().and_then(|cause| find(cause))
+        } else {
+            error.source().and_then(find)
+        }
+    }
+    find(error)
+}
 
 /// One declared use: `feature` of the owning extension needs `extension` at
 /// least at `minimum`.
@@ -149,7 +234,7 @@ pub fn extension_named(name: &str, owner: Option<Product>) -> Option<Product> {
         .find(|product| product.as_str() == name && Some(*product) != owner)
 }
 
-fn minimum(text: &str) -> Option<Version> {
+pub(super) fn minimum(text: &str) -> Option<Version> {
     let version = text.strip_prefix(MINIMUM_PREFIX)?;
     let parsed = Version::parse(version).ok()?;
     (text.len() <= 64 && parsed.build.is_empty()).then_some(parsed)
@@ -167,18 +252,30 @@ fn exactly(object: &Map<String, Value>, keys: &[&str]) -> bool {
 }
 
 /// Parse and validate a release's declaration of uses for `owner`.
-pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Vec<Use>> {
+pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Declaration> {
     if bytes.len() > LIMIT {
         return Err(invalid("larger than 4 KiB"));
     }
     let document: Value = serde_json::from_slice(bytes).map_err(|_| invalid("not JSON"))?;
     let object = document
         .as_object()
-        .filter(|object| exactly(object, &["version", "uses"]))
-        .ok_or_else(|| invalid("expected exactly version and uses"))?;
+        .filter(|object| {
+            exactly(object, &["version", "uses"])
+                || exactly(object, &["version", "uses", "requiresCli"])
+        })
+        .ok_or_else(|| invalid("expected version, uses and optional requiresCli"))?;
     if object["version"] != 1 {
         return Err(invalid("unsupported version"));
     }
+    let requires_cli = object
+        .get("requiresCli")
+        .map(|value| {
+            value
+                .as_str()
+                .and_then(minimum)
+                .ok_or_else(|| invalid("requiresCli must be >=X.Y.Z or >=X.Y.Z-pre"))
+        })
+        .transpose()?;
     let entries = object["uses"]
         .as_array()
         .filter(|entries| entries.len() <= MAXIMUM_USES)
@@ -215,7 +312,7 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Vec<Use>> {
             minimum,
         });
     }
-    Ok(uses)
+    Ok(Declaration { uses, requires_cli })
 }
 
 /// The uses an installed, verified release declares; empty without the file.
@@ -231,7 +328,7 @@ pub fn declared(product: Product, prefix: &Path) -> io::Result<Vec<Use>> {
     match std::fs::symlink_metadata(&file) {
         Ok(_) => {
             let bytes = bounded_file::read_no_follow(&file, LIMIT).map_err(io::Error::other)?;
-            parse(product, &bytes)
+            parse(product, &bytes).map(|declaration| declaration.uses)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(error) => Err(error),
@@ -337,7 +434,7 @@ mod tests {
     const GOOD: &str = r#"{"version":1,"uses":[{"feature":"browser-access","label":"Browser access","extension":"remote","requires":">=0.1.0-alpha.1"}]}"#;
 
     fn parsed(text: &str) -> io::Result<Vec<Use>> {
-        parse(Product::Colab, text.as_bytes())
+        parse(Product::Colab, text.as_bytes()).map(|declaration| declaration.uses)
     }
 
     #[test]
@@ -350,6 +447,60 @@ mod tests {
         assert!(Version::parse("0.1.0-alpha.0").unwrap() < uses[0].minimum);
         assert!(Version::parse("0.1.0").unwrap() >= uses[0].minimum);
         assert_eq!(parsed(r#"{"version":1,"uses":[]}"#).unwrap(), []);
+    }
+
+    #[test]
+    fn a_minimum_cli_is_optional_and_preserves_the_existing_uses() {
+        let declared = GOOD.replace(
+            "\"version\":1",
+            "\"version\":1,\"requiresCli\":\">=5.0.0-alpha.255\"",
+        );
+        assert_eq!(parsed(&declared).unwrap(), parsed(GOOD).unwrap());
+        assert!(
+            parsed(r#"{"version":1,"requiresCli":">=5.0.0","uses":[]}"#)
+                .unwrap()
+                .is_empty()
+        );
+        for minimum in ["5.0.0", "^5.0.0", ">=5.0.0+build", "", ">=latest"] {
+            let text = serde_json::json!({"version":1,"requiresCli":minimum,"uses":[]});
+            assert!(parsed(&text.to_string()).is_err(), "accepted {minimum}");
+        }
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!(5),
+            serde_json::json!(true),
+        ] {
+            assert!(
+                parsed(&serde_json::json!({"version":1,"requiresCli":value,"uses":[]}).to_string())
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cli_minima_use_semver_including_dev_builds_not_release_tool_ordering() {
+        for (running, minimum, compatible) in [
+            ("5.0.0-dev", "5.0.0-alpha.999999", true),
+            ("5.0.0-alpha.2", "5.0.0-alpha.10", false),
+            ("5.0.0-alpha.10", "5.0.0-alpha.10", true),
+            ("5.0.0-alpha.10", "5.0.0", false),
+            ("5.0.0", "5.0.0-alpha.10", true),
+            ("4.9.0-dev", "5.0.0-alpha.1", false),
+        ] {
+            let status = CliCompatibility {
+                minimum: minimum.parse().unwrap(),
+                running: running.parse().unwrap(),
+            };
+            assert_eq!(
+                status.compatible(),
+                compatible,
+                "{running} against {minimum}"
+            );
+            assert_eq!(
+                status.to_json(),
+                serde_json::json!({"requires":format!(">={minimum}"),"running":running,"compatible":compatible})
+            );
+        }
     }
 
     #[test]

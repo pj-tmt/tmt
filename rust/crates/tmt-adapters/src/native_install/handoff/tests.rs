@@ -141,6 +141,7 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
                 sha256: artifact.sha256,
                 files: artifact.files,
                 executable_files: artifact.executable_files,
+                requires_cli: None,
             };
             let report = super::super::activate(
                 super::super::ActivationRequest {

@@ -28,6 +28,7 @@ pub(super) fn artifact(version: &str, payload: &[u8]) -> Artifact {
         sha256: artifact::digest(b"synthetic archive"),
         files,
         executable_files: ["tmt".to_owned()].into(),
+        requires_cli: None,
     }
 }
 
