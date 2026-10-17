@@ -1022,8 +1022,8 @@ describe('tmt extension install surface', () => {
       ];
       const version = await runCli(sandbox, ['--version']);
       expect(version.status).toBe(0);
-      const running = /^tmt (\S+)\s*$/.exec(version.stdout)?.[1];
-      expect(running).toBeDefined();
+      const running = version.stdout.trim();
+      expect(running).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
       const noMinimum = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
       expect((await cli(args(noMinimum))).status).toBe(0);
       const row = async () => {
