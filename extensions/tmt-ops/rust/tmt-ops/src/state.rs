@@ -14,9 +14,10 @@
 //! change closure as any stored bytes (so the caller's decoder validates them), and inserts
 //! them inside the write transaction. A corrupt file therefore refuses and changes nothing.
 //! Only after that commit is the file renamed to `<name>.migrated-<YYYY-MM-DD>`
-//! (`-<n>` when taken). The rename never overwrites and nothing is ever deleted: if a
-//! crash lands between commit and rename, the next access sees the row and the file,
-//! trusts the row and finishes the rename.
+//! (`-<n>` when taken), under the database write lock so archivers never overlap. The
+//! rename never overwrites and nothing is ever deleted: if a crash lands between commit
+//! and rename, the next access sees the row and the file, trusts the row and finishes the
+//! rename.
 use rusqlite::{OptionalExtension, Transaction, params};
 use std::{
     fs,
@@ -220,7 +221,7 @@ impl Database {
         }
         let value = decode(stored.as_deref()).map_err(StateFailure::Change)?;
         if stored.is_some() {
-            archive(&slot.legacy);
+            self.archive(&slot.legacy);
         }
         Ok(value)
     }
@@ -281,8 +282,24 @@ impl Database {
                 .into());
             }
         };
-        archive(&slot.legacy);
+        self.archive(&slot.legacy);
         Ok(value)
+    }
+
+    /// Archive an imported legacy file under the database write lock. Archivers must not
+    /// overlap: two of them can both hard-link the file and both unlink its name (macOS
+    /// reports both unlinks as successful), leaving two archives of one generation. Best
+    /// effort: a busy database or a failed rename leaves the file for the next access.
+    fn archive(&mut self, path: &Path) {
+        if fs::symlink_metadata(path).is_err() {
+            return;
+        }
+        let _ = self.store.write(|_| {
+            #[cfg(test)]
+            tests::archiving(path);
+            let _ = try_archive(path);
+            Ok::<(), rusqlite::Error>(())
+        });
     }
 }
 
@@ -355,10 +372,6 @@ fn legacy(slot: &Slot) -> Result<Option<Vec<u8>>, String> {
 }
 
 /// Rename an imported file to `<name>.migrated-<date>` without overwriting anything.
-/// Best effort: a failure leaves the file where it is and the next access tries again.
-fn archive(path: &Path) {
-    let _ = try_archive(path);
-}
 fn try_archive(path: &Path) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_file() => {}
@@ -385,7 +398,7 @@ fn try_archive(path: &Path) -> io::Result<()> {
             Ok(()) => {
                 return match fs::remove_file(path) {
                     Ok(()) => fs::File::open(directory)?.sync_all(),
-                    // Another process archived it first; ours was a duplicate name.
+                    // Something outside the database lock moved it first; ours is a duplicate.
                     Err(error) if error.kind() == io::ErrorKind::NotFound => {
                         fs::remove_file(&archived)
                     }
