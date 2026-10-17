@@ -49,7 +49,7 @@ fn populated_chart_frame_cost() {
                         .iter()
                         .map(|cell| cell.symbol())
                         .collect::<String>()
-                        .contains("% of input"),
+                        .contains("CTX 24h"),
                     "final matrix must actually paint"
                 );
             }
@@ -162,7 +162,7 @@ fn populated_chart_ansi_phase_timing() {
                         .iter()
                         .map(|cell| cell.symbol())
                         .collect::<String>()
-                        .contains("% of input"),
+                        .contains("CTX 24h"),
                     "final matrix must actually paint"
                 );
             }

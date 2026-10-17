@@ -88,7 +88,7 @@ fn wide_reuses_timers_without_key_value_digest_and_short_resize_revokes_its_hit(
     paint(&mut app, 103, 51);
     let wide = paint(&mut app, 148, 51);
     assert!(!wide.contains("Auto · timed · Off"));
-    assert!(wide.contains("% of input"));
+    assert!(wide.contains("CTX 24h") && wide.contains("% IN"));
     let old = *app
         .hits
         .borrow()
