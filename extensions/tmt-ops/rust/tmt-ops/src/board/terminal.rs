@@ -47,13 +47,14 @@ static KEYBOARD_ACTIVE: AtomicBool = AtomicBool::new(false);
 #[derive(Default)]
 pub struct Crossterm {
     enhanced: bool,
+    output: Option<io::Stdout>,
 }
 
-fn push_keyboard() -> io::Result<()> {
+fn push_keyboard(output: &mut io::Stdout) -> io::Result<()> {
     // Mark ownership before writing: partial output also needs cleanup.
     KEYBOARD_ACTIVE.store(true, Ordering::Relaxed);
     execute!(
-        io::stdout(),
+        output,
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
     )
 }
@@ -64,7 +65,7 @@ impl Screen for Crossterm {
         // This runs before the input reader; crossterm queries share its queue.
         self.enhanced = supports_keyboard_enhancement().unwrap_or(false);
         if self.enhanced {
-            push_keyboard()?;
+            push_keyboard(self.output.as_mut().expect("terminal entered"))?;
         }
         Ok(self.enhanced)
     }
@@ -75,15 +76,16 @@ impl Screen for Crossterm {
 
     fn enter(&mut self) -> io::Result<()> {
         enable_raw_mode()?;
+        let output = self.output.get_or_insert_with(io::stdout);
         execute!(
-            io::stdout(),
+            output,
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableBracketedPaste,
             Hide
         )?;
         if self.enhanced {
-            push_keyboard()?;
+            push_keyboard(output)?;
         }
         Ok(())
     }
