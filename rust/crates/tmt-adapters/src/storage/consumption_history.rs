@@ -288,6 +288,18 @@ struct Delta {
     details: Details,
 }
 
+/// Why an identity that reports nothing is not being sampled, from its binding row:
+/// `(runtime_state, an admitted provider session, a foreground launch owner)`.
+/// New hosts add values; consumers tolerate one they do not know.
+fn not_reporting_cause(binding: Option<(String, bool, bool)>) -> &'static str {
+    match binding {
+        None => "no_binding",
+        Some((state, admitted, _)) if state != "running" || !admitted => "no_agent",
+        Some((_, _, false)) => "no_sampler",
+        Some(_) => "not_sampled",
+    }
+}
+
 /// The newest value (rate limits, credits) observed inside the rollup bucket that
 /// starts at `from`, after one more read. A read repeats the newest provider line's
 /// value for as long as the session idles; one older than the bucket was observed in
@@ -434,6 +446,9 @@ impl Storage {
             .map_err(|e| classify(e, "Read consumption identity"))?;
         let mut statement = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details,from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
             .map_err(|e| classify(e, "Read retained consumption buckets"))?;
+        let mut binding = transaction
+            .prepare("SELECT runtime_state,observed_provider_session_id IS NOT NULL,launch_owner_pid IS NOT NULL FROM bindings WHERE identity_id=?")
+            .map_err(|e| classify(e, "Read consumption binding"))?;
         let mut rollup = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,limits,details,from_ms,credits,service_tier FROM consumption_tier5m WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
             .map_err(|e| classify(e, "Read retained consumption rollup"))?;
         for id in ids {
@@ -512,6 +527,23 @@ impl Storage {
                 readings.push(reading);
             }
             let mut found = json!({"id":id,"found":true,"reporting":reporting,"availableFromMs":available,"lastSampleAtMs":last.filter(|row|row.snapshot.is_some()).and_then(|row|row.sampled),"latest":latest,"windows":readings});
+            if !reporting {
+                // Why nothing is sampled now, from the binding snapshot alone.
+                let cause = binding
+                    .query_row([id], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, bool>(1)?,
+                            row.get::<_, bool>(2)?,
+                        ))
+                    })
+                    .optional()
+                    .map_err(|e| classify(e, "Read consumption binding"))?;
+                found
+                    .as_object_mut()
+                    .ok_or_else(invalid)?
+                    .insert("cause".into(), json!(not_reporting_cause(cause)));
+            }
             if retired {
                 // The name stays with `references.resolve`, the one owner of labels.
                 found
@@ -522,6 +554,7 @@ impl Storage {
             identities.push(found);
         }
         drop(rollup);
+        drop(binding);
         drop(statement);
         drop(identity);
         transaction

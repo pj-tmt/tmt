@@ -302,6 +302,73 @@ fn malformed_credits_or_tier_make_the_read_fail_rather_than_guess() {
 }
 
 #[test]
+fn a_no_evidence_identity_carries_core_s_cause_and_unknown_causes_pass_through() {
+    let unavailable = |cause: Value| {
+        let (mut totals, series, ids, labels) = one_seat(None);
+        totals["identities"][0]["windows"][0]["availableFromMs"] = Value::Null;
+        if !cause.is_null() {
+            totals["identities"][0]["cause"] = cause;
+        }
+        let report = Report {
+            as_of_ms: AS_OF,
+            since: "24h",
+            usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
+            exchange: None,
+            warnings: vec![],
+        };
+        model::document(&report).unwrap()
+    };
+    let known = unavailable(json!("no_sampler"));
+    assert_eq!(known["usage"]["unavailable"][0]["reason"], "no_evidence");
+    assert_eq!(known["usage"]["unavailable"][0]["cause"], "no_sampler");
+    assert!(
+        csv::table(&known, Table::Usage)
+            .unwrap()
+            .ends_with("no_evidence,no_sampler\n")
+    );
+    // A cause a later host adds is passed through; one that is not a plain id is dropped.
+    assert_eq!(
+        unavailable(json!("no_muse_session"))["usage"]["unavailable"][0]["cause"],
+        "no_muse_session"
+    );
+    for bad in [
+        json!("No Agent"),
+        json!(7),
+        json!(""),
+        json!("x".repeat(25)),
+    ] {
+        assert!(
+            unavailable(bad.clone())["usage"]["unavailable"][0]
+                .get("cause")
+                .is_none(),
+            "{bad}"
+        );
+    }
+    // Core gave none: the row stays as it was.
+    assert!(
+        unavailable(Value::Null)["usage"]["unavailable"][0]
+            .get("cause")
+            .is_none()
+    );
+    // Not found and unreadable identities never have one.
+    let (mut totals, series, ids, labels) = one_seat(None);
+    totals["identities"][0] = json!({"id": A, "found": false, "cause": "no_agent"});
+    let usage = model::usage(&totals, &series, &ids, &labels).unwrap();
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage,
+        exchange: None,
+        warnings: vec![],
+    };
+    assert!(
+        model::document(&report).unwrap()["usage"]["unavailable"][0]
+            .get("cause")
+            .is_none()
+    );
+}
+
+#[test]
 fn pace_is_exact_at_the_edges_of_a_window() {
     let length = 300 * 60_000;
     // Resets exactly now: already over, so nothing about the current pace.

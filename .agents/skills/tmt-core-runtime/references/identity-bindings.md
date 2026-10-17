@@ -209,6 +209,12 @@ delivery. They install and launch nothing.
   `thread_settings_applied` `service_tier` in the attribution tail are read the same way:
   each is dropped whole when invalid, absent tier means unknown (never `default`), and
   both go before `rateLimits` under the opaque bound.
+  An identity that reports nothing carries a `cause` in `consumption.history`, from its binding
+  row alone: `no_binding` (offline), `no_agent` (a shell, plain tmux or Herdr pane, or an agent
+  session never admitted), `no_sampler` (admitted but launched outside `tmt run`/`resume`, so only
+  Stop collects) or `not_sampled` (admitted and owned, but the usage hook is missing or unconsented,
+  the wrapper predates sampling, or the seat is new). Relaunching through `tmt run`/`resume`
+  fixes the last two; a shell has no agent to fix.
   History stores additive cache-write and `byModel` evidence
   in the existing buckets, coalesces every model change, and omits unknown mixed portions.
   The Claude scan gets half the hook's remaining deadline and keeps validated counts

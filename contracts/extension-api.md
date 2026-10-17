@@ -287,10 +287,23 @@ an interval.
 
 `identities` preserves request order. Unknown or retired UUIDs return
 `{id,found:false}`. A found identity additionally returns `reporting`,
-`availableFromMs`, `lastSampleAtMs`, `latest` and `windows`:
+`availableFromMs`, `lastSampleAtMs`, `latest` and `windows`, and, while `reporting`
+is false, `cause`:
 
 - `reporting` means retained closed history contains a successful normalized
   counter observation. False is unavailable evidence, not a measured zero.
+- `cause` says why nothing is being sampled, read from the identity's binding in
+  the same snapshot (no provider read). It is present only when `found` is true and
+  `reporting` is false. `no_binding`: no active binding (offline or never bound).
+  `no_agent`: a bound pane with no admitted agent session (a shell, a plain tmux or
+  Herdr pane, or an agent whose start hook never admitted its session). `no_sampler`:
+  an admitted running agent session with no foreground owner, so only its Stop hook
+  collects (launched outside `tmt run`/`resume`). `not_sampled`: admitted and owned
+  but no accepted sample: the usage hook is not installed or consented, the
+  foreground wrapper predates sampling (relaunch it through `tmt run`/`resume`), or
+  the seat just started. A consumer must tolerate a `cause` it does not know: later
+  hosts add values additively. The cause describes the state at the read; it is not
+  a prediction and never turns missing evidence into a zero.
 - `availableFromMs` is the earliest successful observation time in retained
   closed history, or null. It is not a promise of continuous coverage.
 - `latest` is `{driver,session,consumption}` from the last accepted source read
