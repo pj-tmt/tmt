@@ -179,6 +179,52 @@ fn adoption_refuses_memory_temporary_read_only_and_missing_retry() {
 }
 
 #[test]
+fn adoption_refuses_open_transactions_without_committing_or_retaining_locks() {
+    let mut refusals = Vec::new();
+    for mode in ["DELETE", "WAL"] {
+        for begin in ["BEGIN", "BEGIN IMMEDIATE", "SAVEPOINT consumer"] {
+            let world = World::new(mode);
+            let connection = world.connect();
+            connection.execute_batch(begin).unwrap();
+            connection
+                .execute("INSERT INTO records VALUES(2)", [])
+                .unwrap();
+            assert!(!connection.is_autocommit());
+
+            let result = Store::from_admitted_connection(connection, RETRY);
+            refusals.push((
+                mode,
+                begin,
+                matches!(
+                    &result,
+                    Err(StateError::Invalid { path, .. }) if *path == world.path()
+                ),
+            ));
+            // The constructor consumes the connection. Ordinary drop cleanup
+            // must roll back its uncommitted row and release its writer lock.
+            drop(result);
+            let observer = world.connect();
+            observer.busy_timeout(Duration::ZERO).unwrap();
+            assert_eq!(
+                observer
+                    .query_row("SELECT sum(id) FROM records", [], |row| row
+                        .get::<_, i64>(0))
+                    .unwrap(),
+                1,
+                "{mode}: {begin} must not commit its pending row"
+            );
+            observer
+                .execute("INSERT INTO records VALUES(3)", [])
+                .unwrap();
+        }
+    }
+    assert!(
+        refusals.iter().all(|(_, _, refused)| *refused),
+        "each open transaction must be refused with Invalid: {refusals:?}"
+    );
+}
+
+#[test]
 fn read_restores_the_consumers_query_only_policy_on_success_and_rejection() {
     for query_only in [false, true] {
         let world = World::new("DELETE");
