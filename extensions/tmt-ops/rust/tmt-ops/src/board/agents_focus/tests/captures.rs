@@ -241,9 +241,28 @@ fn fixture(selected_name: &str, look: Look) -> App {
             std::time::Instant::now() + std::time::Duration::from_secs(60),
         );
     }
+    let labels = app
+        .references
+        .agents
+        .iter()
+        .map(|(id, agent)| {
+            let squad = app
+                .workspace_snapshot()
+                .unwrap()
+                .roster
+                .squads
+                .iter()
+                .find(|squad| squad.members.contains(id))
+                .unwrap();
+            json!({"identityId":id,"labels":[{"text":"Auto","colorClass":"text",
+            "action":{"kind":"choose","options":[{"label":"Auto","value":"auto"}],
+            "current":"auto","argv":["digest",agent.name,"--squad",squad.name,"{value}"]}},
+            {"text":"held 0 · ctx —","colorClass":"muted"}]})
+        })
+        .collect::<Vec<_>>();
     app.labels = crate::labels::Supplied::from_document(
         "digest",
-        &json!({"version":1,"members": app.references.agents.keys().map(|id| json!({"identityId":id,"labels":[{"text":"Auto","colorClass":"text","action":{"kind":"choose","options":[{"label":"Auto","value":"auto"}],"current":"auto","argv":["digest", "{value}"]}},{"text":"held 0 · ctx —","colorClass":"muted"}]})).collect::<Vec<_>>()}),
+        &json!({"version":1,"members":labels}),
         false,
     );
     app.workspace.selected = selected;

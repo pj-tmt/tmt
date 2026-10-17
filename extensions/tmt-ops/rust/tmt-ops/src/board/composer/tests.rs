@@ -521,11 +521,7 @@ fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
     for scope in [OpsKeyScope::Pool, OpsKeyScope::Squad] {
         assert_eq!(
             crate::config::workspace_defaults(scope)["enter"].text,
-            if scope == OpsKeyScope::Pool {
-                "inspect"
-            } else {
-                "talk"
-            }
+            "inspect"
         );
     }
     let mut app = crate::board::app::workspace::tests::board();
@@ -1104,12 +1100,35 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                             && !band_text.contains("Quote ·"),
                         "{owner}: {band_text}"
                     );
+                    // A real menu entry owns its click, even where an old
+                    // input used to be. Probe the stale input only where the
+                    // current menu paints no actionable entry.
+                    let point = if owner == "menu" {
+                        let menu = app.menu.as_ref().unwrap();
+                        let surface = menu.surface.borrow();
+                        let surface = surface.as_ref().unwrap();
+                        (point.y..point.bottom())
+                            .flat_map(|y| (point.x..point.right()).map(move |x| (x, y)))
+                            .find(|&(x, y)| {
+                                surface
+                                    .pointer(MouseEvent {
+                                        kind: MouseEventKind::Down(MouseButton::Left),
+                                        column: x,
+                                        row: y,
+                                        modifiers: KeyModifiers::NONE,
+                                    })
+                                    .is_none()
+                            })
+                            .expect("a stale input cell outside current menu entries")
+                    } else {
+                        (point.x, point.y)
+                    };
                     assert_eq!(
                         app.mouse(
                             MouseEvent {
                                 kind: MouseEventKind::Down(MouseButton::Left),
-                                column: point.x,
-                                row: point.y,
+                                column: point.0,
+                                row: point.1,
                                 modifiers: KeyModifiers::NONE
                             },
                             std::time::Instant::now()

@@ -3258,6 +3258,12 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                         terminal.backend().buffer()[(x, hit.y)].fg,
                         look.role(match role {
                             Some(role) if in_task => role,
+                            _ if selected => Role::Text,
+                            _ if x == 49 => {
+                                assert_eq!(terminal.backend().buffer()[(x, hit.y)].symbol(), "—");
+                                Role::Dim
+                            }
+                            _ if x >= 53 => Role::Muted,
                             _ => Role::Text,
                         })
                         .fg
