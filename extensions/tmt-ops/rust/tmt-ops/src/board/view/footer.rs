@@ -27,7 +27,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }
-        Verb::Annotate if app.workspace_snapshot().is_some() => "note to lead",
+        Verb::Annotate if app.workspace_snapshot().is_some() => "note",
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
         Verb::ViewReply => "reader",
@@ -306,7 +306,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     for (verb, preferred, word) in [
         (Verb::Talk, "t", "chat"),
         (Verb::Copy, "y", "copy"),
-        (Verb::Annotate, "a", "note to lead"),
+        (Verb::Annotate, "a", "note"),
         (Verb::ViewReply, "v", "reader"),
         (Verb::Jump, "j", "host"),
         (Verb::Open, "o", "link"),

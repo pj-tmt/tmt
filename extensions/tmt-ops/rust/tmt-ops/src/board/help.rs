@@ -125,7 +125,12 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     && action.verb == crate::action::Verb::Annotate
                     && action.args.first().and_then(|arg| arg.literal()) != Some("member")
                 {
-                    "note to the squad lead; Tab changes mode".into()
+                    match app.workspace.selected {
+                        Some(crate::board::workspace::OpsTarget::Squad(_)) => {
+                            "write a note to the selected squad's lead".into()
+                        }
+                        _ => "write a note to the selected agent's lead".into(),
+                    }
                 } else {
                     action.description()
                 };

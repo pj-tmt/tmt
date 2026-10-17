@@ -144,7 +144,7 @@ fn member_factory_scan_moves_to_s_and_actions_include_copy_and_note() {
     let mut app = member_actions_with_lead();
     let footer = paint(&app, 160, 36).join("\n");
     assert!(footer.contains("y copy"), "{footer}");
-    assert!(footer.contains("a note to lead"), "{footer}");
+    assert!(footer.contains("a note"), "{footer}");
     let help = crate::board::help::model(&app);
     let annotate = help.sections[0]
         .entries
@@ -153,7 +153,7 @@ fn member_factory_scan_moves_to_s_and_actions_include_copy_and_note() {
         .unwrap();
     assert_eq!(
         annotate.description,
-        "note to the squad lead; Tab changes mode"
+        "write a note to the selected agent's lead"
     );
     app.context_menu();
     let entries = &app.menu.as_ref().unwrap().entries;
