@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  chmodSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +16,9 @@ import { runInPrivateWorld } from '../../scripts/private-world.mjs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  exampleExecutables,
+  runtimeArchiveConfig,
+  verifyRuntimeExecutables,
   consumerEnvironment,
   admitMachineIdentity,
   TOOLCHAIN,
@@ -133,6 +144,7 @@ describe('compiled workspace partitions', () => {
     identity,
     partitions: 2,
     cases,
+    runtimeFiles: [],
     archive: { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') },
   });
   const log = (tests: TestCase[]) =>
@@ -540,4 +552,62 @@ it('preserves the real nextest 0.9.148 slice order across binary-id punctuation'
             : 0
   );
   expect(() => admitPartition(sorted, listing, 1, 2)).toThrow('slice assignment differs');
+});
+
+// Cargo JSON from producer 117283454313: fixture_worker is an example, not a nextest bin-exe.
+it('carries Cargo-built example workers and refuses missing, foreign or non-executable runtime inputs', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'archive-runtime-'));
+  try {
+    const target = path.join(root, 'target');
+    expect(() => verifyRuntimeExecutables([], target)).not.toThrow();
+    const file = path.join(target, 'debug/examples/fixture_worker');
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeExecutable(file, '#!/bin/sh\nexit 0\n', 0o755);
+    const example = {
+      reason: 'compiler-artifact',
+      profile: { test: false },
+      target: { kind: ['example'] },
+      executable: file,
+    };
+    const files = exampleExecutables(
+      [example, { ...example, profile: { test: true } }, { ...example, target: { kind: ['bin'] } }],
+      target
+    );
+    expect(files).toEqual(['debug/examples/fixture_worker']);
+    expect(runtimeArchiveConfig(files)).toContain(
+      '{ path = "debug/examples/fixture_worker", relative-to = "target", on-missing = "error" }'
+    );
+    expect(() => verifyRuntimeExecutables(files, target)).not.toThrow();
+    chmodSync(file, 0o644);
+    expect(() => verifyRuntimeExecutables(files, target)).toThrow('runtime executable');
+    rmSync(file);
+    expect(() => verifyRuntimeExecutables(files, target)).toThrow();
+    const outside = path.join(root, 'outside');
+    writeExecutable(outside, '#!/bin/sh\nexit 0\n', 0o755);
+    symlinkSync(outside, file);
+    expect(() => verifyRuntimeExecutables(files, target)).toThrow('runtime executable');
+    for (const bad of [
+      '../outside',
+      '/absolute',
+      'debug/../outside',
+      'debug/./worker',
+      'debug/worker\n',
+    ])
+      expect(() => runtimeArchiveConfig([bad])).toThrow('runtime executable escape');
+    expect(() => exampleExecutables([{ ...example, executable: outside }], target)).toThrow(
+      'escape'
+    );
+    expect(() => runtimeArchiveConfig([...files, ...files])).toThrow('duplicate');
+    const source = readFileSync(
+      new URL('../../scripts/workspace-nextest.mjs', import.meta.url),
+      'utf8'
+    );
+    expect(source).toContain('writeFileSync(config, runtimeArchiveConfig(runtimeFiles))');
+    expect(source).toContain("'--config-file',\n    config,\n    'archive'");
+    expect(source).toContain(
+      "verifyRuntimeExecutables(manifest.runtimeFiles, path.resolve('target'))"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

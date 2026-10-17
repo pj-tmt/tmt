@@ -33,6 +33,7 @@ export interface WorkspaceManifest {
   partitions: number;
   archive: { bytes: number; sha256: string };
   cases: TestCase[];
+  runtimeFiles: string[];
 }
 export interface PartitionResult {
   schema: number;
@@ -68,3 +69,15 @@ export function admitMachineIdentity(
   identity: Record<string, string>,
   expectedRun: Record<string, string>
 ): Record<string, string>;
+
+export function exampleExecutables(
+  artifacts: {
+    reason: string;
+    profile: { test: boolean };
+    target: { kind: string[] };
+    executable: string | null;
+  }[],
+  targetDirectory: string
+): string[];
+export function runtimeArchiveConfig(files: string[]): string;
+export function verifyRuntimeExecutables(files: string[], targetDirectory: string): void;

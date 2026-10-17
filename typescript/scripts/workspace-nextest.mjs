@@ -150,6 +150,64 @@ export function admitPartition(cases, inventory, index, total) {
   return expected;
 }
 
+/** Cargo builds non-test examples that nextest does not automatically archive. */
+export function exampleExecutables(artifacts, targetDirectory) {
+  assert.ok(path.isAbsolute(targetDirectory), 'target directory must be absolute');
+  const files = artifacts
+    .filter(
+      (item) =>
+        item.reason === 'compiler-artifact' &&
+        !item.profile.test &&
+        item.target.kind.includes('example') &&
+        item.executable
+    )
+    .map((item) => path.relative(targetDirectory, item.executable));
+  runtimeArchiveConfig(files);
+  return files;
+}
+
+/** Explicit target-relative includes: missing runtime inputs must fail the producer. */
+export function runtimeArchiveConfig(files) {
+  assert.ok(Array.isArray(files) && files.length <= 1000, 'runtime executable bound');
+  assert.equal(new Set(files).size, files.length, 'duplicate runtime executable');
+  for (const file of files)
+    assert.ok(
+      typeof file === 'string' &&
+        file.length < 4096 &&
+        file === file.trim() &&
+        /^[A-Za-z0-9_+.-]+(?:\/[A-Za-z0-9_+.-]+)+$/.test(file) &&
+        file.split('/').every((part) => part !== '.' && part !== '..'),
+      'runtime executable escape'
+    );
+  return (
+    '[profile.default]\narchive.include = [\n' +
+    files
+      .map(
+        (file) =>
+          `  { path = ${JSON.stringify(file)}, relative-to = "target", on-missing = "error" },`
+      )
+      .join('\n') +
+    '\n]\n'
+  );
+}
+
+export function verifyRuntimeExecutables(files, targetDirectory) {
+  runtimeArchiveConfig(files);
+  if (files.length === 0) return;
+  const root = realpathSync(targetDirectory);
+  for (const file of files) {
+    const full = path.join(root, file);
+    const stat = lstatSync(full);
+    assert.ok(
+      stat.isFile() &&
+        !stat.isSymbolicLink() &&
+        (stat.mode & 0o111) !== 0 &&
+        realpathSync(full).startsWith(root + path.sep),
+      'runtime executable type or escape'
+    );
+  }
+}
+
 /** Admit bytes and producer identity before nextest can decode or execute anything. */
 export function admitArchive(manifest, bytes, expectedIdentity) {
   assert.equal(manifest.schema, 1, 'manifest schema');
@@ -158,6 +216,7 @@ export function admitArchive(manifest, bytes, expectedIdentity) {
   assert.equal(bytes.length, manifest.archive.bytes, 'archive size differs');
   assert.equal(sha256(bytes), manifest.archive.sha256, 'archive hash differs');
   partitionCases(manifest.cases, 1, manifest.partitions);
+  runtimeArchiveConfig(manifest.runtimeFiles);
   return manifest;
 }
 
@@ -343,10 +402,14 @@ function inventory(directory, total) {
     '--no-run',
     '--message-format=json',
   ]);
-  const executables = build
+  const artifacts = build
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line))
+    .map((line) => JSON.parse(line));
+  const runtimeFiles = exampleExecutables(artifacts, path.resolve('target'));
+  verifyRuntimeExecutables(runtimeFiles, path.resolve('target'));
+  writeJSON(path.join(directory, 'runtime-files.json'), runtimeFiles);
+  const executables = artifacts
     .filter((item) => item.reason === 'compiler-artifact' && item.profile.test && item.executable)
     .map((item) => item.executable);
   assert.ok(executables.length > 0 && executables.length <= 1000, 'Cargo executable bound');
@@ -399,9 +462,15 @@ function inventory(directory, total) {
 }
 
 function archive(directory, total) {
+  const runtimeFiles = readJSON(path.join(directory, 'runtime-files.json'));
+  verifyRuntimeExecutables(runtimeFiles, path.resolve('target'));
+  const config = path.join(directory, 'archive-config.toml');
+  writeFileSync(config, runtimeArchiveConfig(runtimeFiles));
   const archive = path.join(directory, 'workspace.tar.zst');
   command(directory, 'archive', 'cargo-nextest', [
     'nextest',
+    '--config-file',
+    config,
     'archive',
     '--locked',
     '--workspace',
@@ -417,6 +486,7 @@ function archive(directory, total) {
     identity: executionIdentity(),
     partitions: total,
     cases,
+    runtimeFiles,
     archive: { bytes: stat.size, sha256: sha256(readFileSync(archive)) },
   });
 }
@@ -462,6 +532,7 @@ function consume(directory, index) {
       lstatSync(path.join('target', binary.path)).isFile(),
       'missing extracted runtime executable'
     );
+  verifyRuntimeExecutables(manifest.runtimeFiles, path.resolve('target'));
   const metadata = [
     '--binaries-metadata',
     path.resolve('target/nextest/binaries-metadata.json'),
