@@ -290,7 +290,9 @@ function render(): void {
   custom.required = mode.value === 'custom';
   for (const field of [opening, mode, custom])
     field.disabled = !editable || (field === custom && mode.value !== 'custom');
-  for (const button of document.querySelectorAll<HTMLButtonElement>('form button'))
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    'form button:not(.settings-choice):not([role="option"])',
+  ))
     button.disabled = !page.writable;
   if (page.settings) {
     choices ??= [
@@ -354,8 +356,8 @@ function render(): void {
         revokeLabel.className = 'tmt-ui-action-label';
         revokeLabel.textContent = 'Revoke';
         revoke.append(revokeLabel);
-        revoke.addEventListener('click', () => {
-          if (!page.writable) return;
+        revoke.addEventListener('click', (event) => {
+          if (event.detail > 1 || !page.writable) return;
           // Confirmation is local presentation, never server authority.
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
@@ -387,8 +389,8 @@ function render(): void {
         const talkLabel = document.createElement('span');
         talkLabel.className = 'tmt-ui-action-label';
         talk.append(talkLabel);
-        talk.addEventListener('click', () => {
-          if (!page.writable) return;
+        talk.addEventListener('click', (event) => {
+          if (event.detail > 1 || !page.writable) return;
           const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
           if (!target || target.revoked) return;
           if (!target.talkEnabled && !confirmDevice(talk, target, 'talk')) return;
