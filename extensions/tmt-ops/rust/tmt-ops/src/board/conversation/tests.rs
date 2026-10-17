@@ -1459,10 +1459,11 @@ fn pane_output_uses_the_exchange_header_time_format() {
 #[test]
 fn grouped_wrap_keeps_the_full_body_and_invalidates_only_layout_not_source() {
     let mut session = Session::default();
+    let inventory = Default::default();
     let raw = "abcdefghijklmnopqrstuvwxyz0123456789";
     session.update(Some(reply("grouped-width", raw)));
     for width in [8, 16, 40] {
-        assert!(session.prepare_grouped(width, Look::default(), &Default::default()));
+        assert!(session.prepare_grouped(width, Look::default(), &inventory));
         let rendered = session.rendered.as_ref().unwrap();
         let text: String = rendered.mapped.lines.iter().map(Line::to_string).collect();
         assert_eq!(text, raw);
@@ -1482,8 +1483,8 @@ fn grouped_wrap_keeps_the_full_body_and_invalidates_only_layout_not_source() {
                 .request,
             "grouped-width"
         );
-        assert!(!session.prepare_grouped(width, Look::default(), &Default::default()));
-        assert!(session.prepare(width, Look::default(), &Default::default()));
+        assert!(!session.prepare_grouped(width, Look::default(), &inventory));
+        assert!(session.prepare(width, Look::default(), &inventory));
     }
 }
 

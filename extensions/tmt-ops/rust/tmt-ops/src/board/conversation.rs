@@ -306,7 +306,7 @@ impl Session {
             let mut lines = Vec::with_capacity(mapped.lines.len());
             let mut sources = Vec::with_capacity(mapped.sources.len());
             let mut mentions = Vec::with_capacity(mapped.mentions.len());
-            for ((mut line, source), links) in mapped
+            for ((mut line, source), mut links) in mapped
                 .lines
                 .into_iter()
                 .zip(mapped.sources)
@@ -321,6 +321,9 @@ impl Session {
                     for span in &mut line.spans {
                         span.style = span.style.patch(style);
                     }
+                }
+                for link in &mut links {
+                    link.column += gutter;
                 }
                 lines.push(line);
                 sources.push(source);
