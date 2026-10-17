@@ -42,8 +42,16 @@ export interface HomeSearch {
   sort?: 'title';
   archived?: true;
 }
+/** The route merges what this returns over the raw query, so every key is named here: one it
+ * cannot read is set to `undefined` and replaces the raw value instead of reaching the list. */
 export function validateHomeSearch(search: Record<string, unknown>): HomeSearch {
-  const out: HomeSearch = {};
+  const out: HomeSearch = {
+    q: undefined,
+    label: undefined,
+    by: undefined,
+    sort: undefined,
+    archived: undefined,
+  };
   if (typeof search.q === 'string' && search.q.trim()) out.q = search.q.trim().slice(0, 256);
   if (Array.isArray(search.label)) {
     const names = [

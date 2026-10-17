@@ -31,7 +31,10 @@ function page(n: number, title: string, labels: string[], changes: Partial<PageS
   };
 }
 
-export async function mountPageList(size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few') {
+export async function mountPageList(
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few',
+  hash = '/all',
+) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('list-fixture');
   if (!host) {
@@ -100,6 +103,6 @@ export async function mountPageList(size: 'few' | 'bulk' | 'none' | 'unmanaged' 
     ...(size === 'unmanaged' ? {} : { management }),
     spaceHome: async () => ({ title: 'Studio pages', pages: state.pages }),
   });
-  location.hash = '/all';
+  location.hash = hash;
   root.render(<RouterProvider router={router} />);
 }

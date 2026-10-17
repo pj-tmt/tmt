@@ -1,13 +1,20 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-async function mount(page: Page, size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few') {
+async function mount(
+  page: Page,
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few',
+  hash = '/all',
+) {
   await page.goto('/');
   await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
-  await page.evaluate(async (size) => {
-    const path = '/test/page-list-browser.tsx';
-    await (await import(path)).mountPageList(size);
-  }, size);
+  await page.evaluate(
+    async ({ size, hash }) => {
+      const path = '/test/page-list-browser.tsx';
+      await (await import(path)).mountPageList(size, hash);
+    },
+    { size, hash },
+  );
 }
 /** The fixture mounts beside the hidden app, which renders the same route; scope to the fixture. */
 const app = (page: Page) => page.locator('#list-fixture');
@@ -33,6 +40,23 @@ test('a label button filters the list, adds a token and removes it again', async
   await rows(page).first().getByRole('button', { name: 'q4 plan' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan']);
 });
+
+for (const query of [
+  'label=design',
+  'by=Stu',
+  'q=123',
+  'sort=1',
+  'archived=1',
+  'label=%5B%22design%22%2C7%5D&by=%7B%7D',
+]) {
+  test(`a hand-written list link (${query}) drops what it cannot read and shows the list`, async ({
+    page,
+  }) => {
+    await mount(page, 'few', `/all?${query}`);
+    await expect(titles(page)).toHaveCount(query.startsWith('label=%5B') ? 2 : 4);
+    await expect(app(page).getByText('Something went wrong')).toHaveCount(0);
+  });
+}
 
 test('keyboard removing a filter token keeps editor focus and applies the token removal', async ({
   page,

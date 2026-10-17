@@ -545,8 +545,9 @@ search redirects to `/all` with it (`beforeLoad`).
 
 The list is the `/all` route ("All pages"). `home.tsx` renders it from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`), never in component state, so a
-reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
+(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`; the router merges its result
+over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
+component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `label:` and `by:`) holds only a draft until Enter
 applies it, and a chip click or token removal applies at once. A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it and holds `AUTHOR_BYTES` and
