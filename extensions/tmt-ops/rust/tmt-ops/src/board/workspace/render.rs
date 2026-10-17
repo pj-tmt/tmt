@@ -653,7 +653,9 @@ fn paint_member_state(
         "member"
     };
     // The role is the least important part: it shows only when it fits whole.
-    let role = format!(" · {role}");
+    // After a bare unknown `?` it follows like a task state, with no separator.
+    let bare = label.state == "unknown" && used == 1;
+    let role = format!("{}{role}", if bare { " " } else { " · " });
     let role_width = unicode_width::UnicodeWidthStr::width(role.as_str()) as u16;
     if used + role_width <= cell.width {
         strip::paint_left(

@@ -377,12 +377,13 @@ pub fn state_style(app: &crate::board::app::App, row: &OpsTreeRow) -> ratatui::s
         .map_or_else(|| look.role(role), |color| look.named(color))
 }
 
-/// The activity glyph: only a request that waits on the user uses attention colour.
+/// The activity glyph: only a request that waits on the user uses attention
+/// colour; the `?` of stale or unknown activity is muted.
 pub fn activity_style(app: &crate::board::app::App, state: &str) -> ratatui::style::Style {
-    app.look().role(if state == "waiting" {
-        Role::Waiting
-    } else {
-        Role::Text
+    app.look().role(match state {
+        "waiting" => Role::Waiting,
+        "stale" | "unknown" => Role::Muted,
+        _ => Role::Text,
     })
 }
 
@@ -424,9 +425,19 @@ pub fn activity_spans(
     if width == 0 {
         return (Vec::new(), None);
     }
-    let symbol = state_symbol(Some(label.state));
-    let (head, task) = label.fit(width.saturating_sub(symbol.width() + 1));
-    let words = format!(" {head}");
+    let symbol = crate::board::state_cell::glyph(Some(label.state));
+    // Unknown activity has no word: the glyph is the label's own `?`.
+    let unknown = label.state == "unknown";
+    let (head, task) = label.fit(if unknown {
+        width
+    } else {
+        width.saturating_sub(symbol.width() + 1)
+    });
+    let words = if unknown {
+        String::new()
+    } else {
+        format!(" {head}")
+    };
     let room = width.saturating_sub(symbol.width());
     let words = crate::board::view::fit(&words, words.width().min(room));
     let mut primary = vec![Span::styled(

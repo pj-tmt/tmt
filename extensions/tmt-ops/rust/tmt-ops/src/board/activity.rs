@@ -79,7 +79,8 @@ impl Member {
                 Phase::Working => ("working", activity.since_ms),
                 Phase::Idle => ("idle", activity.since_ms),
                 Phase::Ended => ("ended", activity.last_ms),
-                Phase::Unknown => ("unknown", activity.last_ms),
+                // Unknown shows no age: its cell is the muted `?` alone.
+                Phase::Unknown => ("unknown", None),
             }
         };
         let running = matches!(state, "working" | "idle");
@@ -104,16 +105,31 @@ impl Member {
 }
 
 impl Label {
+    /// The shown state word: unknown activity has none, only the `?` that the
+    /// glyph also shows, so it never reads as a fault beside the task state.
+    pub fn word(&self) -> &'static str {
+        if self.state == "unknown" {
+            "?"
+        } else {
+            self.state
+        }
+    }
+
     /// Fits `width` cells as the state words and the muted task text. The task
     /// is cut first, then the age; the state word stays.
     pub fn fit(&self, width: usize) -> (String, Option<String>) {
         use unicode_width::UnicodeWidthStr;
+        let word = self.word();
         let head = match &self.age {
-            Some(age) => format!("{} {age}", self.state),
-            None => self.state.to_owned(),
+            Some(age) => format!("{word} {age}"),
+            None => word.to_owned(),
         };
         if let Some(task) = &self.task {
-            let tail = format!(" · {task}");
+            let tail = if self.state == "unknown" {
+                format!(" {task}")
+            } else {
+                format!(" · {task}")
+            };
             let room = width.saturating_sub(head.width());
             if tail.width() <= room {
                 return (head, Some(tail));
@@ -126,10 +142,10 @@ impl Label {
         if head.width() <= width {
             return (head, None);
         }
-        if self.state.width() <= width {
-            return (self.state.to_owned(), None);
+        if word.width() <= width {
+            return (word.to_owned(), None);
         }
-        (crate::board::view::fit(self.state, width), None)
+        (crate::board::view::fit(word, width), None)
     }
 }
 
@@ -268,8 +284,12 @@ mod tests {
         );
         let ended = member(Phase::Ended, None, Some(NOW - 4 * 60_000), None);
         assert_eq!(words(&ended.label(false, NOW), 80), "ended 4m ago");
-        let unknown = member(Phase::Unknown, None, None, Some("testing"));
-        assert_eq!(words(&unknown.label(false, NOW), 80), "unknown · testing");
+        // Unknown has no word and no age: the `?` and then the task state.
+        let unknown = member(Phase::Unknown, None, Some(NOW - 60_000), Some("testing"));
+        assert_eq!(words(&unknown.label(false, NOW), 80), "? testing");
+        assert_eq!(unknown.label(false, NOW).state, "unknown");
+        let bare = member(Phase::Unknown, None, None, None);
+        assert_eq!(words(&bare.label(false, NOW), 80), "?");
         // A request that waits on the user wins; a stale read never becomes idle.
         let waiting = Member {
             waiting: true,

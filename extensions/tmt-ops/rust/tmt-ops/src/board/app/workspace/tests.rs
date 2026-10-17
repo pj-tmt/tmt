@@ -560,7 +560,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
             snapshot.shell_counts = snapshot.roster.shell_counts();
             let row = painted_member_row(&app, 100, 24);
             assert!(
-                row.contains("worker") && row.contains(state.unwrap_or("unknown")),
+                row.contains("worker") && row.contains(state.unwrap_or("? member")),
                 "{row}"
             );
             let counts = &app.workspace_snapshot().unwrap().shell_counts;
@@ -4769,7 +4769,7 @@ fn counters_state_and_status_turn_stale_together() {
                 "{case}"
             );
             assert!(
-                row.contains("stale") && !row.contains("idle"),
+                row.contains("? stale") && !row.contains("idle"),
                 "{case}: {row}"
             );
             assert!(mark.contains("worker stale"), "{case}: {mark}");
@@ -5010,5 +5010,25 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
             .unwrap();
         assert!(team.contains(&format!("product   {glyph}")), "{team}");
         assert!(!team.contains('✗'), "{team}");
+    }
+}
+
+#[test]
+fn unknown_and_stale_glyphs_are_muted_and_only_waiting_is_orange() {
+    use tmt_cli_style::Role;
+    let app = board();
+    for (state, role) in [
+        ("unknown", Role::Muted),
+        ("stale", Role::Muted),
+        ("waiting", Role::Waiting),
+        ("working", Role::Text),
+        ("idle", Role::Text),
+        ("ended", Role::Text),
+    ] {
+        assert_eq!(
+            crate::board::workspace::columns::activity_style(&app, state),
+            app.look().role(role),
+            "{state}"
+        );
     }
 }

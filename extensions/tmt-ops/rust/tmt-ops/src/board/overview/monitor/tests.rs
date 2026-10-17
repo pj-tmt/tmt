@@ -452,13 +452,17 @@ fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
                 assert!(!label.state.is_empty());
                 if hit.width >= 60 {
                     // The shared STATE words stay neutral text; only the glyph
-                    // carries attention colour.
+                    // carries attention colour. Unknown activity has no word, so
+                    // its task follows the glyph: red only when blocked.
+                    let role = match (label.state, label.task.as_deref()) {
+                        ("unknown", Some("blocked")) => tmt_cli_style::Role::Blocked,
+                        ("unknown", _) => tmt_cli_style::Role::Muted,
+                        _ => tmt_cli_style::Role::Text,
+                    };
                     assert_eq!(
                         buffer[(hit.x + 39, hit.y)].fg,
-                        app.look()
-                            .role(tmt_cli_style::Role::Text)
-                            .fg
-                            .unwrap_or_default()
+                        app.look().role(role).fg.unwrap_or_default(),
+                        "{label:?}"
                     );
                 }
             }

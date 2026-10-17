@@ -940,9 +940,10 @@ identity targets. Lead badges and member counts include the lead once.
 A member's STATE shows core's provider activity first and the squad task state
 second, such as `● working 12m · review`. The first word is `waiting` when a
 request waits on you; otherwise it is core's `working` or `idle` with how long
-that phase has run, `ended`, or `unknown`. When the board's last read failed, or
+that phase has run, or `ended`. Unknown activity has no word: the cell is a
+muted `?` and then the task state, such as `? idle · member`. When the board's last read failed, or
 is older than its refresh interval (at least 5 s) plus 10 s, the word is `stale`
-with the time of core's last event, such as `stale 4m ago`; with refresh off,
+with the time of core's last event, such as `? stale 4m ago`; with refresh off,
 rows go stale and stay stale until you refresh. Stale and unknown never mean
 idle, and the age is never made up when core gives no time. A narrow cell clips
 the task first, then drops the age. The working and idle counts follow core
