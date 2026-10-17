@@ -70,6 +70,11 @@ let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
 let failNextStatus = false;
 let releaseStatusNotice: (() => void) | undefined;
+let chapterAcquisitions = 0;
+let chapterReleases = 0;
+export function chapterProof() {
+  return { acquisitions: chapterAcquisitions, releases: chapterReleases };
+}
 export function finishStatusNotice() {
   releaseStatusNotice?.();
   releaseStatusNotice = undefined;
@@ -172,6 +177,8 @@ export async function mount(
   resumeAttachmentUploads();
   finishStatusNotice();
   finishQuestionDirectory();
+  chapterAcquisitions = 0;
+  chapterReleases = 0;
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -796,8 +803,14 @@ export async function mount(
   };
   if (options.todayPassages)
     transport.chapter = async (pageId) => {
+      chapterAcquisitions++;
       if (options.refuseChapter) throw new Error('Chapter refused');
-      return { snapshot: await transport.page(pageId), async release() {} };
+      return {
+        snapshot: await transport.page(pageId),
+        async release() {
+          chapterReleases++;
+        },
+      };
     };
   const app = (
     <ChapterSurfaces transport={transport}>

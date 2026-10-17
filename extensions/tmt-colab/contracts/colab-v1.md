@@ -4386,6 +4386,9 @@ links; they gain no acquisition or write capability. A passive chapter catch-up
 omits the existing explicit Subscribe, so it does not select the active cloud
 page. Opening that page in the foreground reuses its Live/Writer owner and sends
 the normal foreground Subscribe. No protocol flag or new Remote operation is added.
+The existing chapter opener owns panel/full-page navigation. Its read-only open
+signal and held-Today flag suspend passive previews behind the opened chapter;
+returning to Today starts the visible acquisitions again.
 
 At most three intersecting chapters retain a source, each within the renderer's
 existing 2 MiB source bound. Acquisition/fold is serial. Leaving view, hiding the
@@ -4407,6 +4410,14 @@ proposal actions. Existing review, question and reading layers own every action,
 ordinary record, notification and refusal; source HTML and cosmetic frame bounds
 cannot confirm, answer or mark read. Frame messages report only current-render,
 current-request bounds for the parent-selected passage.
+On the existing channel, the parent request has exactly
+`{type:"colab.render.passage",renderId,requestId,target}`. The target is exactly
+`{kind:"opening"}` or `{kind:"review"|"answer"|"reading",id}`, naming a parent-parsed
+UUID. The response has exactly
+`{type:"colab.render.passage",renderId,requestId,bounds}`; only the current render
+and request are accepted. Bounds are `null` or exactly `{top,height}` with finite
+numbers, `top >= 0`, `height > 0` and `top + height <= 1000000` CSS px. An unresolved
+target or inner-scroll fallback makes the preview unavailable, never actionable.
 
 The authored viewport clips at 420 CSS px on wide screens and 320 CSS px on narrow
 screens. Trusted controls remain outside and below the clip. Only actual clipping

@@ -296,6 +296,30 @@ test('a refused chapter keeps its page link and exposes no source or action', as
   expect((await run(page, 'proof')).actions).toEqual([]);
 });
 
+test('Continue uses the shared chapter panel and its held Today admits no previews', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const passage = await mount(page, 'reading');
+  await run(page, 'reading', { count: 2, tall: true });
+  const app = page.locator('#ask-page-fixture');
+  await passage.getByRole('button', { name: 'Continue on the page →', exact: true }).click();
+  await expect(app.locator('main[data-chapter="panel"]')).toBeVisible();
+  await expect(app.locator('.chapter-held .today-chapters')).toBeVisible();
+  await expect(app.locator('.chapter-held [data-chapter-passage]')).toHaveCount(0);
+  await expect(app.locator('iframe')).toHaveCount(1);
+  await expect.poll(() => run(page, 'chapterProof')).toEqual({ acquisitions: 1, releases: 1 });
+  await app
+    .getByRole('region', { name: 'Page preview', exact: true })
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await expect(app.locator('.chapter-held')).toHaveCount(0);
+  await expect(passage.locator('iframe')).toHaveCount(1);
+  expect(await run(page, 'chapterProof')).toEqual({ acquisitions: 2, releases: 1 });
+  expect(await run(page, 'discussionProof')).toHaveLength(0);
+  expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`chapter passage states at ${width} ${theme}`, async ({ page }) => {

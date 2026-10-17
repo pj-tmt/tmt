@@ -1,5 +1,13 @@
 import { getRouteApi, Link, useRouter } from '@tanstack/react-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from 'react';
 import { holdSpace, openChapter, prepareToday, useOpenChapter } from './chapter.js';
 import { ChapterSurfaceSlot, useChapterSurfaces, useChapterCounts } from './chapter-surfaces.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
