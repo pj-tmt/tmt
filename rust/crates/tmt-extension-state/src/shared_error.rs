@@ -5,6 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) const NEWER_STORE_REASON: &str = "store is newer than this binary; use the newer binary";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Holder {
     pub pid: u32,
@@ -59,6 +61,11 @@ pub enum StateError {
     },
 }
 impl StateError {
+    /// Distinguish future migration history without parsing display text.
+    pub fn is_newer(&self) -> bool {
+        matches!(self, Self::Migration { reason, .. } if *reason == NEWER_STORE_REASON)
+    }
+
     pub fn holder(&self) -> Option<Holder> {
         match self {
             Self::GuardBusy { holder, .. } => *holder,

@@ -374,6 +374,138 @@ fn killed_store_writer_rolls_back_and_waiter_gets_one_bounded_timeout() {
 }
 
 #[test]
+fn newer_history_is_typed_without_changing_legacy_errors_or_store_bytes() {
+    let world = World::new();
+    let layout = world.layout();
+    let path = layout.directory.join("state.db");
+    let future = [
+        Migration {
+            name: "records",
+            sql: MIGRATIONS[0].sql,
+        },
+        Migration {
+            name: "future",
+            sql: "ALTER TABLE records ADD COLUMN note TEXT;",
+        },
+    ];
+    let mut store = Store::open(&layout, "state.db", &future, RETRY).unwrap();
+    store
+        .write(|tx| {
+            tx.execute(
+                "INSERT INTO records(id,value,note) VALUES(1,'kept','future')",
+                [],
+            )
+        })
+        .unwrap();
+    drop(store);
+    let bytes = fs::read(&path).unwrap();
+    let entries = || {
+        let mut names: Vec<_> = fs::read_dir(&layout.directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = entries();
+    let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
+        .err()
+        .unwrap();
+    assert!(error.is_newer());
+    // Preserve the existing variant/display until consumers adopt the predicate.
+    assert!(
+        matches!(&error, tmt_extension_state::StateError::Migration { path: actual, reason }
+        if actual == &path && *reason == "store is newer than this binary; use the newer binary")
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{}: store is newer than this binary; use the newer binary",
+            path.display()
+        )
+    );
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(entries(), before);
+
+    let non_prefix = [
+        Migration {
+            name: "different",
+            sql: MIGRATIONS[0].sql,
+        },
+        Migration {
+            name: "future",
+            sql: future[1].sql,
+        },
+    ];
+    let error = Store::open(&layout, "state.db", &non_prefix, RETRY)
+        .err()
+        .unwrap();
+    assert!(matches!(
+        error,
+        tmt_extension_state::StateError::Migration { .. }
+    ));
+    assert!(!error.is_newer());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(entries(), before);
+    let mut store = Store::open(&layout, "state.db", &future, RETRY).unwrap();
+    assert_eq!(
+        store
+            .read(
+                |tx| tx.query_row("SELECT value,note FROM records", [], |row| Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?
+                )))
+            )
+            .unwrap(),
+        ("kept".into(), "future".into())
+    );
+}
+
+#[test]
+fn foreign_history_and_unrelated_errors_are_not_newer() {
+    use tmt_extension_state::StateError;
+    let world = World::new();
+    let layout = world.layout();
+    let path = layout.directory.join("state.db");
+    drop(layout.file("state.db").unwrap());
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE foreign_records(value); INSERT INTO foreign_records VALUES(7);",
+        )
+        .unwrap();
+    drop(connection);
+    let bytes = fs::read(&path).unwrap();
+    let error = Store::open(&layout, "state.db", MIGRATIONS, RETRY)
+        .err()
+        .unwrap();
+    assert!(matches!(error, StateError::Migration { .. }));
+    assert!(!error.is_newer());
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    for error in [
+        StateError::Invalid {
+            path: path.clone(),
+            reason: "newer than this binary",
+        },
+        StateError::Unsafe {
+            path: path.clone(),
+            reason: "unsafe file",
+        },
+        StateError::Migration {
+            path: path.clone(),
+            reason: "unrelated newer than this binary text",
+        },
+        StateError::Io {
+            path,
+            operation: "read state",
+            source: io::Error::other("newer than this binary"),
+        },
+    ] {
+        assert!(!error.is_newer(), "unrelated error: {error}");
+    }
+}
+
+#[test]
 fn migrations_are_forward_only_atomic_and_queries_are_read_only() {
     let world = World::new();
     let layout = world.layout();
