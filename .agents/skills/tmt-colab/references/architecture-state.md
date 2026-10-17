@@ -143,6 +143,10 @@ other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hi
 accepts only that exact hint and removes it from the canonical admitted URL. Reader capabilities
 are unchanged.
 
+`needs-you.ts` combines the admitted layers' pending navigation without a stored count;
+`needs-you-header.tsx` owns only its header menu. Layer-owned jumps scroll/focus existing
+targets and open question chips; they never publish an action or create a thread.
+
 The main app uses one Colab-local `components/rich-input.tsx` editor lifetime and
 editable surface. `components/message-composer.tsx` configures its mention nodes,
 completion and message submission for Chat, annotations, agent follow-ups, plain

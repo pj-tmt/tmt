@@ -123,9 +123,12 @@ export const text = {
   reviewUncertain: 'Could not confirm this. Check Comments before trying again.',
   reviewTo: (agent: string) => `Goes to @${agent}`,
   reviewNoRecipient: 'Stays on the page, no one is asked',
-  reviewProgress: (closed: number, total: number) => `✓ ${closed} / ${total} closed`,
-  reviewProgressLabel: (closed: number, total: number) =>
-    `${closed} of ${total} review sections closed`,
+  needsYouWord: 'Needs you',
+  needsYouLabel: (count: number) => `Needs you: ${count}`,
+  needsYouNothing: '✓ Nothing waits',
+  needsYouNothingWord: 'Nothing waits',
+  needsYouGroup: (kind: 'reading' | 'answer' | 'review', count: number) =>
+    `${kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
   browserUnsupported: 'Unsupported browser',
   browserUpdate: 'Update your browser',

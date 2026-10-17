@@ -2452,12 +2452,22 @@ when, the note) with Reopen. The note, the fields and `Goes to @<agent>` or `Sta
 one is asked` follow. It follows Colab's effective theme and takes its position from the inline slot channel (`{id,height}`, no
 answer geometry). A closed section fades but stays expanded: the frame sets a renderer-managed
 attribute from the parent's closed set, so its content stays in the DOM, selectable and in the
-text map, and annotations inside it keep resolving. The page head shows `✓ n / m closed` as a
-status chip once the anchors resolve and at least one section is admitted (`m` admitted
-sections, `n` closed ones). It is separate from `openThreadCount`: an open section thread also
-counts in the Comments badge like any open annotation, and a section with no thread yet counts
-only in `m`. Archived pages show state and count without controls. The page-list and collection
+text map, and annotations inside it keep resolving. The page head's `Needs you N` menu counts
+each waiting review section once, alongside unread reading anchors and unanswered question
+blocks. A question group with any unanswered questions counts once; a standalone question is
+one block. Changes requested from an agent and closed sections do not count. IDs are never
+counted twice. These are projections of the admitted layer state after anchor resolution, not
+stored counters. They are separate from `openThreadCount`: an open section thread also counts
+in Comments like any open annotation, while a waiting section with no thread still counts in
+Needs you. Archived pages retain cosmetic navigation without publication controls. The page-list and collection
 counts do not include sections, as for unanswered questions, until a recorded state exists to read.
+
+The header menu groups targets in reading, answer and review order, omitting empty groups.
+Picking a target only scrolls and focuses its first available action (or its retained content
+when read-only); a compact question group opens on its first unanswered question. It never
+marks read, answers, confirms or sends. At zero the header shows neutral `✓ Nothing waits`,
+without a menu; compact headers show `✓` with the same accessible name. Neither a menu count
+nor a rendered target grants writer admission.
 
 **Channel.** The `colab.render.questions` request carries a closed `reviews` array of
 `{id,title,closed}` (at most 50, unique IDs, none shared with a question, group or reading anchor) and its

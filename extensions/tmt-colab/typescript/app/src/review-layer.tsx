@@ -2,16 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useAgentDirectory } from './agent-directory.js';
 import { AskAgainAction } from './ask-again.js';
 import { ReviewCard } from './components/review-card.js';
+import { focusNeedsYouTarget, type NeedsYouCandidate } from './needs-you.js';
 import type { Question, Review } from './questions.js';
 import type { ReviewAnchor, ReviewRenderBlock } from './renderer.js';
 import { AdmittedView, ReviewActions, type ReviewOutcome } from './review-actions.js';
-import {
-  canonicalReviewThread,
-  repliedComments,
-  reviewProgress,
-  reviewState,
-  sectionAnswered,
-} from './reviews.js';
+import { canonicalReviewThread, repliedComments, reviewState, sectionAnswered } from './reviews.js';
 import { text } from './strings.js';
 import type { ThreadView } from './thread-records.js';
 import type { CommentContext } from './thread-store.js';
@@ -42,6 +37,7 @@ export function useReviewLayer({
   questionThreads: RefObject<(questionId: string) => readonly ThreadView[]>;
 }) {
   const [anchors, setAnchors] = useState<ReviewAnchor[] | null>(null);
+  const targets = useRef(new Map<string, HTMLDivElement>());
   const onAnchors = useCallback((next: ReviewAnchor[], checked = true) => {
     setAnchors(checked ? next : null);
   }, []);
@@ -70,7 +66,6 @@ export function useReviewLayer({
     return { review, anchor, thread, state, recipients: matches.length === 1 ? matches : [] };
   });
   const ready = anchors !== null;
-  const progress = reviewProgress(rows.map((row) => row.state));
   const blocks: ReviewRenderBlock[] = rows.map(({ review, state }) => ({
     id: review.id,
     title: review.title,
@@ -143,11 +138,26 @@ export function useReviewLayer({
   }, [snapshot.id]);
 
   const writable = !view.archived && !!snapshot.binding?.discussion;
+  const navigation: NeedsYouCandidate[] = rows.flatMap(({ review, anchor, state }) =>
+    !anchor || !slotPositions.some((slot) => slot.id === review.id)
+      ? []
+      : [
+          {
+            kind: 'review',
+            state: state.kind,
+            id: review.id,
+            title: review.title,
+            agent: review.agent,
+          },
+        ],
+  );
   return {
     onAnchors,
     blocks,
-    /** `n / m closed` for the page head; absent until the frame has resolved the anchors. */
-    progress: ready && progress.total > 0 ? progress : undefined,
+    navigation,
+    ready,
+    jump: (id: string) =>
+      navigation.some((item) => item.id === id) && focusNeedsYouTarget(targets.current.get(id)),
     /** The trusted Send of answers recorded these comments: close any section they complete. */
     answered: (questionIds: readonly string[], contexts: readonly CommentContext[]) => {
       for (const review of reviews)
@@ -162,6 +172,10 @@ export function useReviewLayer({
           return (
             <div
               key={review.id}
+              ref={(node) => {
+                if (node) targets.current.set(review.id, node);
+                else targets.current.delete(review.id);
+              }}
               data-inline-review={review.id}
               data-inline-slot={review.id}
               className="proposal-inline review-inline"

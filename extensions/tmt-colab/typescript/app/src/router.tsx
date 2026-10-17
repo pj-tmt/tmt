@@ -49,6 +49,8 @@ import { useQuickSwitcher } from './quick-switcher-context.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useReviewLayer } from './review-layer.js';
 import { useReadingLayer } from './reading-layer.js';
+import { NeedsYouHeader } from './needs-you-header.js';
+import { pendingNeedsYou } from './needs-you.js';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
@@ -1557,17 +1559,14 @@ function Page() {
         )}
         status={
           <div className="page-header-meta">
-            {reviewLayer.progress && (
-              <span
-                className="chip page-reviews"
-                role="status"
-                aria-label={text.reviewProgressLabel(
-                  reviewLayer.progress.closed,
-                  reviewLayer.progress.total,
-                )}
-              >
-                {text.reviewProgress(reviewLayer.progress.closed, reviewLayer.progress.total)}
-              </span>
+            {questionLayer.ready && reviewLayer.ready && (
+              <NeedsYouHeader
+                items={pendingNeedsYou([...questionLayer.navigation, ...reviewLayer.navigation])}
+                onPick={(item) => {
+                  if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
+                  else if (item.kind === 'review') reviewLayer.jump(item.id);
+                }}
+              />
             )}
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}

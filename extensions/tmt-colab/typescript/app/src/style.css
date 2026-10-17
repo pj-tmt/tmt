@@ -114,6 +114,47 @@ footer {
 .page-header-meta {
   min-width: 0;
 }
+.needs-you-header {
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 148px;
+  align-items: center;
+  color: var(--tmt-ui-color-text);
+  white-space: nowrap;
+}
+.needs-you-header .needs-you-header-trigger {
+  padding-inline: 0;
+  gap: 4px;
+}
+.needs-you-header-empty {
+  color: var(--tmt-ui-color-secondary);
+}
+.needs-you-header-mark {
+  color: var(--tmt-ui-color-waiting);
+}
+.needs-you-header-menu {
+  inline-size: 320px;
+}
+.needs-you-header-group,
+.needs-you-header-agent {
+  color: var(--tmt-ui-color-secondary);
+}
+.needs-you-header-row {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .needs-you-header {
+    inline-size: 48px;
+    font-size: 11px;
+  }
+  .needs-you-wide {
+    display: none;
+  }
+}
 .page-sharing {
   flex-shrink: 0;
   border-width: var(--tmt-ui-rule-width);
@@ -1210,9 +1251,6 @@ footer {
   background: var(--c-sheet);
   border: 1px solid var(--c-rule);
   padding: 8px;
-}
-.page-reviews {
-  white-space: nowrap;
 }
 .proposal-card {
   border: 1px solid var(--c-rule);
