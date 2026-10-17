@@ -410,7 +410,7 @@ fn session(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
-    request: impl Fn(Option<String>, bool, bool, Option<rate::history::rollup::Request>),
+    request: impl Fn(Option<String>, bool, bool, Option<rate::history::Demand>),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     checklist: impl Fn(checklist::load::Task),
     io: impl Fn(lane::Job),
@@ -431,7 +431,7 @@ fn session(
     let mut spinner = view::spinner_frame(app, Instant::now());
     let mut last_input = Instant::now();
     let mut wanted: Option<usage_report::Since> = None;
-    let mut retained_demand = None;
+    let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
     let submit = |app: &mut App, job: lane::Job| {
         // An overlay opens once: a second request for one waits for the first.
@@ -507,18 +507,18 @@ fn session(
             usage_wants(want);
             wanted = want;
         }
-        let chart = app.retained_history_request();
-        let demand = chart.map(|request| {
+        let history = app.history_demand();
+        let demand = history.map(|request| {
             (
                 request,
                 crate::status::now_ms() / rate::history::rollup::RESOLUTION_MS,
             )
         });
-        if demand != retained_demand {
-            retained_demand = demand;
+        if demand != history_demand {
+            history_demand = demand;
             revision += 1;
             requested = None;
-            request(app.current.clone(), true, app.settings.is_some(), chart);
+            request(app.current.clone(), true, app.settings.is_some(), history);
             refreshed = Instant::now();
             dirty = true;
         }
@@ -782,7 +782,7 @@ fn session(
                         app.current.clone(),
                         false,
                         app.settings.is_some(),
-                        app.retained_history_request(),
+                        app.history_demand(),
                     );
                     refreshed = Instant::now();
                 }
@@ -818,7 +818,7 @@ fn session(
                                 app.current.clone(),
                                 true,
                                 app.settings.is_some(),
-                                app.retained_history_request(),
+                                app.history_demand(),
                             );
                             refreshed = Instant::now();
                         }
@@ -840,7 +840,7 @@ fn session(
                             app.current.clone(),
                             true,
                             app.settings.is_some(),
-                            app.retained_history_request(),
+                            app.history_demand(),
                         );
                         refreshed = Instant::now();
                     }
@@ -885,18 +885,18 @@ fn session(
             Effect::Load(squad) => {
                 revision += 1;
                 requested = None;
-                request(Some(squad), true, false, app.retained_history_request());
+                request(Some(squad), true, false, app.history_demand());
                 refreshed = Instant::now();
             }
             Effect::Refresh => {
                 revision += 1;
                 requested = None;
-                let chart = app.retained_history_request();
+                let history = app.history_demand();
                 request(
                     app.current.clone(),
-                    chart.is_some(),
+                    history.is_some(),
                     app.settings.is_some(),
-                    chart,
+                    history,
                 );
                 refreshed = Instant::now();
             }
@@ -912,12 +912,7 @@ fn session(
                     app.settings_preview();
                     revision += 1;
                     requested = None;
-                    request(
-                        app.current.clone(),
-                        true,
-                        true,
-                        app.retained_history_request(),
-                    );
+                    request(app.current.clone(), true, true, app.history_demand());
                     refreshed = Instant::now();
                 }
             }
@@ -934,12 +929,7 @@ fn session(
                     }
                     revision += 1;
                     requested = None;
-                    request(
-                        app.current.clone(),
-                        true,
-                        true,
-                        app.retained_history_request(),
-                    );
+                    request(app.current.clone(), true, true, app.history_demand());
                     refreshed = Instant::now();
                 }
             }
@@ -953,12 +943,7 @@ fn session(
                             app.set_notice(Some(notice), false);
                             revision += 1;
                             requested = None;
-                            request(
-                                app.current.clone(),
-                                true,
-                                true,
-                                app.retained_history_request(),
-                            );
+                            request(app.current.clone(), true, true, app.history_demand());
                             refreshed = Instant::now();
                         }
                     } else {
@@ -969,12 +954,7 @@ fn session(
             Effect::CancelSettings => {
                 revision += 1;
                 requested = None;
-                request(
-                    app.current.clone(),
-                    true,
-                    false,
-                    app.retained_history_request(),
-                );
+                request(app.current.clone(), true, false, app.history_demand());
                 refreshed = Instant::now();
             }
             Effect::PickTheme => {
@@ -1005,7 +985,7 @@ fn session(
                                 app.current.clone(),
                                 false,
                                 app.settings.is_some(),
-                                app.retained_history_request(),
+                                app.history_demand(),
                             );
                             refreshed = Instant::now();
                         }
@@ -1034,7 +1014,7 @@ fn session(
                 app.current.clone(),
                 false,
                 app.settings.is_some(),
-                app.retained_history_request(),
+                app.history_demand(),
             );
             refreshed = Instant::now();
         }
@@ -1334,7 +1314,7 @@ mod tests {
         app: &mut App,
         stop: &AtomicUsize,
         input: &Receiver<BoardEvent>,
-        request: impl Fn(Option<String>, bool, bool, Option<rate::history::rollup::Request>),
+        request: impl Fn(Option<String>, bool, bool, Option<rate::history::Demand>),
         selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
         checklist: impl Fn(checklist::load::Task),
         io: impl Fn(lane::Job),
@@ -2186,7 +2166,14 @@ mod tests {
             )
             .unwrap();
             assert_eq!(ended, None);
-            assert_eq!(*requests.borrow(), [Some(expected), None, Some(expected)]);
+            assert_eq!(
+                requests
+                    .borrow()
+                    .iter()
+                    .map(|d| d.and_then(|d| d.chart))
+                    .collect::<Vec<_>>(),
+                [Some(expected), None, Some(expected)]
+            );
             assert!(draws.get() >= 6);
         });
     }

@@ -235,12 +235,9 @@ impl ClockSurface {
                     .map(|chip| chip.text.as_str())
                     .collect()
             }
-            Self::OverviewUsageQuota { width } => super::super::overview::quota::usage_clock_mark(
-                app.limits.as_deref(),
-                now,
-                *width,
-                app.look(),
-            ),
+            Self::OverviewUsageQuota { width } => {
+                super::super::overview::quota::usage_clock_mark(app, now, *width)
+            }
             Self::UsageChart => super::super::overview::chart::host::clock_mark(app, now),
             Self::QuotaDetails => app
                 .quota_details

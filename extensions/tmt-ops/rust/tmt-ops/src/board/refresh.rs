@@ -283,7 +283,7 @@ impl Worker {
         squad: Option<String>,
         preempt: bool,
         preview_panes: bool,
-        chart: Option<super::rate::history::rollup::Request>,
+        demand: Option<super::rate::history::Demand>,
     ) {
         let generation = if preempt {
             self.generation.advance()
@@ -294,7 +294,7 @@ impl Worker {
             squad,
             generation,
             preview_panes,
-            chart,
+            demand,
         }));
     }
     pub fn checklist(&self, task: super::checklist::load::Task) {
@@ -339,7 +339,7 @@ struct Reload {
     preview_panes: bool,
     squad: Option<String>,
     generation: u64,
-    chart: Option<super::rate::history::rollup::Request>,
+    demand: Option<super::rate::history::Demand>,
 }
 
 struct Loaded {
@@ -370,7 +370,7 @@ struct HistoryJob {
     owner: String,
     cursor: Option<u64>,
     targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
-    chart: Option<super::rate::history::rollup::Request>,
+    demand: Option<super::rate::history::Demand>,
 }
 
 pub(crate) struct HistoryRead {
@@ -381,6 +381,7 @@ pub(crate) struct HistoryRead {
         super::rate::history::rollup::Request,
         super::rate::history::rollup::Seeds,
     )>,
+    pub(in crate::board) quota: Option<super::rate::history::rollup::Seeds>,
     pub observed: Result<BTreeMap<String, Value>, ()>,
 }
 
@@ -398,7 +399,7 @@ impl HistoryJob {
             owner: owner.to_owned(),
             cursor: None,
             targets,
-            chart: None,
+            demand: None,
         })
     }
 
@@ -419,12 +420,17 @@ impl HistoryJob {
             .collect();
         let now = crate::status::now_ms();
         let seeds = cache.load(core, ids.clone(), longest, self.cursor, now);
-        let retained = self.chart.map(|request| {
+        cache.retain_demand(self.demand);
+        let retained = self.demand.and_then(|demand| demand.chart).map(|request| {
             (
                 request,
-                cache.retained(core, ids, request, self.cursor, now),
+                cache.retained(core, ids.clone(), request, self.cursor, now),
             )
         });
+        let quota = self
+            .demand
+            .filter(|demand| demand.quota)
+            .map(|_| cache.quota(core, ids, self.cursor, now));
         // The same worker serializes history before its next Usage event. Read a
         // fresh cumulative receipt rather than replaying the pre-history input.
         let observed = core
@@ -438,6 +444,7 @@ impl HistoryJob {
             targets: self.targets,
             seeds,
             retained,
+            quota,
             observed,
         }
     }
@@ -746,7 +753,7 @@ fn serve(
         }
         if let Some(job) = history.as_mut() {
             job.cursor = seen.history_cursor();
-            job.chart = wanted.chart;
+            job.demand = wanted.demand;
         }
         // A squad that failed to load keeps the default interval.
         let automatic = snapshot
@@ -758,7 +765,7 @@ fn serve(
                 squad: snapshot.squad.clone(),
                 preview_panes: wanted.preview_panes,
                 generation: wanted.generation,
-                chart: wanted.chart,
+                demand: wanted.demand,
             },
             automatic,
             seen,
@@ -1629,7 +1636,7 @@ printf '%s\n' '{{}}'
                 squad: Some("product".into()),
                 generation: 1,
                 preview_panes: false,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         let steps = std::cell::RefCell::new(Vec::new());
@@ -2272,7 +2279,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
@@ -2286,7 +2293,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("infra".into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("infra".into())));
@@ -2304,7 +2311,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
@@ -2315,7 +2322,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         assert_eq!(loads.recv_timeout(WAIT), Ok(Some("product".into())));
@@ -2356,7 +2363,7 @@ printf '%s\n' '{{}}'
                 squad: Some("product".into()),
                 preview_panes: false,
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         loads.recv_timeout(WAIT).unwrap();
@@ -2577,7 +2584,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("old".into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         let generation = AtomicU64::new(0);
@@ -2604,7 +2611,7 @@ printf '%s\n' '{{}}'
                                 preview_panes: false,
                                 squad: Some(name.into()),
                                 generation: 1,
-                                chart: None,
+                                demand: None,
                             }))
                             .unwrap();
                     }
@@ -2631,7 +2638,7 @@ printf '%s\n' '{{}}'
                     preview_panes: false,
                     squad: Some(ALL.into()),
                     generation: 0,
-                    chart: None,
+                    demand: None,
                 }))
                 .unwrap();
             drop(sender);
@@ -2689,7 +2696,7 @@ printf '%s\n' '{{}}'
                 preview_panes: false,
                 squad: Some("product".into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             }))
             .unwrap();
         drop(sender);
@@ -2780,7 +2787,7 @@ printf '%s\n' '{{}}'
                     squad: Some(squad.into()),
                     generation,
                     preview_panes: false,
-                    chart: None,
+                    demand: None,
                 }))
                 .unwrap();
         };
@@ -2848,6 +2855,7 @@ printf '%s\n' '{{}}'
                                 seeds: seeds.clone(),
                                 observed: Ok(fresh.resumes.clone()),
                                 retained: None,
+                                quota: None,
                             },
                             Instant::now()
                         ),
@@ -2869,6 +2877,7 @@ printf '%s\n' '{{}}'
                             seeds: seeds.clone(),
                             observed: Ok(fresh.resumes.clone()),
                             retained: None,
+                            quota: None,
                         },
                         Instant::now()
                     ));
@@ -2918,7 +2927,10 @@ printf '%s\n' '{{}}'
             &executable,
             r#"#!/bin/sh
 case "$1" in
-api) cat > "${0%/*}/request"; printf '%s\n' '{"identities":[]}' ;;
+api) request=$(cat)
+     printf '%s\n' "$request" > "${0%/*}/request"
+     printf '%s\n' "$request" >> "${0%/*}/requests"
+     printf '%s\n' '{"identities":[]}' ;;
 ls) printf '%s\n' '{"identities":[]}' ;;
 *) exit 2 ;;
 esac
@@ -2941,7 +2953,7 @@ esac
                 owner: owner.into(),
                 cursor: None,
                 targets: [("product".into(), (settings, input))].into(),
-                chart: None,
+                demand: None,
             };
             let read = job.complete(&core, &mut Default::default());
             let request: Value =
@@ -2956,6 +2968,52 @@ esac
             );
             assert!(read.observed.unwrap().is_empty());
         }
+        for quota in [false, true] {
+            for chart in [
+                None,
+                super::super::rate::history::rollup::Request::new(900_000, 21_600_000),
+                super::super::rate::history::rollup::Request::new(3_600_000, 86_400_000),
+            ] {
+                std::fs::write(world.0.join("requests"), "").unwrap();
+                let settings = crate::config::TokenRate {
+                    enabled: true,
+                    ..Default::default()
+                };
+                let job = HistoryJob {
+                    owner: super::super::ALL.into(),
+                    cursor: None,
+                    targets: [(
+                        "product".into(),
+                        (settings, super::super::rate::tests::input(100)),
+                    )]
+                    .into(),
+                    demand: Some(super::super::rate::history::Demand { chart, quota }),
+                };
+                let read = job.complete(&core, &mut Default::default());
+                let calls: Vec<Value> = std::fs::read_to_string(world.0.join("requests"))
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                let mut expected = vec![(3_600_000, 120)];
+                if let Some(chart) = chart {
+                    expected.push((chart.range_ms(), chart.buckets()));
+                }
+                if quota {
+                    expected.push((14_400_000, 48));
+                }
+                assert_eq!(calls.len(), expected.len());
+                for (call, (window, buckets)) in calls.iter().zip(expected) {
+                    assert_eq!(call["operation"], "consumption.history");
+                    assert_eq!(call["input"]["windowsMs"], json!([window]));
+                    assert_eq!(call["input"]["maxBuckets"], buckets);
+                    assert_eq!(call["input"]["identityIds"], json!(["a"]));
+                }
+                assert_eq!(read.quota.is_some(), quota);
+                assert_eq!(read.retained.is_some(), chart.is_some());
+                assert!(read.observed.unwrap().is_empty());
+            }
+        }
     }
 
     #[test]
@@ -2967,7 +3025,7 @@ esac
                     squad: Some("product".into()),
                     generation: 0,
                     preview_panes: false,
-                    chart: None,
+                    demand: None,
                 }))
                 .unwrap();
             drop(sender);
@@ -2993,7 +3051,7 @@ esac
                         owner: "product".into(),
                         cursor: None,
                         targets: BTreeMap::new(),
-                        chart: None,
+                        demand: None,
                     });
                     loaded
                 },
@@ -3067,7 +3125,7 @@ esac
                 preview_panes: false,
                 squad: Some(squad.into()),
                 generation: 0,
-                chart: None,
+                demand: None,
             })
         };
         sender.send(reload(ALL)).unwrap();
@@ -3130,7 +3188,7 @@ esac
                     preview_panes: false,
                     squad: Some(if home { ALL } else { "product" }.into()),
                     generation: 0,
-                    chart: None,
+                    demand: None,
                 }))
                 .unwrap();
             let cursor = std::cell::Cell::new(0);
@@ -3195,7 +3253,7 @@ esac
                     preview_panes: false,
                     squad: Some(name.into()),
                     generation: 0,
-                    chart: None,
+                    demand: None,
                 }))
                 .unwrap();
         }
@@ -3247,7 +3305,7 @@ esac
                 squad: Some(name.into()),
                 generation: 0,
                 preview_panes: false,
-                chart: None,
+                demand: None,
             })
         };
         let mut names = ["product", "product", "infra", "product"].into_iter();

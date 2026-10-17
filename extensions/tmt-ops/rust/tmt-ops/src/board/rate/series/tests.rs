@@ -10,6 +10,7 @@ const HOUR: u64 = 3_600_000;
 fn retained_seed(request: rollup::Request, through: u64) -> rollup::Seed {
     let from = through - request.range_ms();
     rollup::Seed {
+        limits: Vec::new(),
         request,
         through,
         fine_through: through,

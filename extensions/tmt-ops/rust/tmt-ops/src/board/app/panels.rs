@@ -123,7 +123,7 @@ impl App {
         } else {
             crate::board::overview::chart::host::overview_demand(
                 self,
-                area.width.saturating_sub(1),
+                area.width.saturating_sub(2),
                 area.height,
                 crate::status::now_ms(),
             )
@@ -149,7 +149,7 @@ impl App {
         ratatui::layout::Rect::new(
             area.x.saturating_add(u16::from(area.width > 0)),
             area.y,
-            area.width.saturating_sub(1),
+            area.width.saturating_sub(2),
             height,
         )
     }

@@ -246,6 +246,7 @@ pub(super) fn retained(app: &App, selection: Selection) -> crate::board::refresh
             retained.insert(
                 id.clone(),
                 Some(rollup::Seed {
+                    limits: Vec::new(),
                     request,
                     through: NOW,
                     fine_through: NOW,
@@ -286,6 +287,110 @@ pub(super) fn retained(app: &App, selection: Selection) -> crate::board::refresh
             .collect(),
         seeds,
         retained: Some((request, retained)),
+        quota: app.quota_history_visible().then(Default::default),
         observed: Ok(observed),
     }
+}
+
+/// Real public retained bucket documents drive quota capture arithmetic.
+pub(super) fn quota(app: &mut App, scenario: &str) {
+    use crate::board::{
+        rate::history::{self, rollup},
+        refresh::HistoryRead,
+    };
+    use serde_json::json;
+    mixed(app);
+    for standing in app
+        .limits
+        .iter_mut()
+        .flatten()
+        .filter(|standing| standing.provider.id() == "claude")
+    {
+        standing.latest = None;
+        standing.burn = None;
+        standing.trend = None;
+    }
+    let mut view = app.view.take().unwrap();
+    for rate in view.home_rate.values_mut() {
+        let mut seeds = BTreeMap::new();
+        for (id, resume) in &mut rate.input.resumes {
+            if resume["consumption"].is_object() {
+                resume["consumption"]["observedAtMs"] = json!(NOW - 240_000);
+            }
+            seeds.insert(id.clone(), Some(seed(VALUES, resume.clone())));
+        }
+        rate.history = Some(seeds);
+    }
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.tabs = app.tabs.clone();
+    snapshot.view = Ok(view);
+    app.apply(snapshot);
+    let targets: BTreeMap<_, _> = app
+        .view
+        .as_ref()
+        .unwrap()
+        .home_rate
+        .iter()
+        .map(|(name, rate)| (name.clone(), (rate.settings, rate.input.clone())))
+        .collect();
+    let mut fine = BTreeMap::new();
+    let mut quota = BTreeMap::new();
+    let mut observed = BTreeMap::new();
+    let request = history::quota_request();
+    for (_, input) in targets.values() {
+        for (id, resume) in &input.resumes {
+            fine.insert(id.clone(), Some(seed(VALUES, resume.clone())));
+            let reported = resume["driver"] == "codex" && scenario != "unknown";
+            let limits = |at: u64, i: usize| {
+                let (previous, current) = match scenario {
+                    "falling" => (0.05, 0.025),
+                    "early" => (0.25, 0.5),
+                    "steady" => (0.05, 0.05),
+                    _ => (0.025, 0.05),
+                };
+                let delta = if i < 24 {
+                    24.0 * current + (23 - i) as f64 * previous
+                } else {
+                    (47 - i) as f64 * current
+                };
+                json!({"observedAtMs":at,"windows":[
+                    {"windowMinutes":300,"usedPercent":40.0-delta,"resetsAtMs":NOW+3*3_600_000},
+                    {"windowMinutes":10080,"usedPercent":70.0-delta,"resetsAtMs":NOW+5*86_400_000+3*3_600_000}]})
+            };
+            let buckets:Vec<_>=(0..48).map(|i| {
+                let from=NOW-request.range_ms()+i as u64*request.each_ms();
+                let mut bucket=json!({"fromMs":from,"toMs":from+request.each_ms(),"inputTokens":1,"outputTokens":0,"cachedInputTokens":0,"coveredMs":request.each_ms(),"complete":true,"gap":false,"discontinuous":false});
+                if reported { bucket["rateLimits"]=limits(from+60_000,i); } bucket
+            }).collect();
+            let row = json!({"found":true,"lastSampleAtMs":NOW-5_000,"latest":resume,"windows":[{
+                "windowMs":request.range_ms(),"fromMs":NOW-request.range_ms(),"toMs":NOW,"bucketMs":request.each_ms(),"resolutionMs":rollup::RESOLUTION_MS,
+                "availableFromMs":NOW-request.range_ms(),"retainedFromMs":NOW-request.range_ms(),"buckets":buckets}]});
+            let response = json!({"asOfMs":NOW+2_500,"throughMs":NOW,"retainedFromMs":NOW-7_200_000,"resolutionMs":5_000});
+            quota.insert(
+                id.clone(),
+                Some(
+                    rollup::Seed::read(&response, &row, request)
+                        .expect("valid Core-shaped quota history"),
+                ),
+            );
+            let mut current = resume.clone();
+            if reported {
+                current["consumption"]["rateLimits"] = limits(NOW - 240_000, 47);
+            } else if let Some(consumption) = current["consumption"].as_object_mut() {
+                consumption.remove("rateLimits");
+            }
+            observed.insert(id.clone(), current);
+        }
+    }
+    assert!(app.apply_history(
+        HistoryRead {
+            owner: crate::board::ALL.into(),
+            targets,
+            seeds: fine,
+            retained: None,
+            quota: Some(quota),
+            observed: Ok(observed)
+        },
+        std::time::Instant::now()
+    ));
 }

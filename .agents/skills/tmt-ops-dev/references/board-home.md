@@ -263,24 +263,37 @@ HOME display cache is not admitted as a new shell frame.
 
 `App::home_usage` and provider-limit estimates reuse the existing history owner:
 missing differs from measured zero, uncovered evidence is partial, sampling off
-has no token cells, and model metadata is best effort. Provider pace/trend remains
-a derived current-cycle observation, not a persisted field or new acquisition.
-See the meter reference for coverage, time fences and trend thresholds. Overview
-places Usage across the frame above its body panes. Its provider rows include the
-held account quota: neutral 7d/5h bars and remaining percentages; a missing short
-window uses the weekly reset countdown. Stale, reset or unreported windows show
-an em dash. The Subscriptions panel ID controls these inline quota cells, without
-a standalone block; Usage visibility controls the whole section. The quota track
-is 36 cells plus a three-cell gap, reduces to percentages below 79 available cells,
-and yields to the trend below 59. Quota hits retain the existing full Details.
-Digest retains its existing per-window account meters and width rules. Complete
-source timestamps and unknown evidence stay in Details; paint and input perform
-no acquisition.
+has no token cells, and model metadata is best effort. See the
+[meter reference](refresh-and-meter.md#token-window-meter) for evidence fences.
+Overview places Usage across the frame above its body panes. One shared 7d/5h
+choice in the quota heading selects the window for every provider. The selected
+quota, rate and forecast are neutral; only the early-runout ◆ uses attention color.
+Missing windows, stale balances or insufficient rate evidence remain explicit.
+The Subscriptions panel ID controls these inline cells; Usage controls the section.
+At 103/148 columns the quota track occupies 37/49 cells plus its three-cell gap.
+Smaller widths admit complete fields or leave full values in the existing Details.
+Digest retains its independent held account meters and width rules.
+
+Overview quota pace uses the last two hours, independent of token Each/Range.
+Rate is the change in used percentage divided by actual source elapsed hours;
+trend compares it with the preceding two hours. Reset crossings, changed windows
+and percentage drops restart the admitted suffix. Fewer than two observations or
+less than 30 minutes of spacing means unknown; an unknown prior rate has no arrow.
+The worker acquires all 48 closed five-minute observations over four hours through
+the existing retained reader. Account observations repeat across seats and are
+never summed. Only history linked to the verified driver watermark is attributed.
+Positive pace projects depletion from the latest source observation; ◆ appears
+only when that time precedes reset. Zero or unknown pace invents no depletion.
+Footer-only balances remain usable without claiming this API-backed pace. Details
+uses the same projection and gives source timestamps and complete reset/depletion
+values. Paint and input perform no acquisition.
 
 `board::overview::chart::host` owns one session Each/Range selection for Overview
 and Digest. `u` resolves through effective bindings in their list scopes; Agents,
 Reader, search and composers retain their own input. Arrows draft a choice, Enter
-applies or inspects, Tab selects Each/Range/buckets and Esc returns to the list.
+applies or inspects, Tab selects Each/Range/quota/buckets in Overview (without quota
+in Digest), and Esc returns to the list. The quota choice is retained per view layer;
+changing it does not change token controls or acquire source data.
 Ranges are 1h, 6h, 24h, 7d and 30d. Each choices follow the range: 5/15/30/60m,
 15/30/60m, 1/2h, 6/12h or 1d, and 1/2d respectively. A range change keeps a valid
 interval or selects its first visible choice; invalid direct pairs preserve both
@@ -322,8 +335,8 @@ chips and `·` between groups. Selected and hover states use the
 are omitted. Each provider has one neutral-grey spark row, then its observed
 total and share. The fixed tracks are name (8), a one-cell gap, spark, two spaces,
 total (7, right-aligned), two spaces and share (8, right-aligned, muted). The unknown
-row is muted. There is no y-axis or vertical plot. The row below the heading labels TOK, % of all and the two quota percentage
-tracks (left) in the muted role. Start/midpoint/now ticks occupy only the drawn
+row is muted. There is no y-axis or vertical plot. The row below the heading labels
+TOK and % of all, followed by the shared quota selector in the muted role. Start/midpoint/now ticks occupy only the drawn
 spark width. Received hover or keyboard bucket selection temporarily replaces the
 axis row with the same exact-evidence text used by Details; the idle layout keeps
 its axis and gains no extra row. Each exact bucket repeats one eighth-height glyph over

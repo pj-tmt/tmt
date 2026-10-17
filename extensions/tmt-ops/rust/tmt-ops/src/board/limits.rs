@@ -9,6 +9,8 @@
 mod estimate;
 mod footer;
 mod listing;
+pub(in crate::board) mod observation;
+pub(in crate::board) mod pace;
 mod store;
 
 pub use estimate::{Figures, Left, Outlook, Trend, outlook};
@@ -23,6 +25,37 @@ use store::Store;
 /// Core's listing reports it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Provider(String);
+
+/// One shared quota choice, independent of the token chart's aggregation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::board) enum QuotaWindow {
+    #[default]
+    Weekly,
+    Short,
+}
+
+impl QuotaWindow {
+    pub const ALL: [Self; 2] = [Self::Weekly, Self::Short];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Weekly => "7d",
+            Self::Short => "5h",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|window| window.key() == value)
+    }
+
+    /// Match the same provider window lengths used by the held limits source.
+    pub fn accepts(self, minutes: u64) -> bool {
+        match self {
+            Self::Weekly => (6 * 24 * 60..=8 * 24 * 60).contains(&minutes),
+            Self::Short => (4 * 60..=6 * 60).contains(&minutes),
+        }
+    }
+}
 
 impl Provider {
     /// The driver ID from a listing row, if it is a plain identifier. The ID

@@ -44,7 +44,7 @@ fn template() -> &'static surface::Template<()> {
         surface::compile(FILE, &parsed, &schema, &Data).expect("embedded quota details schema")
     })
 }
-fn lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) -> Vec<String> {
+fn held_lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) -> Vec<String> {
     let Some(standings) = standings else {
         return vec![if sampling_enabled {
             super::PENDING.into()
@@ -93,6 +93,79 @@ fn lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) -> Ve
     }
     lines
 }
+fn lines(app: &App, now: u64) -> Vec<String> {
+    if app.shell.tab != crate::board::shell::OpsTab::Overview {
+        return held_lines(
+            app.limits.as_deref(),
+            now,
+            crate::board::home::limits_enabled(app),
+        );
+    }
+    let Some(standings) = app.limits.as_deref().filter(|rows| !rows.is_empty()) else {
+        return held_lines(
+            app.limits.as_deref(),
+            now,
+            crate::board::home::limits_enabled(app),
+        );
+    };
+    let mut lines = vec!["Quota pace: last 2h; trend compared with the preceding 2h. Source timestamps determine elapsed time.".into()];
+    for standing in standings {
+        lines.push(standing.provider.label());
+        if let Some(latest) = standing.latest {
+            lines.push(format!(
+                "Held source observed: {} ms · {} ago",
+                latest.observed_at_ms,
+                super::age(now.saturating_sub(latest.observed_at_ms))
+            ));
+        }
+        for kind in crate::board::limits::QuotaWindow::ALL {
+            let value =
+                crate::board::overview::quota::projection(app, standing.provider.id(), kind, now);
+            let Some(balance) = value.balance else {
+                lines.push(format!(
+                    "{}: quota unavailable or stale; no balance or rate inferred",
+                    kind.key()
+                ));
+                continue;
+            };
+            lines.push(format!(
+                "{}: {} remaining · reset {} ({} ms)",
+                kind.key(),
+                super::percent(balance.left),
+                super::reset(balance.resets_at_ms.saturating_sub(now)),
+                balance.resets_at_ms
+            ));
+            if let Some(point) = value.pace.latest {
+                lines.push(format!(
+                    "Observed: {} ms · {} ago",
+                    point.observed_at_ms,
+                    super::age(now.saturating_sub(point.observed_at_ms))
+                ));
+            }
+            lines.push(
+                value
+                    .pace
+                    .per_hour
+                    .map_or("2h pace: unknown".into(), |rate| {
+                        format!("2h pace: {rate:.3}%/h")
+                    }),
+            );
+            if let Some(exhausted) = value.pace.exhausts_at_ms {
+                lines.push(format!(
+                    "Projected depletion: {exhausted} ms · {}",
+                    value
+                        .pace
+                        .early_ms()
+                        .map_or("on pace through reset".into(), |ms| format!(
+                            "{} before reset ({ms} ms)",
+                            super::reset(ms)
+                        ))
+                ));
+            }
+        }
+    }
+    lines
+}
 #[derive(Default)]
 pub(in crate::board) struct Details {
     pub(in crate::board) scroll: ScrollState,
@@ -114,20 +187,16 @@ impl Details {
         if area.height == 0 {
             return String::new();
         }
-        lines(
-            app.limits.as_deref(),
-            now,
-            crate::board::home::limits_enabled(app),
-        )
-        .into_iter()
-        .flat_map(|line| crate::board::notes::wrap(&line, usize::from(area.width)))
-        .skip(self.scroll.offset())
-        .take(usize::from(area.height))
-        .collect::<Vec<_>>()
-        .join("\n")
+        lines(app, now)
+            .into_iter()
+            .flat_map(|line| crate::board::notes::wrap(&line, usize::from(area.width)))
+            .skip(self.scroll.offset())
+            .take(usize::from(area.height))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
     pub fn render(&mut self, frame: &mut Frame, app: &App, body: Rect) {
-        let value = json!({"lines": lines(app.limits.as_deref(), crate::status::now_ms(), crate::board::home::limits_enabled(app)).into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(), "footer":"↑↓ scroll · PgUp/PgDn page · Esc close"});
+        let value = json!({"lines": lines(app, crate::status::now_ms()).into_iter().map(|text| json!({"text":text})).collect::<Vec<_>>(), "footer":"↑↓ scroll · PgUp/PgDn page · Esc close"});
         if self.scene.as_ref().is_none_or(|(old, _)| old != &value) {
             self.scene = Some((
                 value.clone(),

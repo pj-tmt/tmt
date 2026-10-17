@@ -315,14 +315,14 @@ change keeps a valid Each choice or selects the first shown interval. Long range
 use retained five-minute Core observations; history before collection is unknown,
 and gaps are never filled with zero. Configured short token-meter windows stay
 independent.
-Muted TOK, % of all and left headings label the numeric tracks. The share track
+Muted TOK and % of all headings label the numeric tracks; quota has shared 7d/5h chips. The share track
 is eight cells wide. Interval/window chips have padded labels with one-cell gaps.
 Each acquired driver has a neutral-grey trend row, observed total and share;
 unknown provenance has its own muted row. Shares include unknown tokens in the
 denominator. Trends start immediately after the names; unused cells follow the
 last exact bucket and time labels follow the drawn width. Narrowing shrinks the trend width; it never creates finer buckets or
-longer history. Provider quota occupies the same row, with neutral 7d/5h remaining
-bars and percentages. The Subscription quota toggle controls these inline cells;
+longer history. Provider quota occupies the same row; its header chips select
+one remaining-balance window for all providers. That choice is saved per view layer. The Subscription quota toggle controls these inline cells;
 there is no separate Subscriptions block. Usage has a fixed header position. With no observed token bucket, provider names and available quota remain beside one muted empty-state line and em-dash totals; no axis or invented unknown row appears. A measured zero stays zero.
 Overview's default `c` uses `all-timers` and opens all-room Timers, matching the
 narrow preview. An authored `timers` binding keeps the selected-scope behavior;
@@ -1171,21 +1171,26 @@ bridging uncovered intervals.
 Changing the observation policy starts fresh observations; core history seeds again
 on the next admitted source entry.
 
-While the usage meter is on, Overview shows provider account quotas on the same
-Usage row when panel height permits. Bars show 7d and 5h remaining percentages in
-neutral grey; a provider without a short window shows its weekly reset countdown.
-Unreported, stale or reset readings show `—`. At less than 79 available cells,
-only percentages fit; below 59 the inline quota yields to the trend and remains
-available in Quota Details. Quota Details retain complete readings, resets,
-measured pace and depletion forecasts. Digest keeps its existing account meters:
-fill follows remaining percent and depletion warnings remain independent of fill.
-No positive measured burn means no forecast. With enough history, ↗/→/↘ compare
-recent 1–2-hour pace with the displayed six-hour baseline; the whole-percent
-precision floor suppresses single-step changes.
-Numbers use provider session reports or its captured statusline footer through
-Core `check --capture-only`; reads send nothing. A sample older than 2 hours says
-`no reading for 3h` (or `no reading yet`), never an old percentage. The board
-samples only while open.
+While the usage meter is on, Overview shows the selected provider quota on each
+Usage row. Click 7d/5h in its heading, or use the existing `u` controls (arrows,
+Enter and Tab fields); changing quota never changes the token chart or rereads
+Core. Bars and percentages are neutral. The rate uses the last 2h of observed
+quota changes, divided by actual source elapsed time; its arrow compares with
+the preceding 2h. Token Each/Range controls do not affect either horizon. A reset
+or percentage drop starts a new suffix. Fewer than two observations or less than
+30 minutes of spacing means `—`; an unknown prior rate shows no arrow.
+Only a positive known rate projects depletion. ◆ marks a projected runout before
+reset; otherwise a known projection says `on pace`. Only ◆ is colored. Missing,
+stale or reset windows remain unknown, and small widths omit whole fields rather
+than clipping numbers. Quota Details retain full source, reset and projection
+values. A footer-only balance does not claim an API-backed two-hour rate.
+
+Digest keeps its existing account meters: fill follows remaining percent and
+warnings remain independent of fill. Its held weekly pace compares recent use
+with the six-hour baseline; a short window never borrows weekly pace. Numbers use
+provider session reports or captured statusline footers through Core
+`check --capture-only`; reads send nothing. A sample older than 2h is unavailable,
+never an old percentage. The board samples only while open.
 
 Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
 window switches show the exact value immediately. Eight bucket-aligned bars show

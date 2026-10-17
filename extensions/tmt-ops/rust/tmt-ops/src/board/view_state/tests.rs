@@ -728,3 +728,82 @@ fn explicit_overview_choice_survives_the_new_agents_factory_default() {
         assert_eq!(Controls::decode(&old).unwrap().overview_view, View::Agents);
     }
 }
+
+#[test]
+fn quota_window_is_layer_local_survives_exec_and_resets_with_only_its_layer() {
+    use crate::board::limits::QuotaWindow;
+    let scratch = Scratch::new();
+    let left = Layer::parse("quota-short").unwrap().path(&scratch.0);
+    let right = Layer::parse("quota-weekly").unwrap().path(&scratch.0);
+    let now = Instant::now();
+    let mut first = board();
+    let token_request = first.retained_history_request();
+    first
+        .usage_chart
+        .borrow_mut()
+        .restore_quota_window(QuotaWindow::Short);
+    assert_eq!(first.retained_history_request(), token_request);
+    Session::load(left.clone(), false, false).flush(&mut first, now);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(&left).unwrap()).unwrap()["controls"]["quotaWindow"],
+        "5h"
+    );
+    first
+        .usage_chart
+        .borrow_mut()
+        .restore_quota_window(QuotaWindow::Weekly);
+    Session::load(right.clone(), false, false).flush(&mut first, now);
+    let right_bytes = fs::read(&right).unwrap();
+
+    let mut next = cold();
+    assert!(
+        Session::load(left.clone(), false, false)
+            .tick(&mut next, now)
+            .0
+    );
+    assert_eq!(next.usage_chart.borrow().quota_window(), QuotaWindow::Short);
+    assert_eq!(fs::read(&right).unwrap(), right_bytes);
+    let directory = scratch.0.join("reload");
+    next.resume().unwrap().write(&directory, 17, 1_000).unwrap();
+    let resume = crate::board::resume::Resume::take(&directory, 17, 1_000).unwrap();
+    let mut exec = board();
+    exec.carry(resume);
+    let fresh = exec.view.take().unwrap();
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.view = Ok(fresh);
+    exec.apply(snapshot);
+    assert_eq!(exec.usage_chart.borrow().quota_window(), QuotaWindow::Short);
+
+    Session::open(left.clone(), false, false, true).unwrap();
+    assert!(!left.exists());
+    let mut reset = cold();
+    assert!(!Session::load(left, false, false).tick(&mut reset, now).0);
+    assert_eq!(
+        reset.usage_chart.borrow().quota_window(),
+        QuotaWindow::Weekly
+    );
+    assert_eq!(fs::read(&right).unwrap(), right_bytes);
+}
+
+#[test]
+fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
+    use crate::board::limits::QuotaWindow;
+    let mut app = board();
+    app.search = "worker".into();
+    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.usage_chart
+        .borrow_mut()
+        .restore_quota_window(QuotaWindow::Short);
+    let controls = Controls::capture(&app);
+    assert_eq!(Controls::decode(&controls.json()), Some(controls.clone()));
+    let mut expected = controls.clone();
+    expected.quota_window = QuotaWindow::Weekly;
+    let mut old = controls.json();
+    old.as_object_mut().unwrap().remove("quotaWindow");
+    assert_eq!(Controls::decode(&old), Some(expected.clone()));
+    for unknown in [Value::Null, json!(7), json!("future-window"), json!({})] {
+        let mut value = controls.json();
+        value["quotaWindow"] = unknown;
+        assert_eq!(Controls::decode(&value), Some(expected.clone()));
+    }
+}

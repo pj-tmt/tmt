@@ -37,7 +37,7 @@ fn fits_chart(app: &App, data: &Series, selection: Selection, width: u16) -> boo
 fn chart_rows(app: &App, data: &Series, selection: Selection) -> u16 {
     1 + Scene::rows_for(&project::spark_rows(&display(app, data, selection)))
 }
-fn quotas_visible(app: &App) -> bool {
+pub(super) fn quotas_visible(app: &App) -> bool {
     crate::board::home::limits_enabled(app)
         && app
             .overview_panels()
@@ -129,7 +129,7 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
         && !app.usage_controls
         && area.height >= chart_rows(app, &data, state.selection)
     {
-        if !positive {
+        if !positive && state.focus == Some(Focus::Bars) {
             state.release_focus();
         }
         paint_chart(frame, app, &mut state, area, look, now);
@@ -148,6 +148,14 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
             false,
         );
     }
+    if state.focus == Some(Focus::Quota)
+        && !state
+            .hits
+            .iter()
+            .any(|hit| matches!(hit.target, Target::Quota(_)))
+    {
+        state.release_focus();
+    }
     if !app.modal_open() {
         app.frame_clocks
             .borrow_mut()
@@ -156,14 +164,21 @@ pub(in crate::board) fn render_panel(frame: &mut Frame, app: &App, area: Rect, n
 }
 pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect) {
     let look = app.look();
+    let quota_controls = app.quota_history_visible();
     let modal = Modal {
-        title: "Usage · Each / Range".into(),
+        title: if quota_controls {
+            "Usage · Each / Range / quota"
+        } else {
+            "Usage · Each / Range"
+        }
+        .into(),
         placement: Placement::Body,
     };
     let mut areas = modal.areas(body, [body.width, body.height], true, false);
     // This modal has no position indicator. At short heights its reserved row
     // belongs to the controls before the optional keyboard reminder.
-    let control_rows = controls::height(areas.content.width, app.usage_chart.borrow().selection);
+    let control_rows = controls::height(areas.content.width, app.usage_chart.borrow().selection)
+        + u16::from(quota_controls);
     if areas.content.height < control_rows {
         areas.content.height += areas.position.height;
         areas.position.height = 0;
@@ -178,7 +193,8 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
     state.visible = false;
     let now = crate::status::now_ms();
     refresh(app, &mut state, now);
-    let control_rows = controls::height(areas.content.width, state.selection);
+    let control_rows =
+        controls::height(areas.content.width, state.selection) + u16::from(quota_controls);
     if areas.content.height >= control_rows {
         state.visible = true;
         if state.focus.is_none() {
@@ -204,7 +220,7 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
             state.hits = controls::paint(
                 frame.buffer_mut(),
                 Rect {
-                    height: control_rows,
+                    height: control_rows - u16::from(quota_controls),
                     ..areas.content
                 },
                 state.selection,
@@ -212,10 +228,34 @@ pub(in crate::board) fn render_controls(frame: &mut Frame, app: &App, body: Rect
                 state.draft,
                 app,
             );
+            if quota_controls {
+                let hits = controls::quota(
+                    frame.buffer_mut(),
+                    Rect::new(
+                        areas.content.x,
+                        areas.content.y + control_rows - 1,
+                        areas.content.width,
+                        1,
+                    ),
+                    state.quota_window,
+                    state.focus,
+                    state.draft,
+                    app,
+                );
+                state.hits.extend(hits);
+            }
             if state.focus == Some(Focus::Bars) {
                 state.set_focus(Focus::Each);
             }
         }
+    }
+    if state.focus == Some(Focus::Quota)
+        && !state
+            .hits
+            .iter()
+            .any(|hit| matches!(hit.target, Target::Quota(_)))
+    {
+        state.set_focus(Focus::Each);
     }
     strip::paint_left(
         frame.buffer_mut(),
@@ -276,8 +316,7 @@ fn paint_chart(
         .map(|driver| {
             (quota_width > 0).then(|| {
                 crate::board::overview::quota::usage_row(
-                    app.limits.as_deref(),
-                    driver,
+                    crate::board::overview::quota::projection(app, driver, state.quota_window, now),
                     now,
                     quota_width,
                     look,
@@ -306,6 +345,29 @@ fn paint_chart(
             inspection.as_deref(),
         )
         .expect("admitted provider rows");
+    if quota_width > 0
+        && let Some(heading) = hits.iter().find(|hit| {
+            hit.id
+                .and_then(|path| path.last())
+                .is_some_and(|id| id == "heading-quota")
+        })
+    {
+        let rect = Rect::new(
+            heading.rect.x as u16 + 3,
+            heading.rect.y as u16,
+            quota_width,
+            1,
+        )
+        .intersection(plot);
+        state.hits.extend(controls::quota(
+            &mut buffer,
+            rect,
+            state.quota_window,
+            active,
+            state.draft,
+            app,
+        ));
+    }
     for hit in &hits {
         if hit
             .id

@@ -1323,7 +1323,9 @@ impl App {
         read: super::refresh::HistoryRead,
         now: Instant,
     ) -> bool {
-        if read.retained.as_ref().map(|(request, _)| *request) != self.retained_history_request() {
+        if read.retained.as_ref().map(|(request, _)| *request) != self.retained_history_request()
+            || read.quota.is_some() != self.quota_history_visible()
+        {
             return false;
         }
         self.overview_rows.borrow_mut().clear();
@@ -1366,6 +1368,7 @@ impl App {
             if let Some((_, seeds)) = &read.retained {
                 meter.seed_retained(&current.input, seeds, now);
             }
+            meter.seed_quota(&current.input, read.quota.as_ref(), now);
             let observed = read
                 .observed
                 .as_ref()
@@ -5435,6 +5438,7 @@ mod token_window_tests {
                 seeds: BTreeMap::new(),
                 observed: Err(()),
                 retained: None,
+                quota: app.quota_history_visible().then(Default::default),
             };
             assert_eq!(
                 app.apply_history(read, now),

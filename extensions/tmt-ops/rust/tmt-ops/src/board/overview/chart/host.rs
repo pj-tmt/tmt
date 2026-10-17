@@ -1,5 +1,5 @@
 //! One session chart controller shared by Overview and Digest. Source rings and
-//! frame diffs remain with their existing owners; this cache holds only 12 totals.
+//! frame diffs remain with their existing owners; this cache holds bounded totals.
 use super::{detail::Details, model::Selection, project};
 use crate::board::spark_row::Scene;
 use crate::{
@@ -27,12 +27,14 @@ pub(in crate::board) mod tests;
 enum Focus {
     Each,
     Range,
+    Quota,
     Bars,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Target {
     Each(u32),
     Range(u32),
+    Quota(crate::board::limits::QuotaWindow),
     Bar(usize),
     Controls,
 }
@@ -45,6 +47,7 @@ pub(super) struct Hit {
 #[derive(Default)]
 pub(in crate::board) struct State {
     selection: Selection,
+    quota_window: crate::board::limits::QuotaWindow,
     focus: Option<Focus>,
     draft: usize,
     bar: usize,
@@ -56,6 +59,18 @@ pub(in crate::board) struct State {
     scene: Option<(crate::board::spark_row::Data, u16, Scene)>,
 }
 impl State {
+    pub(in crate::board) fn quota_window(&self) -> crate::board::limits::QuotaWindow {
+        self.quota_window
+    }
+
+    pub(in crate::board) fn restore_quota_window(
+        &mut self,
+        window: crate::board::limits::QuotaWindow,
+    ) {
+        self.quota_window = window;
+        self.invalidate_geometry();
+    }
+
     pub(in crate::board) fn retained_request(
         &self,
     ) -> Option<crate::board::rate::history::rollup::Request> {
@@ -91,12 +106,25 @@ impl State {
                 .iter()
                 .position(|v| *v == self.selection.range_minutes)
                 .unwrap(),
+            Focus::Quota => crate::board::limits::QuotaWindow::ALL
+                .iter()
+                .position(|v| *v == self.quota_window)
+                .unwrap(),
             Focus::Bars => self.bar,
         };
     }
     fn apply(&mut self, target: Target) -> Result<(), &'static str> {
         let mut next = self.selection;
         match target {
+            Target::Quota(window) => {
+                self.quota_window = window;
+                self.hits.clear();
+                self.hover = None;
+                if self.focus == Some(Focus::Quota) {
+                    self.set_focus(Focus::Quota);
+                }
+                return Ok(());
+            }
             Target::Each(v) => next.each_minutes = v,
             Target::Range(v) => next = next.with_range(v)?,
             Target::Bar(_) | Target::Controls => return Ok(()),
@@ -125,6 +153,17 @@ impl App {
         } else {
             self.usage_chart.borrow().retained_request()
         }
+    }
+    pub(in crate::board) fn quota_history_visible(&self) -> bool {
+        self.shell.tab == OpsTab::Overview
+            && self.workspace_snapshot().is_some()
+            && !self.usage_panel_hidden()
+            && render::quotas_visible(self)
+    }
+    pub(in crate::board) fn history_demand(&self) -> Option<crate::board::rate::history::Demand> {
+        let chart = self.retained_history_request();
+        let quota = self.quota_history_visible();
+        (chart.is_some() || quota).then_some(crate::board::rate::history::Demand { chart, quota })
     }
     pub(in crate::board) fn usage_chart_available(&self) -> bool {
         self.workspace_snapshot().is_some()
@@ -209,12 +248,19 @@ pub(in crate::board) fn focus(app: &mut App) -> Effect {
     if app.in_flight > 0 {
         return app.say("Wait for the pending action before opening usage controls.");
     }
-    if !app
-        .usage_chart
-        .borrow()
-        .hits
-        .iter()
-        .any(|hit| matches!(hit.target, Target::Each(_) | Target::Range(_)))
+    if (app.quota_history_visible()
+        && !app
+            .usage_chart
+            .borrow()
+            .hits
+            .iter()
+            .any(|hit| matches!(hit.target, Target::Quota(_))))
+        || !app
+            .usage_chart
+            .borrow()
+            .hits
+            .iter()
+            .any(|hit| matches!(hit.target, Target::Each(_) | Target::Range(_)))
     {
         app.usage_controls = true;
         app.invalidate_frame_geometry();
@@ -239,6 +285,18 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
         app.usage_chart.borrow_mut().focus = None;
         return None;
     }
+    if !app.usage_controls
+        && crate::board::app::event_name(key)
+            .as_deref()
+            .is_some_and(|event| {
+                app.workspace_binding_sources()
+                    .and_then(|sources| sources.get(event))
+                    .is_some_and(|source| source != "workspace default")
+            })
+    {
+        app.usage_chart.borrow_mut().release_focus();
+        return None;
+    }
     let focus = app.usage_chart.borrow().focus?;
     if !app.usage_chart.borrow().visible {
         app.usage_chart.borrow_mut().focus = None;
@@ -252,15 +310,27 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
     let count = match focus {
         Focus::Each => Selection::each_choices(state.selection.range_minutes).len(),
         Focus::Range => Selection::RANGE.len(),
+        Focus::Quota => crate::board::limits::QuotaWindow::ALL.len(),
         Focus::Bars => state.selection.bars().unwrap(),
     };
     match key.code {
         KeyCode::Esc => state.focus = None,
-        KeyCode::Tab => state.set_focus(match focus {
-            Focus::Each => Focus::Range,
-            Focus::Range => Focus::Bars,
-            Focus::Bars => Focus::Each,
-        }),
+        KeyCode::Tab => {
+            let next = match focus {
+                Focus::Each => Focus::Range,
+                Focus::Range
+                    if state
+                        .hits
+                        .iter()
+                        .any(|hit| matches!(hit.target, Target::Quota(_))) =>
+                {
+                    Focus::Quota
+                }
+                Focus::Range | Focus::Quota => Focus::Bars,
+                Focus::Bars => Focus::Each,
+            };
+            state.set_focus(next);
+        }
         KeyCode::Left | KeyCode::Up => {
             state.draft = state.draft.saturating_sub(1);
             if focus == Focus::Bars {
@@ -279,6 +349,7 @@ pub(in crate::board) fn key(app: &mut App, key: KeyEvent) -> Option<Effect> {
                     Selection::each_choices(state.selection.range_minutes)[state.draft],
                 ),
                 Focus::Range => Target::Range(Selection::RANGE[state.draft]),
+                Focus::Quota => Target::Quota(crate::board::limits::QuotaWindow::ALL[state.draft]),
                 Focus::Bars => Target::Bar(state.bar),
             };
             if let Target::Bar(index) = target {

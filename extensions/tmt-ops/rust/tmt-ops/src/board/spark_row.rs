@@ -35,8 +35,9 @@ use tmt_tui::{
 const NUMERIC_TRACK_WIDTH: usize = 11;
 const MIN_SHARE_WIDTH: usize = 8;
 const QUOTA_GAP_WIDTH: usize = 3;
-const BOTH_QUOTAS_WIDTH: u16 = 36;
-const COMPACT_QUOTA_WIDTH: u16 = 16;
+const WIDE_QUOTA_WIDTH: u16 = 49;
+const QUOTA_WIDTH: u16 = 37;
+const COMPACT_QUOTA_WIDTH: u16 = 15;
 
 const FILE: &str = "ops.board.spark-row.xml";
 const MARKUP: &str = r#"<tmt-view version="1" class="w-full">
@@ -117,8 +118,12 @@ pub(in crate::board) fn minimum_width(data: &Data) -> usize {
 }
 pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
     let needed = minimum_width(data);
-    if usize::from(width) >= needed + usize::from(BOTH_QUOTAS_WIDTH) + QUOTA_GAP_WIDTH {
-        BOTH_QUOTAS_WIDTH
+    if width >= 126
+        && usize::from(width) >= needed + usize::from(WIDE_QUOTA_WIDTH) + QUOTA_GAP_WIDTH
+    {
+        WIDE_QUOTA_WIDTH
+    } else if usize::from(width) >= needed + usize::from(QUOTA_WIDTH) + QUOTA_GAP_WIDTH {
+        QUOTA_WIDTH
     } else if usize::from(width) >= needed + usize::from(COMPACT_QUOTA_WIDTH) + QUOTA_GAP_WIDTH {
         COMPACT_QUOTA_WIDTH
     } else {
@@ -160,7 +165,7 @@ impl Scene {
             json!({"id":"heading-share","text":format!("  {:>share_width$}",data.share_caption)}),
         ];
         if quota_width > 0 {
-            heading.push(json!({"id":"heading-quota","text":if quota_width>=BOTH_QUOTAS_WIDTH {format!("   {}left{}left"," ".repeat(13)," ".repeat(15))}else{" ".repeat(usize::from(quota_width)+QUOTA_GAP_WIDTH)}}));
+            heading.push(json!({"id":"heading-quota","text":" ".repeat(usize::from(quota_width)+QUOTA_GAP_WIDTH)}));
         }
         let mut rows = vec![json!({"id":"headings","pieces":heading})];
         let fallback = Row {
@@ -472,8 +477,8 @@ mod tests {
                 &Theme::default(),
                 Depth::TrueColor,
                 &[
-                    Some(Line::raw("7d ████████░░ 82%  5h ██████████ 98%")),
-                    Some(Line::raw("7d █████████░ 88%  resets 6d16h")),
+                    Some(Line::raw("████████░░ 82%  —")),
+                    Some(Line::raw("█████████░ 88%  —")),
                 ],
                 None,
             )
@@ -494,7 +499,7 @@ mod tests {
             assert_eq!(
                 line(&buffer, y)
                     .chars()
-                    .skip(46)
+                    .skip(45)
                     .take(7)
                     .collect::<String>(),
                 format!("{:>7}", "—")
