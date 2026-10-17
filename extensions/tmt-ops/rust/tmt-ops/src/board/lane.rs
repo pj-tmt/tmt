@@ -15,7 +15,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Opening {
     Settings,
-    HostAction(super::settings::host_action::Selection),
+    HostAction(Box<super::settings::host_action::Selection>),
     /// The theme picker, for this squad tab (none on the aggregate tabs).
     ThemePicker(Option<String>),
 }

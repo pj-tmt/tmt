@@ -71,7 +71,11 @@ fn only_host_action_opening_reads_public_caller_context_and_keeps_null_unavailab
         }
     }
     assert_eq!(f.whoami_count(), 0);
-    match run(&f.core, None, Job::Open(Opening::HostAction(selection()))) {
+    match run(
+        &f.core,
+        None,
+        Job::Open(Opening::HostAction(Box::new(selection()))),
+    ) {
         BoardEvent::Opened {
             config,
             board_pane,
@@ -79,13 +83,17 @@ fn only_host_action_opening_reads_public_caller_context_and_keeps_null_unavailab
         } => {
             assert!(config.is_ok());
             assert_eq!(board_pane.as_deref(), Some("%9"));
-            assert_eq!(held, selection());
+            assert_eq!(*held, selection());
         }
         _ => panic!("expected host action opening"),
     }
     assert_eq!(f.whoami_count(), 1);
     std::fs::write(f.root.join("caller"), r#"{"bound":false}"#).unwrap();
-    match run(&f.core, None, Job::Open(Opening::HostAction(selection()))) {
+    match run(
+        &f.core,
+        None,
+        Job::Open(Opening::HostAction(Box::new(selection()))),
+    ) {
         BoardEvent::Opened {
             config, board_pane, ..
         } => {
