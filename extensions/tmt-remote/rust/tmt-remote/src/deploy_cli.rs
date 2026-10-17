@@ -304,3 +304,24 @@ fn execute_prepared<P: FirestoreCommandPort>(
     )
     .map_err(|error| DeployCliError::Command(error, record_path.to_path_buf()))
 }
+
+/// Preserve typed pre-effect refusals from either preparation or the pure runner.
+pub fn command_error(
+    error: deploy_command::DeployCommandError,
+    path: &std::path::Path,
+) -> crate::error::RemoteError {
+    use deploy_command::DeployCommandError;
+    match error {
+        DeployCommandError::Record(error) => error,
+        DeployCommandError::Refused(reason)
+        | DeployCommandError::Run(crate::deploy_run::DeployError::Refused(reason)) => {
+            crate::error::RemoteError::new(
+                reason.code(),
+                &deploy_command::supersession_message(reason, path),
+            )
+        }
+        DeployCommandError::Run(crate::deploy_run::DeployError::Interrupted) => {
+            crate::error::RemoteError::new("REMOTE_DEPLOY_UNAVAILABLE", &uncertain_message(path))
+        }
+    }
+}

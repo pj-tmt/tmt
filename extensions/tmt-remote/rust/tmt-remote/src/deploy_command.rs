@@ -90,6 +90,12 @@ pub fn execute_with_hosting(
     .map_err(DeployCommandError::Refused)?;
     let plan =
         deploy_run::retain_hosting_plan(plan, &record).map_err(DeployCommandError::Refused)?;
+    let superseded = deploy_run::superseded_run(&plan, &record).map(|run| {
+        (
+            run.plan_digest.clone(),
+            deploy_run::supersession_refusal(&plan, &record),
+        )
+    });
     let record = match options.authorize {
         None => {
             store.persist(&record)?;
@@ -232,6 +238,17 @@ pub fn execute_with_hosting(
         )
         .expect("String write");
     }
+    if let Some((digest, refusal)) = superseded {
+        let next = refusal.map(|reason| supersession_message(reason, &store.record_path()));
+        json["supersededRun"] = json!({"planDigest":digest,"safe":refusal.is_none(),"reason":refusal.map(|r| r.code()),"next":next});
+        human.push_str("An unfinished run from an older plan exists. ");
+        if let Some(next) = next {
+            human.push_str(&next);
+        } else {
+            human.push_str("Authorizing this plan supersedes it and keeps its recorded outcomes.");
+        }
+        human.push_str(" Nothing has been undone.\n");
+    }
     if authorized {
         describe_record(&mut human, &record, &store.record_path());
     } else {
@@ -242,6 +259,20 @@ pub fn execute_with_hosting(
         json["remoteLink"] = Value::String(link);
     }
     Ok(DeployCommandOutput { json, human })
+}
+/// One recovery instruction for both an unknown creation and a refused replacement.
+pub fn unconfirmed_creation_message(path: &std::path::Path) -> String {
+    format!(
+        "Firebase did not confirm the original creation; tmt will not repeat it. Rerun the same command to observe its result. If it is still unconfirmed, inspect its cause and the Firebase state. Keep {} so the original creation can be identified; do not delete it to bypass this check.",
+        path.display()
+    )
+}
+pub fn supersession_message(reason: DeployRefusal, path: &std::path::Path) -> String {
+    match reason {
+        DeployRefusal::PreviousCreateUnconfirmed => unconfirmed_creation_message(path),
+        DeployRefusal::PreviousVersionStaged => "An earlier run has a staged Hosting version. Keep the saved record and restore the earlier extension build to finish that plan. An unfinalized version at least 12 hours old can instead be left unreleased by authorizing the displayed abandonment plan.".into(),
+        _ => "The plan or its authorization was refused. Nothing changed in your Firebase project. Run without --authorize to read the current plan, then authorize its digest.".into(),
+    }
 }
 fn readable_bytes(bytes: u64) -> String {
     let (unit, divisor) = if bytes >= 1024 * 1024 {
@@ -282,6 +313,7 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
             deploy_run::RunState::Applying => "applying",
             deploy_run::RunState::Complete => "complete",
             deploy_run::RunState::Partial => "partial",
+            deploy_run::RunState::Superseded => "superseded",
         },
         record.usable_binding().is_some()
     )
@@ -318,7 +350,7 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
         if matches!(step.id.as_str(), "web-app:create" | "hosting:stage:create")
             && step.state == deploy_run::StepState::Unknown
         {
-            writeln!(text, "Firebase did not confirm the original creation; tmt will not repeat it. Rerun the same command to observe its result. If it is still unconfirmed, inspect its cause and the Firebase state. Keep {} so the original creation can be identified; do not delete it to bypass this check.", record_path.display()).expect("String write");
+            writeln!(text, "{}", unconfirmed_creation_message(record_path)).expect("String write");
         }
         if let deploy_run::StepState::OwnerAction(action) = step.state {
             writeln!(text, "{}: {}", action.code(), action.instruction()).expect("String write");

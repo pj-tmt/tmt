@@ -580,7 +580,7 @@ Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.
 `native_sync` COUNT/read limits; Colab cursors; no Core state/carrier.
 Emulation never ships.
 [object-backends](.agents/skills/tmt-remote/references/object-backends.md) owns channels,
-backends/quotas. Deploy: index batches, Rules/Hosting gates, cause; Hosting serves declarations; records feed readiness.
+backends/quotas. Deploy: superseded history, Rules/Hosting fences, causes; records feed readiness.
 [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) owns module rules;
 [door and discovery](.agents/skills/tmt-remote/references/door-and-discovery.md) owns lifecycle,
 status and management. Shared background start is [extension-serve-v1](contracts/extension-serve-v1.md).

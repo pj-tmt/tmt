@@ -1054,12 +1054,15 @@ fn emulator_artifact_is_the_exact_verified_deployment_output() {
 
 // Executable Hosting order uses the existing fake provider and original record owner.
 fn hosted_plan() -> DeployPlan {
+    hosted_plan_with_content(b"hello")
+}
+fn hosted_plan_with_content(html: &[u8]) -> DeployPlan {
     use base64::{Engine, engine::general_purpose::STANDARD};
     use serde_json::json;
     use tmt_remote::hosting::{self, HostingBundle, HostingInventory, HostingManifest};
     let mut declaration: serde_json::Value =
         serde_json::from_slice(&read("declarations", "colab-firestore.json")).unwrap();
-    let manifest = HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":sha256(b"hello"),"length":5,"contentType":"text/html"}]})).unwrap();
+    let manifest = HostingManifest::parse(&json!({"version":1,"files":[{"path":"/index.html","sha256":sha256(html),"length":html.len(),"contentType":"text/html"}]})).unwrap();
     declaration["hosting"] = serde_json::to_value(&manifest).unwrap();
     let bytes = serde_json::to_vec(&declaration).unwrap();
     let artifact = read("declarations", "rules/colab-admission.rules");
@@ -1077,7 +1080,7 @@ fn hosted_plan() -> DeployPlan {
         }],
     )
     .unwrap();
-    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(b"hello")}]});
+    let reply = json!({"version":1,"manifestDigest":manifest.digest(),"files":[{"path":"/index.html","bytesBase64":STANDARD.encode(html)}]});
     let bundle = HostingBundle::parse(&manifest, &serde_json::to_vec(&reply).unwrap()).unwrap();
     let content = hosting::compose(&[hosting::HostingInput {
         extension: "colab",
@@ -1971,4 +1974,134 @@ fn unknown_hosting_persists_the_adapter_cause_and_keeps_the_create_fence() {
             .cause,
         Some(cause)
     );
+}
+
+#[test]
+fn changed_hosting_intent_can_be_previewed_without_losing_the_original_run() {
+    let old = hosted_plan();
+    let mut fake = HostedFake::new();
+    fake.inner.owner_pending.insert(
+        "sign-in:anonymous".into(),
+        DeployOwnerAction::InitializeAuth,
+    );
+    let mut sink = Mem::default();
+    let record = run(
+        &old,
+        &authorized(&old),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    let before = serde_json::to_vec(&record).unwrap();
+    let candidate = hosted_plan_with_content(b"updated page");
+    assert_ne!(candidate.digest(), old.digest());
+    let preview = tmt_remote::deploy_run::retain_hosting_plan(candidate.clone(), &record).unwrap();
+    assert_eq!(preview.bytes(), candidate.bytes());
+    assert_eq!(serde_json::to_vec(&record).unwrap(), before);
+}
+
+#[test]
+fn safe_supersession_keeps_the_old_outcomes_and_adopts_existing_creations() {
+    let old = hosted_plan();
+    let mut fake = HostedFake::new();
+    fake.inner.owner_pending.insert(
+        "sign-in:anonymous".into(),
+        DeployOwnerAction::InitializeAuth,
+    );
+    let mut sink = Mem::default();
+    let record = run(
+        &old,
+        &authorized(&old),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    let old_run = record.run.as_ref().unwrap().clone();
+    fake.inner.owner_pending.clear();
+    let next = hosted_plan_with_content(b"new installed bundle");
+    let complete = run(&next, &authorized(&next), record, &mut fake, &mut sink, 2).unwrap();
+    assert_eq!(complete.run.as_ref().unwrap().state, RunState::Complete);
+    let value = serde_json::to_value(&complete).unwrap();
+    assert_eq!(value["supersededRuns"][0]["state"], "superseded");
+    assert_eq!(value["supersededRuns"][0]["planDigest"], old.digest());
+    assert_eq!(
+        value["supersededRuns"][0]["steps"],
+        serde_json::to_value(&old_run.steps).unwrap()
+    );
+    assert_eq!(fake.inner.effects_of("web-app:create"), 1);
+    assert_eq!(fake.inner.effects_of("hosting-site:create"), 1);
+    let root = deploy_fixture_root::Root::new();
+    let layout = root.layout();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout, PROJECT).unwrap();
+    writer.bind_target(PROJECT, LOCATION).unwrap();
+    writer.persist(&complete).unwrap();
+    assert_eq!(writer.load_or_draft().unwrap(), complete);
+}
+
+#[test]
+fn supersession_refuses_staged_versions_and_each_unconfirmed_creation_before_calls() {
+    let old = hosted_plan();
+    let next = hosted_plan_with_content(b"new installed bundle");
+    let mut fake = HostedFake::new();
+    fake.inner.owner_pending.insert(
+        "sign-in:anonymous".into(),
+        DeployOwnerAction::InitializeAuth,
+    );
+    let mut sink = Mem::default();
+    let record = run(
+        &old,
+        &authorized(&old),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut sink,
+        1,
+    )
+    .unwrap();
+    for (id, expected) in [
+        (
+            "hosting:stage:create",
+            "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
+        ),
+        (
+            "web-app:create",
+            "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
+        ),
+        (
+            "hosting-site:create",
+            "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
+        ),
+        (
+            "hosting-site:configure",
+            "REMOTE_DEPLOY_PREVIOUS_CREATE_UNCONFIRMED",
+        ),
+        ("staged-version", "REMOTE_DEPLOY_PREVIOUS_VERSION_STAGED"),
+    ] {
+        let mut unsafe_record = record.clone();
+        let run = unsafe_record.run.as_mut().unwrap();
+        if id == "staged-version" {
+            run.hosting.as_mut().unwrap().version = Some(format!("sites/{PROJECT}/versions/one"));
+        } else {
+            run.steps.iter_mut().find(|s| s.id == id).unwrap().state = StepState::Unknown;
+        }
+        let mut port = HostedFake::new();
+        let mut saved = Mem::default();
+        let result = tmt_remote::deploy_run::run(
+            &next,
+            &authorized(&next),
+            unsafe_record,
+            &mut port,
+            &mut saved,
+            2,
+        );
+        let Err(DeployError::Refused(reason)) = result else {
+            panic!("unsafe {id} must refuse")
+        };
+        assert_eq!(reason.code(), expected);
+        assert!(port.inner.calls.is_empty());
+        assert!(saved.saved.is_empty());
+    }
 }
