@@ -249,8 +249,9 @@ slot belongs to the host and wraps below the strip below 480px of component widt
 The strip scrolls horizontally without wrapping or animation; selection and resize
 keep the selected tab visible without moving the page. A label wider than the strip
 truncates while retaining its full accessible name. Use the existing state roles,
-a 1px flat square panel rule and a 2px link-color rule above the selected tab, which
-joins the panel. The leaf's [Tabs contract](browser-ui/README.md#controlled-input-contracts)
+a 1px flat square panel rule and a 2px neutral text-color rule above the selected tab,
+which uses strong neutral text and joins the panel. State marks retain their own roles.
+The leaf's [Tabs contract](browser-ui/README.md#controlled-input-contracts)
 owns React/static inputs and panel lifetimes. Basis: own.
 
 ### Card
