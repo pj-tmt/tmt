@@ -187,6 +187,38 @@ days, never raw error values, private traces or profiles. Unexpected outcomes al
 print the bounded summary from the private JSON report for triage.
 It remains outside required aggregates and does not authorize publication.
 
+## Workspace compilation and partitions
+
+Full native verification calls `workspace-partitions.yml` under the existing
+workspace worker ID. Its producer retains independent Cargo/libtest discovery,
+separate doctests, the dev build and selected native-sync proofs; Ops scope keeps
+its original Cargo/architecture path. `partitions` is the K parameter; required CI
+uses 2. Each consumer runs on its own hosted Ubuntu VM, admits the same
+run/attempt/source/toolchain and archive digest, proves its exact slice before
+execution, then reports actual PASS identities. The always-run collector rejects
+missing, skipped, failed, overlapping or foreign results before the caller can
+satisfy the native aggregate. It never replaces identity proof with counts.
+
+The pinned nextest installer is shared by producer and consumers. Consumers also
+install the same pinned Rust toolchain for the native tests that run Cargo metadata.
+The isolated nextest run receives the real Cargo executable in `CARGO`; producer
+and consumer identities record actual Cargo/rustc versions. Consumers only extract
+and run the archive; they restore no Cargo cache and issue no build.
+Producer-only cache writes retain main admission. Phase evidence records compile,
+listing, archive, extraction and execution; Actions step times retain setup,
+transfer, selected emulators and collection costs. Separate VM ownership avoids a
+shared-host cleanup domain; any local heavy proof still needs Infra's run grant.
+Identity and artifact names include the run attempt, so recovery requires
+**re-run all jobs**, not re-run failed jobs (about 68 runner-minutes and 12 minutes
+per attempt, longer when runners queue). Partial recovery is tracked in
+[#3571](https://github.com/pj-tmt/tmt/issues/3571). Cargo-built runtime examples are
+explicit archive inputs; consumers verify restored executable paths before tests.
+PR budget limits use the five-run K2 series (p90=max, including macOS queue noise).
+The four new job rows inherit the old 861 s MG limit; other MG limits stay unchanged
+until the weekly report has ten natural MG runs. Infra reverts if those runs exceed
+the pre-rollout 886 s MG median wall or 13.9 workspace runner-minutes, or show an
+unexplained equivalence failure.
+
 ## Gate-time budgets
 
 `node typescript/scripts/ci-gate-time.mjs` (read-only REST, no CI run, about 85 requests) measures the
