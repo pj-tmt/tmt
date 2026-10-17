@@ -380,6 +380,9 @@ job tracks and their more hint, `key_value` owns aligned metric values, and
 observations and owns effects. These painters perform no acquisition or
 view-specific projection. Agents focus reuses these same modules.
 `top_bar` and `tab_strip` paint the neutral shared shell from held values.
+`view::footer` plans the effective hint rows before shell geometry: two for the
+Agents list legend, one for conversation focus or an editor. Panes receive the
+remaining rows without a blank footer band; sparse exchanges still grow down.
 `exchange_view` paints grouped exchange headers and body gutters, `input_field`
 paints the filled editor surface, and `digest_matrix` paints observed metrics
 across identity columns. The host retains data projection, recipient authority,
