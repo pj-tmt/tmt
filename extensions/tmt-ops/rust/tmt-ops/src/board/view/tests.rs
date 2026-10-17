@@ -738,20 +738,22 @@ fn member_task_states_are_red_only_when_blocked_whatever_the_projected_token() {
                     let cells: Vec<_> = (hit.x..hit.x + hit.width)
                         .map(|x| buffer[(x, hit.y)].symbol())
                         .collect();
-                    let shown = if state.starts_with("blocked-on-ci") {
-                        let row_text = cells.concat();
-                        assert!(
-                            !row_text.contains(state),
-                            "the long state must fit its track"
-                        );
-                        let tail = &row_text[row_text.find("blocked").expect("state prefix")..];
-                        let end = tail.find('…').expect("clipped State keeps an ellipsis");
-                        tail[..end + '…'.len_utf8()].to_owned()
+                    let row_text = cells.concat();
+                    assert!(
+                        !row_text.contains(state),
+                        "the 16-cell STATE track clips the task"
+                    );
+                    let shown = if state == "waiting" {
+                        "wai…"
                     } else {
-                        state.to_owned()
+                        "blo…"
                     };
+                    assert!(
+                        row_text.contains(&format!("● working · {shown}")),
+                        "{row_text}"
+                    );
                     let at = (0..cells.len())
-                        .find(|start| cells[*start..].concat().starts_with(&shown))
+                        .find(|start| cells[*start..].concat().starts_with(shown))
                         .unwrap_or_else(|| {
                             panic!(
                                 "the State column keeps a visible ellipsis for {state:?}: {}",
@@ -771,9 +773,7 @@ fn member_task_states_are_red_only_when_blocked_whatever_the_projected_token() {
                         token
                     };
                     for x in hit.x + at as u16
-                        ..hit.x
-                            + at as u16
-                            + unicode_width::UnicodeWidthStr::width(shown.as_str()) as u16
+                        ..hit.x + at as u16 + unicode_width::UnicodeWidthStr::width(shown) as u16
                     {
                         assert_eq!(
                             painted_at(&buffer, x, hit.y),

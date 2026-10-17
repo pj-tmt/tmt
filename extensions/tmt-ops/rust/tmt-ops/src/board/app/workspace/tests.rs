@@ -4694,8 +4694,9 @@ fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows(
         .unwrap()
         .activity
         .since_ms = Some(1_000);
-    // Collapse the tree and select the squad: only its roster preview paints
-    // the member, which the tree rows no longer hold.
+    // Collapse the tree and select the squad: only its observed lead focus
+    // paints the member's age, which the tree rows no longer hold.
+    snapshot.roster.squads[0].lead = Some(MEMBER.into());
     app.workspace.expanded.clear();
     let room = OpsTarget::Squad(ROOM.into());
     let index = app
