@@ -23,6 +23,9 @@ export const AUTHOR_BYTES = 128;
 /** 200 proposals + 50 readings + 50 answer blocks + 50 reviews. */
 export const NEEDS_YOU_MAX = 350;
 const COMMENTS_MAX = 4_294_967_295;
+/** Home summary limits; `limits.rs` and the contract's Home summary section hold the same numbers. */
+export const HOME_SUMMARY_FIRST_POINTS = 24;
+export const HOME_SUMMARY_SECOND_POINTS = 60;
 /** The complete `/api/pages` reply: 1,000 pages with the longest labels and summaries (about 780 KB) fit. */
 export const DISCOVERY_BYTES = 1024 * 1024;
 
@@ -35,6 +38,14 @@ export interface PageActivity {
   needsYou: number;
   /** The page's creation label (`meta.originalAuthor`); omitted when it has none. */
   author?: string;
+}
+/** Two display-only lines under Today's greeting, written by the space's maintainer agent. */
+export interface HomeSummary {
+  readonly lines: readonly [string, string];
+  /** The writer's display name; omitted when the writer had no agent identity. Never proof. */
+  readonly author?: string;
+  /** The owner's clock at the write. */
+  readonly atMs: number;
 }
 export interface PageInfo extends ExpiryInfo {
   pageId: string;
@@ -57,6 +68,7 @@ export interface Bootstrap {
   revision: string;
   pages: PageInfo[];
   pageIds: PageId[];
+  homeSummary?: HomeSummary;
 }
 /** The owner's display-only summary is untrusted text: bounded and typed, never trusted for more. */
 export function activity(value: unknown): asserts value is PageActivity {
@@ -76,6 +88,32 @@ export function activity(value: unknown): asserts value is PageActivity {
       Number(value.needsYou) >= 0 &&
       Number(value.needsYou) <= NEEDS_YOU_MAX &&
       value.waiting === Number(value.needsYou) > 0,
+  );
+  if ('author' in value)
+    requireValue(
+      typeof value.author === 'string' &&
+        value.author.length >= 1 &&
+        new TextEncoder().encode(value.author).length <= AUTHOR_BYTES &&
+        !/\p{Cc}/u.test(value.author),
+    );
+}
+/** The owner enforces the full grammar; the browser refuses what it could not render safely. */
+export function homeSummary(value: unknown): asserts value is HomeSummary {
+  requireValue(value !== null && typeof value === 'object' && !Array.isArray(value));
+  exactKeys(value, 'author' in value ? ['lines', 'author', 'atMs'] : ['lines', 'atMs']);
+  const limits = [HOME_SUMMARY_FIRST_POINTS, HOME_SUMMARY_SECOND_POINTS];
+  requireValue(
+    Array.isArray(value.lines) &&
+      value.lines.length === limits.length &&
+      value.lines.every(
+        (line, index) =>
+          typeof line === 'string' &&
+          [...line].length >= 1 &&
+          [...line].length <= limits[index] &&
+          !/\p{Cc}/u.test(line),
+      ) &&
+      Number.isSafeInteger(value.atMs) &&
+      Number(value.atMs) >= 0,
   );
   if ('author' in value)
     requireValue(
@@ -106,7 +144,17 @@ export async function discover(
     }),
     DISCOVERY_BYTES,
   );
-  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'pages', 'pageIds']);
+  exactKeys(value, [
+    'spaceId',
+    'ownerKey',
+    'revision',
+    'pages',
+    'pageIds',
+    ...(value !== null && typeof value === 'object' && 'homeSummary' in value
+      ? ['homeSummary']
+      : []),
+  ]);
+  if ('homeSummary' in value) homeSummary(value.homeSummary);
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
   spaceId(value.spaceId);
   decimal(value.revision);
@@ -213,5 +261,6 @@ export async function discover(
     revision: value.revision,
     pages: value.pages as unknown as PageInfo[],
     pageIds: value.pageIds as unknown as PageId[],
+    ...('homeSummary' in value ? { homeSummary: value.homeSummary as HomeSummary } : {}),
   };
 }

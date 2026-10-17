@@ -556,6 +556,15 @@ trusting device labels. The shared needs-you vectors pin native/browser parity. 
 reads again; no new polling loop. Per-item details remain #3578. A `/` location that still carries list
 search redirects to `/all` with it (`beforeLoad`).
 
+Under the greeting Today shows the space's two-line home summary (`today-summary.tsx`; the contract's
+Home summary section). It is display-only owner data like labels: the `home_summary` row (schema 13)
+reaches the browser only as `homeSummary` in `GET /api/pages`, which `bootstrap.ts` validates
+(`HOME_SUMMARY_*_POINTS`) and `SpaceHome.homeSummary` carries to Today and its held copy. The only
+writer is the root-local `tmt colab home summary` CLI (`cli_home.rs`): through the serve's local route
+(`home_summary/ipc.rs`) when it runs, else under the serve lock; the store stamps the time and the
+CLI the caller's name. `pagesChangedSince` (`today-model.ts`) only decides whether the muted
+"pages changed since" note shows; the summary itself is never hidden.
+
 A chapter opened from Today (`chapter.ts`, `chapter-layer.tsx`, `chapter.css`) keeps the URL
 `/pages/<id>`; how it is presented is history state, `{chapter: {scroll, full?}}` (read through
 `chapterOf`, never trusted as typed): a right panel (`min(560px, 60%)`) over a held, full-width

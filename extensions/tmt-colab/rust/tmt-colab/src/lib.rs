@@ -13,6 +13,7 @@ pub mod discussion;
 pub mod edit_request;
 pub mod export;
 pub mod fold;
+pub mod home_summary;
 pub mod hosting;
 pub mod inspection;
 mod ipc;

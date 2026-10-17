@@ -57,6 +57,35 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+.today-summary {
+  max-width: 60ch;
+  margin: 0 0 16px;
+}
+.today-summary-lines {
+  display: grid;
+  gap: 2px;
+}
+.today-summary-line {
+  margin: 0;
+  color: var(--tmt-ui-color-text);
+  font-size: 20px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.today-summary-line + .today-summary-line {
+  color: var(--tmt-ui-color-secondary);
+}
+.today-summary-meta,
+.today-summary-note {
+  margin: 6px 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font: var(--tmt-ui-eyebrow-size) var(--tmt-ui-font-mono);
+  letter-spacing: 0.06em;
+}
+.today-summary-note {
+  margin-top: 2px;
+  letter-spacing: 0;
+}
 .today-count {
   margin: 0;
   font-size: 20px;

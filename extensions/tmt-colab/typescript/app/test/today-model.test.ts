@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { dateLine, greetingPart, RECENT_CHAPTERS, todayModel } from '../src/today-model.js';
+import {
+  dateLine,
+  greetingPart,
+  pagesChangedSince,
+  RECENT_CHAPTERS,
+  todayModel,
+} from '../src/today-model.js';
 import type { PageSummary } from '../src/transport.js';
 
 const now = new Date(2026, 9, 17, 14, 30).getTime();
@@ -110,5 +116,21 @@ describe('greeting and date', () => {
 
   it('writes the weekday, month and day', () => {
     expect(dateLine(now)).toBe('Saturday, October 17');
+  });
+});
+
+describe('pagesChangedSince', () => {
+  const summary = { lines: ['a', 'b'] as [string, string], atMs: now - 3 * hour };
+
+  it('is true only when an active page changed after the summary was written', () => {
+    expect(pagesChangedSince(summary, [page('newer', hour)])).toBe(true);
+    expect(pagesChangedSince(summary, [page('older', 5 * hour)])).toBe(false);
+    expect(pagesChangedSince(summary, [])).toBe(false);
+  });
+
+  it('does not count the moment of the write, an unknown update time or an archived page', () => {
+    expect(pagesChangedSince(summary, [page('same', 3 * hour)])).toBe(false);
+    expect(pagesChangedSince(summary, [page('unknown', null)])).toBe(false);
+    expect(pagesChangedSince(summary, [page('hidden', hour, { archived: true })])).toBe(false);
   });
 });

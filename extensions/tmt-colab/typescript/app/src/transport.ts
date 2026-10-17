@@ -20,7 +20,7 @@ export interface PageView extends Projection {
   readonly threadPresentations?: readonly ThreadPresentation[];
   readonly askUnavailable?: boolean;
 }
-import type { PageActivity, PageId } from './bootstrap.js';
+import type { HomeSummary, PageActivity, PageId } from './bootstrap.js';
 import type { DraftStore } from './draft-store.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
@@ -74,6 +74,8 @@ export interface SpaceHome {
   readonly title: string;
   readonly pages: readonly PageSummary[];
   readonly pageIds?: readonly PageId[];
+  /** Two display-only lines the space's maintainer agent wrote; absent until one has. */
+  readonly homeSummary?: HomeSummary;
 }
 
 /** Shared across a bounded group of read-only page folds, including failed reads. */

@@ -347,6 +347,60 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
+    /// The home summary, when one is stored (contract: Home summary).
+    pub fn home_summary(&self) -> Result<Option<crate::home_summary::HomeSummary>> {
+        Ok(self
+            .tx
+            .query_row(
+                "SELECT line1,line2,author,at_ms FROM home_summary WHERE id=1",
+                [],
+                |r| {
+                    Ok(crate::home_summary::HomeSummary {
+                        lines: [r.get(0)?, r.get(1)?],
+                        author: r.get(2)?,
+                        at_ms: u64::try_from(r.get::<_, i64>(3)?).unwrap_or_default(),
+                    })
+                },
+            )
+            .optional()?)
+    }
+    /// Replace the whole summary with `lines` written by `author` now (the trusted store clock),
+    /// or clear it when there are none. The lines are checked again here, so no caller stores what
+    /// the grammar refuses. Returns the summary now stored and whether the write changed anything.
+    pub fn set_home_summary(
+        &mut self,
+        lines: Option<&[String; 2]>,
+        author: Option<&str>,
+    ) -> Result<(Option<crate::home_summary::HomeSummary>, bool)> {
+        use crate::home_summary::{HomeSummary, author_valid, lines_valid};
+        let Some(lines) = lines else {
+            let removed = self.tx.execute("DELETE FROM home_summary WHERE id=1", [])?;
+            return Ok((None, removed > 0));
+        };
+        if !lines_valid(lines) || author.is_some_and(|name| !author_valid(name)) {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let at_ms = (self.clock)()?;
+        self.tx.execute(
+            "INSERT INTO home_summary(id,line1,line2,author,at_ms) VALUES (1,?,?,?,?)
+             ON CONFLICT(id) DO UPDATE SET line1=excluded.line1,line2=excluded.line2,
+                author=excluded.author,at_ms=excluded.at_ms",
+            params![
+                lines[0],
+                lines[1],
+                author,
+                i64::try_from(at_ms).map_err(|_| OwnerFault::Invalid)?
+            ],
+        )?;
+        Ok((
+            Some(HomeSummary {
+                lines: lines.clone(),
+                author: author.map(str::to_owned),
+                at_ms,
+            }),
+            true,
+        ))
+    }
     /// One page's labels, sorted by code point.
     pub fn page_labels(&self, page: &str) -> Result<Vec<String>> {
         let mut query = self
