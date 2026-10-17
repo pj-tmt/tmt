@@ -19,7 +19,7 @@
   display: contents;
 }
 .rich-input-surface[data-accessory] {
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-sheet);
 }
 .rich-input-surface[data-accessory] .rich-input-field {
