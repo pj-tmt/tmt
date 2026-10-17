@@ -947,9 +947,12 @@ thread-ended signal. Setup does not approve provider hook trust on the user's be
 Consented `tmt setup` includes the Stop hook by default, exposing `resume.usage`
 (context size) and optional `resume.consumption` in ls/identity JSON. It also keeps
 bounded final-response history locally for [`responses.recent`](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#recent-agent-responses):
-pane output, not a durable reply. `--no-usage` stops new collection and preserves
-the choice; `--usage` enables it again. Existing entries keep their expiry. Inspect without
-changes using `tmt setup [provider] --status`. Consumption reports cumulative
+these are the agent's last final answers for display, not delivered replies.
+`--no-usage` stops new collection and preserves the choice; `--usage` enables it
+again. Responses already kept stop appearing when they expire; later collection
+removes them. With `--no-usage` nothing new is collected, so expired responses stay
+on disk until collection runs again. Inspect without changes using
+`tmt setup [provider] --status`. Consumption reports cumulative
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads

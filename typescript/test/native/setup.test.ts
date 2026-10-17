@@ -101,9 +101,9 @@ describe('consented provider setup and bounded hook boundary', () => {
           'SessionStart, SessionEnd, UserPromptSubmit and Stop (context usage, consumption, activity and recent responses) hooks'
         );
         expect(preview.stdout).toContain(
-          'keeps the last 10 final responses locally (up to 8 KiB each)'
+          "keeps this agent's last 10 final responses on this computer (up to 8 KiB each, available for 90 days by default; set exchange.retentionDays to change it). Use --no-usage to stop collecting."
         );
-        expect(preview.stdout).toContain('--no-usage stops new collection');
+        expect(preview.stdout).toContain('Use --no-usage to stop collecting.');
         expect(preview.stdout).not.toContain('no transcript content is stored');
         expect(fs.readFileSync(settings, 'utf8')).toBe(installedBeforePreview);
 
