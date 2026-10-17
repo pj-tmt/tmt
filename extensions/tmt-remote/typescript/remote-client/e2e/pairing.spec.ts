@@ -85,11 +85,24 @@ async function captureState(
   themes: readonly ('light' | 'dark')[] = ['light', 'dark'],
   contained?: string,
   directory = process.env.TMT_REMOTE_CAPTURE_DIR,
+  phase?: Record<string, unknown>,
 ): Promise<void> {
-  const { theme, controls } = await page.evaluate(() => ({
+  const snapshot = await page.evaluate(() => ({
     theme: matchMedia('(prefers-color-scheme: dark)').matches
       ? ('dark' as const)
       : ('light' as const),
+    viewport: { width: innerWidth, height: innerHeight },
+    refresh: (() => {
+      const button = document.querySelector<HTMLButtonElement>('#refresh');
+      return button
+        ? { disabled: button.disabled, ariaBusy: button.getAttribute('aria-busy') }
+        : null;
+    })(),
+    readOnly: (() => {
+      const note = document.querySelector<HTMLElement>('#read-only');
+      return note ? { hidden: note.hidden, text: note.textContent?.trim() } : null;
+    })(),
+    outcome: document.querySelector('#outcome')?.getAttribute('data-state') ?? null,
     controls: Array.from(
       document.querySelectorAll<HTMLButtonElement>('button.tmt-ui-action:disabled'),
     ).map((button) => {
@@ -111,11 +124,19 @@ async function captureState(
             ? `#${CSS.escape(button.id)}`
             : `${owner} button:nth-of-type(${position})`.trim(),
           label: button.textContent?.trim(),
+          ariaLabel: button.getAttribute('aria-label'),
+          labelledBy: button
+            .getAttribute('aria-labelledby')
+            ?.split(/\s+/)
+            .map((id) => document.getElementById(id)?.textContent?.trim()),
           disabled: button.matches(':disabled'),
+          disabledProperty: button.disabled,
           disabledAttribute: button.getAttribute('disabled'),
           ariaBusy: button.getAttribute('aria-busy'),
           connected: button.isConnected,
-          refreshBusy: document.querySelector<HTMLButtonElement>('#refresh')?.disabled ?? null,
+          hidden: button.hidden,
+          display: style.display,
+          visibility: style.visibility,
         },
         style: {
           color: style.color,
@@ -126,13 +147,22 @@ async function captureState(
       };
     }),
   }));
-  for (const control of controls)
-    expect(control.style, `${state}: ${JSON.stringify(control)}`).toEqual({
-      color: tokenRgb('color', 'disabled-text', theme),
-      background: tokenRgb('surface', 'disabled', theme),
-      opacity: '1',
-      shadow: 'none',
+  const expected = {
+    color: tokenRgb('color', 'disabled-text', snapshot.theme),
+    background: tokenRgb('surface', 'disabled', snapshot.theme),
+    opacity: '1',
+    shadow: 'none',
+  };
+  const { controls, ...presentation } = snapshot;
+  for (const control of controls) {
+    const diagnostic = `${state}: ${JSON.stringify({ head: SOURCE_HEAD, phase, ...presentation, control, expected })}`;
+    expect(control.context, diagnostic).toMatchObject({
+      disabled: true,
+      disabledProperty: true,
+      connected: true,
     });
+    expect(control.style, diagnostic).toEqual(expected);
+  }
   if (contained) await feedbackBounds(page, contained);
   if (!directory) return;
   await mkdir(directory, { recursive: true });
@@ -172,6 +202,10 @@ async function captureState(
 const BINARY =
   process.env.TMT_REMOTE_BINARY ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-remote', import.meta.url));
+const SOURCE_HEAD = execFileSync('git', ['rev-parse', 'HEAD'], {
+  cwd: fileURLToPath(new URL('../', import.meta.url)),
+  encoding: 'utf8',
+}).trim();
 
 type Lines = { next(): Promise<Record<string, unknown>> };
 function lines(child: ChildProcessWithoutNullStreams): Lines {
@@ -2180,6 +2214,8 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   const roleRefresh = routeBarrier();
   const roleRefreshJoined = routeBarrier();
   let heldRoleRefresh = false;
+  let roleRefreshReleased = false;
+  let roleRefreshHasJoined = false;
   const holdRoleRefresh = async (route: import('@playwright/test').Route) => {
     const body = route.request().postDataJSON() as { operation?: string };
     if (body.operation !== 'remote.settings.show' || heldRoleRefresh) {
@@ -2192,6 +2228,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
       await roleRefresh.held;
       await route.continue();
     } finally {
+      roleRefreshHasJoined = true;
       roleRefreshJoined.arrive();
     }
   };
@@ -2208,7 +2245,32 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     await expect(page.locator('#refresh')).toBeDisabled();
     await expect(page.locator('#refresh')).toHaveAttribute('aria-busy', 'true');
     expect(roleRefreshSettled).toBe(false);
+    await expect(page.locator('#first')).toBeDisabled();
+    await expect(page.locator('#more')).toBeDisabled();
+    for (const button of await page
+      .locator(
+        '#opening-form button[type=submit], #limit-form button[type=submit], .device form button',
+      )
+      .all())
+      await expect(button).toBeDisabled();
+    await captureState(
+      page,
+      'settings-role-refresh-held',
+      'Management refresh held; pagination and mutation actions remain disabled',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        name: 'held management refresh',
+        reached: heldRoleRefresh,
+        released: roleRefreshReleased,
+        joined: roleRefreshHasJoined,
+        settled: roleRefreshSettled,
+      },
+    );
   } finally {
+    roleRefreshReleased = true;
     roleRefresh.release();
     await roleRefreshJoined.reached;
     await settledRoleRefresh;
@@ -2217,11 +2279,33 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(page.locator('#read-only')).toBeVisible();
   await expect(page.locator('#limit-custom')).toHaveValue('19');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
+  // Pagination is idle again, even when hidden on this page; mutation authority is gone.
+  await expect(page.locator('#first')).toBeEnabled();
+  await expect(page.locator('#more')).toBeEnabled();
+  await expect(page.locator('#opening')).toBeDisabled();
+  await expect(page.locator('#limit-mode')).toBeDisabled();
+  for (const button of await page
+    .locator(
+      '#opening-form button[type=submit], #limit-form button[type=submit], .device form button',
+    )
+    .all())
+    await expect(button).toBeDisabled();
   await descriptions(false);
   await captureState(
     page,
     'settings-role-removed-draft',
     'Role removed; unsent19 draft and historical refused outcome retained',
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      name: 'settled role-removed refresh',
+      reached: heldRoleRefresh,
+      released: roleRefreshReleased,
+      joined: roleRefreshHasJoined,
+      settled: roleRefreshSettled,
+    },
   );
   expect(
     JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
