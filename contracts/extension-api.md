@@ -372,7 +372,8 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   unknown, never `default`**.
 - `credits` and `serviceTier` are optional evidence omitted before `rateLimits` under
   the existing opaque-state size bound. `latest.consumption` and `resume.consumption`
-  carry them; history buckets and the rollup never do.
+  carry them; the 5-second history buckets never do, and a rollup bucket carries the
+  [per-bucket](#thirty-day-rollup) values.
 - History buckets optionally add `cacheWriteTokens` and `byModel` with the same
   entry shape, containing **deltas for that bucket**, including all accepted
   model changes. Attribution is emitted only when it covers the whole counted
@@ -444,9 +445,18 @@ or null) and `retainedFromMs` (`max(toMs - 30 days, availableFromMs)`; earlier i
 are uncovered). A bucket adds `rateLimits` (the public `resume.consumption` shape): the
 newest limits **observed inside the bucket**, absent when no provider line in it carried
 any. Account windows repeat across seats on one account and across buckets, so a reader
-dedupes by `(windowMinutes, resetsAtMs)` and never sums them. The identity-level
-`reporting`, `availableFromMs`, `lastSampleAtMs` and `latest` still describe the
-5-second tier.
+dedupes by `(windowMinutes, resetsAtMs)` and never sums them. A bucket also adds the
+Codex `credits` (the public `consumption.credits` shape), the newest **observed inside the
+bucket** by the same rule as `rateLimits`, and `serviceTier`, the tier id of the newest
+read **that moved tokens** in the bucket (an idle read claims none; a moving read whose
+tier is unknown leaves the known one). Both are absent when the bucket saw none, never
+carried forward from an earlier bucket, and an absent `serviceTier` is unknown, never
+`default`. When `maxBuckets` merges several 5-minute rows into one bucket, `credits` is
+the newest by `observedAtMs` and `serviceTier` the newest row's, so a tier change shows
+at the bucket resolution. Credits repeat across seats on one account: a reader dedupes by
+the newest `observedAtMs` and never sums them. Buckets from before schema 56 carry
+neither. The identity-level `reporting`, `availableFromMs`, `lastSampleAtMs` and `latest`
+still describe the 5-second tier.
 
 ## Dispatch readiness and input safety
 

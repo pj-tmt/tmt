@@ -62,7 +62,7 @@ pub(super) fn service_tier(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
-pub(super) fn valid_service_tier(tier: &str) -> bool {
+pub(crate) fn valid_service_tier(tier: &str) -> bool {
     tier.len() <= MAX_TIER_BYTES
         && tier.starts_with(|first: char| first.is_ascii_lowercase())
         && tier

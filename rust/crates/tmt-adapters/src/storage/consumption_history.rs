@@ -4,11 +4,13 @@ use super::{
     IdentityContextSnapshot, Storage, StorageError, StorageErrorCode, bindings::BindingRows,
     errors::classify, identities::with_immediate_transaction,
 };
-use crate::runtime::consumption::{Consumption, ModelUsage};
+use crate::runtime::consumption::{
+    Consumption, Credits, ModelUsage, RateLimits, valid_service_tier,
+};
 mod details;
 use details::Details;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::time::Instant;
 use tmt_core::{
@@ -44,22 +46,26 @@ pub fn window_resolution_ms(window_ms: u64) -> Option<u64> {
 
 /// One stored resolution of the same evidence. `snapshot` names the text column:
 /// the fine tier keeps the accepted observation there, the rollup only its newest
-/// rate limits.
+/// rate limits. `account` marks the rollup's two further columns, the newest credits
+/// and the service tier of the newest token-moving read (#3546).
 #[derive(Clone, Copy)]
 struct Tier {
     table: &'static str,
     snapshot: &'static str,
     width: u64,
+    account: bool,
 }
 const FINE: Tier = Tier {
     table: "consumption_buckets",
     snapshot: "latest",
     width: BUCKET_MS,
+    account: false,
 };
 const ROLLUP: Tier = Tier {
     table: "consumption_tier5m",
     snapshot: "limits",
     width: ROLLUP_BUCKET_MS,
+    account: true,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +132,10 @@ struct Bucket {
     discontinuous: bool,
     sampled: Option<u64>,
     snapshot: Option<String>,
+    /// Rollup only: the newest credits observed inside the bucket, as JSON.
+    credits: Option<String>,
+    /// Rollup only: the service tier of the newest token-moving read.
+    service_tier: Option<String>,
     details: Details,
 }
 
@@ -136,7 +146,12 @@ impl Bucket {
         id: &str,
         from: u64,
     ) -> Result<Self, StorageError> {
-        connection.query_row(&format!("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,{},details FROM {} WHERE identity_id=? AND from_ms=?", tier.snapshot, tier.table), params![id,from as i64], |row| Self::from_row(row, from))
+        let account = if tier.account {
+            ",credits,service_tier"
+        } else {
+            ""
+        };
+        connection.query_row(&format!("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,{},details,from_ms{account} FROM {} WHERE identity_id=? AND from_ms=?", tier.snapshot, tier.table), params![id,from as i64], |row| Self::from_row(row, from))
             .optional().map(|value| value.unwrap_or(Self { from, ..Self::default() })).map_err(|e| classify(e,"Read consumption bucket"))
     }
 
@@ -152,6 +167,17 @@ impl Bucket {
             discontinuous: row.get(6)?,
             sampled: optional_integer(row, 7)?,
             snapshot: row.get(8)?,
+            // The rollup's reads select the two account columns after `from_ms`.
+            credits: if row.as_ref().column_count() > 11 {
+                row.get(11)?
+            } else {
+                None
+            },
+            service_tier: if row.as_ref().column_count() > 11 {
+                row.get(12)?
+            } else {
+                None
+            },
             details: row
                 .get::<_, Option<String>>(9)?
                 .map(|value| serde_json::from_str(&value))
@@ -190,7 +216,36 @@ impl Bucket {
             return Err(invalid());
         }
         let (table, snapshot) = (tier.table, tier.snapshot);
-        connection.execute(&format!("INSERT INTO {table}(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,{snapshot},details) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(identity_id,from_ms) DO UPDATE SET input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cached_input_tokens=excluded.cached_input_tokens,covered_ms=excluded.covered_ms,complete=excluded.complete,gap=excluded.gap,discontinuous=excluded.discontinuous,sampled_at_ms=excluded.sampled_at_ms,{snapshot}=excluded.{snapshot},details=excluded.details"), params![id,self.from as i64,self.input as i64,self.output as i64,self.cached as i64,self.covered as i64,!self.incomplete,self.gap,self.discontinuous,self.sampled.map(|n|n as i64),self.snapshot,serde_json::to_string(&self.details).map_err(|_|invalid())?]).map_err(|e|classify(e,"Write consumption bucket"))?;
+        let (columns, marks, updates) = if tier.account {
+            (
+                ",credits,service_tier",
+                ",?,?",
+                ",credits=excluded.credits,service_tier=excluded.service_tier",
+            )
+        } else {
+            ("", "", "")
+        };
+        let mut values: Vec<rusqlite::types::Value> = vec![
+            id.to_owned().into(),
+            (self.from as i64).into(),
+            (self.input as i64).into(),
+            (self.output as i64).into(),
+            (self.cached as i64).into(),
+            (self.covered as i64).into(),
+            (!self.incomplete).into(),
+            self.gap.into(),
+            self.discontinuous.into(),
+            self.sampled.map(|n| n as i64).into(),
+            self.snapshot.clone().into(),
+            serde_json::to_string(&self.details)
+                .map_err(|_| invalid())?
+                .into(),
+        ];
+        if tier.account {
+            values.push(self.credits.clone().into());
+            values.push(self.service_tier.clone().into());
+        }
+        connection.execute(&format!("INSERT INTO {table}(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,{snapshot},details{columns}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?{marks}) ON CONFLICT(identity_id,from_ms) DO UPDATE SET input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,cached_input_tokens=excluded.cached_input_tokens,covered_ms=excluded.covered_ms,complete=excluded.complete,gap=excluded.gap,discontinuous=excluded.discontinuous,sampled_at_ms=excluded.sampled_at_ms,{snapshot}=excluded.{snapshot},details=excluded.details{updates}"), rusqlite::params_from_iter(values)).map_err(|e|classify(e,"Write consumption bucket"))?;
         Ok(())
     }
 
@@ -233,25 +288,27 @@ struct Delta {
     details: Details,
 }
 
-/// The newest rate limits observed inside the rollup bucket that starts at `from`,
-/// after one more read. A read repeats the newest provider line's limits for as long
-/// as the session idles; limits older than the bucket were observed in an earlier
-/// one, so they are not stored again.
-fn newest_limits(
+/// The newest value (rate limits, credits) observed inside the rollup bucket that
+/// starts at `from`, after one more read. A read repeats the newest provider line's
+/// value for as long as the session idles; one older than the bucket was observed in
+/// an earlier bucket, so it is not stored again.
+fn newest<T: Serialize + DeserializeOwned>(
     held: Option<&str>,
-    seen: Option<&crate::runtime::consumption::RateLimits>,
+    seen: Option<&T>,
     from: u64,
+    observed_at: impl Fn(&T) -> u64,
+    valid: impl Fn(&T) -> bool,
 ) -> Result<Option<String>, StorageError> {
-    let held: Option<crate::runtime::consumption::RateLimits> = held
+    let held: Option<T> = held
         .map(serde_json::from_str)
         .transpose()
         .map_err(|_| invalid())?;
-    if held.as_ref().is_some_and(|value| !value.valid()) {
+    if held.as_ref().is_some_and(|value| !valid(value)) {
         return Err(invalid());
     }
-    let seen = seen.filter(|value| value.observed_at_ms >= from);
+    let seen = seen.filter(|value| observed_at(value) >= from);
     let newest = match (held.as_ref(), seen) {
-        (Some(held), Some(seen)) if seen.observed_at_ms < held.observed_at_ms => Some(held),
+        (Some(held), Some(seen)) if observed_at(seen) < observed_at(held) => Some(held),
         (_, Some(seen)) => Some(seen),
         (held, None) => held,
     };
@@ -377,7 +434,7 @@ impl Storage {
             .map_err(|e| classify(e, "Read consumption identity"))?;
         let mut statement = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,details,from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
             .map_err(|e| classify(e, "Read retained consumption buckets"))?;
-        let mut rollup = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,limits,details,from_ms FROM consumption_tier5m WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
+        let mut rollup = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,limits,details,from_ms,credits,service_tier FROM consumption_tier5m WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
             .map_err(|e| classify(e, "Read retained consumption rollup"))?;
         for id in ids {
             let known: Option<bool> = identity
@@ -478,7 +535,8 @@ impl Storage {
 
 /// One window of `rows` (sorted by `from`) as at most `max_buckets` closed buckets
 /// ending at `through`, uncovered intervals included. The rollup tier adds the
-/// newest rate limits seen in each bucket.
+/// newest rate limits and credits seen in each bucket and the service tier of its
+/// newest row that has one.
 fn project(
     rows: &[Bucket],
     tier: Tier,
@@ -498,7 +556,9 @@ fn project(
             from: start,
             ..Bucket::default()
         };
-        let mut limits: Option<crate::runtime::consumption::RateLimits> = None;
+        let mut limits: Option<RateLimits> = None;
+        let mut credits: Option<Credits> = None;
+        let mut service_tier: Option<&str> = None;
         // Sorted, disjoint output intervals consume each retained row
         // at most once per window instead of rescanning for every bin.
         while let Some(row) = rows.get(cursor).filter(|row| row.from < end) {
@@ -527,8 +587,7 @@ fn project(
             if tier.width == ROLLUP.width
                 && let Some(held) = row.snapshot.as_deref()
             {
-                let held: crate::runtime::consumption::RateLimits =
-                    serde_json::from_str(held).map_err(|_| invalid())?;
+                let held: RateLimits = serde_json::from_str(held).map_err(|_| invalid())?;
                 if !held.valid() {
                     return Err(invalid());
                 }
@@ -538,6 +597,29 @@ fn project(
                 {
                     limits = Some(held);
                 }
+            }
+            if tier.account
+                && let Some(held) = row.credits.as_deref()
+            {
+                let held: Credits = serde_json::from_str(held).map_err(|_| invalid())?;
+                if !held.valid() {
+                    return Err(invalid());
+                }
+                if credits
+                    .as_ref()
+                    .is_none_or(|newest| held.observed_at_ms >= newest.observed_at_ms)
+                {
+                    credits = Some(held);
+                }
+            }
+            if tier.account
+                && let Some(held) = row.service_tier.as_deref()
+            {
+                if !valid_service_tier(held) {
+                    return Err(invalid());
+                }
+                // Rows are in time order, so the last one with a tier is the newest.
+                service_tier = Some(held);
             }
         }
         if aggregate
@@ -561,6 +643,18 @@ fn project(
                 .as_object_mut()
                 .ok_or_else(invalid)?
                 .insert("rateLimits".into(), json!(limits));
+        }
+        if let Some(credits) = credits {
+            projected
+                .as_object_mut()
+                .ok_or_else(invalid)?
+                .insert("credits".into(), json!(credits));
+        }
+        if let Some(tier) = service_tier {
+            projected
+                .as_object_mut()
+                .ok_or_else(invalid)?
+                .insert("serviceTier".into(), json!(tier));
         }
         buckets.push(projected);
         start = end;
@@ -648,12 +742,30 @@ fn record_sample(
     // nothing it could mistake for a successful observation.
     let rolled_from = now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS;
     let mut rolled = Bucket::read(connection, ROLLUP, id, rolled_from)?;
-    rolled.snapshot = newest_limits(
+    rolled.snapshot = newest(
         rolled.snapshot.as_deref(),
         next.as_ref()
             .and_then(|value| value.consumption.rate_limits.as_ref()),
         rolled_from,
+        |limits: &RateLimits| limits.observed_at_ms,
+        RateLimits::valid,
     )?;
+    rolled.credits = newest(
+        rolled.credits.as_deref(),
+        next.as_ref()
+            .and_then(|value| value.consumption.credits.as_ref()),
+        rolled_from,
+        |credits: &Credits| credits.observed_at_ms,
+        Credits::valid,
+    )?;
+    // The tier is the setting while tokens moved: an idle read never claims one.
+    if accepted.delta.as_ref().is_some_and(|delta| delta.changed)
+        && let Some(tier) = next
+            .as_ref()
+            .and_then(|value| value.consumption.service_tier.clone())
+    {
+        rolled.service_tier = Some(tier);
+    }
     if next.is_some() {
         rolled.sampled = Some(now);
     }
