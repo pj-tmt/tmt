@@ -1419,3 +1419,207 @@ fn ls_advice_repairs_tmts_own_older_name_without_a_clear() {
     let text = String::from_utf8_lossy(&human.stdout);
     assert!(!text.contains("agent name"), "{text}");
 }
+
+/// The hook's one fixed line when it could not verify its caller (#3208).
+const HOOK_UNAVAILABLE: &str = "tmt: lifecycle context unavailable; continuing without context.\n";
+
+/// A Claude lifecycle event as the provider runs it: `tmt __hook claude` is
+/// the child of a process named `claude`, which is the child of the pane
+/// shell (this test process). A link to `sh` named `claude` stands in (`ps`
+/// reports the name it was run by; a copied system binary would not run on
+/// macOS); `provider: false` runs the hook with no provider ancestor. The
+/// provider stays alive while `running` reads its state, then exits.
+fn hook(
+    fixture: &Fixture,
+    pane: Option<&str>,
+    provider: bool,
+    event: &str,
+    running: impl FnOnce(),
+) -> Output {
+    let tmt = fixture.command_in(pane, &[]);
+    let program = if provider {
+        let claude = fixture.root.join("bin/claude");
+        if !claude.exists() {
+            fs::create_dir_all(fixture.root.join("bin")).unwrap();
+            std::os::unix::fs::symlink("/bin/sh", &claude).unwrap();
+        }
+        claude
+    } else {
+        PathBuf::from("/bin/sh")
+    };
+    let hooked = fixture.root.join("hook");
+    for file in ["out", "err", "done", "release"] {
+        let _ = fs::remove_file(hooked.with_extension(file));
+    }
+    let input = serde_json::json!({"hook_event_name": event, "session_id": "s-1",
+        "source": "startup", "reason": "other", "cwd": "/src", "model": "claude-test"});
+    fs::write(hooked.with_extension("json"), input.to_string()).unwrap();
+    // The shell outlives the hook (no exec into it) until the test releases
+    // it, or at most 30 s if the test fails first.
+    let mut child = std::process::Command::new(program)
+        .args([
+            "-c",
+            "\"$0\" __hook claude < \"$1.json\" > \"$1.out\" 2> \"$1.err\"; touch \"$1.done\"
+             i=0; while [ ! -e \"$1.release\" ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done",
+        ])
+        .arg(tmt.get_program())
+        .arg(&hooked)
+        .env_clear()
+        .envs(
+            tmt.get_envs()
+                .filter_map(|(name, value)| value.map(|value| (name, value))),
+        )
+        .current_dir(&fixture.root)
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_until("the hook", || hooked.with_extension("done").exists());
+    running();
+    fs::write(hooked.with_extension("release"), "").unwrap();
+    let status = child.wait().unwrap();
+    Output {
+        status,
+        stdout: fs::read(hooked.with_extension("out")).unwrap(),
+        stderr: fs::read(hooked.with_extension("err")).unwrap(),
+    }
+}
+
+fn host_servers(fixture: &Fixture) -> i64 {
+    rusqlite::Connection::open(fixture.state().join("tmt.db"))
+        .unwrap()
+        .query_row("SELECT count(*) FROM host_servers", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// The hook refused: it still succeeds for the provider, says so in one
+/// fixed line and records no session.
+fn assert_hook_refused(fixture: &Fixture, output: &Output) {
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), HOOK_UNAVAILABLE);
+    let listed = fixture.json(&["ls", "--json"]);
+    if let Some(rows) = listed["identities"].as_array()
+        && let Some(row) = rows.iter().find(|row| row["name"] == "worker")
+    {
+        assert!(row["resume"]["session"].is_null(), "{row:#}");
+        assert!(row["runningDriver"].is_null(), "{row:#}");
+    }
+}
+
+#[test]
+fn a_provider_start_in_an_external_pane_records_its_session() {
+    register();
+    let fixture = Fixture::new("hook-admits");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let servers = host_servers(&fixture);
+
+    let mut listed = Value::Null;
+    let output = hook(&fixture, Some("f1"), true, "SessionStart", || {
+        listed = fixture.json(&["ls", "--json"]);
+    });
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let context: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        context["hookSpecificOutput"]["hookEventName"],
+        "SessionStart"
+    );
+    let row = worker(&listed);
+    assert_eq!(row["runningDriver"], "claude", "{row:#}");
+    assert_eq!(row["resume"]["session"], "s-1", "{row:#}");
+    // The server was the recorded one: nothing was added.
+    assert_eq!(host_servers(&fixture), servers);
+}
+
+#[test]
+fn a_restarted_external_server_refuses_the_hook_and_records_nothing() {
+    register();
+    let fixture = Fixture::new("hook-restarted");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let servers = host_servers(&fixture);
+    // The driver now names another live process for the same socket: a new
+    // incarnation that no bind recorded.
+    let parent = std::os::unix::process::parent_id();
+    fs::write(
+        fixture.root.join("driver/server"),
+        format!(r#"{{"ok":{{"server":{{"socket":"/tmp/fake.sock","pid":{parent},"startTime":"driver-says"}}}}}}"#),
+    )
+    .unwrap();
+
+    let output = hook(&fixture, Some("f1"), true, "SessionStart", || {});
+    assert_hook_refused(&fixture, &output);
+    assert_eq!(host_servers(&fixture), servers);
+}
+
+#[test]
+fn an_unrecorded_external_server_refuses_the_hook_without_recording_it() {
+    register();
+    let fixture = Fixture::new("hook-unrecorded");
+    fixture.approve();
+    // Storage exists, but no bind ever recorded this server.
+    fixture.json(&["ls", "--json"]);
+    assert_eq!(host_servers(&fixture), 0);
+
+    let output = hook(&fixture, Some("f1"), true, "SessionStart", || {});
+    assert_hook_refused(&fixture, &output);
+    assert_eq!(host_servers(&fixture), 0);
+}
+
+#[test]
+fn a_hook_without_its_provider_ancestor_or_with_a_stale_marker_refuses() {
+    register();
+    let fixture = Fixture::new("hook-evidence");
+    let record = fixture.approve();
+    bind(&fixture, record);
+
+    // No `claude` between the hook and the pane shell.
+    let output = hook(&fixture, Some("f1"), false, "SessionStart", || {});
+    assert_hook_refused(&fixture, &output);
+
+    // The pane's marker names another binding.
+    let marker = fixture.root.join("driver/marker");
+    let text = fs::read_to_string(&marker).unwrap();
+    let binding = serde_json::from_str::<Value>(&text).unwrap()["bindingId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fs::write(
+        &marker,
+        text.replace(&binding, "00000000-0000-4000-8000-000000000000"),
+    )
+    .unwrap();
+    let output = hook(&fixture, Some("f1"), true, "SessionStart", || {});
+    assert_hook_refused(&fixture, &output);
+}
+
+/// Before #3208 an unverified external caller fell back to tmux, found no
+/// pane and succeeded silently with nothing recorded.
+#[test]
+fn an_approved_driver_caller_that_cannot_be_verified_says_so() {
+    register();
+    let fixture = Fixture::new("hook-unverified");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    // The driver's pane shell is no ancestor of the hook.
+    fs::write(fixture.root.join("driver/shell"), "999999").unwrap();
+
+    let output = hook(&fixture, Some("f1"), true, "SessionStart", || {});
+    assert_hook_refused(&fixture, &output);
+}
+
+#[test]
+fn a_hook_outside_any_host_pane_stays_silent() {
+    register();
+    let fixture = Fixture::new("hook-no-host");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let _ = fs::remove_file(fixture.root.join("driver/calls"));
+
+    let output = hook(&fixture, None, true, "SessionStart", || {});
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    assert!(fixture.calls().is_empty(), "{:?}", fixture.calls());
+}

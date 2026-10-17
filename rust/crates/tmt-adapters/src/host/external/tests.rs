@@ -1070,4 +1070,32 @@ mod through_the_driver {
             Err(HostError::Evidence { .. })
         ));
     }
+
+    #[test]
+    fn a_verified_caller_with_driver_variables_is_tmux_only_inside_a_tmux_pane() {
+        use crate::host::Host;
+        let caller = |tmux: bool| crate::host::CallerEnvironment {
+            tmux: tmux.then(|| "/tmp/tmux-1/default,1,0".into()),
+            pane: tmux.then(|| "%1".into()),
+            process_id: u64::from(std::process::id()),
+            driver_env: [("FAKE_PANE_ID".to_owned(), "f1".into())].into(),
+        };
+        // No approved driver verifies the pane: inside tmux the tmux pane is
+        // the caller; outside it nothing is, and that is a refusal.
+        let inside = Host::for_verified_caller(
+            &caller(true),
+            crate::process::UnixCommandRunner,
+            Vec::new(),
+            &mut Ids::default(),
+        )
+        .unwrap();
+        assert_eq!(inside.primary, HostKind::Tmux);
+        let outside = Host::for_verified_caller(
+            &caller(false),
+            crate::process::UnixCommandRunner,
+            Vec::new(),
+            &mut Ids::default(),
+        );
+        assert!(matches!(outside, Err(HostError::Unavailable(_))));
+    }
 }

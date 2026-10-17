@@ -166,6 +166,25 @@ mod tests {
     }
 
     #[test]
+    fn recorded_servers_are_read_and_unrecorded_ones_refuse_without_a_row() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let recorded = storage.host_server_id(&herdr(41, "Tue 22:09"), 1).unwrap();
+        storage.close().unwrap();
+        let mut ids = RecordedHostServers::new(&database);
+        assert_eq!(ids.server_id(&herdr(41, "Tue 22:09")).unwrap(), recorded);
+        // A restart (same PID, another start) and another server are unrecorded.
+        assert!(ids.server_id(&herdr(41, "Tue 23:00")).is_err());
+        assert!(ids.server_id(&herdr(42, "Tue 22:09")).is_err());
+        let count: i64 = rusqlite::Connection::open(&database)
+            .unwrap()
+            .query_row("SELECT count(*) FROM host_servers", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
     fn only_hosts_without_their_own_store_are_recorded() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
