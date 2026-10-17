@@ -85,6 +85,8 @@ export class Live implements PageBinding {
     readonly signal?: AbortSignal,
     remote: RemoteClient | null = null,
     private sessionOwner?: LiveSessionOwner,
+    /** Chapter catch-up follows local admitted updates without selecting the cloud active page. */
+    private readonly purpose: 'page' | 'chapter' = 'page',
   ) {
     this.#remote = remote;
     this.#current = this.#startOpen();
@@ -342,7 +344,7 @@ export class Live implements PageBinding {
       this.#connection = open.connection = c;
       await c.ready;
       requireValue(this.#owns(open));
-      c.send('subscribe', { cursors: [] });
+      if (this.purpose === 'page') c.send('subscribe', { cursors: [] });
       this.#attempts = 0;
       ready = true;
       return c;

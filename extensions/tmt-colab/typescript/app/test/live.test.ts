@@ -261,6 +261,47 @@ it('tunnel disconnects and resyncs preserve the Session and Remote without reope
   }
 });
 
+it('a passive chapter admits local updates and reconnects without foreground Subscribe', async () => {
+  connections.length = 0;
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
+    undefined,
+    null,
+    undefined,
+    'chapter',
+  );
+  const views: string[] = [];
+  live.subscribe(
+    (view) => views.push(view.source),
+    () => {},
+  );
+  try {
+    expect((await live.snapshot()).source).toBe('verified');
+    let connection = connections.at(-1)!;
+    expect(connection.send).not.toHaveBeenCalled();
+    connection.publish({ source: 'A local update', title: 'Page' });
+    await vi.waitFor(() => expect(views).toContain('A local update'));
+    for (const reason of ['Sync disconnected', 'RESYNC_REQUIRED']) {
+      connection.failed(new Error(reason));
+      expect((await live.snapshot()).source).toBe('verified');
+      expect(connection.close).toHaveBeenCalledOnce();
+      connection = connections.at(-1)!;
+      expect(connection.send).not.toHaveBeenCalled();
+    }
+  } finally {
+    live.close();
+  }
+});
+
 it('exports admitted committed view/head and denies blocked, missing-key and closed bindings', async () => {
   const live = new Live(
     new URL('https://example.test/colab/'),
