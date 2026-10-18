@@ -197,6 +197,8 @@ fn parse_reply(bytes: &[u8]) -> Result<Value, HelperFailure> {
 
 /// Uses one waited child per bounded request. Helper bytes are embedded in this binary,
 /// never loaded from cwd. Package paths select the explicitly installed external tool.
+type ProgressCallback<'a> = dyn FnMut(&DeployPlan, deploy_run::DeployProgress) + Send + 'a;
+
 pub struct DeployFirestore<'a> {
     node: PathBuf,
     package: PathBuf,
@@ -207,6 +209,7 @@ pub struct DeployFirestore<'a> {
     steps: Vec<deploy_run::StepRecord>,
     composite_started: Option<Instant>,
     composite_progress: Option<Box<dyn FnMut(Duration, Duration) + Send + 'a>>,
+    progress: Option<Box<ProgressCallback<'a>>>,
 }
 impl<'a> DeployFirestore<'a> {
     /// Check compatibility without loading auth, reading credentials or contacting Google.
@@ -229,6 +232,7 @@ impl<'a> DeployFirestore<'a> {
             steps: Vec::new(),
             composite_started: None,
             composite_progress: None,
+            progress: None,
         };
         let capabilities = adapter
             .exchange(
@@ -252,6 +256,14 @@ impl<'a> DeployFirestore<'a> {
         progress: impl FnMut(Duration, Duration) + Send + 'a,
     ) -> Self {
         self.composite_progress = Some(Box::new(progress));
+        self
+    }
+    /// Local CLI display endpoint; it carries no provider or persistence authority.
+    pub fn with_progress(
+        mut self,
+        progress: impl FnMut(&DeployPlan, deploy_run::DeployProgress) + Send + 'a,
+    ) -> Self {
+        self.progress = Some(Box::new(progress));
         self
     }
     pub fn environment_names() -> [OsString; 3] {
@@ -458,6 +470,11 @@ impl<'a> DeployFirestore<'a> {
     }
 }
 impl DeployPort for DeployFirestore<'_> {
+    fn progress(&mut self, plan: &DeployPlan, event: deploy_run::DeployProgress) {
+        if let Some(progress) = &mut self.progress {
+            progress(plan, event);
+        }
+    }
     fn supports_hosting(&self) -> bool {
         true
     }
@@ -1009,6 +1026,7 @@ mod cause_tests {
                 package: "/unused".into(),
                 stop: &stop,
                 composite_progress: None,
+                progress: None,
                 composite_started: None,
                 hosting: None,
                 compressed: Default::default(),

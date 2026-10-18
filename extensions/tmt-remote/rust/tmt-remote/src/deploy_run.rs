@@ -653,8 +653,17 @@ impl StepCause {
     }
 }
 
+/// Local presentation only; never part of a plan or saved record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeployProgress {
+    Step(usize),
+    WaitingForIndexes,
+}
+
 /// The provider seam. Adapters implement it; fixtures fake it.
 pub trait DeployPort {
+    /// Optional presentation notification. It cannot change the run's outcome.
+    fn progress(&mut self, _plan: &DeployPlan, _event: DeployProgress) {}
     fn supports_hosting(&self) -> bool {
         false
     }
@@ -876,6 +885,9 @@ fn check_composites(
         let Some((first, _)) = building.first() else {
             return Ok(true);
         };
+        if round == 0 {
+            port.progress(plan, DeployProgress::WaitingForIndexes);
+        }
         match port.composite_check(round) {
             Ok(true) => {}
             Ok(false) => return Ok(false),
@@ -988,6 +1000,7 @@ fn advance(
     if let Some(checkpoint) = &record.run.as_ref().expect("begun").hosting {
         port.restore_hosting(checkpoint, &record.run.as_ref().expect("begun").steps);
     }
+    port.progress(plan, DeployProgress::Step(index));
     let observation = port.observe(plan, step);
     capture_checkpoint(record, port);
     let observed = match observation {
