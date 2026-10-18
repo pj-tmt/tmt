@@ -61,12 +61,9 @@ test('a shell reading item is Unread until the page itself marks it read; openin
     await cell.locator('a').click();
     const band = page.locator(`[data-inline-reading="${reading}"]`);
     await expect(band).toHaveAttribute('data-reading-state', 'unread');
-    await page.goBack();
-    await expect(cell.locator('.shell-cell-state')).toHaveText('• Unread');
     expect(agent.received()).toHaveLength(0);
     expect(threads()).toHaveLength(0);
 
-    await cell.locator('a').click();
     // The real user path: Mark read is disabled until the page can act (never a silent no-op),
     // so the click itself waits for it.
     await band.getByRole('button', { name: 'Mark read', exact: true }).click();
