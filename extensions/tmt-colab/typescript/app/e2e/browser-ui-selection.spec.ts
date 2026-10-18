@@ -227,9 +227,7 @@ for (const activation of ['Enter', 'click'] as const) {
     await expect(page.getByLabel('Chips add count')).toHaveText('1');
     await input.press('Escape');
     await expect(input).toHaveAttribute('aria-expanded', 'false');
-    await page
-      .getByRole('button', { name: 'Chips removal disables survivors off', exact: true })
-      .click();
+    await page.getByRole('button', { name: 'Chips lock survivors off', exact: true }).click();
     const alpha = page.getByRole('button', { name: 'Remove Alpha', exact: true });
     if (activation === 'Enter') await alpha.press('Enter');
     else await alpha.click();

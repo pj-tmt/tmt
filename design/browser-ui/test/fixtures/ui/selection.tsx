@@ -198,7 +198,7 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
         Chips unknown {uncertain ? 'on' : 'off'}
       </Button>
       <Button onClick={() => setDisableSurvivors(!disableSurvivors)}>
-        Chips removal disables survivors {disableSurvivors ? 'on' : 'off'}
+        Chips lock survivors {disableSurvivors ? 'on' : 'off'}
       </Button>
       {mounted && (
         <Chips
