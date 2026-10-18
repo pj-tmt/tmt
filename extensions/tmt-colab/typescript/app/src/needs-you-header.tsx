@@ -13,13 +13,16 @@ import type { NeedsYouCandidate } from './needs-you.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { text } from './strings.js';
+import { openModifiedPage, plainPageClick } from './page-link.js';
 
 /** Only disclosure/focus live here. Each page layer owns its pending state and navigation. */
 export function NeedsYouHeader({
   items,
+  href,
   onPick,
 }: {
   items: readonly NeedsYouCandidate[];
+  href(item: NeedsYouCandidate): string;
   onPick(item: NeedsYouCandidate): void;
 }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
@@ -32,6 +35,11 @@ export function NeedsYouHeader({
       report(false);
     }
   }, [items.length, report]);
+  function choose(item: NeedsYouCandidate) {
+    pending.current = item.id;
+    setOpen(false);
+    report(false);
+  }
   if (!items.length)
     return (
       <span className="needs-you-header needs-you-header-empty" aria-label={text.needsYouNothing}>
@@ -113,22 +121,51 @@ export function NeedsYouHeader({
                   <DropdownMenuGroup aria-label={label}>
                     {rows.map((item) => (
                       <DropdownMenuItem
+                        asChild
                         key={item.id}
                         data-needs-you-id={item.id}
                         data-needs-you-kind={item.kind}
                         onSelect={(event) => {
                           event.preventDefault();
-                          pending.current = item.id;
-                          setOpen(false);
-                          report(false);
+                          choose(item);
                         }}
                       >
-                        <span className="needs-you-header-row" title={item.title}>
-                          {item.title}
-                          <span className="needs-you-header-agent">
-                            {item.agent ? ` · ${item.agent}` : ''}
+                        <a
+                          href={href(item)}
+                          onClickCapture={(event) => {
+                            // Radix selection must not consume a modified anchor activation.
+                            if (!plainPageClick(event)) event.stopPropagation();
+                          }}
+                          onClick={(event) => {
+                            if (!plainPageClick(event)) return;
+                            event.preventDefault();
+                            choose(item);
+                          }}
+                          onKeyDownCapture={(event) => {
+                            if (openModifiedPage(event.nativeEvent, href(item))) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            } else if (
+                              (event.key === 'Enter' || event.key === ' ') &&
+                              !event.repeat &&
+                              !event.altKey &&
+                              !event.ctrlKey &&
+                              !event.metaKey &&
+                              !event.shiftKey
+                            ) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              choose(item);
+                            }
+                          }}
+                        >
+                          <span className="needs-you-header-row" title={item.title}>
+                            {item.title}
+                            <span className="needs-you-header-agent">
+                              {item.agent ? ` · ${item.agent}` : ''}
+                            </span>
                           </span>
-                        </span>
+                        </a>
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuGroup>

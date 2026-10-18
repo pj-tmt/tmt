@@ -317,3 +317,47 @@ test('archived readings keep cosmetic focus without Mark read or a notification'
   expect(await run(page, 'proof')).toEqual(before);
   expect(await run(page, 'discussionProof')).toHaveLength(0);
 });
+
+test('Needs-you entries are links and modified activation leaves this page unchanged', async ({
+  page,
+  context,
+}) => {
+  await mount(page, { sections: 2, group: true });
+  const before = await run(page, 'proof');
+  const threads = await run(page, 'discussionProof');
+  await page.getByRole('button', { name: 'Needs you: 3', exact: true }).click();
+  const menu = page.getByRole('menu');
+  const link = menu.getByRole('menuitem', { name: 'Two questions · Agent 1' });
+  await expect(link).toHaveJSProperty('tagName', 'A');
+  const href = await link.getAttribute('href');
+  expect(href).toContain('/pages/');
+  const target = new URL(href!, page.url()).href;
+  for (const options of [
+    { modifiers: ['ControlOrMeta'] },
+    { modifiers: ['Shift'] },
+    { button: 'middle' as const },
+  ] satisfies NonNullable<Parameters<typeof link.click>[0]>[]) {
+    const opened = context.waitForEvent('page');
+    await link.click(options);
+    const destination = await opened;
+    await expect(destination).toHaveURL(target);
+    await expect(menu).toBeVisible();
+    await destination.close();
+    await page.bringToFront();
+  }
+  for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter']) {
+    const opened = context.waitForEvent('page');
+    await link.press(key);
+    const destination = await opened;
+    await expect(destination).toHaveURL(target);
+    await expect(menu).toBeVisible();
+    await destination.close();
+    await page.bringToFront();
+  }
+  expect(await run(page, 'proof')).toEqual(before);
+  expect(await run(page, 'discussionProof')).toEqual(threads);
+  await link.press('Enter');
+  await expect(menu).toHaveCount(0);
+  await expect(page.locator('[data-question-group] button').first()).toBeFocused();
+  expect(await run(page, 'proof')).toEqual(before);
+});

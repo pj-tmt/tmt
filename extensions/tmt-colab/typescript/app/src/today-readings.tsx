@@ -1,3 +1,4 @@
+import { pageLinkKey } from './page-link.js';
 import { getRouteApi, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { HomeReadingDetails } from './reading-details.js';
@@ -23,7 +24,12 @@ export function TodayReadingLinks({
       <ul>
         {unread.slice(0, 3).map((reading) => (
           <li key={reading.id}>
-            <Link to="/pages/$pageId" params={{ pageId }} search={{ read: reading.id }}>
+            <Link
+              to="/pages/$pageId"
+              params={{ pageId }}
+              search={{ read: reading.id }}
+              onKeyDown={pageLinkKey}
+            >
               {reading.title}
             </Link>
             <span className="today-reading-reason">
@@ -35,6 +41,7 @@ export function TodayReadingLinks({
       {unread.length > 3 && (
         <Link
           className="today-readings-more"
+          onKeyDown={pageLinkKey}
           to="/pages/$pageId"
           params={{ pageId }}
           search={{ read: unread[0].id }}

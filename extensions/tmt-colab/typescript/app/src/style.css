@@ -147,6 +147,10 @@ body:has(.needs-you-header-menu) {
 .needs-you-header-agent {
   color: var(--tmt-ui-color-secondary);
 }
+.needs-you-header-menu a[role='menuitem'] {
+  color: inherit;
+  text-decoration: none;
+}
 .needs-you-header-row {
   display: block;
   min-width: 0;

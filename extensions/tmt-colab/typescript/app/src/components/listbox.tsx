@@ -11,11 +11,14 @@ import {
   type Ref,
 } from 'react';
 import './listbox.css';
+import { openModifiedPage, plainPageClick } from '../page-link.js';
 
 export interface ListboxOption<Value extends string> {
   value: Value;
   label: string;
   disabled?: boolean;
+  /** Navigation results only; selection suggestions remain buttons. */
+  href?: string;
 }
 
 function lastEnabledIndex<Value extends string>(options: readonly ListboxOption<Value>[]) {
@@ -204,6 +207,12 @@ export function Listbox<Value extends string>({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
+    const active = open && focusIndex >= 0 ? options[focusIndex] : undefined;
+    if (active?.href && openModifiedPage(event.nativeEvent, active.href)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (
       presentation === 'results' &&
       (!event.isTrusted ||
@@ -277,28 +286,44 @@ export function Listbox<Value extends string>({
       aria-labelledby={labelId}
       hidden={!open}
     >
-      {options.map((option, index) => (
-        <button
-          type="button"
-          role="option"
-          className="tmt-listbox-option"
-          key={option.value}
-          id={optionId(index)}
-          aria-selected={presentation === 'results' ? focusIndex === index : option.value === value}
-          data-active={focusIndex === index}
-          disabled={option.disabled}
-          tabIndex={-1}
-          onPointerMove={() => setActiveValue(option.value)}
-          onPointerDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={(event) => {
-            if (event.isTrusted) choose(option);
-          }}
-        >
-          {renderOption ? renderOption(option) : option.label}
-        </button>
-      ))}
+      {options.map((option, index) => {
+        const Element = option.href ? 'a' : 'button';
+        return (
+          <Element
+            {...(option.href
+              ? { href: option.disabled ? undefined : option.href }
+              : { type: 'button' as const })}
+            role="option"
+            className="tmt-listbox-option"
+            key={option.value}
+            id={optionId(index)}
+            aria-selected={
+              presentation === 'results' ? focusIndex === index : option.value === value
+            }
+            data-active={focusIndex === index}
+            disabled={option.href ? undefined : option.disabled}
+            aria-disabled={option.href ? option.disabled : undefined}
+            tabIndex={-1}
+            onPointerMove={() => setActiveValue(option.value)}
+            onPointerDown={(event) => {
+              if (!option.href || plainPageClick(event)) event.preventDefault();
+            }}
+            onClick={(event) => {
+              if (!event.isTrusted) {
+                if (option.href) event.preventDefault();
+                return;
+              }
+              if (option.href) {
+                if (!plainPageClick(event)) return;
+                event.preventDefault();
+              }
+              choose(option);
+            }}
+          >
+            {renderOption ? renderOption(option) : option.label}
+          </Element>
+        );
+      })}
     </div>
   );
 

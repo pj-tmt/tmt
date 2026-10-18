@@ -792,6 +792,11 @@ function Shell() {
         routeKey={pathname}
         allowed={isPage || isHome}
         navigate={(pageId) => router.navigate({ to: '/pages/$pageId', params: { pageId } })}
+        pageHref={(pageId) =>
+          router.history.createHref(
+            router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,
+          )
+        }
       >
         {!isPage && (
           <AppHeader
@@ -1545,6 +1550,15 @@ function Page() {
           <div className="page-header-meta">
             {questionLayer.ready && reviewLayer.ready && readingLayer.ready && (
               <NeedsYouHeader
+                href={(item) =>
+                  router.history.createHref(
+                    router.buildLocation({
+                      to: '/pages/$pageId',
+                      params: { pageId: snapshot.id },
+                      ...(item.kind === 'reading' ? { search: { read: item.id } } : {}),
+                    }).publicHref,
+                  )
+                }
                 items={pendingNeedsYou([
                   ...proposalLayer.navigation,
                   ...readingLayer.items

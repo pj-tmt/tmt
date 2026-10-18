@@ -46,6 +46,7 @@ export function QuickSwitcherHost({
   routeKey,
   allowed,
   navigate,
+  pageHref,
   children,
 }: {
   transport: PageTransport;
@@ -54,6 +55,7 @@ export function QuickSwitcherHost({
   routeKey: string;
   allowed: boolean;
   navigate(pageId: string): Promise<unknown>;
+  pageHref(pageId: string): string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -165,7 +167,11 @@ export function QuickSwitcherHost({
           <Listbox
             label={t.results}
             presentation="results"
-            options={results.map(({ page }) => ({ value: page.id, label: pageTitle(page) }))}
+            options={results.map(({ page }) => ({
+              value: page.id,
+              label: pageTitle(page),
+              href: pageHref(page.id),
+            }))}
             value=""
             onChange={choose}
             renderOption={({ value }) => {
