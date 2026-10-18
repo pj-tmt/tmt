@@ -3557,8 +3557,9 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     for index in 0..3 {
         assert_eq!(sharing["prerequisites"][index]["state"], "enabled");
     }
-    for index in 3..5 {
-        assert_eq!(sharing["prerequisites"][index]["state"], "unknown");
+    assert_eq!(sharing["prerequisites"][3]["state"], "unknown");
+    for index in 4..6 {
+        assert_eq!(sharing["prerequisites"][index]["state"], "enabled");
     }
     assert!(!layers.to_string().contains("secret-owner"));
     assert!(!layers.to_string().contains("demo-remote-1"));
@@ -3567,6 +3568,34 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
         ["running", "origin", "path", "signIn"]
     );
     assert_eq!(fs::read(&path).unwrap(), snapshot);
+    // The same private snapshot can satisfy the guarded requirements without quota I/O.
+    record.run.as_mut().unwrap().steps.insert(
+        2,
+        StepRecord {
+            cause: None,
+            id: format!("composite-index:log:{}", "b".repeat(64)),
+            state: StepState::Done,
+        },
+    );
+    writer.persist(&record).unwrap();
+    let complete_snapshot = fs::read(&path).unwrap();
+    let complete_layers =
+        status_answer(&pilot, &["status", "--layers", "--json"])["firestoreLayers"].clone();
+    assert_eq!(complete_layers[0]["state"], "enabled");
+    let note = "Page sharing is enabled. Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests.";
+    let human = pilot
+        .command()
+        .args(["status", "--layers"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    // Shared CLI style omits only the final period of one-line outcomes.
+    assert!(
+        String::from_utf8_lossy(&human.stdout).contains(note.trim_end_matches('.')),
+        "{}",
+        String::from_utf8_lossy(&human.stdout)
+    );
+    assert_eq!(fs::read(&path).unwrap(), complete_snapshot);
     // Same running process, new atomic publication, no cached allow.
     record.run.as_mut().unwrap().state = RunState::Partial;
     record.run.as_mut().unwrap().steps.last_mut().unwrap().state = StepState::Unknown;
@@ -3587,6 +3616,27 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     );
     assert_eq!(stopped["firestoreLayers"], partial["firestoreLayers"]);
     assert_eq!(fs::read(&path).unwrap(), snapshot);
+    record.run.as_mut().unwrap().state = RunState::Complete;
+    record.run.as_mut().unwrap().steps.last_mut().unwrap().state = StepState::Done;
+    writer.persist(&record).unwrap();
+    let complete_snapshot = fs::read(&path).unwrap();
+    assert_eq!(
+        status_answer(&pilot, &["status", "--layers", "--json"])["firestoreLayers"],
+        complete_layers
+    );
+    let human = pilot
+        .command()
+        .args(["status", "--layers"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    // Shared CLI style omits only the final period of one-line outcomes.
+    assert!(
+        String::from_utf8_lossy(&human.stdout).contains(note.trim_end_matches('.')),
+        "{}",
+        String::from_utf8_lossy(&human.stdout)
+    );
+    assert_eq!(fs::read(&path).unwrap(), complete_snapshot);
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {

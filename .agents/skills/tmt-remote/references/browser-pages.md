@@ -132,7 +132,8 @@ device name, never an unsent draft. The capture index records the served state a
 The Firestore section is read-only: it explicitly requests the signed settings projection,
 sharing status's recorded layer evidence and dated published limits. Unsupported layers use
 one not-available line, even when their other prerequisites are off or unknown. The page
-never displays reason codes, measured usage or an invented quota warning. Native Details
+never displays reason codes, measured usage or an invented quota warning; ready sharing includes the
+[contract's fixed limits note](../../../../contracts/remote-channel-v1.md#local-cli-discovery). Native Details
 contains the wrapping budget table and its date, Pacific reset and local guard thresholds.
 An optional observation failure clears stale evidence without overwriting management access,
 original outcome or drafts. Fixtures cover every prerequisite; capture labels distinguish

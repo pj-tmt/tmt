@@ -1231,6 +1231,7 @@ function renderFirestore(target, access, view) {
 				list.append(row);
 			}
 			group.append(list);
+			if (layer.layer === "sharing" && layer.state === "enabled") group.append(node("p", "Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."));
 		}
 		target.append(group);
 	}

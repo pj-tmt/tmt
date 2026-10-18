@@ -201,7 +201,7 @@ fn layers_are_checked_independently() {
     );
     assert_eq!(
         changed(on(|e| e.tier = FirestoreTier::Unknown)),
-        ["sharing", "operations"]
+        ["operations"]
     );
     // Device operations and attachments are not offered by this release whatever is recorded.
     for (label, evidence) in scenarios() {
@@ -462,7 +462,7 @@ fn the_control_socket_answers_layers_and_leaves_every_other_projection_alone() {
 }
 
 #[test]
-fn recorded_prerequisites_never_guess_unfinished_steps_or_tier_and_quota() {
+fn recorded_prerequisites_never_guess_unfinished_steps_or_billing_and_usage() {
     use tmt_remote::deploy_run::{
         DeployBinding, DeployFault, DeployOwnerAction, DeployRecord, Run, RunState, StepRecord,
         StepState,
@@ -674,6 +674,43 @@ fn recorded_index(record: &tmt_remote::deploy_run::DeployRecord) -> Value {
 }
 
 #[test]
+fn complete_sharing_satisfies_guard_requirements_without_inventing_observations() {
+    use tmt_remote::deploy_run::{RunState, StepState};
+    let mut record = index_record(&[StepState::Done, StepState::Adopted]);
+    record.run.as_mut().unwrap().state = RunState::Complete;
+    let before = serde_json::to_vec(&record).unwrap();
+    let evidence = tmt_remote::readiness::from_record(&record).unwrap();
+    assert_eq!(evidence.tier, FirestoreTier::Unknown);
+    assert_eq!(evidence.quota, Observed::Unknown);
+    let value = projected(evidence);
+    assert_eq!(value[0]["state"], "enabled");
+    for item in &value[0]["prerequisites"].as_array().unwrap()[4..] {
+        assert_eq!(item["state"], "enabled");
+        assert_eq!(item.as_object().unwrap().len(), 2);
+    }
+    assert_eq!(value[1]["prerequisites"][0]["state"], "unknown");
+    assert_eq!(value[2]["prerequisites"][3]["state"], "unknown");
+    assert_eq!(
+        human_lines(&value, &LAYERS)[0].what,
+        "Page sharing is enabled. Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."
+    );
+    assert_eq!(serde_json::to_vec(&record).unwrap(), before);
+    for id in ["database", "sign-in:anonymous", "rules", "verify"] {
+        let mut missing = record.clone();
+        missing.run.as_mut().unwrap().steps.retain(|s| s.id != id);
+        assert_eq!(
+            projected(tmt_remote::readiness::from_record(&missing).unwrap())[0]["state"],
+            "unknown",
+            "missing {id}"
+        );
+    }
+    assert_eq!(
+        projected(FirestoreEvidence::unknown())[0]["state"],
+        "unknown"
+    );
+}
+
+#[test]
 fn recorded_indexes_report_four_facts_without_promoting_mixed_evidence() {
     use tmt_remote::deploy_run::{DeployFault, StepState as S};
     let enabled = json!({"item":"indexes","state":"enabled"});
@@ -715,8 +752,8 @@ fn legacy_complete_indexes_are_unknown_and_other_layers_are_unchanged() {
     assert_eq!(recorded_index(&verified)["state"], "enabled");
     assert_eq!(legacy_view[1], verified_view[1]);
     assert_eq!(legacy_view[2], verified_view[2]);
-    assert_eq!(legacy_view[0]["state"], "unknown"); // tier and quota stay unknown even with indexes
-    assert_eq!(verified_view[0]["state"], "unknown");
+    assert_eq!(legacy_view[0]["state"], "unknown");
+    assert_eq!(verified_view[0]["state"], "enabled");
     assert_eq!(
         legacy_view[0]["prerequisites"][2],
         verified_view[0]["prerequisites"][2]

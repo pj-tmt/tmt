@@ -919,8 +919,19 @@ entry per layer, in the order `sharing` (page sharing and collaboration),
 `indexes`, `plan-tier`, `quota`; operations has `plan-tier`, `support`; attachments has `support`, `project`, `rules`, `quota`.
 Reasons per item are `project`: `not-configured`, `access-lost`; `sign-in`: `provider-disabled`, `permission-missing`;
 `rules`: `not-deployed`, `out-of-date`, `partial`; `indexes`: `building`, `not-ready`; `plan-tier`: `paid-plan-required`; `quota`: `headroom-low`, `exhausted`
-(only from a recorded refusal); `support`: `not-implemented`. An `unknown` prerequisite has the reason `not-checked` and
-nothing is guessed. `next` is only `tmt remote deploy firestore`.
+(only from a recorded refusal); `support`: `not-implemented`. An `unknown` prerequisite has the reason `not-checked`;
+missing factual evidence is never guessed. `next` is only `tmt remote deploy firestore`.
+Tier and quota rows describe requirement satisfaction, not observed billing or project-wide headroom.
+A layer requiring no paid plan has `plan-tier: enabled` without an observed tier. The shipped sharing
+layer has `quota: enabled` without a quota observation because its browser and native paths require the
+[Free-plan budget guard](#free-plan-budget-guard) for their own modeled usage. An explicitly recorded
+quota refusal retains its fixed reason; no local counter is presented as aggregate project usage.
+This policy does not advertise a guard for unimplemented attachments or satisfy a paid-required layer.
+Ready sharing's CLI human line and SDK section include the fixed note: "Each client stops itself before the
+free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."
+The CLI follows the shared style's final-period omission; the SDK retains the period. The note is
+presentation, not a new wire member or reason. Exhaustion and an unavailable guard remain use-time refusals; readiness
+never promises the next request will succeed.
 The sharing index prerequisite reads the authorized run's digest-derived `composite-index` steps, using the
 same canonical index set as composition, authorization and verification; it makes no provider call.
 Recorded Done/Adopted for every required composite means `enabled`; Pending or a recorded failed/refused
@@ -2692,10 +2703,12 @@ draft identity and saves run outcomes under a separate writer lock, publishing c
 by atomic rename. Readers never take that lock, so status need not wait for a deployment run.
 Running `status --layers` reads recorded project, sign-in, verified Rules and composite-index outcomes without
 provider I/O; damaged records report unknown evidence. An incomplete Rules attempt withdraws
-the old binding and reports partial Rules. Plan tier and quota stay unknown: the machine
-cannot observe them, and layer-1 traffic goes from the browser to Firestore, so sharing stays
-unknown even after a complete recorded deployment. Enabling that projection needs a later
-readiness decision. A checked emulator artifact is byte-bound to the real deployment output;
+the old binding and reports partial Rules. The [status-layer requirement policy](#local-cli-discovery)
+satisfies sharing's tier by its no-paid-plan design and quota by the required own-modeled-share
+usage guard, without observing billing or project-wide headroom. A Complete record with verified
+project, sign-in, Rules and composite-index evidence therefore reports sharing enabled with the limits
+note; missing/damaged factual prerequisites retain their existing unknown/refusal meaning. Status adds
+no provider call, runtime quota check, scope or poller. A checked emulator artifact is byte-bound to the real deployment output;
 it proves Rules behavior, not provisioning or quota. Installed declarations arrive only through
 fixed public extension commands dispatched by the supplied TMT executable, as bounded strict
 JSON containing exact declaration/artifact UTF-8 bytes and the declaration digest. The
