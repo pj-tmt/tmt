@@ -32,7 +32,7 @@ button {
 }
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.tmt-ui-tab):not(
     .question-chip
-  ):not(.today-control):not(:disabled):hover,
+  ):not(:disabled):hover,
 a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }

@@ -5,7 +5,7 @@ import type { PageSummary, SpaceHome } from './transport.js';
 
 const rootRoute = getRouteApi('__root__');
 
-/** The space's pages as Today and All pages show them: a missing title is filled by a bounded read
+/** The space's pages as the home list shows them: a missing title is filled by a bounded read
  * of the page itself (`hints`, enqueued by each title link), never by author-supplied text. */
 export function useHomeSpace(space: SpaceHome): {
   pages: readonly PageSummary[];

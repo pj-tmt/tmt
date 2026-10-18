@@ -46,9 +46,7 @@ function fixture() {
     thread = { ...thread!, resolved, status: { resolved, actor: 'person' } } as ThreadView;
     return { changed: true, status: thread.status, warnings: [] };
   });
-  const working = vi.fn();
   const actions = new ReadingActions({
-    working,
     thread: () => thread,
     selector: () => ({ type: 'TextQuoteSelector', exact: 'Hosting', prefix: '', suffix: '' }),
     threadHolding: () => thread,
@@ -65,7 +63,6 @@ function fixture() {
     create,
     change,
     outcomes,
-    working,
     stale: () => {
       current = false;
     },
@@ -104,23 +101,6 @@ it('a page transition after the comment lands cannot resolve or notify in the ol
   });
   await f.actions.mark(reading);
   expect(f.create).toHaveBeenCalledTimes(1);
-  expect(f.change).not.toHaveBeenCalled();
-  expect(f.outcomes.some((outcome) => outcome.state === 'settled')).toBe(false);
-});
-
-it('joins action lifetime even when its final presentation is fenced by a page transition', async () => {
-  const f = fixture();
-  const record = f.create.getMockImplementation()!;
-  f.create.mockImplementationOnce(async (body) => {
-    const context = await record(body);
-    f.stale();
-    return context;
-  });
-  await f.actions.mark(reading);
-  expect(f.working.mock.calls).toEqual([
-    [reading.id, true],
-    [reading.id, false],
-  ]);
   expect(f.change).not.toHaveBeenCalled();
   expect(f.outcomes.some((outcome) => outcome.state === 'settled')).toBe(false);
 });

@@ -539,58 +539,24 @@ is added.
   `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive`, `delete` and
   `label` (`cli_labels.rs`).
 
-## Today and the page list
+## The page list (space home)
 
-The home route `/` is the page list (below). Today is the `/today` route, reached from `HomeNav`
-until the shell page replaces it (`today.tsx`; `today-model.ts` is pure: waiting pages first, then the
-ten most recently updated, the older rest folded into one-line rows, counts over active pages
-and the viewer-clock greeting). Both views read the loader's `spaceHome()` pages through
-`useHomeSpace` (`home-space.ts`), which fills a missing title by the bounded hint read, and share
-`HomeNav` (Today, Waiting, All pages; the ⌘K search is the header's control). Waiting and the metric
-jumps are in-page scrolls: the mounted history keeps its route in the location hash and drops
-search, so a URL anchor cannot carry them. `summary_pending.rs` derives the shared pending target
-IDs (proposals first, readings, answer groups, reviews) from the admitted owner fold and
-`page_check::summary`'s static-source quote associations (200 ms projection bound), without executing authored code or
-trusting device labels. The shared needs-you vectors pin native/browser parity. Today sums
-`needsYou` items and shows chapter counts; missing summaries make the total a lower bound or
-`Checking pages…`, never a false zero. Returning through the existing Home loader or reloading
-reads again; no new polling loop. Per-item details remain #3578. `/all`, the list's former route,
-redirects to `/` with its search (`beforeLoad`), so an old link or history entry still lands on it.
+The home route `/` is the page list (`home.tsx`); there is no Today view. `/all`, the list's former
+route, redirects to `/` with its search (`beforeLoad`), so an old link or history entry still lands
+on it. The list reads the loader's `spaceHome()` pages through `useHomeSpace` (`home-space.ts`),
+which fills a missing title by the bounded hint read; the ⌘K search is the header's control.
+`summary_pending.rs` derives the shared pending target IDs (proposals first, readings, answer
+groups, reviews) from the admitted owner fold and `page_check::summary`'s static-source quote
+associations (200 ms projection bound), without executing authored code or trusting device labels.
+The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
+zero. Returning through the existing Home loader or reloading reads again; no new polling loop.
 
-A chapter opened from Today (`chapter.ts`, `chapter-layer.tsx`, `chapter.css`) keeps the URL
-`/pages/<id>`; how it is presented is history state, `{chapter: {scroll, full?}}` (read through
-`chapterOf`, never trusted as typed): a right panel (`min(560px, 60%)`) over a held, full-width
-Today at 900 px or wider, the full page with `← Today` below that or after `Open full page →`. A
-direct visit has no state and is the plain page, so the page code is unchanged except that its
-Escape handler claims the key only when it left something (annotation, chat, selection). The page
-keeps the window scroll: Today is `position: fixed`, shifted by the saved offset and clipped by
-the panel, and `Shell` shows the chrome from the page the outlet shows (the state is kept while it
-leaves, so a transition's old and new views are whole). `useOpenChapter()` is that read-only signal
-(`{pageId, mode, chapter}` or nothing) for anything on Today; the held copy of Today (`TodayView`'s
-`held`) is the only Today that is mounted while a chapter is open. Open, switch (replace), Close, Esc,
-outside click, `← Today` and Back all end at the same chapter, focused, at the offset it was left
-at (`prepareToday` before the router's own reset, `finishReturn` on `onRendered`). One View
-Transition per open and close, through the router's `viewTransition`; it is not started under
-`prefers-reduced-motion` or without `document.startViewTransition`.
+`page-layers.ts` composes the existing question/review/reading owners for the page; the action
+owners report lifetime separately from stale-outcome presentation fences.
 
-`mounted-pages.ts` owns leases on one `Live`/Writer per mounted page; foreground
-admission still precedes borrowing. Passive chapters omit Subscribe, while a
-foreground borrower promotes that same binding. Last release joins connection,
-view and observation cleanup; a blocked or replaced binding is retired before
-reuse. `page-layers.ts` composes the existing question/review/reading owners for
-both surfaces. `passage-drafts.tsx` keeps draft-only state scoped to transport and
-page across frame/route retirement, without persisting or publishing it.
-`chapter-passages.ts` serializes three visible chapter acquisitions and joined
-replacement. `chapter-surfaces.tsx` holds parent controls above Today route
-replacement, retiring frames before parking a busy parent. `chapter-surface.tsx`
-selects and clips a passage and renders the shared controls below it; the existing
-action owners report lifetime separately from stale-outcome presentation fences.
-The [live-passage contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#live-chapter-passages-3540)
-owns selection, bounds and publication behavior.
-
-The list is the home route `/` ("All pages" in `HomeNav`). `home.tsx` renders it from the same pages;
+`home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`; the router merges its result
+(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`, `needs`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `label:` and `by:`) holds only a draft until Enter
@@ -598,7 +564,10 @@ applies it, and a chip click or token removal applies at once. A row's `summary`
 Page summary section; `bootstrap.ts` validates it and holds `AUTHOR_BYTES` and
 `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
 `◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
-summary shows only what the list already knows, with no placeholder. `labels.ts` is pure: label grammar (the owner
+summary shows only what the list already knows, with no placeholder. The `Needs you N` chip beside
+the label chips sets `needs=true` in that search and keeps the pages whose summary is `waiting`
+(`needsYou > 0`; an unknown summary is never counted); it combines with the label, creator and
+text filters, and the list's clear action removes it. `labels.ts` is pure: label grammar (the owner
 store's), counts, filtering and sorting, the whole-set `withLabel` change and the
 `relabel` planner that rename and delete use over every page carrying the name, archived
 included, whatever the list shows. `applyLabelChanges` sends `LABEL_REQUEST_PAGES`

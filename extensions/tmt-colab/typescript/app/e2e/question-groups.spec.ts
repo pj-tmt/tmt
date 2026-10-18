@@ -719,33 +719,3 @@ test('question collision placement preserves the fixed header controls', async (
   await expect(page.getByRole('menu')).toBeVisible();
   await page.getByRole('menu').press('Escape');
 });
-
-test('answer choices, text and a deliberately removed recipient survive passage unmount without sending', async ({
-  page,
-}) => {
-  const group = await mount(page);
-  const tabs = group.getByRole('tab');
-  await activeCard(page).getByLabel('Change it', { exact: true }).check();
-  await tabs.nth(1).click();
-  await activeCard(page)
-    .getByLabel('Your answer', { exact: true })
-    .fill('Keep the second answer draft.');
-  await group.getByRole('button', { name: 'Remove @Agent 1', exact: true }).click();
-  await page.evaluate(() => {
-    location.hash = '/pages/notes';
-  });
-  await expect(page.frameLocator('#ask-page-fixture iframe').locator('#other-page')).toBeVisible();
-  await page.evaluate(() => {
-    location.hash = '/pages/welcome';
-  });
-  await expect(group).not.toHaveAttribute('data-detached');
-  await tabs.nth(0).click();
-  await expect(activeCard(page).getByLabel('Change it', { exact: true })).toBeChecked();
-  await tabs.nth(1).click();
-  await expect(activeCard(page).getByLabel('Your answer', { exact: true })).toHaveValue(
-    'Keep the second answer draft.',
-  );
-  await expect(group.getByRole('button', { name: 'Remove @Agent 1', exact: true })).toHaveCount(0);
-  expect(await run(page, 'discussionProof')).toHaveLength(0);
-  expect((await run(page, 'proof')).sends).toHaveLength(0);
-});

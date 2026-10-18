@@ -92,26 +92,6 @@ Picking a row finishes menu dismissal before scrolling/opening the existing targ
 focusing its first action. Read-only targets retain content focus and navigation, never writes.
 The [contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#page-summary-2588) owns
 the shared pending-state and count rules; header state is not another read or publication owner.
-Today's `today-readings.tsx` shows unread reading links directly below a chapter's Needs-you band:
-three title links and muted agent/reason lines, then `+N more` to the first unread passage. The
-comment count follows the list. The existing owner reading hint only scrolls/highlights, never
-marks read or notifies. `reading-details.ts` validates a complete cached result and owns one
-cancellable Home-generation queue over the first 20 displayed chapters with known positive
-counts. Other chapters retain their count; unknown details show no list or false empty state.
-Mounted transport serializes reads across generations and fences replaced sessions. Hosted/member
-adapters expose no details port. The [chapter-details contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-chapter-details-3578)
-owns result and response bounds; this adds no polling, Subscribe or active-page touch.
-Owner/paired mounted Today also shows a live most-needed passage below the band/list,
-with a 16px gap and no card frame or shadow. `chapter-surfaces.tsx` keeps the parent
-action owner above route replacement; `chapter-passages.ts` bounds visibility and
-joined replacement, and `chapter-surface.tsx` uses the page's shared layers. The
-viewport hard-clips at 420px (320px narrow); parent controls stay below it. Kicker
-copy is `Please confirm`, `Please answer`, `Please read`, `Latest reply · agent · age`
-or `Start of page`. A completed passage remains until explicit `Next ›`; only a
-clipped passage gets `Continue on the page →`. The
-[live-passage contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#live-chapter-passages-3540)
-owns lifecycle and admission bounds. These controls do not turn descriptor links
-into actions or add capabilities to hosted/member adapters.
 
 The page index uses leaf List/Row presentation with newest-update-first ordering,
 then displayed title and page ID for ties. Active titles are links; archived titles

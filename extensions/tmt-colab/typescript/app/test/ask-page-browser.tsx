@@ -4,7 +4,6 @@ import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import { createRoot, type Root } from 'react-dom/client';
 import { StrictMode } from 'react';
-import { ChapterSurfaces } from '../src/chapter-surfaces.js';
 import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
@@ -70,11 +69,6 @@ let preparing: Promise<void> | undefined;
 let finishDirectory: (() => void) | undefined;
 let failNextStatus = false;
 let releaseStatusNotice: (() => void) | undefined;
-let chapterAcquisitions = 0;
-let chapterReleases = 0;
-export function chapterProof() {
-  return { acquisitions: chapterAcquisitions, releases: chapterReleases };
-}
 export function finishStatusNotice() {
   releaseStatusNotice?.();
   releaseStatusNotice = undefined;
@@ -129,9 +123,6 @@ function sessionDrafts(mode: 'session' | 'failing', wait?: Promise<void>): Draft
 }
 export async function mount(
   options: {
-    /** Render the real Today route with its mounted-only chapter acquisition port. */
-    todayPassages?: boolean;
-    refuseChapter?: boolean;
     creator?: boolean;
     /** Comment-capable binding without the independent Ask facade. */
     commentOnly?: boolean;
@@ -177,12 +168,10 @@ export async function mount(
   resumeAttachmentUploads();
   finishStatusNotice();
   finishQuestionDirectory();
-  chapterAcquisitions = 0;
-  chapterReleases = 0;
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  location.hash = options.todayPassages ? '/today' : '/pages/welcome';
+  location.hash = '/pages/welcome';
   const host = document.createElement('div');
   host.id = 'ask-page-fixture';
   document.body.append(host);
@@ -772,16 +761,7 @@ export async function mount(
     async spaceHome() {
       return {
         title: 'Fixture space',
-        pages: options.todayPassages
-          ? [
-              {
-                id: id(1),
-                title: 'Chapter fixture',
-                sharing: 'private',
-                summary: { comments: 0, waiting: true, needsYou: 2 },
-              },
-            ]
-          : [],
+        pages: [],
       };
     },
     async page(pageId) {
@@ -801,22 +781,7 @@ export async function mount(
       };
     },
   };
-  if (options.todayPassages)
-    transport.chapter = async (pageId) => {
-      chapterAcquisitions++;
-      if (options.refuseChapter) throw new Error('Chapter refused');
-      return {
-        snapshot: await transport.page(pageId),
-        async release() {
-          chapterReleases++;
-        },
-      };
-    };
-  const app = (
-    <ChapterSurfaces transport={transport}>
-      <RouterProvider router={createAppRouter(transport)} />
-    </ChapterSurfaces>
-  );
+  const app = <RouterProvider router={createAppRouter(transport)} />;
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }
 /** The local device loses owner-member provenance (a non-owner member). */

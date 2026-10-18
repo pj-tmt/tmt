@@ -55,17 +55,3 @@ export function focusNeedsYouTarget(target: HTMLElement | undefined): boolean {
   (action ?? target).focus({ preventScroll: true });
   return true;
 }
-
-/** Proposals share their count with the header and Today, but chapter previews offer no actions. */
-export function proposalNeedsYou(threads: readonly ThreadView[]): NeedsYouCandidate[] {
-  return threads
-    .filter((thread) => thread.proposal && !thread.deleted)
-    .map((thread) => ({
-      kind: 'proposal',
-      state:
-        !thread.resolved && (!thread.decision || thread.decision.deleted) ? 'waiting' : 'settled',
-      id: thread.proposal!.proposalId,
-      title: thread.proposal!.title,
-      agent: thread.proposal!.proposer.label,
-    }));
-}

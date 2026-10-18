@@ -542,22 +542,3 @@ test('a page with no Ask facade lets a reader confirm with the comment staying o
     'Confirmed “Section 1”\nPage: Live shared page',
   );
 });
-
-test('an unsent review note survives its passage unmount without recording or notifying', async ({
-  page,
-}) => {
-  const card = await mount(page);
-  await card.getByRole('button', { name: 'Add a note', exact: true }).click();
-  await card.getByRole('textbox').fill('Keep this unsent confirmation note.');
-  await page.evaluate(() => {
-    location.hash = '/pages/notes';
-  });
-  await expect(frame(page).locator('#other-page')).toBeVisible();
-  await page.evaluate(() => {
-    location.hash = '/pages/welcome';
-  });
-  await expect(page.locator('[data-inline-review]').first()).not.toHaveAttribute('data-detached');
-  await expect(card.getByRole('textbox')).toHaveValue('Keep this unsent confirmation note.');
-  expect(await sectionThread(page)).toHaveLength(0);
-  expect((await run(page, 'proof')).actions).toEqual([]);
-});

@@ -13,17 +13,12 @@ export function useInlineSlots({
   state,
   source,
   identity,
-  reserveSpace = true,
-  scope: controlScope,
 }: {
   renderer: RefObject<Awaited<ReturnType<typeof mountRenderer>> | null>;
   host: RefObject<HTMLDivElement | null>;
   state: RenderState | 'loading';
   source: string;
   identity: string;
-  /** Chapter controls live outside the clipped author viewport. */
-  reserveSpace?: boolean;
-  scope?: RefObject<HTMLElement | null>;
 }) {
   const [positions, onSlots] = useState<AnchorPosition[]>([]);
   const [readingIds, setReadingIds] = useState<ReadonlySet<string>>(new Set());
@@ -31,7 +26,7 @@ export function useInlineSlots({
   current.current = { renderer, host };
   useEffect(() => {
     if (state !== 'ready') return;
-    const scope = controlScope?.current ?? current.current.host.current?.parentElement;
+    const scope = current.current.host.current?.parentElement;
     const nodes = [...(scope?.querySelectorAll<HTMLElement>('[data-inline-slot]') ?? [])];
     // A chip-form group keeps its separate measured chip and panel.
     const chips = new Map(
@@ -74,12 +69,6 @@ export function useInlineSlots({
     const measure = () => {
       frame = undefined;
       const heights = admitted.map((node) => {
-        if (!reserveSpace)
-          return {
-            id: node.dataset.inlineSlot!,
-            height: 0,
-            ...(node.hasAttribute('data-inline-question') ? { before: 0 } : {}),
-          };
         const box = node.getBoundingClientRect();
         const chip = chips.get(node.dataset.inlineSlot!)?.getBoundingClientRect();
         if (chip)
@@ -116,6 +105,6 @@ export function useInlineSlots({
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [state, source, identity, reserveSpace, controlScope]);
+  }, [state, source, identity]);
   return { positions, onSlots, readingIds };
 }

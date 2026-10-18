@@ -1,6 +1,6 @@
 import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-import { openAllPages, homeList } from '../test/all-pages.js';
+import { homeList } from '../test/home-list.js';
 import * as c from '@tmt/colab-client';
 
 // Keep only error diagnostics: other console levels can include fixture data.
@@ -278,16 +278,10 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
     });
   });
   await page.goto(mount);
-  // A chapter opens from Today, not from the home list.
-  await page
-    .getByRole('navigation', { name: 'Home views' })
-    .getByRole('link', { name: 'Today' })
-    .click();
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page.getByRole('alert')).toContainText('no verified page key');
-  // The mounted history keeps its route in the fragment; the chapter state rides in the entry.
+  // The mounted history keeps its route in the fragment.
   expect(new URL(page.url()).hash).toContain(encodeURIComponent(`/pages/${pageId}`));
-  expect(await page.evaluate(() => history.state?.chapter)).toEqual({ scroll: 0 });
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
   await expect(page.locator('.page-header-actions')).toHaveCount(0);
@@ -473,7 +467,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     } else await route.fulfill({ json: result });
   });
   await page.goto(mount);
-  await openAllPages(page);
+  await expect(homeList(page)).toBeVisible();
   await page
     .locator('.pages li')
     .getByRole('button', { name: /^Actions for/ })
@@ -697,7 +691,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     });
   });
   await page.goto(mount);
-  await openAllPages(page);
+  await expect(homeList(page)).toBeVisible();
   const row = (id: string) => page.locator(`.pages li[data-page-id="${id}"]`);
   await row(pageId)
     .getByRole('button', { name: /^Actions for/ })
@@ -865,7 +859,7 @@ test.describe('relative retention evidence', () => {
       }),
     );
     await page.goto(mount);
-    await openAllPages(page);
+    await expect(homeList(page)).toBeVisible();
     const row = page.locator(`.pages li[data-page-id="${pageId}"]`);
     const hint = page.getByRole('menu').locator('.retention-hint');
     await row.getByRole('button', { name: /^Actions for/ }).click();

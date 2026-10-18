@@ -1,4 +1,3 @@
-import { openAllPages } from '../test/all-pages.js';
 import { pageAction } from '../test/page-actions.js';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -2343,8 +2342,6 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
     page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
   ).toBeVisible();
   await page.getByRole('link', { name: 'Space home' }).click();
-  // Today owns a visible passage connection; All pages releases that owner too.
-  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
   await expect
     .poll(() =>
@@ -2408,8 +2405,6 @@ test('baseline finishes before a signed large statement; exact owner log survive
   expect(await persistedLog(page)).toEqual(log);
   expect(f.statementChunks).toBe(chunks);
   await page.getByRole('link', { name: 'Space home' }).click();
-  // Today owns a visible passage connection; All pages releases that owner too.
-  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 test('tampered statement reference blocks home metadata and preserves the verified prefix', async ({
@@ -2461,8 +2456,6 @@ test('signed catchup publishes detached own maps for two authors while source st
   expect(result.own!['00000000-0000-4000-8000-000000000126']).toEqual(ownVector.expectedPrefix);
   expect(result.subscriptionIsDetached).toBe(true);
   expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
-  // Today owns a visible passage connection; All pages releases that owner too.
-  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 
@@ -2611,8 +2604,6 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await closeExport.click();
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(urlCount).toBe(0);
-  // Today owns a visible passage connection; All pages releases that owner too.
-  await openAllPages(page);
   await expect.poll(() => f.connections).toBe(0);
 });
 
@@ -2623,7 +2614,6 @@ test('failed export preparation requests no files and closing clears pending pre
   await wire(context);
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
-  // Today, held beside the opened page, lists its title as a heading too: wait for the page itself.
   await expect(
     page.locator('section.page').getByRole('heading', { name: 'Live fixture', exact: true }),
   ).toBeVisible();
@@ -2681,14 +2671,6 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await wire(context, undefined, undefined, undefined, title);
   await page.goto(mount);
   const row = () => page.locator(`[data-page-id="${v.page}"]`);
-  // The home list and Today share the title fill.
-  await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
-  await page
-    .getByRole('navigation', { name: 'Home views' })
-    .getByRole('link', { name: 'Today' })
-    .click();
-  await expect(row().locator('.today-title')).toHaveText(title);
-  await openAllPages(page);
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();

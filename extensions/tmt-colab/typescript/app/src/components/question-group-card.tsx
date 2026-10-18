@@ -1,4 +1,3 @@
-import { usePassageDraft } from '../passage-drafts.js';
 import { BrowserAction, BrowserChips, BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
 import type { AnchorPosition } from '../renderer.js';
@@ -57,11 +56,7 @@ export function QuestionGroupCard({
   chip = false,
   connectionPresentation,
   onRecorded,
-  onWorking,
-  pageUrl,
 }: {
-  onWorking?(id: string, working: boolean): void;
-  pageUrl?: string;
   group: QuestionGroup;
   members: readonly Question[];
   selected: string;
@@ -82,26 +77,17 @@ export function QuestionGroupCard({
   /** Called after an explicit Send recorded answers, with the recorded comments. */
   onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
 }) {
-  const [drafts, setDrafts] = usePassageDraft<Record<string, Draft>>(
-    `answer:${group.id}:drafts`,
-    {},
-  );
-  const [recipientState, setRecipientState] = usePassageDraft<{
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [recipientState, setRecipientState] = useState<{
     recipients: AgentDestination[];
     initialized: boolean;
-  }>(`answer:${group.id}:recipients`, { recipients: [], initialized: false });
+  }>({ recipients: [], initialized: false });
   const recipients = recipientState.recipients;
   const [query, setQuery] = useState('');
   const [sending, setSending] = useState<readonly string[]>([]);
   const busy = useRef(false);
-  const [error, setError] = usePassageDraft<string | undefined>(
-    `answer:${group.id}:error`,
-    undefined,
-  );
-  const [failures, setFailures] = usePassageDraft<MessageSendFailure[]>(
-    `answer:${group.id}:failures`,
-    [],
-  );
+  const [error, setError] = useState<string>();
+  const [failures, setFailures] = useState<MessageSendFailure[]>([]);
   const [focusReply, setFocusReply] = useState<{ id: string; placement?: AnchorPosition }>();
   const [focusChange, setFocusChange] = useState(false);
   const section = useRef<HTMLDivElement>(null);
@@ -145,7 +131,7 @@ export function QuestionGroupCard({
       for (const question of verified) next[question.id] = emptyDraft();
       return next;
     });
-  }, [members, associated, setDrafts]);
+  }, [members, associated]);
   useEffect(() => {
     if (!focusReply || focusReply.id !== selected || !attached || !selectors.has(selected)) return;
     // A tab change retires the old description band. Focus after the slot owner
@@ -241,7 +227,6 @@ export function QuestionGroupCard({
     setFocusReply(undefined);
     setFocusChange(false);
     busy.current = true;
-    onWorking?.(group.id, true);
     setSending(answers.map((answer) => answer.question.id));
     setError(undefined);
     // Keep the chosen tab even when the verified answer arrives; Send never advances it.
@@ -254,7 +239,7 @@ export function QuestionGroupCard({
           answers,
           recipients: structuredClone(decision.agents),
           title,
-          url: pageUrl ?? location.href,
+          url: location.href,
         },
         asks,
       );
@@ -286,7 +271,6 @@ export function QuestionGroupCard({
       setError('Could not confirm these answers. Your drafts are kept.');
     } finally {
       busy.current = false;
-      onWorking?.(group.id, false);
       setSending([]);
     }
   }
@@ -330,7 +314,7 @@ export function QuestionGroupCard({
       quote: canonical.thread.anchor?.exact ?? '',
       comment: canonical.comment.body,
       title,
-      url: pageUrl ?? location.href,
+      url: location.href,
       batch: {
         group: group.id,
         answers: answers.map(({ question, context }) => ({ question, context })),

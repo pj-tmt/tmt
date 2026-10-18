@@ -192,7 +192,7 @@ test('a multi-word creator keeps its space in the token and the address, and an 
   const hash = new URL(page.url()).hash;
   expect(new URLSearchParams(hash.slice(hash.indexOf('?') + 1)).get('by')).toBe('["Studio agent"]');
   await page.evaluate((hash) => {
-    location.hash = '/today';
+    location.hash = '/blocked';
     location.hash = hash;
   }, hash);
   await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
@@ -229,11 +229,71 @@ test('the list keeps its filter in the address and restores it on reload', async
   await expect(titles(page)).toHaveCount(2);
   const hash = new URL(page.url()).hash;
   await page.evaluate((hash) => {
-    location.hash = '/today';
+    location.hash = '/blocked';
     location.hash = hash;
   }, hash);
   await expect(titles(page)).toHaveCount(2);
   await expect(app(page).locator('[data-label-filter="design"]')).toBeVisible();
+});
+
+test('the home is the list: no Today or view tabs, and an old /all link lands on it with its search', async ({
+  page,
+}) => {
+  await mount(page);
+  await expect(app(page).locator('section.home h1')).toHaveText('Studio pages');
+  await expect(app(page).getByRole('navigation', { name: 'Home views' })).toHaveCount(0);
+  await expect(
+    app(page).getByRole('heading', { name: /^Good (morning|afternoon|evening)$/ }),
+  ).toHaveCount(0);
+  await mount(page, 'few', `/all?label=${encodeURIComponent(JSON.stringify(['design']))}`);
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+  const hash = new URL(page.url()).hash;
+  expect(hash).toMatch(/^#\/\?/);
+  expect(hash).toContain('label');
+  // Search it cannot read is dropped and the address is the plain home.
+  await mount(page, 'few', '/all?label=design&q=123');
+  await expect(titles(page)).toHaveCount(4);
+  expect(new URL(page.url()).hash).toBe('#/');
+});
+
+test('the needs-you chip keeps the pages waiting on the viewer, combines with a label and survives reload', async ({
+  page,
+}) => {
+  await mount(page);
+  const needs = app(page).getByRole('button', { name: 'Needs you, 1 page' });
+  await expect(needs).toHaveAttribute('aria-pressed', 'false');
+  await needs.click();
+  await expect(needs).toHaveAttribute('aria-pressed', 'true');
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  expect(new URL(page.url()).hash).toContain('needs=true');
+  // It combines with the label filter: the waiting page is not in `ops`.
+  await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
+  await expect(titles(page)).toHaveCount(0);
+  await expect(app(page).getByText('No pages match.')).toBeVisible();
+  await app(page).getByRole('button', { name: 'Remove label filter ops' }).click();
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  const hash = new URL(page.url()).hash;
+  await page.evaluate((hash) => {
+    location.hash = '/blocked';
+    location.hash = hash;
+  }, hash);
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  await expect(needs).toHaveAttribute('aria-pressed', 'true');
+  await needs.click();
+  await expect(titles(page)).toHaveCount(4);
+  expect(new URL(page.url()).hash).not.toContain('needs');
+});
+
+test('a copied needs-you link filters at once, and a value it cannot read shows every page', async ({
+  page,
+}) => {
+  await mount(page, 'few', '/?needs=true');
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  await mount(page, 'few', '/?needs=nope');
+  await expect(titles(page)).toHaveCount(4);
+  // With nothing waiting there is nothing to filter, so the chip stays out of the way.
+  await mount(page, 'none');
+  await expect(app(page).locator('[data-needs-filter]')).toHaveCount(0);
 });
 
 test('sort orders by title and the list menu shows archived pages', async ({ page }) => {

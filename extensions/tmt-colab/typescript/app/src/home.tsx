@@ -8,6 +8,7 @@ import { LabelWriting, ManageLabelsDialog, NewLabelDialog } from './label-dialog
 import {
   applyLabelChanges,
   authorCounts,
+  waitingCount,
   filterPages,
   labelCounts,
   labelNameError,
@@ -27,7 +28,6 @@ import {
 } from './page-list-search.js';
 import { RetentionHint } from './retention-hint.js';
 import { text } from './strings.js';
-import { HomeNav } from './today.js';
 import type { PageSummary } from './transport.js';
 import './page-list.css';
 
@@ -41,6 +41,8 @@ export interface HomeSearch {
   by?: string[];
   sort?: 'title';
   archived?: true;
+  /** Only the pages with an item waiting on the viewer. */
+  needs?: true;
 }
 /** The route merges what this returns over the raw query, so every key is named here: one it
  * cannot read is set to `undefined` and replaces the raw value instead of reaching the list. */
@@ -51,6 +53,7 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
     by: undefined,
     sort: undefined,
     archived: undefined,
+    needs: undefined,
   };
   if (typeof search.q === 'string' && search.q.trim()) out.q = search.q.trim().slice(0, 256);
   if (Array.isArray(search.label)) {
@@ -79,6 +82,7 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
   }
   if (search.sort === 'title') out.sort = 'title';
   if (search.archived === true || search.archived === 'true') out.archived = true;
+  if (search.needs === true || search.needs === 'true') out.needs = true;
   return out;
 }
 
@@ -196,10 +200,17 @@ export function Home() {
   const port = transport.management;
   const archived = !!port && search.archived === true;
   const sort: PageSort = search.sort ?? 'updated';
-  const filter = { labels: search.label ?? [], authors: search.by ?? [], text: search.q ?? '' };
+  const filter = {
+    labels: search.label ?? [],
+    authors: search.by ?? [],
+    text: search.q ?? '',
+    needsYou: search.needs === true,
+  };
   const shown = homePages.filter((p) => Boolean(p.archived) === archived);
   const pages = filterPages(shown, filter, sort);
   const counts = labelCounts(shown);
+  const waiting = waitingCount(shown);
+  const showNeeds = waiting > 0 || filter.needsYou;
   const authors = authorCounts(shown);
   const allNames = labelCounts(space.pages).map((label) => label.name);
   const [now, setNow] = useState(() => Date.now());
@@ -266,10 +277,10 @@ export function Home() {
     );
   }
   const sortLabel = t.sortOptions[sort];
-  const filtered = filter.labels.length > 0 || filter.authors.length > 0 || filter.text !== '';
+  const filtered =
+    filter.labels.length > 0 || filter.authors.length > 0 || filter.text !== '' || filter.needsYou;
   return (
     <section className="home">
-      <HomeNav current="all" />
       <p className="eyebrow">{text.pages}</p>
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
@@ -282,7 +293,10 @@ export function Home() {
             labels={counts}
             authors={authors}
             onApply={apply}
-            onClear={() => replaceDraft(editFromSearch([], ''))}
+            onClear={() => {
+              replaceDraft(editFromSearch([], ''));
+              if (filter.needsYou) setSearch({ needs: undefined });
+            }}
           />
         </div>
         <BrowserMenu
@@ -317,8 +331,29 @@ export function Home() {
           />
         )}
       </div>
-      {(counts.length > 0 || port) && (
-        <ul className="label-filters" aria-label={t.labels}>
+      {(counts.length > 0 || port || showNeeds) && (
+        <ul className="label-filters" aria-label={t.filters}>
+          {showNeeds && (
+            <li>
+              <button
+                type="button"
+                className="label-filter-button"
+                data-needs-filter
+                aria-pressed={filter.needsYou}
+                aria-label={t.needsYouFilter(waiting)}
+                onClick={(event) => {
+                  if (event.isTrusted) setSearch({ needs: filter.needsYou ? undefined : true });
+                }}
+              >
+                <span>
+                  <span aria-hidden="true">◆</span> {t.needsYou}
+                </span>
+                <span className="label-count" aria-hidden="true">
+                  {waiting}
+                </span>
+              </button>
+            </li>
+          )}
           {counts.map(({ name, count }) => (
             <li key={name}>
               <button

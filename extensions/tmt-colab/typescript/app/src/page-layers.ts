@@ -1,18 +1,16 @@
-import { PassageDraftScope } from './passage-drafts.js';
-import { createElement, useCallback, useMemo, useRef, type RefObject } from 'react';
+import { useCallback, useMemo, useRef, type RefObject } from 'react';
 import { useInlineSlots } from './inline-slots.js';
 import { inspectQuestions } from './questions.js';
 import { useQuestionLayer } from './question-layer.js';
 import { useReviewLayer } from './review-layer.js';
 import { useReadingLayer } from './reading-layer.js';
-import type { PageBinding, PageSnapshot, PageView, PageTransport } from './transport.js';
+import type { PageBinding, PageSnapshot, PageView } from './transport.js';
 import type { ThreadView } from './thread-records.js';
 import type { mountRenderer, QuestionAnchor, ReviewAnchor, RenderState } from './renderer.js';
 import type { ComposerConnectionPresentation } from './router.js';
 
-/** One composition owns admitted state and actions for page and chapter surfaces alike. */
+/** One composition owns the admitted state and actions of the page's inline layers. */
 export function usePageLayers({
-  transport,
   snapshot,
   view,
   binding,
@@ -23,16 +21,7 @@ export function usePageLayers({
   statusCoordinator,
   connectionPresentation,
   readingHint,
-  chapter,
 }: {
-  chapter?: {
-    url: string;
-    controls: RefObject<HTMLDivElement | null>;
-    selected?: { kind: 'review' | 'answer' | 'reading'; id: string };
-    onWorking(kind: 'review' | 'answer' | 'reading', id: string, working: boolean): void;
-    mayCloseAnswered(ids: readonly string[]): boolean;
-  };
-  transport: PageTransport;
   snapshot: PageSnapshot;
   view: PageView;
   binding: RefObject<PageBinding | undefined>;
@@ -48,17 +37,11 @@ export function usePageLayers({
     () => inspectQuestions(view.source),
     [view.source],
   );
-  const chapterQuestions =
-    chapter?.selected?.kind === 'review'
-      ? (reviews.find((review) => review.id === chapter.selected?.id)?.questions ?? [])
-      : [];
   const inlineSlots = useInlineSlots({
     renderer,
     host,
     state,
     source: view.source,
-    reserveSpace: !chapter,
-    scope: chapter?.controls,
     identity: `${(view.threads ?? [])
       .filter((thread) => thread.proposal && !thread.deleted)
       .map((thread) => thread.threadId)
@@ -77,11 +60,6 @@ export function usePageLayers({
     statusCoordinator,
     slotPositions: inlineSlots.positions,
     questionThreads: associatedQuestionThreads,
-    pageUrl: chapter?.url,
-    passage: chapter && {
-      id: chapter.selected?.kind === 'review' ? chapter.selected.id : undefined,
-    },
-    onWorking: chapter && ((id, working) => chapter.onWorking('review', id, working)),
   });
   const readingLayer = useReadingLayer({
     readings,
@@ -94,31 +72,13 @@ export function usePageLayers({
     hint: readingHint,
     slotPositions: inlineSlots.positions,
     readingIds: inlineSlots.readingIds,
-    autoAdvance: !chapter,
-    passage: chapter && {
-      id: chapter.selected?.kind === 'reading' ? chapter.selected.id : undefined,
-    },
-    onWorking: chapter && ((id, working) => chapter.onWorking('reading', id, working)),
   });
   const questionLayer = useQuestionLayer({
     questions,
     groups,
     reviews: reviewLayer.blocks,
     readings: readingLayer.blocks,
-    onRecorded: (ids, contexts) => {
-      if (!chapter || chapter.mayCloseAnswered(ids)) reviewLayer.answered(ids, contexts);
-    },
-    pageUrl: chapter?.url,
-    passage: chapter && {
-      ids: groups
-        .filter(
-          (group) =>
-            (chapter.selected?.kind === 'answer' && group.id === chapter.selected.id) ||
-            group.questions.some((id) => chapterQuestions.includes(id)),
-        )
-        .map((group) => group.id),
-    },
-    onWorking: chapter && ((id, working) => chapter.onWorking('answer', id, working)),
+    onRecorded: reviewLayer.answered,
     snapshot,
     view,
     renderer,
@@ -141,23 +101,9 @@ export function usePageLayers({
   return {
     readings,
     inlineSlots,
-    reviewLayer: {
-      ...reviewLayer,
-      inline: createElement(
-        PassageDraftScope,
-        { transport, pageId: snapshot.id },
-        reviewLayer.inline,
-      ),
-    },
+    reviewLayer,
     readingLayer,
-    questionLayer: {
-      ...questionLayer,
-      inline: createElement(
-        PassageDraftScope,
-        { transport, pageId: snapshot.id },
-        questionLayer.inline,
-      ),
-    },
+    questionLayer,
     onQuestionAnchors,
     onReadingAnchors,
   };

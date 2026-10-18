@@ -1,4 +1,4 @@
-import { openAllPages } from '../test/all-pages.js';
+import { homeList } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -171,7 +171,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     // Navigate explicitly: the archived page has no editing route.
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${door.address}/x/colab/`);
-    await openAllPages(page);
+    await expect(homeList(page)).toBeVisible();
     await page.getByRole('button', { name: 'List options' }).click();
     await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
     const row = page.locator(`ul.pages li[data-page-id="${first.pageId}"]`);

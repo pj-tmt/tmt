@@ -10,7 +10,9 @@ import {
   labelRequests,
   relabel,
   withLabel,
+  waitingCount,
   type LabelChange,
+  type PageFilter,
 } from '../src/labels.js';
 import type { PageSummary } from '../src/transport.js';
 
@@ -87,6 +89,38 @@ describe('the page list', () => {
     expect(ids([], 'design notes')).toEqual([id(3)]);
     expect(ids([], 'q4 page')).toEqual([id(1)]);
     expect(ids(['missing'], '')).toEqual([]);
+  });
+  describe('needs you', () => {
+    const waiting = (n: number, labels: string[] = [], author?: string) =>
+      page(n, labels, {
+        summary: { comments: 0, waiting: true, needsYou: 2, ...(author ? { author } : {}) },
+      });
+    const mixed = [
+      waiting(1, ['design'], 'Studio agent'),
+      page(2, ['design'], { summary: { comments: 1, waiting: false, needsYou: 0 } }),
+      waiting(3, [], 'Review agent'),
+      // A page whose summary is not known yet is never claimed to be waiting.
+      page(4, ['design']),
+    ];
+    const ids = (needsYou: boolean | undefined, rest: Partial<PageFilter> = {}) =>
+      filterPages(mixed, { labels: [], authors: [], text: '', needsYou, ...rest }, 'updated').map(
+        (p) => p.id,
+      );
+    it('keeps only the pages with an item waiting on the viewer', () => {
+      expect(ids(true)).toEqual([id(1), id(3)]);
+      expect(ids(false)).toEqual([id(1), id(2), id(3), id(4)]);
+      expect(ids(undefined)).toEqual([id(1), id(2), id(3), id(4)]);
+    });
+    it('combines with the label, creator and text filters', () => {
+      expect(ids(true, { labels: ['design'] })).toEqual([id(1)]);
+      expect(ids(true, { authors: ['Review agent'] })).toEqual([id(3)]);
+      expect(ids(true, { text: 'studio' })).toEqual([id(1)]);
+      expect(ids(true, { labels: ['missing'] })).toEqual([]);
+    });
+    it('counts the waiting pages it is given', () => {
+      expect(waitingCount(mixed)).toBe(2);
+      expect(waitingCount([])).toBe(0);
+    });
   });
   describe('by creator', () => {
     const authored = [

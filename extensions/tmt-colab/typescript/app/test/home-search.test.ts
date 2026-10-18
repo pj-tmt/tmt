@@ -8,9 +8,10 @@ it('names every key, so one it cannot read replaces the raw value the route merg
     q: 123,
     sort: 1,
     archived: 1,
+    needs: 1,
     other: 'kept by the route, never read',
   });
-  expect(Object.keys(dropped).sort()).toEqual(['archived', 'by', 'label', 'q', 'sort']);
+  expect(Object.keys(dropped).sort()).toEqual(['archived', 'by', 'label', 'needs', 'q', 'sort']);
   expect(Object.values(dropped).every((value) => value === undefined)).toBe(true);
 });
 
@@ -22,6 +23,7 @@ it('keeps what it can read and bounds it', () => {
       q: '  notes  ',
       sort: 'title',
       archived: 'true',
+      needs: true,
     }),
   ).toEqual({
     label: ['design', 'q4 plan'],
@@ -29,5 +31,13 @@ it('keeps what it can read and bounds it', () => {
     q: 'notes',
     sort: 'title',
     archived: true,
+    needs: true,
   });
+});
+
+it('reads the needs-you filter from a copied link (true or "true") and nothing else', () => {
+  expect(validateHomeSearch({ needs: 'true' }).needs).toBe(true);
+  expect(validateHomeSearch({ needs: true }).needs).toBe(true);
+  for (const value of [false, 'false', 'yes', 1, null, ['true']])
+    expect(validateHomeSearch({ needs: value }).needs).toBeUndefined();
 });
