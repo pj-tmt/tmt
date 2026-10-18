@@ -337,7 +337,7 @@ export function Home() {
             <li>
               <button
                 type="button"
-                className="label-filter-button"
+                className="label-filter-button needs-filter-button"
                 data-needs-filter
                 aria-pressed={filter.needsYou}
                 aria-label={t.needsYouFilter(waiting)}
@@ -346,7 +346,10 @@ export function Home() {
                 }}
               >
                 <span>
-                  <span aria-hidden="true">◆</span> {t.needsYou}
+                  <span className="needs-filter-mark" aria-hidden="true">
+                    ◆
+                  </span>{' '}
+                  {t.needsYou}
                 </span>
                 <span className="label-count" aria-hidden="true">
                   {waiting}

@@ -59,6 +59,10 @@
 .label-count {
   color: var(--tmt-ui-color-secondary);
 }
+/* Pressed is neutral like every selection; colour stays on the diamond alone. */
+.needs-filter-mark {
+  color: var(--tmt-ui-color-waiting);
+}
 .page-labels {
   margin-top: 4px;
   white-space: normal;

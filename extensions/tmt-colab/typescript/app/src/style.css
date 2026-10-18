@@ -32,11 +32,13 @@ button {
 }
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.tmt-ui-tab):not(
     .question-chip
-  ):not(:disabled):hover,
+  ):not(.needs-filter-button):not(:disabled):hover,
 a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }
-button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy)[aria-pressed='true'] {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(
+    .needs-filter-button
+  )[aria-pressed='true'] {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
 }

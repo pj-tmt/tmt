@@ -266,6 +266,17 @@ test('the needs-you chip keeps the pages waiting on the viewer, combines with a 
   await expect(needs).toHaveAttribute('aria-pressed', 'true');
   await expect(titles(page)).toHaveText(['Alpha plan']);
   expect(new URL(page.url()).hash).toContain('needs=true');
+  // Pressed is neutral, even under the pointer that just clicked it; colour stays on the diamond.
+  const look = await needs.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      text: style.color,
+      border: style.borderTopColor,
+      mark: getComputedStyle(node.querySelector('.needs-filter-mark')!).color,
+    };
+  });
+  expect(look.border).toBe(look.text);
+  expect(look.mark).not.toBe(look.text);
   // It combines with the label filter: the waiting page is not in `ops`.
   await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
   await expect(titles(page)).toHaveCount(0);
