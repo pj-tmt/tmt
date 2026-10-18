@@ -78,7 +78,7 @@ function update() {
     ),
   };
 }
-async function checkpoint() {
+async function checkpoint(kind: 'checkpoint' | 'html' = 'checkpoint') {
   const signer = await crypto.subtle.importKey(
     'pkcs8',
     c.concat(fromHex('302e020100300506032b657004220420'), fromHex(v.seed)),
@@ -90,12 +90,21 @@ async function checkpoint() {
     'deriveBits',
   ]);
   const envelope = await c.Envelope.seal(
-    { ...header.context, kind: 'checkpoint' },
+    {
+      ...header.context,
+      kind,
+      ...(kind === 'html'
+        ? { namespace: 'content' as const, streamSeq: '0', prevHash: new Uint8Array(32) }
+        : {}),
+    },
     root,
     signer,
     new Uint8Array(50_000),
   );
-  const object = c.decodeHeader(envelope.header()).objectId;
+  const object =
+    kind === 'html'
+      ? Buffer.from(await envelope.hash()).toString('hex')
+      : c.decodeHeader(envelope.header()).objectId;
   const raw = envelope.toJson();
   const count = Math.ceil(raw.length / 32768);
   const rows = Array.from({ length: count }, (_, index) =>
@@ -253,4 +262,69 @@ it('assembles every piece of the declared checkpoint discovery without inventing
   await expect(
     hostedCheckpointSet(f.rows, { ...scope, page: '00000000-0000-4000-8000-000000000123' }),
   ).rejects.toThrow();
+});
+
+it('partitions exactly the committed baseline original from the same complete checkpoint discovery', async () => {
+  const baseline = await checkpoint('html'),
+    ordinary = await checkpoint();
+  const expected = fromHex(baseline.object);
+  const originals = await hostedCheckpointSet(
+    [...ordinary.rows, ...baseline.rows].reverse(),
+    scope,
+    expected,
+  );
+  expect(originals).toHaveLength(2);
+  expect(originals.filter((value) => value.header.context.kind === 'html')).toHaveLength(1);
+  expect(originals.find((value) => value.header.context.kind === 'html')?.bytes).toEqual(
+    baseline.raw,
+  );
+  expect(
+    originals.find((value) => value.header.context.kind === 'checkpoint')?.header.objectId,
+  ).toBe(ordinary.object);
+});
+
+it('never guesses a missing baseline or admits the same original under several object IDs', async () => {
+  const baseline = await checkpoint('html'),
+    ordinary = await checkpoint();
+  const expected = fromHex(baseline.object);
+  await expect(hostedCheckpointSet(ordinary.rows, scope, expected)).rejects.toMatchObject({
+    code: 'COLAB_HOSTED_RESHARE_REQUIRED',
+  });
+  const alias = 'a'.repeat(64);
+  const duplicate = baseline.rows.map((row) => {
+    const values = JSON.parse(c.decodeText(row.bytes));
+    values.object.stringValue = alias;
+    return document('checkpoints', row.target.id.replace(baseline.object, alias), values);
+  });
+  await expect(
+    hostedCheckpointSet([...baseline.rows, ...duplicate], scope, expected),
+  ).rejects.toMatchObject({ code: 'COLAB_HOSTED_RESHARE_REQUIRED' });
+  await expect(hostedCheckpointSet(duplicate, scope, expected)).rejects.toMatchObject({
+    code: 'COLAB_HOSTED_RESHARE_REQUIRED',
+  });
+  await expect(hostedCheckpointSet([baseline.rows[0]], scope, expected)).rejects.toThrow();
+  await expect(
+    hostedCheckpointSet(
+      baseline.rows,
+      { ...scope, epoch: String(Number(scope.epoch) + 1) },
+      expected,
+    ),
+  ).rejects.toThrow();
+});
+
+it('keeps ordinary checkpoint header-object admission beside the selected baseline', async () => {
+  const baseline = await checkpoint('html'),
+    ordinary = await checkpoint(),
+    expected = c.binary(
+      c.encodeBinary(new Uint8Array(Buffer.from(baseline.object, 'hex'))),
+      32,
+      32,
+    );
+  const alias = 'a'.repeat(64);
+  const rows = ordinary.rows.map((row) => {
+    const fields = JSON.parse(c.decodeText(row.bytes));
+    fields.object.stringValue = alias;
+    return document('checkpoints', row.target.id.replace(ordinary.object, alias), fields);
+  });
+  await expect(hostedCheckpointSet([...baseline.rows, ...rows], scope, expected)).rejects.toThrow();
 });

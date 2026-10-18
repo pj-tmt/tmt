@@ -15,15 +15,12 @@ export interface HostedMembershipPin {
   revision: string;
   statement: Uint8Array;
 }
-/** B4 deliberately refuses epochs whose signed baseline has no shipped hosted carrier. */
+/** The committed baseline must be available and pass the existing signed verifiers. */
 export class HostedReshareRequired extends Error {
   readonly code = 'COLAB_HOSTED_RESHARE_REQUIRED';
   constructor() {
     super('ask the owner to share it again');
   }
-}
-export function requireHostedEpoch(epoch: string): void {
-  if (decimal(epoch) !== 1n) throw new HostedReshareRequired();
 }
 /** Discovery order and unsigned routing never become membership authority. */
 export async function admitHostedMembership(

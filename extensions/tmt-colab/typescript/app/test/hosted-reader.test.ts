@@ -11,8 +11,9 @@ import type {
 import { Admission } from '../src/admission.js';
 import type { OwnAuthor } from '../src/own-seal.js';
 import type { Registration } from '../src/registration.js';
-import type { Fold } from '../src/fold.js';
-import type { FoldCommand } from '../src/fold-protocol.js';
+import { Fold } from '../src/fold.js';
+import { contentBase, updatesOf } from './content-base.js';
+import type { DecoderCommand, FoldCommand } from '../src/fold-protocol.js';
 import * as budgetMath from '../../../../tmt-remote/typescript/remote-client/src/budget.js';
 import { HostedBudget } from '../src/hosted-budget.js';
 import { HostedPageReader } from '../src/hosted-reader.js';
@@ -25,6 +26,29 @@ vi.mock('../src/storage.js', () => ({
 const v = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/authority-v1.json', import.meta.url), 'utf8'),
 );
+// Public wraps from authority-reference.py::seal_wrap: authority-v1 recipientSeed,
+// deterministic ephemeral seeds 01/02*32, epochs/revisions 1/3 and 2/4; no runtime sealer.
+const historyWraps = [
+  {
+    header:
+      'AAAAEXRtdC1jb2xhYi13cmFwLXYxAAAAATEAAAAgYmFzZS14MjU1MTktaGtkZnNoYTI1Ni1hZXMyNTZnY20AAAAgdXF2cGdhMjJ2Z2x3cG5ncGc3amQ3enBrNXZ6anRvdWQAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyAAAAATEAAAAEbGluawAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwNjAAAAAgQw9LmFlmUUWmsbonQCRIe9ZvA6LdV313U8aNfX0AwAwAAAAg11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURoAAAABMwAAAAllcG9jaC1rZXk',
+    enc: 'pOCSkrZRwni5dyxWn1-puxPZBrRqtoyd-dwrRAn4ogk',
+    ciphertext: 'bPWII5S5c3e3OMFu-4R5qSzJfqkMqe83C7T2PXgy-5nZibm1851-rFyuob4nN0xy',
+    signature:
+      'YHJpgFXNPV2fTcqsxit1T9n5fcPHAJulYWQJmwbdqcmBong4y3fOisPuF8pkN4S9Bs5TG9yAsdXALC292s2eBg',
+  },
+  {
+    header:
+      'AAAAEXRtdC1jb2xhYi13cmFwLXYxAAAAATEAAAAgYmFzZS14MjU1MTktaGtkZnNoYTI1Ni1hZXMyNTZnY20AAAAgdXF2cGdhMjJ2Z2x3cG5ncGc3amQ3enBrNXZ6anRvdWQAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyAAAAATIAAAAEbGluawAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwNjAAAAAgQw9LmFlmUUWmsbonQCRIe9ZvA6LdV313U8aNfX0AwAwAAAAg11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURoAAAABNAAAAAllcG9jaC1rZXk',
+    enc: 'zo060cy2M-x7cMF4FKXHbs0CloUFDTRHRboFhw5YfVk',
+    ciphertext: 'jwp-Wc7__1n5YQiFiWTQHjrSGobsuzgqJygs8R0-O-bDwjCykqJAfedm1sZmXpC5',
+    signature:
+      'VSY4EWd-udYyc4ag6JEXL7MBfLB5PNdhIlr0hdM0ezidqRi_qTeoBeKMj1iDkRkoLe9iD5wSPT60I4u9MvxmAA',
+  },
+];
+const baselineVector = JSON.parse(
+  readFileSync(new URL('../../../contracts/vectors/baseline-v1.json', import.meta.url), 'utf8'),
+)[1];
 const hex = (value: string) =>
   Uint8Array.from(value.match(/../g) ?? [], (byte) => parseInt(byte, 16));
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -59,12 +83,13 @@ function document(
   const bytes = c.text(JSON.stringify(fields));
   return { target: { resource, id }, bytes, digest: hash(bytes) };
 }
-const base = `${scope.space}_${scope.page}_1`;
-function authority(kind: string, bytes: Uint8Array, recipient = '') {
+function authority(kind: string, bytes: Uint8Array, recipient = '', epoch = '1') {
+  const base = `${scope.space}_${scope.page}_${epoch}`;
   const subject = hash(bytes),
     count = Math.ceil(bytes.length / 32768);
   return Array.from({ length: count }, (_, index) =>
     document('authority', `${base}_${kind}_${subject}_${index + 1}`, {
+      epoch: Number(epoch),
       kind,
       subject,
       seq: index + 1,
@@ -74,7 +99,13 @@ function authority(kind: string, bytes: Uint8Array, recipient = '') {
     }),
   );
 }
-async function fixture(ownAuthor?: OwnAuthor) {
+async function fixture(
+  ownAuthor?: OwnAuthor,
+  epoch = '1',
+  givenFold?: Pick<Fold, 'run' | 'close'>,
+  baselineChange: Record<string, string> = {},
+) {
+  const base = `${scope.space}_${scope.page}_${epoch}`;
   const signer = await crypto.subtle.importKey(
     'pkcs8',
     c.concat(hex('302e020100300506032b657004220420'), hex(v.seed)),
@@ -113,10 +144,46 @@ async function fixture(ownAuthor?: OwnAuthor) {
     ),
     pages: [scope.page],
   });
+  let baseline: c.Envelope | undefined;
+  let descriptor: Record<string, string> | undefined;
+  if (epoch !== '1') {
+    baseline = await c.Envelope.seal(
+      {
+        ...scope,
+        epoch,
+        kind: 'html',
+        namespace: 'content',
+        authorDevice: v.device,
+        membershipRevision: String(statements.length + 1),
+        streamSeq: '0',
+        prevHash: new Uint8Array(32),
+      },
+      hex(v.epochKey),
+      signer,
+      c.text(JSON.stringify({ source: baselineVector.source, update: baselineVector.update })),
+    );
+    descriptor = {
+      pageId: scope.page,
+      epoch,
+      sourceDigest: baselineVector.sourceDigest,
+      baselineCommitment: baselineVector.commitment,
+      title: baselineVector.title,
+      objectEnvelopeHash: c.encodeBinary(await baseline.hash()),
+      membershipRevision: String(statements.length + 1),
+      ...baselineChange,
+    };
+    await append('epoch.advance', {
+      pageId: scope.page,
+      epoch,
+      cuts: [],
+      baseline: descriptor,
+      wraps: [],
+    });
+  }
   const admission = new Admission(
     scope.space,
     scope.page,
-    '1',
+    epoch,
     hex(v.public),
     { deviceId: v.page } as Registration,
     {
@@ -126,13 +193,33 @@ async function fixture(ownAuthor?: OwnAuthor) {
     },
   );
   // The read adapter receives an Admission whose key was already opened by the wrap verifier.
-  admission.root = await crypto.subtle.importKey('raw', hex(v.epochKey), 'HKDF', false, [
-    'deriveBits',
-  ]);
-  const rows = statements.flatMap((bytes) => authority('membership', bytes));
-  rows.push(...authority('chain', c.text(JSON.stringify(v.chain))));
+  if (epoch === '1')
+    admission.root = await crypto.subtle.importKey('raw', hex(v.epochKey), 'HKDF', false, [
+      'deriveBits',
+    ]);
+  else {
+    const key = await crypto.subtle.importKey(
+      'pkcs8',
+      c.concat(hex('302e020100300506032b656e04220420'), hex(v.recipientSeed)),
+      'X25519',
+      false,
+      ['deriveBits'],
+    );
+    admission.registration.keys = {
+      enc: await c.RecipientKey.fromHandle(
+        key,
+        c.wrap.Envelope.fromJson(c.text(JSON.stringify(v.wrap))).header().recipientKey,
+      ),
+    } as Registration['keys'];
+  }
+  const rows = statements.flatMap((bytes) => authority('membership', bytes, '', epoch));
+  rows.push(...authority('chain', c.text(JSON.stringify(v.chain)), '', epoch));
+  if (epoch !== '1')
+    for (const value of [...historyWraps].reverse())
+      rows.push(...authority('wrap', c.text(JSON.stringify(value)), `link:${v.linkId}`, epoch));
   const checkpoints: SealedDocument[] = [],
     logs: SealedDocument[] = [];
+  if (baseline) await checkpoint(baseline, true);
   const requests: SyncQueryRequest[] = [];
   const port = {
     context: {
@@ -199,13 +286,20 @@ async function fixture(ownAuthor?: OwnAuthor) {
     },
   } as unknown as SealedSyncPort;
   const folded: FoldCommand[] = [];
-  const fold = {
-    async run(command: FoldCommand) {
-      folded.push(structuredClone(command));
-      return { source: 'verified page', title: 'Title', own: {}, update: new Uint8Array() };
-    },
-    close: vi.fn(),
-  } as Pick<Fold, 'run' | 'close'>;
+  const fold =
+    givenFold ??
+    ({
+      async run(command: FoldCommand) {
+        folded.push(structuredClone(command));
+        return {
+          source: command.type === 'baseline' ? baselineVector.source : 'verified page',
+          title: command.type === 'baseline' ? baselineVector.title : 'Title',
+          own: {},
+          update: new Uint8Array(),
+        };
+      },
+      close: vi.fn(),
+    } as Pick<Fold, 'run' | 'close'>);
   const reader = new HostedPageReader(
     port,
     admission,
@@ -221,24 +315,25 @@ async function fixture(ownAuthor?: OwnAuthor) {
   );
   const context: c.Context = {
     ...scope,
+    epoch,
     kind: 'update',
     namespace: 'content',
     authorDevice: v.page,
     streamSeq: '1',
-    membershipRevision: '1',
+    membershipRevision: epoch === '1' ? '1' : String(statements.length),
     prevHash: new Uint8Array(32),
   };
-  async function seal(change: Partial<c.Context> = {}, author = signer) {
-    return c.Envelope.seal(
-      { ...context, ...change },
-      hex(v.epochKey),
-      author,
-      c.text('authenticated update'),
-    );
+  async function seal(
+    change: Partial<c.Context> = {},
+    author = signer,
+    body: Uint8Array = c.text('authenticated update'),
+  ) {
+    return c.Envelope.seal({ ...context, ...change }, hex(v.epochKey), author, body);
   }
   async function log(envelope: c.Envelope) {
     const header = c.decodeHeader(envelope.header()).context;
     const row = document('log', `${base}_${header.authorDevice}_${header.streamSeq}`, {
+      epoch: Number(epoch),
       stream: header.authorDevice,
       seq: Number(header.streamSeq),
       hash: c.encodeBinary(await envelope.hash()),
@@ -247,13 +342,16 @@ async function fixture(ownAuthor?: OwnAuthor) {
     logs.push(row);
     return row;
   }
-  async function checkpoint(envelope: c.Envelope) {
-    const object = c.decodeHeader(envelope.header()).objectId,
+  async function checkpoint(envelope: c.Envelope, baseline = false) {
+    const object = baseline
+        ? Buffer.from(await envelope.hash()).toString('hex')
+        : c.decodeHeader(envelope.header()).objectId,
       bytes = envelope.toJson(),
       count = Math.ceil(bytes.length / 32768);
     checkpoints.push(
       ...Array.from({ length: count }, (_, index) =>
         document('checkpoints', `${base}_${object}_${index}`, {
+          epoch: Number(epoch),
           object,
           index,
           seq: index + 1,
@@ -305,6 +403,9 @@ async function fixture(ownAuthor?: OwnAuthor) {
   }
   return {
     reader,
+    baseline,
+    descriptor,
+    checkpoints,
     port,
     admission,
     requests,
@@ -666,3 +767,270 @@ it('fresh author refusal is typed before decoder preparation, sealing or provide
     vi.unstubAllGlobals();
   }
 });
+
+it('reads an epoch-two baseline and tail through the real authority and baseline verifiers with no extra reads', async () => {
+  const f = await fixture(undefined, '2');
+  try {
+    await f.log(await f.seal());
+    await expect(
+      f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+    ).resolves.toMatchObject({ source: 'verified page' });
+    expect(f.folded.map((value) => value.type)).toEqual(['baseline', 'apply']);
+    expect(f.folded[0]).toMatchObject({
+      type: 'baseline',
+      title: baselineVector.title,
+      update: c.binary(baselineVector.update, 4 * 1024 * 1024),
+      sourceDigest: c.binary(baselineVector.sourceDigest, 32, 32),
+      commitment: c.binary(baselineVector.commitment, 32, 32),
+    });
+    expect(f.requests.filter((value) => value.query.resource === 'checkpoints')).toHaveLength(1);
+    f.requests.length = 0;
+    await f.reader.refresh(call(), new Set(['log']));
+    expect(f.requests.some((value) => value.query.resource === 'checkpoints')).toBe(false);
+    expect(f.folded.filter((value) => value.type === 'baseline')).toHaveLength(1);
+  } finally {
+    await f.reader.close();
+  }
+});
+
+it.each(['missing', 'incomplete', 'hash', 'scope'])(
+  'refuses a %s baseline before any plaintext reaches the fold',
+  async (mode) => {
+    const f = await fixture(undefined, '2');
+    try {
+      if (mode === 'missing') f.checkpoints.length = 0;
+      else {
+        const original = f.checkpoints[0],
+          fields = JSON.parse(c.decodeText(original.bytes));
+        if (mode === 'incomplete') fields.count.integerValue = '2';
+        if (mode === 'scope') fields.epoch.integerValue = '3';
+        if (mode === 'hash') {
+          const envelope = JSON.parse(c.decodeText(c.binary(fields.bytes.stringValue, 32768)));
+          envelope.signature = c.encodeBinary(new Uint8Array(64));
+          fields.bytes.stringValue = c.encodeBinary(c.text(JSON.stringify(envelope)));
+        }
+        const bytes = c.text(JSON.stringify(fields));
+        f.checkpoints[0] = { ...original, bytes, digest: hash(bytes) };
+      }
+      await expect(
+        f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+      ).rejects.toMatchObject({ code: 'COLAB_HOSTED_RESHARE_REQUIRED' });
+      expect(f.folded).toEqual([]);
+    } finally {
+      await f.reader.close();
+    }
+  },
+);
+
+it.each(['REMOTE_BUDGET_EXHAUSTED', 'REMOTE_RATE_LIMITED', 'REMOTE_SCOPE_DENIED'])(
+  'does not relabel or retry %s while acquiring baseline chunks',
+  async (code) => {
+    const f = await fixture(undefined, '2'),
+      query = f.port.query.bind(f.port);
+    const reads = vi.spyOn(f.port, 'query').mockImplementation((request, call) => {
+      if (request.query.resource === 'checkpoints') throw { code };
+      return query(request, call);
+    });
+    try {
+      await expect(
+        f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+      ).rejects.toMatchObject({ code });
+      expect(
+        reads.mock.calls.filter(([request]) => request.query.resource === 'checkpoints'),
+      ).toHaveLength(1);
+      expect(f.folded).toEqual([]);
+    } finally {
+      await f.reader.close();
+    }
+  },
+);
+
+it('preserves cancellation during baseline discovery and joins the reader key cleanup', async () => {
+  const f = await fixture(undefined, '2'),
+    controller = new AbortController(),
+    query = f.port.query.bind(f.port);
+  vi.spyOn(f.port, 'query').mockImplementation(async (request, call) => {
+    const value = await query(request, call);
+    if (request.query.resource === 'checkpoints') controller.abort();
+    return value;
+  });
+  await expect(
+    f.reader.refresh(
+      { ...call(), signal: controller.signal },
+      new Set(['authority', 'checkpoints', 'log']),
+    ),
+  ).rejects.toMatchObject({ code: 'REMOTE_STATE_UNAVAILABLE', state: 'cancelled' });
+  expect(f.folded).toEqual([]);
+  await f.reader.close();
+  expect(f.admission.root).toBeNull();
+  expect(f.fold.close).toHaveBeenCalledOnce();
+});
+
+it('ends an old generation on a signed epoch switch before returning another projection', async () => {
+  const f = await fixture(undefined, '2');
+  try {
+    await f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log']));
+    const before = f.folded.length;
+    await f.append('epoch.advance', {
+      pageId: scope.page,
+      epoch: '3',
+      cuts: [],
+      baseline: {
+        ...f.descriptor,
+        epoch: '3',
+        membershipRevision: String(f.statements.length + 1),
+      },
+      wraps: [],
+    });
+    f.rows.push(...authority('membership', f.statements.at(-1)!, '', '2'));
+    await expect(f.reader.refresh(call(), new Set(['authority']))).rejects.toMatchObject({
+      code: 'REMOTE_STATE_UNAVAILABLE',
+      state: 'catch-up-required',
+    });
+    expect(f.folded).toHaveLength(before);
+  } finally {
+    await f.reader.close();
+  }
+  expect(f.admission.root).toBeNull();
+  expect(f.fold.close).toHaveBeenCalledOnce();
+});
+
+it('requires the baseline fold source and title to agree with the signed original before applying a tail', async () => {
+  const f = await fixture(undefined, '2');
+  vi.spyOn(f.fold, 'run').mockResolvedValue({
+    source: 'forged projection',
+    title: baselineVector.title,
+    own: {},
+    update: new Uint8Array(),
+  });
+  try {
+    await expect(
+      f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+    ).rejects.toMatchObject({ code: 'COLAB_HOSTED_RESHARE_REQUIRED' });
+    expect(f.fold.run).toHaveBeenCalledTimes(1);
+  } finally {
+    await f.reader.close();
+  }
+});
+
+/** Existing fold.worker decoder with the real parent admission, without a host browser. */
+async function workerFold() {
+  vi.resetModules();
+  const surface = {
+    onmessage: null as unknown as (event: {
+      data: { id: number; command: DecoderCommand };
+    }) => Promise<void>,
+    postMessage: (data: unknown) => worker.onmessage?.({ data }),
+  };
+  const worker = {
+    onmessage: null as null | ((event: { data: unknown }) => void),
+    onerror: null,
+    terminate: vi.fn(),
+    postMessage: (data: { id: number; command: DecoderCommand }) => {
+      void surface.onmessage({ data });
+    },
+  };
+  vi.stubGlobal('self', surface);
+  await import('../src/fold.worker.js');
+  return new Fold(worker as unknown as Worker);
+}
+
+it('renders the reviewed epoch-two baseline and a real later Yjs update through the actual Worker', async () => {
+  const prepare = await workerFold();
+  const initial = await prepare.run({
+    type: 'baseline',
+    title: baselineVector.title,
+    update: c.binary(baselineVector.update, 4 * 1024 * 1024),
+    sourceDigest: c.binary(baselineVector.sourceDigest, 32, 32),
+    commitment: c.binary(baselineVector.commitment, 32, 32),
+  });
+  const nextSource = '<p>After the signed baseline</p>';
+  const updates = updatesOf(await prepare.prepareContent(nextSource, contentBase(initial)));
+  prepare.close();
+  const actual = await workerFold();
+  const commands: FoldCommand[] = [];
+  const f = await fixture(undefined, '2', {
+    run(command) {
+      commands.push(structuredClone(command));
+      return actual.run(command);
+    },
+    close() {
+      actual.close();
+    },
+  });
+  try {
+    let previous = new Uint8Array(32);
+    for (let i = 0; i < updates.length; i++) {
+      const envelope = await f.seal(
+        { streamSeq: String(i + 1), prevHash: previous },
+        undefined,
+        updates[i],
+      );
+      previous = await envelope.hash();
+      await f.log(envelope);
+    }
+    await expect(
+      f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+    ).resolves.toMatchObject({ source: nextSource, title: baselineVector.title });
+    expect(commands.map((value) => value.type)).toEqual(['baseline', 'apply']);
+    expect(f.requests.filter((value) => value.query.resource === 'checkpoints')).toHaveLength(1);
+    f.requests.length = 0;
+    await expect(f.reader.refresh(call(), new Set(['log']))).resolves.toMatchObject({
+      source: nextSource,
+    });
+    expect(commands.filter((value) => value.type === 'baseline')).toHaveLength(1);
+    expect(f.requests.some((value) => value.query.resource === 'checkpoints')).toBe(false);
+  } finally {
+    await f.reader.close();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('refuses a signed baseline whose independent commitment fails in the actual Worker', async () => {
+  const actual = await workerFold();
+  const commands = vi.spyOn(actual, 'run');
+  const f = await fixture(undefined, '2', actual, {
+    baselineCommitment: c.encodeBinary(new Uint8Array(32)),
+  });
+  try {
+    await expect(
+      f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+    ).rejects.toMatchObject({ code: 'COLAB_HOSTED_RESHARE_REQUIRED' });
+    expect(commands).toHaveBeenCalledOnce();
+    expect(commands.mock.calls[0][0].type).toBe('baseline');
+  } finally {
+    await f.reader.close();
+    vi.unstubAllGlobals();
+  }
+});
+
+it.each(['duplicate', 'signature'])(
+  'keeps existing wrap admission for a %s epoch-two wrap set',
+  async (mode) => {
+    const f = await fixture(undefined, '2');
+    const current = structuredClone(historyWraps[1]);
+    if (mode === 'signature') current.signature = c.encodeBinary(new Uint8Array(64));
+    if (mode === 'duplicate') {
+      // Different whole-original whitespace, same epoch: bypassing transport dedup cannot admit it.
+      f.rows.push(
+        ...authority('wrap', c.text(' ' + JSON.stringify(current)), `link:${v.linkId}`, '2'),
+      );
+    } else {
+      for (let i = f.rows.length - 1; i >= 0; i--)
+        if (JSON.parse(c.decodeText(f.rows[i].bytes)).kind.stringValue === 'wrap')
+          f.rows.splice(i, 1);
+      f.rows.push(
+        ...authority('wrap', c.text(JSON.stringify(historyWraps[0])), `link:${v.linkId}`, '2'),
+        ...authority('wrap', c.text(JSON.stringify(current)), `link:${v.linkId}`, '2'),
+      );
+    }
+    try {
+      await expect(
+        f.reader.refresh(call(), new Set(['authority', 'checkpoints', 'log'])),
+      ).rejects.toThrow();
+      expect(f.folded).toEqual([]);
+    } finally {
+      await f.reader.close();
+    }
+  },
+);

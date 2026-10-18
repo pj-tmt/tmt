@@ -2,11 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
-import {
-  admitHostedMembership,
-  HostedReshareRequired,
-  requireHostedEpoch,
-} from '../src/hosted-authority.js';
+import { admitHostedMembership, HostedReshareRequired } from '../src/hosted-authority.js';
 import type { Registration } from '../src/registration.js';
 
 vi.mock('../src/storage.js', () => ({
@@ -83,17 +79,9 @@ it('refuses a root which does not derive the linked space', async () => {
   expect(a.head).toBeNull();
 });
 
-it('admits only epoch one and gives the fixed typed re-share refusal for every later epoch', () => {
-  expect(() => requireHostedEpoch('1')).not.toThrow();
-  for (const epoch of ['2', '9', '9007199254740991']) {
-    expect(() => requireHostedEpoch(epoch)).toThrow(HostedReshareRequired);
-    try {
-      requireHostedEpoch(epoch);
-    } catch (error) {
-      expect(error).toMatchObject({
-        code: 'COLAB_HOSTED_RESHARE_REQUIRED',
-        message: 'ask the owner to share it again',
-      });
-    }
-  }
+it('keeps the fixed typed refusal for an unavailable or unverifiable baseline', () => {
+  expect(new HostedReshareRequired()).toMatchObject({
+    code: 'COLAB_HOSTED_RESHARE_REQUIRED',
+    message: 'ask the owner to share it again',
+  });
 });

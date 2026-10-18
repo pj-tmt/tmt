@@ -58,7 +58,9 @@ editor link, `hosted-entry` answers a confirmed edit request with the same `Page
 the door, kept per selected page across hidden and recovered sessions and ended when the page is
 left; only not sent and unconfirmed (`EditRequestOutcome`) are hosted-only; a race lost to another holder of the link reads as not sent.
 The [hosted contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
-owns limits, refusals and the deferred baseline carrier. `link-edit.sendEditRequest` prepares the request;
+owns limits, refusals and the committed epoch-baseline carrier.
+`hosted-documents` selects its unique complete original from existing checkpoints discovery;
+`hosted-reader` reuses Catchup/Admission and the Worker before applying checkpoints or the tail. `link-edit.sendEditRequest` prepares the request;
 `hosted-publish` sends frozen originals once. `own-seal` shares native Writer's `Admission.ownAuthor` path.
 Hosted owns the serialized own-record sender, never Firebase or content writes.
 

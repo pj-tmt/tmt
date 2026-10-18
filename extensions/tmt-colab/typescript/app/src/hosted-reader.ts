@@ -1,4 +1,14 @@
-import { certificate, decimal, encodeBinary, equal, requireValue } from '@tmt/colab-client';
+import {
+  binary,
+  certificate,
+  decimal,
+  encodeBinary,
+  equal,
+  payload,
+  requireValue,
+  text,
+  wrap,
+} from '@tmt/colab-client';
 import type {
   SealedSyncPort,
   SyncCall,
@@ -7,7 +17,7 @@ import type {
 import { Admission } from './admission.js';
 import {
   admitHostedMembership,
-  requireHostedEpoch,
+  HostedReshareRequired,
   type HostedMembershipPin,
 } from './hosted-authority.js';
 import { Catchup } from './catchup.js';
@@ -36,6 +46,7 @@ export class HostedPageReader {
   private readonly fold: Pick<Fold, 'run' | 'close'>;
   private readonly knownWriters = new Set<string>();
   private started = false;
+  private baseline?: HostedOriginal;
   private closed = false;
   private readonly controller = new AbortController();
   private changes: Promise<void> = Promise.resolve();
@@ -49,7 +60,6 @@ export class HostedPageReader {
     fold?: Pick<Fold, 'run' | 'close'>,
     private readonly ownAuthor?: OwnAuthor,
   ) {
-    requireHostedEpoch(admission.epoch);
     requireValue(admission.reader !== undefined);
     this.fold = fold ?? new Fold();
     this.scope = { space: admission.space, page: admission.page, epoch: admission.epoch };
@@ -65,22 +75,57 @@ export class HostedPageReader {
     if (!this.started || resources.has('authority')) {
       await a.restore();
       await admitHostedMembership(a, await this.authority('membership', '', call), this.pin);
-      // Signed policy, rather than the page row's hint, determines whether re-sharing is needed.
-      for (const { payload } of a.statements())
-        if (
-          (payload.operation === 'page.share' || payload.operation === 'epoch.advance') &&
-          payload.value.pageId === a.page
-        )
-          requireHostedEpoch(payload.value.epoch);
     }
+    let signedEpoch = '1';
+    let descriptor: payload.Baseline | undefined;
+    for (const { payload: value } of a.statements()) {
+      if (
+        (value.operation === 'page.share' || value.operation === 'epoch.advance') &&
+        value.value.pageId === a.page
+      ) {
+        signedEpoch = value.value.epoch;
+        if (value.operation === 'epoch.advance' && value.value.epoch === a.epoch)
+          descriptor = value.value.baseline;
+      }
+    }
+    // An immutable generation ends before re-reading the new epoch's routing hint and keys.
+    if (signedEpoch !== a.epoch) throw catchUpRequired();
+    if (a.epoch !== '1' && !descriptor) throw new HostedReshareRequired();
     a.validateRead(['link', 'public']);
     this.live(call);
     if (!a.root) {
       const wraps = await this.authority('wrap', `link:${a.reader!.linkId}`, call);
-      requireValue(wraps.length === 1);
-      await a.wraps(wraps.map(encodeBinary));
+      const ordered = wraps.map((bytes) => ({
+        bytes,
+        epoch: decimal(wrap.Envelope.fromJson(bytes).header().epoch),
+      }));
+      ordered.sort((left, right) =>
+        left.epoch < right.epoch ? -1 : left.epoch > right.epoch ? 1 : 0,
+      );
+      await a.wraps(ordered.map(({ bytes }) => encodeBinary(bytes)));
       requireValue(a.root !== null);
     }
+    let originals: readonly HostedOriginal[] = [];
+    if (!this.started || resources.has('checkpoints')) {
+      const documents = await this.discover('checkpoints', {}, call);
+      const read = () =>
+        hostedCheckpointSet(
+          documents,
+          this.scope,
+          descriptor && binary(descriptor.objectEnvelopeHash, 32, 32),
+        );
+      originals = descriptor ? await this.verifyBaseline(call, read) : await read();
+      this.live(call);
+      if (descriptor) {
+        this.baseline?.bytes.fill(0);
+        this.baseline = originals.find((value) => value.header.context.kind === 'html');
+      }
+    }
+    if (
+      descriptor &&
+      (!this.baseline || !equal(this.baseline.hash, binary(descriptor.objectEnvelopeHash, 32, 32)))
+    )
+      throw new HostedReshareRequired();
     const catchup = new Catchup(a, ['link', 'public'], this.objects, a.epoch, true);
     try {
       const head = a.head!;
@@ -93,14 +138,19 @@ export class HostedPageReader {
           statements: [],
           more: false,
         },
-        baseline: null,
+        baseline: descriptor ? encodeBinary(text(JSON.stringify(descriptor))) : null,
+        ...(descriptor
+          ? {
+              baselineObject: {
+                envelopeHash: descriptor.objectEnvelopeHash,
+                envelope: encodeBinary(this.baseline!.bytes),
+              },
+            }
+          : {}),
         streams: [],
         more: true,
       });
-      const checkpoints =
-        !this.started || resources.has('checkpoints')
-          ? await hostedCheckpointSet(await this.discover('checkpoints', {}, call), this.scope)
-          : [];
+      const checkpoints = originals.filter((value) => value.header.context.kind === 'checkpoint');
       const checkpointPairs = paired(checkpoints),
         writers = new Set([
           ...this.knownWriters,
@@ -171,7 +221,22 @@ export class HostedPageReader {
         }
       }
       this.live(call);
-      await catchup.admitValue({ ...this.frame(), streams: [], more: false });
+      const finish = () => catchup.admitValue({ ...this.frame(), streams: [], more: false });
+      if (descriptor) await this.verifyBaseline(call, finish);
+      else await finish();
+      if (!this.started && catchup.baseline) {
+        const baseline = catchup.baseline;
+        await this.verifyBaseline(call, async () => {
+          const result = await this.fold.run({
+            type: 'baseline',
+            update: baseline.update,
+            title: baseline.title,
+            sourceDigest: baseline.sourceDigest,
+            commitment: baseline.commitment,
+          });
+          requireValue(result.source === baseline.source && result.title === baseline.title);
+        });
+      }
       for (const update of catchup.checkpoints) {
         this.live(call);
         await this.fold.run({
@@ -316,10 +381,28 @@ export class HostedPageReader {
     this.closed = true;
     this.controller.abort();
     this.fold.close();
+    this.baseline?.bytes.fill(0);
+    this.baseline = undefined;
     this.closing = Promise.allSettled([...this.writes, this.changes]).then(() =>
       this.admission.closeKeys(),
     );
     return this.closing;
+  }
+  private async verifyBaseline<T>(call: SyncCall, action: () => Promise<T>): Promise<T> {
+    try {
+      return await action();
+    } catch (failure) {
+      this.live(call);
+      this.admission.validateRead(['link', 'public']);
+      if (
+        typeof failure === 'object' &&
+        failure !== null &&
+        'code' in failure &&
+        typeof failure.code === 'string'
+      )
+        throw failure;
+      throw new HostedReshareRequired();
+    }
   }
   private run<T>(action: () => Promise<T>): Promise<T> {
     const work = this.changes.then(action);

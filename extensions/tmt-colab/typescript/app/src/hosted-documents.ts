@@ -15,6 +15,7 @@ import {
 import type { SealedDocument } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { hex } from './export.js';
 import type { ObjectEntry } from './objects.js';
+import { HostedReshareRequired } from './hosted-authority.js';
 
 export interface HostedScope {
   readonly space: string;
@@ -108,6 +109,7 @@ export async function hostedCheckpoint(
 export async function hostedCheckpointSet(
   documents: readonly SealedDocument[],
   scope: HostedScope,
+  baselineHash?: Uint8Array,
 ): Promise<readonly HostedOriginal[]> {
   const groups = new Map<string, Fields[]>();
   for (const document of documents) {
@@ -117,15 +119,33 @@ export async function hostedCheckpointSet(
     group.push(row);
     groups.set(object, group);
   }
-  const originals: HostedOriginal[] = [];
+  const originals: { id: string; value: HostedOriginal }[] = [];
+  const expected = baselineHash && new Uint8Array(baselineHash);
+  if (expected) requireValue(expected.length === 32);
   for (const [id, rows] of groups) {
     rows.sort((a, b) => number(a, 'seq') - number(b, 'seq'));
     orderedRows(rows, 'checkpoints', 513);
-    const result = await original(pieces(rows), scope, 'checkpoint');
-    requireValue(result.header.objectId === id);
-    originals.push(result);
+    originals.push({
+      id,
+      value: await original(pieces(rows), scope, expected ? ['html', 'checkpoint'] : 'checkpoint'),
+    });
   }
-  return originals;
+  // Only the verified descriptor may select a baseline; duplicate originals under aliases refuse.
+  const matches = expected ? originals.filter(({ value }) => equal(value.hash, expected)) : [];
+  if (
+    expected &&
+    (matches.length !== 1 ||
+      matches[0].id !== hex(expected) ||
+      matches[0].value.header.context.kind !== 'html')
+  )
+    throw new HostedReshareRequired();
+  for (const entry of originals) {
+    if (entry === matches[0]) continue;
+    requireValue(
+      entry.value.header.context.kind === 'checkpoint' && entry.value.header.objectId === entry.id,
+    );
+  }
+  return originals.map(({ value }) => value);
 }
 
 /** Native twin: authority whole-original SHA-256, followed by Admission's signed verifier. */
@@ -296,7 +316,7 @@ function pieces(rows: readonly Fields[]): Uint8Array {
 async function original(
   bytes: Uint8Array,
   scope: HostedScope,
-  kind: 'update' | 'checkpoint',
+  kind: 'update' | 'checkpoint' | readonly ('html' | 'checkpoint')[],
 ): Promise<HostedOriginal> {
   const envelope = Envelope.fromJson(bytes),
     header = decodeHeader(envelope.header());
@@ -304,7 +324,9 @@ async function original(
     header.context.space === scope.space &&
       header.context.page === scope.page &&
       header.context.epoch === scope.epoch &&
-      header.context.kind === kind,
+      (typeof kind === 'string'
+        ? header.context.kind === kind
+        : kind.some((allowed) => allowed === header.context.kind)),
   );
   return { bytes, envelope, header, hash: await envelope.hash() };
 }
