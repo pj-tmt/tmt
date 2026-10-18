@@ -15,7 +15,7 @@ pub struct Section<'a> {
     pub count: Option<usize>,
     pub rows: Table,
     /// One dimmed line under the rows, such as `offline: a · b` for rows that
-    /// were folded away.
+    /// were folded away. Control and line-separator characters are shown escaped.
     pub note: Option<&'a str>,
     pub hint: Option<&'a str>,
 }
@@ -43,7 +43,12 @@ impl Section<'_> {
         }
         self.rows.write_laid_out(output, terminal, widths)?;
         if let Some(note) = self.note {
-            writeln!(output, "    {}", terminal.paint(Token::Dim, note))?;
+            // The note can carry user data (folded names), so it is escaped here once, before styling.
+            writeln!(
+                output,
+                "    {}",
+                terminal.paint(Token::Dim, &table::escape(note))
+            )?;
         }
         match self.hint {
             Some(next) => message::hint(output, terminal, next),

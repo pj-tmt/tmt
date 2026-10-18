@@ -882,6 +882,57 @@ fn a_running_basic_agent_carries_a_dim_basic_note_that_never_replaces_an_action(
     );
 }
 
+/// Names admit NEL and U+2028/U+2029, which a terminal treats as line breaks: the folded
+/// offline note shows them escaped, exactly as the `--all` cells do.
+#[test]
+fn folded_offline_names_are_escaped_like_the_all_listing_cells() {
+    let names = [
+        "nel\u{85}x",
+        "a\u{2028}b",
+        "para\u{2029}c",
+        "plain-name",
+        "back\\slash",
+    ];
+    let rows = || -> Vec<ListedRow> {
+        names
+            .iter()
+            .map(|name| row(name, Lifetime::Saved, None, None))
+            .collect()
+    };
+    // The folded names keep the listing's sorted order.
+    let escaped = r"a\u{2028}b · back\slash · nel\u{85}x · para\u{2029}c · plain-name";
+
+    let folded = render(rows(), Terminal::PLAIN, false);
+    let note = folded
+        .lines()
+        .find(|line| line.contains("offline:"))
+        .unwrap();
+    assert_eq!(note.trim(), format!("offline: {escaped}"), "{folded}");
+
+    let all = render(rows(), Terminal::PLAIN, true);
+    for raw in ['\u{85}', '\u{2028}', '\u{2029}'] {
+        assert!(!folded.contains(raw) && !all.contains(raw), "{folded}{all}");
+    }
+    for name in escaped.split(" · ") {
+        assert!(all.contains(name), "--all shows {name}\n{all}");
+    }
+
+    // Escaping happens before the dim styling, so the style wraps the escaped text once.
+    let styled = render(
+        rows(),
+        Terminal {
+            color: true,
+            width: None,
+            theme: None,
+        },
+        false,
+    );
+    assert!(
+        styled.contains(&format!("\\u{{1b}}[2moffline: {escaped}\\u{{1b}}[0m")),
+        "{styled}"
+    );
+}
+
 #[test]
 fn a_herdr_agent_name_mismatch_advises_tmt_this() {
     let mut binding = binding(RuntimeState::Running, None);
