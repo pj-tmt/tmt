@@ -207,8 +207,10 @@ async function fixture(mode = 'success') {
     counts: () => ({ mounts, admissions }),
     release,
     click: () => click(),
-    hide: () => {
-      hide();
+    // The two departures are separate predicates: a connected page that receives pagehide, and
+    // a check button detached without one.
+    pagehide: () => hide(),
+    detach: () => {
       button.isConnected = false;
     },
   };
@@ -423,15 +425,17 @@ test('entry separates signed refusal from opaque, mismatched and unverifiable re
   }
 });
 
-for (const mode of ['delayed', 'signing', 'pending-admission']) {
-  test(`departure during ${mode} prevents late painting and new requests`, async () => {
+for (const [mode, departure] of ['delayed', 'signing', 'pending-admission'].flatMap((mode) =>
+  (['pagehide', 'detach'] as const).map((departure) => [mode, departure] as const),
+)) {
+  test(`departure by ${departure} during ${mode} prevents late painting and new requests`, async () => {
     const f = await fixture(mode);
     const pending = landingPage();
     try {
       if (mode === 'delayed') await vi.waitFor(() => assert.equal(f.counts().mounts, 1));
       else await f.reached;
       const status = f.nodes.get('status')!.textContent;
-      f.hide();
+      f[departure]();
       f.release();
       await pending;
       assert.deepEqual(f.counts(), { mounts: 1, admissions: mode === 'pending-admission' ? 1 : 0 });
