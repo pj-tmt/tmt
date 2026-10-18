@@ -114,6 +114,11 @@ impl Entry {
 }
 
 impl Session {
+    pub(super) fn local_finals(&self) -> impl Iterator<Item = &Reply> {
+        self.outgoing
+            .iter()
+            .filter_map(|entry| entry.reply.as_ref())
+    }
     fn trim_outgoing(&mut self) {
         while self.outgoing.len() > MAX_ITEMS
             || self.outgoing.iter().map(Entry::bytes).sum::<usize>() > MAX_BYTES
@@ -126,6 +131,13 @@ impl Session {
         key: &crate::board::home_leads::MessageKey,
         sequence: Option<u64>,
     ) -> Option<&Reply> {
+        if let Some(reply) = self.finals.iter().find(|reply| {
+            reply.acquired
+                && reply.source
+                && reply.key.as_ref().is_some_and(|held| held.same_source(key))
+        }) {
+            return Some(reply);
+        }
         let reply = if self.outgoing.is_empty() {
             self.reply.as_ref()
         } else if let Some(sequence) = sequence {

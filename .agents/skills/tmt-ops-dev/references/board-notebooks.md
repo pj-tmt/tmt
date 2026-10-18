@@ -66,6 +66,10 @@ load off the UI thread, newest first, one selected read at a time. Finals come f
 alone (`requests.list` and `requests.show`): the originator notification, which is
 `unavailable` for a person with no live pane, and pane output never supply one. A header
 derives its age from `Reply.at_ms` at paint, so a held reply keeps its true age.
+The conversation renders every loaded final as a distinct request-keyed message,
+deduplicating a local outgoing reply by request ID rather than text. Replies and
+pane captures preserve authored single newlines through the conversation Markdown
+entry; the underlying bytes and request-source authority remain unchanged.
 Unavailable/expired source is not an annotatable response.
 
 `board::conversation` owns one session per sender/recipient UUID and paints the
@@ -83,7 +87,9 @@ In Agents member focus, the same selected worker reads [recent pane output](../.
 after capability discovery, by exact identity UUID. Each session projects at most
 ten provider-final captures, oldest capture first without a timestamp sort. It
 stably merges the exchange and capture heads by their literal times, exchange
-first on ties; ordering within each source is preserved through clock rollback.
+first on ties. Final message blocks use their settled times; capture order stays
+as returned by Core through clock rollback. A capture never absorbs a final,
+even when both contain identical text.
 Neutral `agent · pane output · time` headers use the exchange age wording, including `ago`; a muted `… truncated` caption
 separate these observations from replies. Pending and observed-empty pane reads add no line; unsupported/failed reads remain distinct. A failed read says `Recent pane output unavailable`;
 an empty conversation requires both sources observed empty. Pane text creates no

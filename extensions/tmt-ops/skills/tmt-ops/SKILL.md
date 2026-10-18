@@ -1014,6 +1014,11 @@ resumes follow. Resize and new output alone keep it paused. A replaced response
 stays visible while paused. A vanished source is labelled separately, not presented as new
 output.
 
+Each acquired settled reply is a separate message with its own author and age,
+correlated to its request. Single line breaks remain visible in replies and pane
+output. Pane output stays in a separate labelled block, even when it repeats a
+reply's text; reading older messages holds position while later replies arrive.
+
 The boxed composer stays at the conversation bottom when an agent is shown.
 Default Enter or a click focuses it; list actions remain available while idle.
 At eight terminal rows, the Agents composer fills the body and member rows are

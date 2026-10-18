@@ -562,10 +562,23 @@ fn a_held_reply_shows_its_true_age_instead_of_the_one_it_was_built_with() {
     draw(&app, 148, 51);
     // The string the held reply was built with is stale (it once read "1m").
     crate::board::conversation::tests::set_built_age(&app, "1m");
-    let screen = text(&draw(&app, 148, 51));
+    let buffer = draw(&app, 148, 51);
+    let screen = text(&buffer);
     assert!(screen.contains("OLD body") && screen.contains("new output"));
     assert!(screen.contains("25m ago"), "the true age of the held text");
-    assert!(!screen.contains("1m ago"));
+    let rows: Vec<_> = buffer
+        .content
+        .chunks(148)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect();
+    let old = rows
+        .iter()
+        .position(|row| row.contains("OLD body"))
+        .unwrap();
+    assert!(
+        rows[old - 1].contains("25m ago") && !rows[old - 1].contains("1m ago"),
+        "each reply owns its own age: {rows:#?}"
+    );
 }
 
 /// The acquisition path with a Core that answers only the two storage reads.
@@ -581,7 +594,7 @@ fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
     let list = json!({"items":[final_item("answer", MEMBER, now - 120_000)],"nextBefore":null});
     let show = json!({"requestId":"answer","sender":{"identityId":ACTOR},"recipientId":MEMBER,
         "kind":"request","final":{"status":"retained","submittedAtMs":now - 120_000,
-        "response":"First line\n\nSecond paragraph"}});
+        "response":"First line\nSecond line"}});
     let log = directory.join("operations");
     crate::test_support::write_ready_executable(
         &directory.join("tmt"),
@@ -616,7 +629,25 @@ fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
     };
     assert_eq!(only.from, "worker");
     assert_eq!(only.at_ms, Some(now - 120_000));
-    assert_eq!(only.body, "First line\n\nSecond paragraph");
+    assert_eq!(only.body, "First line\nSecond line");
+    // The same storage-backed result is a separate rendered message. Drawing
+    // cannot fall back to notifications or another storage acquisition.
+    let _no_reads = crate::runner::forbid_commands();
+    let buffer = draw(&app, 148, 51);
+    let rows: Vec<_> = buffer
+        .content
+        .chunks(148)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect();
+    let body = rows
+        .iter()
+        .position(|row| row.contains("First line"))
+        .expect("stored final painted");
+    assert!(rows[body + 1].contains("Second line"), "{rows:#?}");
+    assert!(
+        rows[body - 1].contains("worker") && rows[body - 1].contains("2m ago"),
+        "{rows:#?}"
+    );
     assert_eq!(
         std::fs::read_to_string(&log)
             .unwrap()
