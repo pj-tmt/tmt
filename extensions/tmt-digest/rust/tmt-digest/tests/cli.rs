@@ -233,3 +233,44 @@ fn decisions_needs_json_and_a_missing_core_is_a_json_error_without_state() {
     assert_eq!(document["error"]["code"], "CORE_UNAVAILABLE");
     sandbox.assert_untouched();
 }
+
+#[test]
+fn the_report_options_are_admitted_before_core_and_only_in_their_order() {
+    let sandbox = Sandbox::new();
+    for words in [
+        &["decisions", "--json", "--recompute", "20m"][..],
+        &["decisions", "--report", "--json", "--recompute", "auto"][..],
+        &["decisions", "--report", "--json", "--recompute", "off"][..],
+        &["decisions", "--report", "--json", "--recompute", "0s"][..],
+        &["decisions", "--report", "--json", "--flush-count", "5"][..],
+        &[
+            "decisions",
+            "--report",
+            "--json",
+            "--recompute",
+            "20m",
+            "--flush-count",
+            "0",
+        ][..],
+        &["decisions", "--report"][..],
+    ] {
+        let result = sandbox.run(words);
+        assert_eq!(result.status.code(), Some(2), "{words:?}");
+        assert!(result.stdout.is_empty(), "{words:?}");
+    }
+    sandbox.assert_untouched();
+    // An admitted report reaches Core, which this sandbox lacks.
+    let result = sandbox.run(&[
+        "decisions",
+        "--report",
+        "--json",
+        "--recompute",
+        "20m",
+        "--flush-count",
+        "5",
+    ]);
+    assert_eq!(result.status.code(), Some(1));
+    let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(document["error"]["code"], "CORE_UNAVAILABLE");
+    sandbox.assert_untouched();
+}

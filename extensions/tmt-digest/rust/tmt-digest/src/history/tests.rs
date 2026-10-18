@@ -576,3 +576,56 @@ fn decisions_never_exceed_their_row_cap_whatever_the_flapping() {
     // The oldest five went.
     assert_eq!(kept[0].at_ms, start + 5);
 }
+
+#[test]
+fn settlements_and_coverage_are_read_back_for_a_window_without_changing_the_store() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    let start = 10 * DAY;
+    store.baseline(ID, start, 1, 0).unwrap();
+    store
+        .record(ID, &event(2, start + 10, &[Some(7)]), start + 20)
+        .unwrap();
+    store
+        .record(ID, &event(3, start + 30, &[Some(1), Some(2)]), start + 40)
+        .unwrap();
+    store.checkpoint(ID, start + 40, 3, 2).unwrap();
+    let times = |from: u64, through: u64| -> Vec<u64> {
+        store
+            .settlements(from, through)
+            .unwrap()
+            .iter()
+            .map(|(_, event)| event.settled_at_ms.unwrap() - start)
+            .collect()
+    };
+    assert_eq!(times(0, MAX), [10, 30]);
+    assert_eq!(
+        times(start + 10, start + 30),
+        [30],
+        "the window is (from, through]"
+    );
+    assert_eq!(store.settlements(0, MAX).unwrap()[0].0, ID);
+    assert!(store.settlements(5, 4).is_err());
+    let coverage = store.coverage(start, start + 40).unwrap();
+    let held = &coverage[ID];
+    assert_eq!(
+        (held.started, held.through, held.gap.clone()),
+        (start, start + 40, None)
+    );
+    // A recorded gap inside the window is named.
+    {
+        let tx = store.0.transaction().unwrap();
+        add_gap(&tx, ID, start + 5, start + 15, "missing_deliveries").unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        store.coverage(start, start + 40).unwrap()[ID]
+            .gap
+            .as_deref(),
+        Some("missing_deliveries")
+    );
+    assert_eq!(
+        store.coverage(start + 20, start + 40).unwrap()[ID].gap,
+        None
+    );
+}

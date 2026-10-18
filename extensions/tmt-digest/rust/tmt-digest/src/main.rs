@@ -68,7 +68,20 @@ fn main() -> ExitCode {
                     selected.get_one::<String>("since").expect("default since"),
                 )
                 .expect("admitted since");
-                let result = decisions::execute(since);
+                let mode = if selected.get_flag("report") {
+                    decisions::Mode::Report(selected.get_one::<String>("recompute").map(|text| {
+                        decisions::Alternative {
+                            interval_ms: match settings::Mode::parse(text) {
+                                Ok(settings::Mode::Interval { milliseconds, .. }) => milliseconds,
+                                _ => unreachable!("admitted interval"),
+                            },
+                            flush_count: selected.get_one::<u64>("flush-count").copied(),
+                        }
+                    }))
+                } else {
+                    decisions::Mode::List
+                };
+                let result = decisions::execute(since, mode);
                 let successful = result.is_ok();
                 let document = match result {
                     Ok(document) => document,

@@ -8,8 +8,8 @@ mod usage;
 
 pub use collect::collect;
 pub use decision::{Decision, Rule};
-pub use model::Window;
-pub use store::Store;
+pub use model::{ChecklistSettlement, Window};
+pub use store::{Coverage, Store};
 pub use usage::collect as collect_usage;
 
 pub const MAX: u64 = 9_007_199_254_740_991;

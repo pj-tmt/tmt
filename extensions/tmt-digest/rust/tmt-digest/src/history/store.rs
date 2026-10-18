@@ -14,7 +14,10 @@ use std::{
 };
 
 mod decision;
+mod settlement;
 mod usage;
+
+pub use settlement::Coverage;
 
 // Reserve half the 64 MiB budget for SQLite's rollback journal. Raw payloads leave
 // room for compact identity totals and indexes; exhausting that room fails closed.

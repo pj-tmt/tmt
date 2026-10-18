@@ -120,6 +120,54 @@ unreadable). A store without records, or no store, lists an empty array. An
 error prints `{"version":1,"error":{"code","message"}}` and exits 1. Consumers ignore
 unknown additive fields.
 
+### Delivery report
+
+`tmt digest decisions --report --json [--since 24h|7d|30d] [--recompute INTERVAL
+[--flush-count N]]` replaces the list with the savings the delivered digests made, from
+the settlements the [history](#history) already keeps (every delivered message's arrival,
+the claim and settle times) and, for the rule that fired, the decision records. It
+delivers nothing and changes no store. `--recompute` needs `--report`, takes an interval
+(not `auto` or `off`, which would need idle times Digest does not keep) and `--flush-count`
+defaults to the configured `flushCount`.
+
+```json
+{"version":1,"since":"24h","fromMs":0,"throughMs":0,
+ "baseline":"each message delivered on its own","delayBasis":"settled minus arrival",
+ "members":[{"id":"<uuid>","name":"worker","messages":6,"baseline":{"deliveries":6},
+   "actual":{"deliveries":3,"delayMs":{"median":15000,"p90":40000,"max":40000},
+             "byRule":{"interval_deadline":2,"unrecorded":1}},
+   "turnsSaved":3,"excluded":{"notDelivered":0,"incomplete":0,"clock":0},
+   "coverage":{"startsAtMs":0,"collectedThroughMs":0,"complete":true,"gap":null}}],
+ "total":{"messages":6,"baseline":{"deliveries":6},"actual":{},"turnsSaved":3,"excluded":{}}}
+```
+
+Every output, with or without `--recompute`, carries the baseline (one delivery per
+message, so `baseline.deliveries` equals `messages`), `turnsSaved` (`messages` minus
+`actual.deliveries`) and the actual delay beside them, per member and in `total`.
+`messages` and `deliveries` count only delivered checklists whose membership is
+complete, so each message's arrival is known; the rest are counted in `excluded`
+(`notDelivered`, `incomplete`, `clock` for a message that arrived after its settle time),
+never dropped silently. `delayMs` is the nearest-rank median, 90th percentile and maximum
+of settled minus arrival over those messages, or null. `byRule` counts the actual
+deliveries by the decision record that matched each (a delivered record from the same
+member written between its claim and two minutes after its settle, each used once);
+`unrecorded` is a delivery with none (made before recording began, or by Core itself).
+`coverage` shows where the member's evidence begins in the window (`startsAtMs`, the later
+of the window start, collection start and the oldest retained settlement), the collection
+watermark and a recorded gap; `complete` is false for a late start or a gap. A member with
+no coverage row has `coverage` null. A figure is zero or null only when measured so.
+
+With `--recompute`, each member and `total` also carry `recomputed` (`deliveries`,
+`delayMs`, `turnsSaved`), and the document carries `recompute` `{method:"arrival-batching-v1",
+intervalMs, flushCount, estimate:true, notes}`. The method batches each member's arrivals:
+a batch starts at the first unsent arrival and is delivered when that message has waited
+the interval, or at the arrival that reaches the flush count, taking every message that
+arrived by then; delay is delivery minus arrival. It is an estimate from arrival times
+only: Core's readiness wait is not modelled, so a recomputed delay is a lower bound and
+the figures compare rules, they do not predict them. It is never billed tokens. A smart
+`auto` against idle-point `auto` cannot be recomputed; it is measured actual against
+actual from these reports before and after the switch.
+
 ## Usage report
 
 `tmt digest usage report` joins Core's consumption, account limits and exchange
