@@ -11,13 +11,13 @@ pub enum Window {
     Lifetime,
 }
 impl Window {
+    /// Every window, in the order the CLI lists them.
+    pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Lifetime];
     pub fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "24h" => Ok(Self::Day),
-            "7d" => Ok(Self::Week),
-            "lifetime" => Ok(Self::Lifetime),
-            _ => Err("Use 24h, 7d or lifetime".into()),
-        }
+        Self::ALL
+            .into_iter()
+            .find(|window| window.text() == value)
+            .ok_or_else(|| "Use 24h, 7d or lifetime".into())
     }
     pub fn text(self) -> &'static str {
         match self {

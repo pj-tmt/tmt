@@ -189,8 +189,8 @@ pub fn command() -> Command {
                 .arg(
                     Arg::new("window")
                         .long("window")
-                        .default_value("24h")
-                        .value_parser(["24h", "7d", "lifetime"])
+                        .default_value(crate::history::Window::Day.text())
+                        .value_parser(crate::history::Window::ALL.map(crate::history::Window::text))
                         .help("Savings window ending at the collected evidence watermark"),
                 )
                 .arg(
