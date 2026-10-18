@@ -1871,3 +1871,9 @@ body:has(.needs-you-header-menu) {
   outline: 2px solid var(--tmt-ui-color-focus);
   outline-offset: 3px;
 }
+.page-anchor-missing {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}

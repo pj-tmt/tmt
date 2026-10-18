@@ -118,13 +118,33 @@ test('opening an item and coming back lands on the shell with focus on that item
   page,
 }) => {
   await openShell(page);
-  const link = page.locator('.shell-cell').nth(1).locator('a');
+  const link = page.locator('.shell-cell').nth(5).locator('a');
   await link.click();
   await expect(page).toHaveURL(new RegExp(`#/pages/${NOTES}$`));
   await expect(page.locator('.shell-page')).toHaveCount(0);
   await page.goBack();
   await expect(page.locator('.shell-cell')).toHaveCount(6);
   await expect(link).toBeFocused();
+});
+
+test('an anchor item opens its page at that exact element and says when it is not there', async ({
+  page,
+}) => {
+  await openShell(page);
+  const anchor = page.locator('.shell-cell').nth(1).locator('a');
+  await expect(anchor).toHaveAttribute('href', `/#/pages/${NOTES}?anchor=decisions`);
+  await anchor.click();
+  await expect(page).toHaveURL(new RegExp(`#/pages/${NOTES}\\?anchor=decisions$`));
+  await expect(page.locator('iframe')).toHaveCount(1);
+  await expect(page.getByRole('status').filter({ hasText: text.anchorMissing })).toHaveCount(0);
+  const frame = page.frameLocator('iframe');
+  await expect(frame.locator('#decisions')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1500);
+  // The fixture page has no element for a name that is not in it: the page opens, with a note.
+  await page.evaluate((id) => {
+    location.hash = `/pages/${id}?anchor=absent`;
+  }, NOTES);
+  await expect(page.getByText(text.anchorMissing, { exact: true })).toBeVisible();
 });
 
 test('an empty shell, one without a summary and a failed page list stay readable', async ({

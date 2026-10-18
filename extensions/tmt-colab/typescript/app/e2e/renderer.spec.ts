@@ -1792,6 +1792,34 @@ test('reading headings resolve only requested IDs and jumps only highlight witho
   await expect(page.locator('#probe')).not.toHaveAttribute('data-opened');
 });
 
+test('reveal scrolls to the one element with an exact id and reports none or several', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    `<h1>Top</h1><div style="height:3000px">spacer</div><section id="decisions"><h2>Decisions</h2></section><p id="dup">a</p><p id="dup">b</p><div style="height:3000px">end</div>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const reveal = (id: string) =>
+    page.evaluate((id) => {
+      const w = window as unknown as {
+        probe: { handle: { reveal(id: string): Promise<boolean> } };
+      };
+      return w.probe.handle.reveal(id);
+    }, id);
+  expect(await reveal('decisions')).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(2500);
+  const scrolled = await page.evaluate(() => window.scrollY);
+  // Several matches, no match and an id outside the anchor grammar are all "not found", and
+  // none of them moves the page.
+  expect(await reveal('dup')).toBe(false);
+  expect(await reveal('absent')).toBe(false);
+  expect(await reveal('has space')).toBe(false);
+  expect(await reveal('-leading')).toBe(false);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+});
+
 for (const admitted of [false, true])
   test(`an ${admitted ? 'admitted' : 'unadmitted'} reading tag cannot steal an existing proposal slot`, async ({
     page,

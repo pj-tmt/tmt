@@ -643,7 +643,11 @@ counts the distinct source pages edited after the summary (unknown times never c
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
 filled by the same bounded hint read as the list); a failed read keeps every item as a link with
 an "unavailable" notice. Cells are real `Link`s (`pageLinkKey` keeps the modified-open
-behaviour); a reading item adds the page route's `read` hint. Before it leaves for an item the page
+behaviour); a reading item adds the page route's `read` hint, and an anchor item adds the `anchor`
+search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer to
+`reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
+reports its top so the host scrolls there once the frame has its full height; anything else leaves
+the page open at the top with a short notice. Before it leaves for an item the page
 records the item in its own history entry (`shellFocus`), and the shell restores focus to it when
 the browser comes back. The layout is borderless and wide (grid columns, no card or shadow) and
 holds no per-user state. Editing stays with the seven validated actions; the browser has no edit

@@ -489,6 +489,7 @@ export const text = {
   },
   product: 'Colab',
   shellPageNotice: 'This is a shell page. Open it from the terminal:',
+  anchorMissing: 'That passage is not on this page.',
   shellPage: {
     summary: 'Summary',
     loading: 'Loading pages…',

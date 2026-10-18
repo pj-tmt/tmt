@@ -1371,6 +1371,35 @@
               typeof v === 'object' &&
               !Array.isArray(v) &&
               Object.keys(v).length === 4 &&
+              v.type === 'colab.render.reveal' &&
+              v.renderId === renderId &&
+              typeof v.requestId === 'string' &&
+              /^[0-9a-f-]{36}$/.test(v.requestId) &&
+              typeof v.id === 'string' &&
+              /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(v.id)
+            ) {
+              // Exactly one element with this id, never the first of several.
+              const matches = [...document.querySelectorAll('[id]')].filter(
+                (element) => element.id === v.id,
+              );
+              if (matches.length === 1) {
+                const top = Math.max(0, matches[0].getBoundingClientRect().top + scrollY);
+                if (innerScroll) matches[0].scrollIntoView();
+                parent.postMessage({ type: 'colab.render.anchor', renderId, top }, '*');
+              }
+              port.postMessage({
+                type: 'colab.render.revealed',
+                renderId,
+                requestId: v.requestId,
+                found: matches.length === 1,
+              });
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
               v.type === 'colab.render.scroll-reading' &&
               v.renderId === renderId &&
               v.requestId === questionRequestId &&

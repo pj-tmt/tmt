@@ -101,7 +101,10 @@ export function mount(kind: ShellCase = 'full') {
       const row = rows.find((candidate) => candidate.id === id) ?? rows[0];
       return id === SHELL
         ? { ...row, source: '', pageType: 'shell', shell }
-        : { ...row, source: `<h1>${row.title}</h1>` };
+        : {
+            ...row,
+            source: `<h1>${row.title}</h1><div style="height:2400px">Spacer</div><section id="decisions"><h2>Decisions</h2></section><div style="height:2400px">End</div>`,
+          };
     },
   });
   createRoot(document.getElementById('root')!).render(<RouterProvider router={router} />);

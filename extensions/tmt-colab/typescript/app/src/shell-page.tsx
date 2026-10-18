@@ -122,7 +122,12 @@ function ShellCellView({
   const remember = () => {
     window.history.replaceState({ ...window.history.state, shellFocus: cell.id }, '');
   };
-  const search = cell.kind === 'reading' && cell.readingId ? { read: cell.readingId } : undefined;
+  const search =
+    cell.kind === 'reading' && cell.readingId
+      ? { read: cell.readingId }
+      : cell.kind === 'anchor' && cell.anchor
+        ? { anchor: cell.anchor }
+        : undefined;
   return (
     <li
       className="shell-cell"
