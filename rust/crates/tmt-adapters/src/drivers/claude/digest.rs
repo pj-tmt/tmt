@@ -111,17 +111,21 @@ pub(super) fn prepare(plan: &LaunchHooks<'_>) -> io::Result<RuntimeCommand> {
         "{}".to_owned()
     };
     let observer = crate::runtime::hook_protocol::command_entry(super::NAME, launcher);
-    let observations = ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"].map(|event| {
-        let mut entry = observer.clone();
-        if event == "Stop" {
-            entry["hooks"][0]["command"] = json!(format!(
-                "{} __hook {} --activity-only",
-                quote(launcher),
-                super::NAME
-            ));
-        }
-        (event.to_owned(), entry)
-    });
+    let observations: Vec<_> = ["SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"]
+        .into_iter()
+        .chain(super::ACTIVITY_EVENTS.iter().copied())
+        .map(|event| {
+            let mut entry = observer.clone();
+            if event == "Stop" {
+                entry["hooks"][0]["command"] = json!(format!(
+                    "{} __hook {} --activity-only",
+                    quote(launcher),
+                    super::NAME
+                ));
+            }
+            (event.to_owned(), entry)
+        })
+        .collect();
     let scope = serde_json::to_string(plan.launch).map_err(io::Error::other)?;
     let digest = json!({"hooks":[{"type":"command", "command":format!("{} __digest-hook {} --launch {}", quote(launcher), super::NAME, quote(&scope)), "timeout":HOOK_TIMEOUT_SECONDS}]});
     let settings =

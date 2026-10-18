@@ -5,13 +5,33 @@ use crate::{endpoint::ProcessIncarnation, limits::is_valid_js_safe_integer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActivityPhase {
     Working,
+    Waiting,
     Idle,
 }
 impl ActivityPhase {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Working => "working",
+            Self::Waiting => "waiting",
             Self::Idle => "idle",
+        }
+    }
+}
+
+/// Distinguishes a new turn from completion within an already admitted turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EventKind {
+    TurnStarted,
+    ApprovalPrompt,
+    ToolFinished,
+    TurnEnded,
+}
+impl EventKind {
+    pub fn phase(self) -> ActivityPhase {
+        match self {
+            Self::TurnStarted | Self::ToolFinished => ActivityPhase::Working,
+            Self::ApprovalPrompt => ActivityPhase::Waiting,
+            Self::TurnEnded => ActivityPhase::Idle,
         }
     }
 }
@@ -20,7 +40,7 @@ impl ActivityPhase {
 /// never a locally manufactured sequence. None requires synchronous hook ordering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
-    pub phase: ActivityPhase,
+    pub kind: EventKind,
     pub turn: Option<ProviderSessionId>,
 }
 
@@ -57,22 +77,24 @@ impl Activity {
                 return None;
             }
             if event.turn == previous.turn {
-                if event.phase == previous.phase
-                    || event.phase == ActivityPhase::Working && event.turn.is_some()
+                if event.kind.phase() == previous.phase
+                    || (event.kind == EventKind::TurnStarted && event.turn.is_some())
+                    || (previous.phase == ActivityPhase::Idle
+                        && event.kind != EventKind::TurnStarted)
                 {
                     return None;
                 }
-            } else if event.phase == ActivityPhase::Idle {
+            } else if event.kind != EventKind::TurnStarted {
                 return None;
             }
-        } else if event.phase == ActivityPhase::Idle {
+        } else if event.kind != EventKind::TurnStarted {
             // An end needs an admitted start in this exact session/incarnation.
             return None;
         }
         Some(Self {
             session: session.clone(),
             process: process.clone(),
-            phase: event.phase,
+            phase: event.kind.phase(),
             turn: event.turn.clone(),
             since_ms: now,
             last_activity_ms: now,
@@ -85,7 +107,11 @@ mod tests {
     use super::*;
     fn event(phase: ActivityPhase, turn: Option<&str>) -> Event {
         Event {
-            phase,
+            kind: match phase {
+                ActivityPhase::Working => EventKind::TurnStarted,
+                ActivityPhase::Waiting => EventKind::ApprovalPrompt,
+                ActivityPhase::Idle => EventKind::TurnEnded,
+            },
             turn: turn.map(|id| ProviderSessionId::new(id).unwrap()),
         }
     }
@@ -144,6 +170,42 @@ mod tests {
             .is_none()
         );
     }
+    #[test]
+    fn approval_waiting_clears_only_on_admitted_events_and_never_reopens_an_idle_turn() {
+        let session = ProviderSessionId::new("session").unwrap();
+        let process = ProcessIncarnation::new(12, "start").unwrap();
+        for turn in [None, Some("turn")] {
+            let signal = |kind| Event {
+                kind,
+                turn: turn.map(|id| ProviderSessionId::new(id).unwrap()),
+            };
+            let start = signal(EventKind::TurnStarted);
+            let wait = signal(EventKind::ApprovalPrompt);
+            let tool = signal(EventKind::ToolFinished);
+            let stop = signal(EventKind::TurnEnded);
+            assert!(Activity::observe(None, &session, &process, &wait, 10).is_none());
+            assert!(Activity::observe(None, &session, &process, &tool, 10).is_none());
+            let working = Activity::observe(None, &session, &process, &start, 10).unwrap();
+            let waiting = Activity::observe(Some(&working), &session, &process, &wait, 11).unwrap();
+            assert_eq!(waiting.phase, ActivityPhase::Waiting);
+            assert!(Activity::observe(Some(&waiting), &session, &process, &wait, 12).is_none());
+            // Denial without a clear hook and elapsed time supply no event.
+            assert_eq!(waiting.last_activity_ms, 11);
+            let resumed = Activity::observe(Some(&waiting), &session, &process, &tool, 13).unwrap();
+            assert_eq!(resumed.phase, ActivityPhase::Working);
+            let idle = Activity::observe(Some(&resumed), &session, &process, &stop, 14).unwrap();
+            assert_eq!(idle.phase, ActivityPhase::Idle);
+            assert!(Activity::observe(Some(&idle), &session, &process, &wait, 15).is_none());
+            assert!(Activity::observe(Some(&idle), &session, &process, &tool, 15).is_none());
+            assert_eq!(
+                Activity::observe(Some(&waiting), &session, &process, &stop, 14)
+                    .unwrap()
+                    .phase,
+                ActivityPhase::Idle
+            );
+        }
+    }
+
     #[test]
     fn synchronous_events_do_not_inherit_other_sessions_or_processes() {
         let session = ProviderSessionId::new("session").unwrap();

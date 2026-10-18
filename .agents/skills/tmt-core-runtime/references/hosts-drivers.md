@@ -195,7 +195,7 @@ channels and the driver protocol. The owner map is in
 
   | Level   | Drivers                                         | Provides                                                                                                                      |
   | ------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-  | `full`  | Claude, Codex                                   | detection, launch, skills, lifecycle hooks (working/idle, model, consumption), resume, optional message channel               |
+  | `full`  | Claude, Codex                                   | detection, launch, skills, lifecycle hooks (activity, model, consumption), resume, optional message channel                   |
   | `basic` | Gemini, Antigravity (`agy`), Pi, OpenCode, Muse | detection, skills and `tmt install` only; no driver launch, activity, model, usage or resume, so those stay blank, never idle |
 
   Herdr is not an agent driver: it is an external **host** driver (pane discovery and

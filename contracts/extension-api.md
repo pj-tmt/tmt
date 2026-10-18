@@ -881,7 +881,18 @@ The public `ls --json` identity rows expose `session.activity`:
 `{"state":"unknown","sinceMs":null,"lastActivityMs":null,"providers":{}}`.
 Working/idle are the last admitted main-turn start/end from TMT's synchronous
 provider hooks, written by `tmt setup` or composed by a `tmt run` launch, while core
-process evidence can establish ended.
+process evidence can establish ended. `waiting` records Claude's exact
+`Notification` with `notification_type: "permission_prompt"`, observed through the
+same consented hooks. Claude may delay that notification (normally about six
+seconds); TMT does not infer a prompt from pane text or a pre-decision hook.
+`PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit` and `Stop` clear waiting
+through the existing admitted-event transition. Manual denial emits no installed
+clear event: waiting remains until the next admitted event, without a timer.
+A tool completion cannot reopen an idle turn. Duplicate phases do not renew
+timestamps. These events record the last admitted observation, not a count of
+parallel pending approvals, and never decide or answer a permission request.
+Claude reports waiting; Codex does not report it in this contract. Consumers show
+waiting only when `state` says `waiting`; no per-session capability is exposed.
 Missing proof gives unknown. Timestamps are local accepted observation times;
 `lastActivityMs` is not a heartbeat and has no stalled threshold. Provider-only
 extras are currently empty. The Stop hook included in consented `tmt setup`

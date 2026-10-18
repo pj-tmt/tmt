@@ -97,12 +97,13 @@ describe('consented provider setup and bounded hook boundary', () => {
         expect(await setup()).toMatchObject({ changed: true, usage: true });
         const installedBeforePreview = fs.readFileSync(settings, 'utf8');
         const preview = await runCli(sandbox, ['setup', name]);
-        // Codex adds its activity-only interrupt observer (#3207); Claude has none.
-        const interrupt = name === 'codex' ? ['Interrupt'] : [];
+        // Activity observers remain independent of the Stop collection choice.
+        const activity =
+          name === 'codex' ? ['Interrupt'] : ['Notification', 'PostToolUse', 'PostToolUseFailure'];
         expect(preview.stdout).toContain(
-          `SessionStart, SessionEnd, UserPromptSubmit${
-            name === 'codex' ? ', Interrupt (activity only)' : ''
-          } and Stop (context usage, consumption, activity and recent responses) hooks`
+          `SessionStart, SessionEnd, UserPromptSubmit${activity
+            .map((event) => `, ${event} (activity only)`)
+            .join('')} and Stop (context usage, consumption, activity and recent responses) hooks`
         );
         expect(preview.stdout).toContain(
           "keeps this agent's last 10 final responses on this computer (up to 8 KiB each, available for 90 days by default; set exchange.retentionDays to change it). Use --no-usage to stop collecting."
@@ -116,7 +117,7 @@ describe('consented provider setup and bounded hook boundary', () => {
           'SessionStart',
           'SessionEnd',
           'UserPromptSubmit',
-          ...interrupt,
+          ...activity,
           'Stop',
         ]);
         expect(fs.readFileSync(settings, 'utf8')).toContain(`__hook ${name}`);
@@ -133,7 +134,7 @@ describe('consented provider setup and bounded hook boundary', () => {
           usage: false,
           diagnostic: `${name}: consumption collection is off; enable it with: tmt setup ${name} --usage`,
         });
-        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit', ...interrupt]);
+        expect(events()).toEqual(['SessionStart', 'SessionEnd', 'UserPromptSubmit', ...activity]);
         const disabled = fs.readFileSync(settings, 'utf8');
         expect(await setup()).toMatchObject({ changed: false, usage: false });
         expect(fs.readFileSync(settings, 'utf8')).toBe(disabled);

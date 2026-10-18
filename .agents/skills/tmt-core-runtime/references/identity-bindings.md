@@ -191,7 +191,12 @@ delivery. They install and launch nothing.
   fences; it is activity only (no usage, consumption source or response is read), and one
   without a valid turn ID or with `agent_id`/`agent_type` is not decoded as activity (its
   turn-end routing stays silent and writes no activity). Claude has no interrupt
-  hook, so an interrupted Claude turn stays working until its next event.
+  hook, so an interrupted Claude turn keeps its last activity until its next event.
+  Claude's exact Notification(permission_prompt) records waiting; PostToolUse and
+  PostToolUseFailure clear it only within an admitted active main turn. Manual denial
+  has no installed clear event, so it stays waiting until the next admitted event,
+  never a timer. Codex waiting is not reported. The public
+  [activity contract](../../../../contracts/extension-api.md) owns these support limits.
   `binding::session::activity` owns the transitions; SessionStart resets activity, duplicates
   never renew timestamps, timestamps are accepted observation times, and `ended` needs a
   conclusive process observation.
@@ -338,9 +343,9 @@ and `--discover-launch`, with no identity, process or session coordinates; launc
 lookup occurs inside the supervised worker using the existing verified caller binding.
 Codex trusts exact hook definition hashes: approval remains user-owned through `/hooks`.
 TMT never approves or bypasses trust, enables disabled hooks or writes Codex settings.
-The driver's activity-only events (`RuntimeLifecycle::activity_events`, Codex `Interrupt`)
-are observed with the lifecycle hooks, in setup and in launch composition, independent of
-the Stop usage consent. Whether a definition runs follows Codex's hook trust policy: an
+The driver's activity-only events (`RuntimeLifecycle::activity_events`: Codex `Interrupt`;
+Claude `Notification`, `PostToolUse`, `PostToolUseFailure`) are observed with the
+lifecycle hooks, in setup and in launch composition, independent of Stop usage consent. Whether a definition runs follows Codex's hook trust policy: an
 ordinary unmanaged definition runs only after the user trusts it in `/hooks`. TMT never
 grants or bypasses that trust; while Codex skips the definition, the last admitted
 activity stays unchanged. Exact setup

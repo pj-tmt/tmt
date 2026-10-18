@@ -570,7 +570,7 @@ fn missing_mismatched_and_historical_evidence_omits_running_driver() {
 
 #[test]
 fn activity_projection_requires_current_scope_and_runtime_evidence() {
-    use tmt_core::binding::session::activity::{ActivityPhase, Event};
+    use tmt_core::binding::session::activity::Event;
     let registry = tmt_adapters::runtime::RuntimeRegistry::first_party();
     let mut binding = binding(RuntimeState::Running, Some(CLAUDE));
     let mut remembered = remembered("claude", CLAUDE, false);
@@ -580,7 +580,7 @@ fn activity_projection_requires_current_scope_and_runtime_evidence() {
         &remembered.provider_session,
         &key.incarnation,
         &Event {
-            phase: ActivityPhase::Working,
+            kind: tmt_core::binding::session::activity::EventKind::TurnStarted,
             turn: None,
         },
         None,
@@ -604,6 +604,23 @@ fn activity_projection_requires_current_scope_and_runtime_evidence() {
     assert_eq!(
         project(&binding, &remembered, RuntimeState::Ended)["state"],
         "ended"
+    );
+    remembered.state = tmt_adapters::runtime::driver_state::after_activity(
+        remembered.state.as_ref(),
+        &remembered.provider_session,
+        &binding.session.key.as_ref().unwrap().incarnation,
+        &Event {
+            kind: tmt_core::binding::session::activity::EventKind::ApprovalPrompt,
+            turn: None,
+        },
+        None,
+        11,
+    );
+    assert_eq!(
+        project(&binding, &remembered, RuntimeState::Running),
+        json!({
+            "state":"waiting", "sinceMs":11, "lastActivityMs":11, "providers":{},
+        })
     );
     binding.session.key.as_mut().unwrap().incarnation =
         ProcessIncarnation::new(10, "replacement").unwrap();
