@@ -197,7 +197,15 @@
                 "coveredMs": 5000,
                 "complete": true,
                 "gap": false,
-                "discontinuous": false
+                "discontinuous": false,
+                "byDriver": [
+                  {
+                    "driver": "codex",
+                    "inputTokens": 10,
+                    "outputTokens": 5,
+                    "cachedInputTokens": 2
+                  }
+                ]
               },
               {
                 "fromMs": 15000,
@@ -208,7 +216,15 @@
                 "coveredMs": 5000,
                 "complete": true,
                 "gap": false,
-                "discontinuous": false
+                "discontinuous": false,
+                "byDriver": [
+                  {
+                    "driver": "codex",
+                    "inputTokens": 4,
+                    "outputTokens": 2,
+                    "cachedInputTokens": 1
+                  }
+                ]
               }
             ]
           }
@@ -293,6 +309,14 @@
           "complete": false,
           "gap": true,
           "discontinuous": false,
+          "byDriver": [
+            {
+              "driver": "codex",
+              "inputTokens": 20,
+              "outputTokens": 10,
+              "cachedInputTokens": 4
+            }
+          ],
           "rateLimits": {
             "observedAtMs": 20000,
             "windows": [

@@ -647,9 +647,19 @@ describe('consumption cache-write and turn model attribution', { concurrent: fal
               .prepare('SELECT details FROM consumption_buckets WHERE input_tokens > 0')
               .all() as { details: string }[];
             expect(persisted).toHaveLength(1);
+            const total = (key: 'inputTokens' | 'outputTokens' | 'cachedInputTokens') =>
+              rows.reduce((sum, row) => sum + row[key], 0);
             expect(JSON.parse(persisted[0].details)).toEqual({
               cacheWriteTokens: base.name === 'claude' ? 9 : 30,
               byModel: rows,
+              byDriver: [
+                {
+                  driver: base.name,
+                  inputTokens: total('inputTokens'),
+                  outputTokens: total('outputTokens'),
+                  cachedInputTokens: total('cachedInputTokens'),
+                },
+              ],
             });
           } finally {
             db.close();
