@@ -329,8 +329,19 @@ sys.exit(0)
             for row, cells in enumerate(screen.cells)
             if "more lines · ⏎ expand" in "".join(cells)
         )
+        anchor_row = next(
+            index for index, cells in enumerate(screen.cells)
+            if "fold line 000" in "".join(cells)
+        )
+        anchor_before = "".join(screen.cells[anchor_row])
         os.write(master, f"\x1b[<0;{column + 1};{row + 1}M\x1b[<0;{column + 1};{row + 1}m".encode())
-        wait_for(lambda: fresh_text("fold line 005") and not fresh_text("more lines · ⏎ expand"), "pointer expands while preserving the reading position")
+        wait_for(
+            lambda: not fresh_text("more lines · ⏎ expand")
+            and "fold line" in "".join(screen.cells[row]),
+            "pointer replaces the fold control with the retained body",
+        )
+        if "".join(screen.cells[anchor_row]) != anchor_before:
+            raise AssertionError("pointer expansion moved the visible reading anchor")
         os.write(master, b"\x1b[F")
         wait_for(lambda: fresh_text("fold line 023") and fresh_text("⏎ collapse"), "End reaches the expanded body's final line")
         os.write(master, b"\r")
