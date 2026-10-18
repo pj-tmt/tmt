@@ -2172,7 +2172,7 @@ mod pane {
     #[test]
     fn the_manual_removal_of_an_unreadable_record_quotes_an_apostrophe_and_removes_exactly_those_files()
      {
-        assert_eq!(shell_quoted(Path::new("/a/it's")), r"'/a/it'\''s'");
+        assert_eq!(shell_quoted("/a/it's"), r"'/a/it'\''s'");
         let scratch = Scratch::new();
         let directory = scratch.0.join("it's here");
         ensure_private_directory(&directory).unwrap();
@@ -2202,6 +2202,19 @@ mod pane {
         assert!(!record_path(&directory, BINDING).exists());
         assert!(!socket_path(&directory, BINDING).exists());
         assert!(bystander.exists());
+    }
+
+    #[test]
+    fn a_non_utf8_record_path_gets_guidance_instead_of_a_lossy_command() {
+        use std::os::unix::ffi::OsStrExt;
+        // Lossy text would turn the 0xff byte into U+FFFD and name a different file.
+        let directory = Path::new(std::ffi::OsStr::from_bytes(b"/tmp/channel-\xff"));
+        let guidance = recovery(directory, BINDING);
+        assert!(!guidance.contains("rm --"), "{guidance}");
+        assert!(!guidance.contains('\u{fffd}'), "{guidance}");
+        assert!(guidance.contains("non-UTF-8"), "{guidance}");
+        let valid = recovery(Path::new("/tmp/channel"), BINDING);
+        assert!(valid.starts_with("rm -- '/tmp/channel/"), "{valid}");
     }
 
     #[test]
