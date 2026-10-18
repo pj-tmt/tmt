@@ -11279,7 +11279,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -11317,7 +11317,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:107=s2 124:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:6=s1 38:3=s0 41:11=s1 52:2=s0 54:70=s2 124:36=s1",
         "0:160=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:125=s2",
         "0:160=s2",
@@ -11371,7 +11371,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -11381,7 +11381,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:107=s2 124:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:6=s1 38:3=s0 41:11=s1 52:2=s0 54:70=s2 124:36=s1",
         "0:160=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:125=s2",
         "0:1=s1 1:8=s5 9:10=s1 19:1=s2 20:34=s6 54:106=s2",
@@ -11407,7 +11407,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -11445,7 +11445,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:47=s2 64:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:6=s1 38:3=s0 41:11=s1 52:2=s0 54:10=s2 64:36=s1",
         "0:100=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:65=s2",
         "0:100=s2",
@@ -11499,7 +11499,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -11509,7 +11509,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:47=s2 64:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:6=s1 38:3=s0 41:11=s1 52:2=s0 54:10=s2 64:36=s1",
         "0:100=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:65=s2",
         "0:1=s1 1:8=s5 9:10=s1 19:1=s2 20:34=s6 54:46=s2",
@@ -11535,7 +11535,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -11573,7 +11573,7 @@
         " ↑↓ select  ⏎ chat  j host  p pin  v squads/agents  / search  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:27=s2 44:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:12=s2 44:36=s1",
         "0:80=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:45=s2",
         "0:80=s2",
@@ -11627,7 +11627,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -11637,7 +11637,7 @@
         " ↑↓ select  ⏎ chat  j host  p pin  v squads/agents  / search  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:27=s2 44:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:12=s2 44:36=s1",
         "0:80=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:45=s2",
         "0:1=s1 1:8=s5 9:10=s1 19:1=s2 20:34=s6 54:26=s2",
@@ -11663,7 +11663,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -11701,7 +11701,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:7=s2 24:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:15=s2 47:13=s1",
         "0:60=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:25=s2",
         "0:60=s2",
@@ -11755,7 +11755,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -11765,7 +11765,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  ? help  q quit"
       ],
       "styles": [
-        "0:9=s0 9:8=s1 17:7=s2 24:36=s1",
+        "0:9=s0 9:20=s1 29:3=s0 32:15=s2 47:13=s1",
         "0:60=s2",
         "0:1=s2 1:12=s3 13:1=s2 14:10=s1 24:1=s2 25:10=s1 35:25=s2",
         "0:1=s1 1:8=s5 9:10=s1 19:1=s2 20:34=s6 54:6=s2",
@@ -25627,7 +25627,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -25665,7 +25665,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:107=s2 124:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:6=s19 38:3=s18 41:11=s19 52:2=s18 54:70=s2 124:36=s19",
         "0:160=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:125=s2",
         "0:160=s2",
@@ -25719,7 +25719,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -25729,7 +25729,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:107=s2 124:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:6=s19 38:3=s18 41:11=s19 52:2=s18 54:70=s2 124:36=s19",
         "0:160=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:125=s2",
         "0:1=s19 1:8=s22 9:10=s19 19:1=s2 20:34=s23 54:106=s2",
@@ -25755,7 +25755,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -25793,7 +25793,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:47=s2 64:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:6=s19 38:3=s18 41:11=s19 52:2=s18 54:10=s2 64:36=s19",
         "0:100=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:65=s2",
         "0:100=s2",
@@ -25847,7 +25847,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -25857,7 +25857,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:47=s2 64:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:6=s19 38:3=s18 41:11=s19 52:2=s18 54:10=s2 64:36=s19",
         "0:100=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:65=s2",
         "0:1=s19 1:8=s22 9:10=s19 19:1=s2 20:34=s23 54:46=s2",
@@ -25883,7 +25883,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -25921,7 +25921,7 @@
         " ↑↓ select  ⏎ chat  j host  p pin  v squads/agents  / search  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:27=s2 44:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:12=s2 44:36=s19",
         "0:80=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:45=s2",
         "0:80=s2",
@@ -25975,7 +25975,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -25985,7 +25985,7 @@
         " ↑↓ select  ⏎ chat  j host  p pin  v squads/agents  / search  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:27=s2 44:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:12=s2 44:36=s19",
         "0:80=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:45=s2",
         "0:1=s19 1:8=s22 9:10=s19 19:1=s2 20:34=s23 54:26=s2",
@@ -26011,7 +26011,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -26049,7 +26049,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:7=s2 24:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:15=s2 47:13=s19",
         "0:60=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:25=s2",
         "0:60=s2",
@@ -26103,7 +26103,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -26113,7 +26113,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  ? help  q quit"
       ],
       "styles": [
-        "0:9=s18 9:8=s19 17:7=s2 24:36=s19",
+        "0:9=s18 9:20=s19 29:3=s18 32:15=s2 47:13=s19",
         "0:60=s2",
         "0:1=s2 1:12=s20 13:1=s2 14:10=s19 24:1=s2 25:10=s19 35:25=s2",
         "0:1=s19 1:8=s22 9:10=s19 19:1=s2 20:34=s23 54:6=s2",
@@ -39975,7 +39975,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -40013,7 +40013,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:107=s2 124:36=s35",
+        "0:9=s2 9:20=s35 29:3=s2 32:6=s35 38:3=s2 41:11=s35 52:72=s2 124:36=s35",
         "0:160=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:125=s2",
         "0:160=s2",
@@ -40067,7 +40067,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -40077,7 +40077,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:107=s2 124:36=s35",
+        "0:9=s2 9:20=s35 29:3=s2 32:6=s35 38:3=s2 41:11=s35 52:72=s2 124:36=s35",
         "0:160=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:125=s2",
         "0:1=s35 1:8=s36 9:10=s35 19:1=s2 20:34=s38 54:106=s2",
@@ -40103,7 +40103,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -40141,7 +40141,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:47=s2 64:36=s35",
+        "0:9=s2 9:20=s35 29:3=s2 32:6=s35 38:3=s2 41:11=s35 52:12=s2 64:36=s35",
         "0:100=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:65=s2",
         "0:100=s2",
@@ -40195,7 +40195,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -40205,7 +40205,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  v squads/agents  / search  , settings  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:47=s2 64:36=s35",
+        "0:9=s2 9:20=s35 29:3=s2 32:6=s35 38:3=s2 41:11=s35 52:12=s2 64:36=s35",
         "0:100=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:65=s2",
         "0:1=s35 1:8=s36 9:10=s35 19:1=s2 20:34=s38 54:46=s2",
@@ -40231,7 +40231,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -40269,7 +40269,7 @@
         " ↑↓ select  ⏎ chat  j host  p pin  v squads/agents  / search  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:27=s2 44:36=s35",
+        "0:9=s2 9:20=s35 29:15=s2 44:36=s35",
         "0:80=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:45=s2",
         "0:80=s2",
@@ -40323,7 +40323,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -40333,7 +40333,7 @@
         " ↑↓ select  ⏎ chat  j host  p pin  v squads/agents  / search  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:27=s2 44:36=s35",
+        "0:9=s2 9:20=s35 29:15=s2 44:36=s35",
         "0:80=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:45=s2",
         "0:1=s35 1:8=s36 9:10=s35 19:1=s2 20:34=s38 54:26=s2",
@@ -40359,7 +40359,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -40397,7 +40397,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:7=s2 24:36=s35",
+        "0:9=s2 9:20=s35 29:18=s2 47:13=s35",
         "0:60=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:25=s2",
         "0:60=s2",
@@ -40451,7 +40451,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -40461,7 +40461,7 @@
         " ↑↓ select  ⏎ chat  a note  j host  p pin  ? help  q quit"
       ],
       "styles": [
-        "0:9=s2 9:8=s35 17:7=s2 24:36=s35",
+        "0:9=s2 9:20=s35 29:18=s2 47:13=s35",
         "0:60=s2",
         "0:1=s2 1:12=s36 13:1=s2 14:10=s35 24:1=s2 25:10=s35 35:25=s2",
         "0:1=s35 1:8=s36 9:10=s35 19:1=s2 20:34=s38 54:6=s2",
@@ -54323,7 +54323,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -54415,7 +54415,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%                                                                      ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -54451,7 +54451,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -54543,7 +54543,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94% · 7d 44%  Codex 7d 5%          ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -54579,7 +54579,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -54671,7 +54671,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%            ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
@@ -54707,7 +54707,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "",
@@ -54799,7 +54799,7 @@
     },
     {
       "lines": [
-        " ▚ TMT   OPS / UI       ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+        " ▚ TMT   OPS / UI  Claude 5h 94%               ● 1  ◆ 0  ✗ 0",
         "",
         "  1 Overview   2 Agents   3 Digest",
         "  Agents   Squads    / Search",
