@@ -184,6 +184,29 @@ test('reading items show the unread or read state their page reports, and nothin
   await expect(cells.nth(0).locator('.shell-cell-why')).toHaveText('Atlas: Read before the review');
   await expect(cells.nth(0).locator('.shell-cell-why .agent-chip')).toHaveText('Atlas');
   await expect(cells.nth(1).locator('.shell-cell-kind')).toHaveText('Suggested reading · ✓ Read');
+  // Unread: the bullet takes the waiting colour and the word is semibold; Read stays all muted.
+  const look = (cell: number, part: string) =>
+    cells
+      .nth(cell)
+      .locator(`.shell-cell-state .${part}`)
+      .evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { color: style.color, weight: style.fontWeight };
+      });
+  const [mark, word, readMark, readWord, caption] = await Promise.all([
+    look(0, 'shell-cell-mark'),
+    look(0, 'shell-cell-word'),
+    look(1, 'shell-cell-mark'),
+    look(1, 'shell-cell-word'),
+    cells
+      .nth(1)
+      .locator('.shell-cell-kind')
+      .evaluate((node) => getComputedStyle(node).color),
+  ]);
+  expect(word.weight).toBe('600');
+  expect(mark.color).not.toBe(word.color);
+  expect(readMark.color).toBe(caption);
+  expect(readWord).toEqual({ color: caption, weight: readMark.weight });
   await expect(cells.nth(1).locator('a')).toHaveText('Hosting notes');
   await expect(cells.nth(1).locator('.shell-cell-why')).toHaveCount(0);
   // A source title the browser has not cached yet is not guessed.

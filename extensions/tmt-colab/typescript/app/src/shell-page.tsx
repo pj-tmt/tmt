@@ -201,8 +201,12 @@ function ShellCellView({
           <>
             {' · '}
             <span className="shell-cell-state" data-state={reading.state}>
-              <span aria-hidden="true">{reading.state === 'unread' ? '•' : '✓'}</span>{' '}
-              {reading.state === 'unread' ? t.unread : t.read}
+              <span className="shell-cell-mark" aria-hidden="true">
+                {reading.state === 'unread' ? '•' : '✓'}
+              </span>{' '}
+              <span className="shell-cell-word">
+                {reading.state === 'unread' ? t.unread : t.read}
+              </span>
             </span>
           </>
         )}
