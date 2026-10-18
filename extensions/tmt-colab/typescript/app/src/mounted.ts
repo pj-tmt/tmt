@@ -134,9 +134,13 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         return view;
       });
     },
-    setLabels(changes) {
+    setProjects(changes) {
       const client = managementClient;
-      return managed(client, () => client.setLabels(changes));
+      return managed(client, () => client.setProjects(changes));
+    },
+    manageProject(change) {
+      const client = managementClient;
+      return managed(client, () => client.manageProject(change));
     },
   };
   clearRecovery(mount);
@@ -210,6 +214,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
           const { boot, log } = await client.snapshot(lifetime.signal);
           return {
             title: text.product,
+            projects: boot.projects,
             pageIds: boot.pageIds,
             pages: await Promise.all(
               boot.pages.map(async (page) => {

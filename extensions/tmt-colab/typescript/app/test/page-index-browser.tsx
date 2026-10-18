@@ -93,7 +93,8 @@ export async function mountPageIndex(
       verify: async () => {
         throw new Error('No writes in index fixture');
       },
-      setLabels: async () => {
+      manageProject: async () => {},
+      setProjects: async () => {
         throw new Error('No writes in index fixture');
       },
     },

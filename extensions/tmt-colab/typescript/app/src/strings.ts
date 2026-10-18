@@ -28,7 +28,7 @@ const reconnectCommand = 'tmt remote pair';
 export const text = {
   quickSwitcher: {
     title: 'Search pages',
-    placeholder: 'Search pages, labels or authors…',
+    placeholder: 'Search pages, projects or authors…',
     results: 'Pages',
     loading: 'Loading pages…',
     empty: 'No pages yet.',
@@ -600,42 +600,43 @@ export const text = {
   showArchived: 'Show archived',
   pageList: {
     searchLabel: 'Search pages',
-    searchPlaceholder: 'Search pages · label:name · by:author',
+    searchPlaceholder: 'Search pages · project:name · by:author',
     sort: 'Sort',
     sortOptions: { updated: 'Recently updated', title: 'Title' },
     listOptions: 'List options',
-    manageLabels: 'Manage labels',
-    labels: 'Labels',
-    newLabel: 'New label',
+    manageProjects: 'Manage projects',
+    projects: 'Projects',
+    newProject: 'New project',
     filters: 'Filters',
     needsYou: 'Needs you',
     needsYouFilter: (count: number) => `Needs you, ${count} ${count === 1 ? 'page' : 'pages'}`,
-    labelFilter: (name: string, count: number) =>
+    projectFilter: (name: string, count: number) =>
       `${name}, ${count} ${count === 1 ? 'page' : 'pages'}`,
-    removeFilter: (name: string) => `Remove label filter ${name}`,
+    removeFilter: (name: string) => `Remove project filter ${name}`,
     removeAuthorFilter: (name: string) => `Remove author filter ${name}`,
     byAuthor: (name: string) => `by ${name}`,
     commentCount: (count: number) => `${count} ${count === 1 ? 'comment' : 'comments'}`,
     /** The mark means a shared pending item awaits the owner; the word is part of the mark. */
     waitingForYou: 'Waiting for you',
-    labelsFor: (title: string) => `Labels for ${title}`,
-    newLabelItem: 'New label…',
+    projectsFor: (title: string) => `Projects for ${title}`,
+    newProjectItem: 'New project…',
     noMatch: 'No pages match.',
     clearFilters: 'Clear filters',
     noActive: 'No active pages.',
     noArchived: 'No archived pages.',
-    nameField: 'Label name',
+    nameField: 'Project name',
     pagesField: 'Pages',
     create: 'Create',
     cancel: 'Cancel',
     rename: 'Rename',
+    merge: 'Merge',
     renameTo: 'New name',
     save: 'Save',
     remove: 'Delete',
     retry: 'Retry',
     close: 'Done',
-    noLabels: 'No labels yet.',
-    newLabelHint: 'Tick at least one page to create the label.',
+    noProjects: 'No projects yet.',
+    newProjectHint: 'Optional: tick the pages to put in it.',
     pageCount: (count: number, archived = 0) =>
       `${count} ${count === 1 ? 'page' : 'pages'}${archived ? ` · ${archived} archived` : ''}`,
     archivedView: 'Archived pages',
@@ -643,26 +644,31 @@ export const text = {
       `Rename ${from} to ${to} on ${count} ${count === 1 ? 'page' : 'pages'}${
         archived ? ` (${archived} archived)` : ''
       }.`,
+    mergeConfirm: (from: string, to: string, count: number) =>
+      `A project named ${to} already exists. Merge ${from} into ${to}? ${count} ${
+        count === 1 ? 'page moves' : 'pages move'
+      }; nothing is deleted.`,
     removeConfirm: (name: string, count: number, archived: number) =>
-      `Delete ${name} from ${count} ${count === 1 ? 'page' : 'pages'}${
+      `Delete the project ${name}, now on ${count} ${count === 1 ? 'page' : 'pages'}${
         archived ? ` (${archived} archived)` : ''
       }. The pages stay.`,
     progress: (updated: number, total: number) => `Updated ${updated} of ${total} pages.`,
     done: (count: number) => `Updated ${count} ${count === 1 ? 'page' : 'pages'}.`,
-    saved: 'Labels saved.',
+    saved: 'Projects saved.',
+    projectSaved: 'Project updated.',
     nameErrors: {
       empty: 'Enter a name.',
       long: 'Use at most 32 characters.',
       form: 'Use single spaces inside the name; no tabs or line breaks.',
-      exists: 'That label already exists.',
+      exists: 'That project already exists.',
     },
-    pageFull: 'A page holds at most 8 labels.',
+    pageFull: 'A page is in at most 8 projects.',
     failures: {
-      CAPACITY: 'A page or this space reached its label limit.',
-      DENIED: 'This device is not allowed to change labels.',
+      CAPACITY: 'A page or this space reached its project limit.',
+      DENIED: 'This device is not allowed to change projects.',
       EXPIRED: 'The request expired. Try again.',
-      INVALID: 'Labels were not saved: the owner refused the change.',
-      UNKNOWN: 'Labels were not saved. Check the connection and try again.',
+      INVALID: 'Projects were not saved: the owner refused the change.',
+      UNKNOWN: 'Projects were not saved. Check the connection and try again.',
     },
   },
   updateTimeUnknown: 'Update time unknown',

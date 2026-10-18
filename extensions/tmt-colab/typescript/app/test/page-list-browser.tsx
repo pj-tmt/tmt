@@ -1,22 +1,26 @@
-/** The page list with label writes recorded in the window: deterministic data, no real transport. */
+/** The page list with project writes recorded in the window: deterministic data, no real transport. */
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { ManagementError, type ManagementPort } from '../src/management.js';
-import type { LabelChange } from '../src/labels.js';
+import type { ProjectChange, ProjectManage } from '../src/projects.js';
 import { localTransport, type PageSnapshot, type PageSummary } from '../src/transport.js';
 
 export const listNow = Date.UTC(2026, 9, 9, 0, 0);
 declare global {
   interface Window {
-    __labelRequests: { page: string; changes: LabelChange[] }[];
-    /** Fail the label request with this index (0-based) once, as a lost connection. */
-    __failLabelRequest?: number;
+    __projectRequests: { page: string; changes: ProjectChange[] }[];
+    /** Every `project.manage` request, in order. */
+    __projectManage: ProjectManage[];
+    /** Fail the page request with this index (0-based) once, as a lost connection. */
+    __failProjectRequest?: number;
+    /** Fail the next `project.manage` request once. */
+    __failManage?: boolean;
   }
 }
 let root: Root | undefined;
 const id = (n: number) => `c${String(n).padStart(7, '0')}-1111-4111-8111-000000000001`;
-function page(n: number, title: string, labels: string[], changes: Partial<PageSummary> = {}) {
+function page(n: number, title: string, projects: string[], changes: Partial<PageSummary> = {}) {
   return {
     id: id(n),
     title,
@@ -26,7 +30,7 @@ function page(n: number, title: string, labels: string[], changes: Partial<PageS
     retentionDays: 30,
     expiresAtMs: null,
     warnings: [],
-    projects: labels,
+    projects,
     ...changes,
   };
 }
@@ -44,9 +48,12 @@ export async function mountPageList(
   }
   root?.unmount();
   root = createRoot(host);
-  window.__labelRequests = [];
-  window.__failLabelRequest = undefined;
-  const state: { pages: PageSummary[] } = {
+  window.__projectRequests = [];
+  window.__projectManage = [];
+  window.__failProjectRequest = undefined;
+  window.__failManage = undefined;
+  const state: { pages: PageSummary[]; projects: Set<string> } = {
+    projects: new Set(),
     pages:
       size === 'bulk'
         ? [
@@ -85,6 +92,7 @@ export async function mountPageList(
               page(5, 'Archived spec', ['design'], { archived: true }),
             ],
   };
+  for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
   const management: ManagementPort = {
@@ -100,23 +108,55 @@ export async function mountPageList(
     verify: async () => {
       throw new Error('No log operations in the list fixture');
     },
-    setLabels: async (changes) => {
-      const index = window.__labelRequests.length;
-      window.__labelRequests.push({ page: changes[0].pageId, changes: [...changes] });
-      if (window.__failLabelRequest === index) {
-        window.__failLabelRequest = undefined;
+    setProjects: async (changes) => {
+      const index = window.__projectRequests.length;
+      window.__projectRequests.push({ page: changes[0].pageId, changes: [...changes] });
+      if (window.__failProjectRequest === index) {
+        window.__failProjectRequest = undefined;
         throw new ManagementError('UNKNOWN');
       }
+      for (const change of changes) for (const name of change.projects) state.projects.add(name);
       state.pages = state.pages.map((p) => {
         const change = changes.find((c) => c.pageId === p.id);
-        return change ? { ...p, projects: [...change.labels] } : p;
+        return change ? { ...p, projects: [...change.projects] } : p;
       });
+    },
+    manageProject: async (change) => {
+      window.__projectManage.push(change);
+      if (window.__failManage) {
+        window.__failManage = undefined;
+        throw new ManagementError('UNKNOWN');
+      }
+      if (change.action === 'create') state.projects.add(change.name);
+      else {
+        const target = change.action === 'rename' ? change.to : undefined;
+        state.projects.delete(change.name);
+        if (target !== undefined) state.projects.add(target);
+        state.pages = state.pages.map((p) =>
+          p.projects?.includes(change.name)
+            ? {
+                ...p,
+                projects: [
+                  ...new Set(
+                    p.projects.flatMap((name) =>
+                      name !== change.name ? [name] : target === undefined ? [] : [target],
+                    ),
+                  ),
+                ].sort(),
+              }
+            : p,
+        );
+      }
     },
   };
   const router = createAppRouter({
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
-    spaceHome: async () => ({ title: 'Studio pages', pages: state.pages }),
+    spaceHome: async () => ({
+      title: 'Studio pages',
+      projects: [...state.projects].sort(),
+      pages: state.pages,
+    }),
   });
   location.hash = hash;
   root.render(<RouterProvider router={router} />);

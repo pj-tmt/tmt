@@ -40,7 +40,7 @@ for (const width of [1440, 390])
       await expect(first.locator('.tmt-ui-list-state')).toHaveText('Shared');
       await first.getByRole('link', { name: 'Alpha update' }).focus();
       await page.keyboard.press('Tab');
-      await expect(first.getByRole('button', { name: 'Labels for Alpha update' })).toBeFocused();
+      await expect(first.getByRole('button', { name: 'Projects for Alpha update' })).toBeFocused();
       await page.keyboard.press('Tab');
       const actions = first.getByRole('button', { name: /^Actions for/ });
       await expect(actions).toBeFocused();

@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import type { PageFilter } from '../src/labels.js';
+import type { PageFilter } from '../src/projects.js';
 import { SWITCHER_RESULTS, rankPages } from '../src/quick-switcher.js';
 import type { PageSummary } from '../src/transport.js';
 
@@ -33,7 +33,7 @@ const page = (
       }
     : {}),
 });
-const any: PageFilter = { labels: [], authors: [], text: '' };
+const any: PageFilter = { projects: [], authors: [], text: '' };
 const none = new Map<string, number>();
 const titles = (pages: readonly PageSummary[], query: Partial<PageFilter> = {}, opened = none) =>
   rankPages(pages, { ...any, ...query }, opened).map((result) => result.page.title);
@@ -137,10 +137,10 @@ it('the list filter applies as on the list: labels all, creators any, archived n
     page(3, 'C', { labels: ['design'], updated: 2 }),
     page(4, 'D', { labels: ['design', 'ops'], author: 'Ada', updated: 1, archived: true }),
   ];
-  expect(titles(pages, { labels: ['design'] })).toEqual(['A', 'B', 'C']);
-  expect(titles(pages, { labels: ['design', 'ops'] })).toEqual(['A']);
+  expect(titles(pages, { projects: ['design'] })).toEqual(['A', 'B', 'C']);
+  expect(titles(pages, { projects: ['design', 'ops'] })).toEqual(['A']);
   expect(titles(pages, { authors: ['Ada', 'Studio agent'] })).toEqual(['A', 'B']);
-  expect(titles(pages, { labels: ['design'], authors: ['Studio agent'] })).toEqual(['B']);
+  expect(titles(pages, { projects: ['design'], authors: ['Studio agent'] })).toEqual(['B']);
   expect(titles(pages, { text: 'ada' })).toEqual(['A']);
   expect(titles(pages, { authors: ['Nobody'] })).toEqual([]);
 });

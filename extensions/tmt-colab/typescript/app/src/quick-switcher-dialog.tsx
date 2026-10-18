@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Listbox } from './components/listbox.js';
-import { labelCounts, authorCounts } from './labels.js';
+import { projectCounts, authorCounts } from './projects.js';
 import {
   PageListSearch,
   editFromSearch,
@@ -108,7 +108,7 @@ export function QuickSwitcherHost({
     source.state === 'ready'
       ? rankPages(
           source.pages,
-          { labels: filter.labels, authors: filter.authors, text: filter.q },
+          { projects: filter.projects, authors: filter.authors, text: filter.q },
           source.opened,
           { exclude: pageId },
         )
@@ -134,7 +134,7 @@ export function QuickSwitcherHost({
           control.current?.focus({ preventScroll: true });
       });
   };
-  const hasFilter = !!(filter.q || filter.labels.length || filter.authors.length);
+  const hasFilter = !!(filter.q || filter.projects.length || filter.authors.length);
   const message =
     source.state === 'failed'
       ? t.failed
@@ -201,7 +201,7 @@ export function QuickSwitcherHost({
                   edit={edit}
                   onChange={setEdit}
                   resetKey={resetKey}
-                  labels={source.state === 'ready' ? labelCounts(source.pages) : []}
+                  projects={source.state === 'ready' ? projectCounts(source.pages) : []}
                   authors={source.state === 'ready' ? authorCounts(source.pages) : []}
                   onApply={setEdit}
                   onClear={() => setOpen(false)}

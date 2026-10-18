@@ -87,7 +87,8 @@ export async function mount(screen: Screen) {
         verify: async () => {
           throw new Error('No writes in layout fixture');
         },
-        setLabels: async () => {
+        manageProject: async () => {},
+        setProjects: async () => {
           throw new Error('No writes in layout fixture');
         },
       },

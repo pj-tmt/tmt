@@ -137,7 +137,8 @@ export async function mount(
           verify: async () => {
             throw new Error('No writes in the header fixture');
           },
-          setLabels: async () => {
+          manageProject: async () => {},
+          setProjects: async () => {
             throw new Error('No writes in the header fixture');
           },
         }

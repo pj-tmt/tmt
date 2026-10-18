@@ -1,4 +1,4 @@
-import type { PageFilter } from './labels.js';
+import type { PageFilter } from './projects.js';
 import { pageTitle } from './page-index.js';
 import type { PageSummary } from './transport.js';
 
@@ -56,7 +56,7 @@ export function rankPages(
     if (page.archived || page.id === exclude) continue;
     const labels = page.projects ?? [];
     const author = page.summary?.author;
-    if (!query.labels.every((name) => labels.includes(name))) continue;
+    if (!query.projects.every((name) => labels.includes(name))) continue;
     if (query.authors.length && (!author || !query.authors.includes(author))) continue;
     const title = pageTitle(page);
     let strength = 0;

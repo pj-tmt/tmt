@@ -9,6 +9,7 @@ import {
   managementInput,
   payload,
   requireValue,
+  SPACE_SCOPE_PAGE,
   sign,
   strictJson,
   text,
@@ -17,7 +18,12 @@ import type { statement } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Frames } from './frames.js';
 import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
-import { labelNameError, LABEL_REQUEST_PAGES, type LabelChange } from './labels.js';
+import {
+  projectNameError,
+  PROJECT_REQUEST_PAGES,
+  type ProjectChange,
+  type ProjectManage,
+} from './projects.js';
 import { jsonResponse, verifyRegistration, type Registration } from './registration.js';
 
 export interface Recipient {
@@ -79,7 +85,9 @@ export interface ManagementPort {
   send(pending: Pending): Promise<Acknowledgment>;
   verify(pending: Pending, ack: Acknowledgment, signal?: AbortSignal): Promise<ManagementView>;
   /** One display-only `page.projects` request: no view, revision or verification (contract: Projects). */
-  setLabels(changes: readonly LabelChange[]): Promise<void>;
+  setProjects(changes: readonly ProjectChange[]): Promise<void>;
+  /** One display-only `project.manage` request: create, rename or delete a project, no page named. */
+  manageProject(change: ProjectManage): Promise<void>;
 }
 export class ManagementError extends Error {
   constructor(
@@ -395,15 +403,15 @@ function validateLink(value: LinkSelection) {
 }
 
 /** The request payload: pages ascending, the first initiates, every set valid and bounded. */
-function labelPages(changes: readonly LabelChange[]) {
-  requireValue(changes.length >= 1 && changes.length <= LABEL_REQUEST_PAGES);
+function projectPages(changes: readonly ProjectChange[]) {
+  requireValue(changes.length >= 1 && changes.length <= PROJECT_REQUEST_PAGES);
   const pages = changes.map((change) => {
     generatedId(change.pageId);
     requireValue(
-      new Set(change.labels).size === change.labels.length &&
-        change.labels.every((name) => labelNameError(name) === undefined),
+      new Set(change.projects).size === change.projects.length &&
+        change.projects.every((name) => projectNameError(name) === undefined),
     );
-    return { pageId: change.pageId, projects: [...change.labels] };
+    return { pageId: change.pageId, projects: [...change.projects] };
   });
   requireValue(pages.every((page, index) => !index || pages[index - 1].pageId < page.pageId));
   return pages;
@@ -476,10 +484,25 @@ export class ManagementClient implements ManagementPort {
       ...(link ? { artifact: Object.freeze({ linkId: link.linkId, seed: link.seed }) } : {}),
     });
   }
-  /** A signed project request: the owner applies the named pages in one store transaction. */
-  async setLabels(changes: readonly LabelChange[]): Promise<void> {
-    const pages = labelPages(changes);
-    const bytes = text(JSON.stringify({ pages }));
+  /** A signed `page.projects` request: the owner applies the named pages in one store transaction. */
+  async setProjects(changes: readonly ProjectChange[]): Promise<void> {
+    const pages = projectPages(changes);
+    await this.displayOnly(pages[0].pageId, 'page.projects', { pages });
+  }
+  /** A signed `project.manage` request: the frame names the space scope page, not a page. */
+  async manageProject(change: ProjectManage): Promise<void> {
+    requireValue(projectNameError(change.name) === undefined);
+    if (change.action === 'rename')
+      requireValue(projectNameError(change.to) === undefined && change.to !== change.name);
+    await this.displayOnly(SPACE_SCOPE_PAGE, 'project.manage', change);
+  }
+  /** Display-only requests sign an empty revision and are checked only for the shape of the reply. */
+  private async displayOnly(
+    page: string,
+    operation: 'page.projects' | 'project.manage',
+    payload: object,
+  ): Promise<void> {
+    const bytes = text(JSON.stringify(payload));
     const id = crypto.randomUUID(),
       issuedAt = Date.now(),
       cert = this.registration.chain.certificate(),
@@ -487,10 +510,10 @@ export class ManagementClient implements ManagementPort {
     requireValue(cert.issuedAt <= issuedAt && cert.expiresAt > issuedAt);
     const request = await managementInput({
       space: cert.space,
-      page: pages[0].pageId,
+      page,
       expectedRevision: '',
       operationId: id,
-      operation: 'page.projects',
+      operation,
       payload: bytes,
       senderDevice: this.registration.deviceId,
       issuedAt,

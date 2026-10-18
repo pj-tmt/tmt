@@ -1,22 +1,25 @@
 import { BrowserAction, BrowserDrawer, BrowserField } from '@tmt/browser-ui/react';
 import { useId, useState } from 'react';
 import {
-  labelNameError,
-  relabel,
-  withLabel,
-  type LabelChange,
-  type LabelOutcome,
-} from './labels.js';
+  projectNameError,
+  withProject,
+  type ProjectChange,
+  type ProjectManage,
+  type ProjectOutcome,
+} from './projects.js';
 import { pageTitle } from './page-index.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
-import './label-dialogs.css';
+import './project-dialogs.css';
 
 const t = text.pageList;
 
 /** What the owner needs to finish a write: Home applies the changes and refreshes the list. */
-export interface LabelWriting {
-  save(changes: readonly LabelChange[]): Promise<LabelOutcome>;
+export interface ProjectWriting {
+  /** Replace the sets of the named pages (a name no project has yet creates it). */
+  save(changes: readonly ProjectChange[]): Promise<ProjectOutcome>;
+  /** Create, rename or delete a project: one request, no page named. */
+  manage(change: ProjectManage): Promise<{ failure?: unknown }>;
   failureText(failure: unknown): string;
 }
 
@@ -52,55 +55,73 @@ function NameField({
   );
 }
 
-/** A label exists only on pages, so a new one is named and given its first pages together. */
-export function NewLabelDialog({
+/** A new project is named and may be given its first pages together; none ticked makes it empty. */
+export function NewProjectDialog({
   open,
   pages,
+  existing,
   initial,
   writing,
   onClose,
 }: {
   open: boolean;
   pages: readonly PageSummary[];
+  /** The projects the space already has: a new one needs another name. */
+  existing: readonly string[];
   /** Pages ticked when the dialog opens. */
   initial: readonly string[];
-  writing: LabelWriting;
+  writing: ProjectWriting;
   onClose(): void;
 }) {
   return (
-    <BrowserDrawer open={open} keepMounted={false} title={t.newLabel} onDismiss={onClose}>
+    <BrowserDrawer open={open} keepMounted={false} title={t.newProject} onDismiss={onClose}>
       {/* Unmounted when closed, so every open starts a fresh form. */}
-      <NewLabelForm pages={pages} initial={initial} writing={writing} onClose={onClose} />
+      <NewProjectForm
+        pages={pages}
+        existing={existing}
+        initial={initial}
+        writing={writing}
+        onClose={onClose}
+      />
     </BrowserDrawer>
   );
 }
-function NewLabelForm({
+function NewProjectForm({
   pages,
+  existing,
   initial,
   writing,
   onClose,
 }: {
   pages: readonly PageSummary[];
+  existing: readonly string[];
   initial: readonly string[];
-  writing: LabelWriting;
+  writing: ProjectWriting;
   onClose(): void;
 }) {
   const [name, setName] = useState('');
   const [ticked, setTicked] = useState(() => new Set(initial));
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const nameError = name === '' ? undefined : labelNameError(name);
+  const nameError = name === '' ? undefined : projectNameError(name);
   async function create() {
-    const invalid = labelNameError(name);
+    const invalid = projectNameError(name);
     if (invalid) return setError(t.nameErrors[invalid]);
-    const changes: LabelChange[] = [];
+    if (existing.includes(name)) return setError(t.nameErrors.exists);
+    const changes: ProjectChange[] = [];
     for (const page of pages.filter((candidate) => ticked.has(candidate.id))) {
-      const change = withLabel(page, name, true);
+      const change = withProject(page, name, true);
       if (change === 'capacity') return setError(`${pageTitle(page)}: ${t.pageFull}`);
       changes.push(change);
     }
     setBusy(true);
     setError(undefined);
+    if (changes.length === 0) {
+      const created = await writing.manage({ action: 'create', name });
+      setBusy(false);
+      if (created.failure === undefined) return onClose();
+      return setError(writing.failureText(created.failure));
+    }
     const outcome = await writing.save(changes);
     setBusy(false);
     if (outcome.failure === undefined) return onClose();
@@ -110,7 +131,7 @@ function NewLabelForm({
   }
   return (
     <form
-      className="label-form"
+      className="project-form"
       onSubmit={(event) => {
         event.preventDefault();
         if (!busy) void create();
@@ -125,9 +146,9 @@ function NewLabelForm({
           setError(undefined);
         }}
       />
-      <fieldset className="label-pages">
+      <fieldset className="project-pages">
         <legend>{t.pagesField}</legend>
-        <p className="label-hint">{t.newLabelHint}</p>
+        <p className="project-hint">{t.newProjectHint}</p>
         <ul>
           {pages.map((page) => (
             <li key={page.id}>
@@ -151,18 +172,18 @@ function NewLabelForm({
         </ul>
       </fieldset>
       {error && (
-        <p role="alert" className="label-error">
+        <p role="alert" className="project-error">
           {error}
         </p>
       )}
-      <div className="label-actions">
+      <div className="project-actions">
         <BrowserAction type="button" variant="text" label={t.cancel} onActivate={onClose} />
         <BrowserAction
           type="submit"
           variant="primary"
           label={t.create}
           busy={busy}
-          disabled={name === '' || nameError !== undefined || ticked.size === 0}
+          disabled={name === '' || nameError !== undefined}
           onActivate={() => {}}
         />
       </div>
@@ -175,21 +196,19 @@ type Step =
   | { kind: 'rename'; name: string; to: string }
   | { kind: 'delete'; name: string };
 
-/** Rename and delete reach every page that carries the name, archived or not, whatever the list shows. */
-export function ManageLabelsDialog({
+/** Rename and delete reach every page in the project, archived or not, whatever the list shows. */
+export function ManageProjectsDialog({
   open,
   pages,
-  labels,
-  readPages,
+  projects,
   writing,
   onClose,
 }: {
   open: boolean;
   pages: readonly PageSummary[];
-  labels: readonly { name: string; count: number }[];
-  /** A fresh read of the whole space, so a retry plans only what is left. */
-  readPages(): Promise<readonly PageSummary[]>;
-  writing: LabelWriting;
+  /** Every project of the space with the pages in it, those with none too. */
+  projects: readonly { name: string; count: number }[];
+  writing: ProjectWriting;
   onClose(): void;
 }) {
   const [step, setStep] = useState<Step>({ kind: 'list' });
@@ -201,43 +220,36 @@ export function ManageLabelsDialog({
     setMessage(undefined);
     onClose();
   }
-  async function run(from: string, to?: string) {
+  async function run(name: string, to?: string) {
     setBusy(true);
     setMessage(undefined);
-    let outcome: LabelOutcome;
-    try {
-      const changes = relabel(await readPages(), from, to);
-      outcome = changes.length ? await writing.save(changes) : { updated: 0, total: 0 };
-    } catch (failure) {
-      outcome = { updated: 0, total: 0, failure };
-    }
+    const outcome = await writing.manage(
+      to === undefined ? { action: 'delete', name } : { action: 'rename', name, to },
+    );
     setBusy(false);
     if (outcome.failure === undefined) {
       setStep({ kind: 'list' });
-      setMessage({ text: t.done(outcome.total), failed: false });
+      setMessage({ text: t.projectSaved, failed: false });
       return;
     }
-    setMessage({
-      text: `${t.progress(outcome.updated, outcome.total)} ${writing.failureText(outcome.failure)}`,
-      failed: true,
-    });
+    setMessage({ text: writing.failureText(outcome.failure), failed: true });
   }
   const carrying = (name: string) => pages.filter((page) => page.projects?.includes(name));
   return (
-    <BrowserDrawer open={open} keepMounted={false} title={t.manageLabels} onDismiss={close}>
+    <BrowserDrawer open={open} keepMounted={false} title={t.manageProjects} onDismiss={close}>
       {step.kind === 'list' && (
-        <div className="label-form">
-          {labels.length ? (
-            <ul className="label-manage">
-              {labels.map(({ name, count }) => (
+        <div className="project-form">
+          {projects.length ? (
+            <ul className="project-manage">
+              {projects.map(({ name, count }) => (
                 <li key={name}>
-                  <span className="label-manage-text">
-                    <span className="label-manage-name">{name}</span>
-                    <span className="label-manage-count">
+                  <span className="project-manage-text">
+                    <span className="project-manage-name">{name}</span>
+                    <span className="project-manage-count">
                       {t.pageCount(count, carrying(name).filter((page) => page.archived).length)}
                     </span>
                   </span>
-                  <span className="label-manage-actions">
+                  <span className="project-manage-actions">
                     <BrowserAction
                       type="button"
                       variant="text"
@@ -263,7 +275,7 @@ export function ManageLabelsDialog({
               ))}
             </ul>
           ) : (
-            <p>{t.noLabels}</p>
+            <p>{t.noProjects}</p>
           )}
         </div>
       )}
@@ -272,6 +284,7 @@ export function ManageLabelsDialog({
           from={step.name}
           to={step.to}
           pages={carrying(step.name)}
+          existing={projects.map((project) => project.name)}
           busy={busy}
           onChange={(to) => setStep({ ...step, to })}
           onConfirm={() => void run(step.name, step.to)}
@@ -282,7 +295,7 @@ export function ManageLabelsDialog({
         />
       )}
       {step.kind === 'delete' && (
-        <div className="label-form">
+        <div className="project-form">
           <p>
             {t.removeConfirm(
               step.name,
@@ -290,7 +303,7 @@ export function ManageLabelsDialog({
               carrying(step.name).filter((page) => page.archived).length,
             )}
           </p>
-          <div className="label-actions">
+          <div className="project-actions">
             <BrowserAction
               type="button"
               variant="text"
@@ -314,14 +327,14 @@ export function ManageLabelsDialog({
       {message && (
         <p
           role={message.failed ? 'alert' : 'status'}
-          className="label-error"
+          className="project-error"
           data-tone={message.failed ? 'error' : 'ok'}
         >
           {message.text}
         </p>
       )}
       {step.kind === 'list' && (
-        <div className="label-actions label-footer">
+        <div className="project-actions project-footer">
           <BrowserAction type="button" variant="primary" label={t.close} onActivate={close} />
         </div>
       )}
@@ -332,6 +345,7 @@ function RenameStep({
   from,
   to,
   pages,
+  existing,
   busy,
   onChange,
   onConfirm,
@@ -340,15 +354,16 @@ function RenameStep({
   from: string;
   to: string;
   pages: readonly PageSummary[];
+  existing: readonly string[];
   busy: boolean;
   onChange(to: string): void;
   onConfirm(): void;
   onCancel(): void;
 }) {
-  const invalid = to === '' ? undefined : labelNameError(to);
+  const invalid = to === '' ? undefined : projectNameError(to);
   return (
     <form
-      className="label-form"
+      className="project-form"
       onSubmit={(event) => {
         event.preventDefault();
         if (!busy && to !== from && !invalid && to !== '') onConfirm();
@@ -362,10 +377,12 @@ function RenameStep({
       />
       {to !== from && !invalid && to !== '' && (
         <p>
-          {t.renameConfirm(from, to, pages.length, pages.filter((page) => page.archived).length)}
+          {existing.includes(to)
+            ? t.mergeConfirm(from, to, pages.length)
+            : t.renameConfirm(from, to, pages.length, pages.filter((page) => page.archived).length)}
         </p>
       )}
-      <div className="label-actions">
+      <div className="project-actions">
         <BrowserAction
           type="button"
           variant="text"
@@ -376,7 +393,7 @@ function RenameStep({
         <BrowserAction
           type="submit"
           variant="primary"
-          label={t.rename}
+          label={existing.includes(to) ? t.merge : t.rename}
           busy={busy}
           disabled={to === from || to === '' || invalid !== undefined}
           onActivate={() => {}}

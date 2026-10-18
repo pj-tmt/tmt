@@ -46,26 +46,26 @@ import {
 import { text } from './strings.js';
 import './page-list-search.css';
 
-/** The two filters the search takes as tokens: a label the page carries, a creator it has. */
-export type FilterKind = 'label' | 'by';
-const TRIGGERS: Record<FilterKind, string> = { label: 'label:', by: 'by:' };
+/** The two filters the search takes as tokens: a project the page is in, a creator it has. */
+export type FilterKind = 'project' | 'by';
+const TRIGGERS: Record<FilterKind, string> = { project: 'project:', by: 'by:' };
 
-/** The search draft: the editor's text and its tokens, each token's text being `label:<name>` or `by:<name>`. */
+/** The search draft: the editor's text and its tokens, each token's text being `project:<name>` or `by:<name>`. */
 export interface SearchEdit {
   value: string;
   tokens: { kind: FilterKind; name: string; range: RichInputRange }[];
 }
 
-/** Label tokens, then creator tokens, then the free text; the same shape the editor reads back. */
+/** Project tokens, then creator tokens, then the free text; the same shape the editor reads back. */
 export function editFromSearch(
-  labels: readonly string[],
+  projects: readonly string[],
   q: string,
   authors: readonly string[] = [],
 ): SearchEdit {
   let value = '';
   const tokens: SearchEdit['tokens'] = [];
   for (const [kind, names] of [
-    ['label', labels],
+    ['project', projects],
     ['by', authors],
   ] as const)
     for (const name of new Set(names)) {
@@ -81,7 +81,7 @@ export function editFromSearch(
 }
 /** What the draft asks for: its tokens' names and the text outside them, whitespace collapsed. */
 export function searchFromEdit(edit: SearchEdit): {
-  labels: string[];
+  projects: string[];
   authors: string[];
   q: string;
 } {
@@ -96,16 +96,16 @@ export function searchFromEdit(edit: SearchEdit): {
     ...new Set(edit.tokens.filter((token) => token.kind === kind).map((token) => token.name)),
   ];
   return {
-    labels: names('label'),
+    projects: names('project'),
     authors: names('by'),
     q: free.split(/\s+/).filter(Boolean).join(' '),
   };
 }
-/** Add the label as a token, or drop it when the draft already holds it; the rest stays. */
-export function toggleLabel(edit: SearchEdit, name: string): SearchEdit {
-  const { labels, authors, q } = searchFromEdit(edit);
+/** Add the project as a token, or drop it when the draft already holds it; the rest stays. */
+export function toggleProject(edit: SearchEdit, name: string): SearchEdit {
+  const { projects, authors, q } = searchFromEdit(edit);
   return editFromSearch(
-    labels.includes(name) ? labels.filter((label) => label !== name) : [...labels, name],
+    projects.includes(name) ? projects.filter((project) => project !== name) : [...projects, name],
     q,
     authors,
   );
@@ -135,7 +135,7 @@ export class FilterTokenNode extends DecoratorNode<ReactNode> {
   }
   createDOM() {
     const node = document.createElement('span');
-    node.className = 'label-filter-host';
+    node.className = 'project-filter-host';
     return node;
   }
   updateDOM() {
@@ -176,11 +176,11 @@ function FilterTokenChip({
   const [editor] = useLexicalComposerContext();
   const removed = useContext(RemovedToken);
   return (
-    <span {...(kind === 'label' ? { 'data-label-filter': name } : { 'data-by-filter': name })}>
+    <span {...(kind === 'project' ? { 'data-project-filter': name } : { 'data-by-filter': name })}>
       <BrowserChip
         label={`${TRIGGERS[kind]}${name}`}
         removeLabel={
-          kind === 'label'
+          kind === 'project'
             ? text.pageList.removeFilter(name)
             : text.pageList.removeAuthorFilter(name)
         }
@@ -235,9 +235,9 @@ const searchDocument: RichInputDocument<SearchEdit> = {
   equal: (a, b) => a.value === b.value && JSON.stringify(a.tokens) === JSON.stringify(b.tokens),
 };
 
-/** The `label:` or `by:` text before the caret in the text run it sits in; tokens are never queries. */
+/** The `project:` or `by:` text before the caret in the text run it sits in; tokens are never queries. */
 export function filterQuery(run: string, caret: number) {
-  const match = /(?:^|\s)(label|by):([^\n]*)$/i.exec(run);
+  const match = /(?:^|\s)(project|by):([^\n]*)$/i.exec(run);
   if (!match) return undefined;
   const kind = match[1].toLowerCase() as FilterKind;
   return {
@@ -249,12 +249,12 @@ export function filterQuery(run: string, caret: number) {
 }
 /** Names holding every word of the query, ignoring case, that the draft has not already taken. */
 export function nameCandidates(
-  labels: readonly { name: string; count: number }[],
+  projects: readonly { name: string; count: number }[],
   query: string,
   taken: readonly string[],
 ) {
   const words = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  return labels.filter(
+  return projects.filter(
     ({ name }) =>
       !taken.includes(name) && words.every((word) => name.toLocaleLowerCase().includes(word)),
   );
@@ -265,7 +265,7 @@ export interface PageListSearchProps {
   onChange(edit: SearchEdit): void;
   /** An intentional replacement from outside the editor (chip click, Back, clear). */
   resetKey: number;
-  labels: readonly { name: string; count: number }[];
+  projects: readonly { name: string; count: number }[];
   /** Creators of the pages the list could show, for `by:`. */
   authors: readonly { name: string; count: number }[];
   /** Enter with no suggestion list open. */
@@ -282,7 +282,7 @@ export interface PageListSearchProps {
   placeholder?: string;
 }
 
-/** The shared rich input with `label:` and `by:` tokens; the page list owns what the draft means. */
+/** The shared rich input with `project:` and `by:` tokens; the page list owns what the draft means. */
 export function PageListSearch(props: PageListSearchProps) {
   return (
     <RemovedToken value={props.onApply}>
@@ -346,10 +346,10 @@ function SearchField(props: PageListSearchProps) {
       }),
     [editor],
   );
-  const kind = query?.kind ?? 'label';
+  const kind = query?.kind ?? 'project';
   const taken = props.edit.tokens.filter((token) => token.kind === kind).map((token) => token.name);
   const candidates = nameCandidates(
-    kind === 'label' ? props.labels : props.authors,
+    kind === 'project' ? props.projects : props.authors,
     query?.query ?? '',
     taken,
   );

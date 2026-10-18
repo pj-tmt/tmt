@@ -15,8 +15,8 @@ import { jsonResponse } from './registration.js';
 import type { ExpiryInfo } from './expiry.js';
 
 /** Project limits; `limits.rs` and the contract's Projects section hold the same numbers. */
-export const LABEL_POINTS = 32;
-export const LABELS_PER_PAGE = 8;
+export const PROJECT_POINTS = 32;
+export const PROJECTS_PER_PAGE = 8;
 /** Most names one space lists: creation stops at 256, and a space migrated from labels may hold up to its 1,000 assignments. */
 const PROJECTS_PER_SPACE = 1000;
 
@@ -36,7 +36,7 @@ function projectNames(names: readonly unknown[]): boolean {
       (name) =>
         typeof name === 'string' &&
         [...name].length >= 1 &&
-        [...name].length <= LABEL_POINTS &&
+        [...name].length <= PROJECT_POINTS &&
         !/\p{Cc}/u.test(name),
     )
   );
@@ -172,7 +172,7 @@ export async function discover(
     // browser only refuses what it could not render safely or what the store never writes.
     requireValue(
       Array.isArray(page.projects) &&
-        page.projects.length <= LABELS_PER_PAGE &&
+        page.projects.length <= PROJECTS_PER_PAGE &&
         projectNames(page.projects) &&
         page.projects.every((name: unknown) => known.has(name)),
     );
