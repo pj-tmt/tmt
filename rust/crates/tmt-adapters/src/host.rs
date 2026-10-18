@@ -119,6 +119,41 @@ impl CallerEnvironment {
             .into_iter()
             .any(|value| value.as_ref().is_some_and(|value| !value.is_empty()))
     }
+
+    /// Which host the caller's locators name, among the `records` approved.
+    /// A set variable names its host even when it is not valid text; only a
+    /// nonempty tmux variable names tmux. It runs no driver.
+    pub fn named_host<'a>(
+        &self,
+        records: &'a [crate::driver_protocol::registry::DriverRecord],
+    ) -> NamedHost<'a> {
+        let mut named: Vec<_> = records
+            .iter()
+            .filter(|record| {
+                record.capabilities.host().is_some_and(|host| {
+                    host.caller_env
+                        .iter()
+                        .any(|name| self.driver_env.contains_key(name))
+                })
+            })
+            .collect();
+        named.dedup_by(|a, b| a.name == b.name);
+        match (self.names_tmux(), named.as_slice()) {
+            (_, []) => NamedHost::Builtin,
+            (false, [record]) => NamedHost::External(record),
+            _ => NamedHost::Ambiguous,
+        }
+    }
+}
+
+/// The host a caller's locators name: none of the approved external hosts
+/// (tmux, or outside any host), exactly one external host and no tmux, or
+/// more than one host (mixed or nested, unsupported).
+#[derive(Debug)]
+pub enum NamedHost<'a> {
+    Builtin,
+    External(&'a crate::driver_protocol::registry::DriverRecord),
+    Ambiguous,
 }
 
 #[derive(Debug)]
@@ -380,24 +415,13 @@ impl<R: CommandRunner + Clone> Host<R> {
     ) -> Result<Self, HostError> {
         let unverified =
             |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
-        // A set variable names its host even when it is not valid text.
-        let mut named: Vec<_> = records
-            .iter()
-            .filter(|record| {
-                record.capabilities.host().is_some_and(|host| {
-                    host.caller_env
-                        .iter()
-                        .any(|name| environment.driver_env.contains_key(name))
-                })
-            })
-            .map(|record| record.name.clone())
-            .collect();
-        named.dedup();
         let builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
-        match (environment.names_tmux(), named.len()) {
-            (_, 0) => return Ok(builtin),
-            (false, 1) => {}
-            _ => return Err(unverified("the caller's locators name more than one host")),
+        match environment.named_host(&records) {
+            NamedHost::Builtin => return Ok(builtin),
+            NamedHost::External(_) => {}
+            NamedHost::Ambiguous => {
+                return Err(unverified("the caller's locators name more than one host"));
+            }
         }
         let callers = builtin
             .external
