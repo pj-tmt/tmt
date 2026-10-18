@@ -59,6 +59,12 @@ for (const width of [1440, 1024, 390])
       );
       await expect(page.locator('.shell-summary-meta .agent-chip')).toHaveText('Atlas');
       await expect(page.locator('.shell-summary-meta')).toContainText('Atlas ·');
+      // An inline chip's icon is the surrounding text's 1em, here the caption size.
+      const sizes = await page.locator('.shell-summary-meta .agent-chip').evaluate((chip) => ({
+        font: parseFloat(getComputedStyle(chip).fontSize),
+        icon: chip.querySelector('svg')!.getBoundingClientRect().width,
+      }));
+      expect(sizes.icon).toBeCloseTo(sizes.font, 1);
       await expect(page.locator('.shell-changed')).toHaveText(
         ' · 1 page changed since this summary',
       );
