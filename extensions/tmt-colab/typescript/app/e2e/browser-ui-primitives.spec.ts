@@ -213,3 +213,35 @@ for (const width of [320, 390, 1440])
       expect(failures).toEqual([]);
     });
   }
+
+test('uncontrolled checkbox and switch follow a reset of the form they name', async ({ page }) => {
+  // #3388 reproduction, no remedy yet. Expected: after resetting the form a control names
+  // with form=, its visible aria-checked matches its hidden input and FormData (all off).
+  // Observed: the external-form Checkbox stays visibly checked while its hidden input and
+  // FormData are reset; the Switch and the in-form Checkbox already reset. The fix PR
+  // removes test.fail() so this becomes a plain test.
+  test.fail();
+  await gallery(page);
+  const form = page.getByRole('form', { name: 'External reset form' });
+  const controls = [
+    page.getByRole('checkbox', { name: 'In-form checkbox' }),
+    page.getByRole('switch', { name: 'External-form switch' }),
+    page.getByRole('checkbox', { name: 'External-form checkbox' }),
+  ];
+  const hidden = (name: string) => page.locator(`input[name="${name}"]`);
+  const submitted = () =>
+    form.evaluate((node) => [...new FormData(node as HTMLFormElement).keys()].sort());
+  for (const control of controls) {
+    await control.click();
+    await expect(control).toHaveAttribute('aria-checked', 'true');
+  }
+  expect(await submitted()).toEqual(['external-check', 'external-switch', 'in-form-check']);
+  await form.getByRole('button', { name: 'Reset external form' }).click();
+  for (const name of ['in-form-check', 'external-switch', 'external-check'])
+    await expect(hidden(name)).not.toBeChecked();
+  expect(await submitted()).toEqual([]);
+  // The two already-correct controls are asserted before the reproduced mismatch.
+  await expect(controls[0]).toHaveAttribute('aria-checked', 'false');
+  await expect(controls[1]).toHaveAttribute('aria-checked', 'false');
+  await expect(controls[2]).toHaveAttribute('aria-checked', 'false', { timeout: 1000 });
+});

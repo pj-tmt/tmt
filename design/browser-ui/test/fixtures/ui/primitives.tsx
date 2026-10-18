@@ -258,6 +258,31 @@ export function PrimitiveFixtures() {
           <Switch aria-label="Working switch" disabled aria-busy="true" /> Working switch
         </label>
       </div>
+      {/* #3388: uncontrolled controls associated with a form they are not inside. */}
+      <form id="primitive-external-form" aria-label="External reset form">
+        <label>
+          <Checkbox aria-label="In-form checkbox" name="in-form-check" /> In-form checkbox
+        </label>
+        <Button type="reset">Reset external form</Button>
+      </form>
+      <div className="tmt:flex tmt:flex-wrap tmt:gap-4">
+        <label>
+          <Checkbox
+            aria-label="External-form checkbox"
+            name="external-check"
+            form="primitive-external-form"
+          />{' '}
+          External-form checkbox
+        </label>
+        <label>
+          <Switch
+            aria-label="External-form switch"
+            name="external-switch"
+            form="primitive-external-form"
+          />{' '}
+          External-form switch
+        </label>
+      </div>
       <Separator decorative={false} />
       <div className="tmt:flex tmt:flex-wrap tmt:gap-2">
         {(['default', 'secondary', 'destructive', 'outline', 'ghost', 'link'] as const).map(
