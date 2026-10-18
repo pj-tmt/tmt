@@ -2,7 +2,6 @@ import { certificate, requireValue } from '@tmt/colab-client';
 import type { SyncCall } from '../../../../tmt-remote/typescript/remote-client/src/sealed-sync.js';
 import { Admission } from './admission.js';
 import { HostedAdmission } from './hosted-admission.js';
-import { requireHostedEpoch } from './hosted-authority.js';
 import { bootstrapHosted, type HostedBootstrap } from './hosted-bootstrap.js';
 import type { HostedBudget } from './hosted-budget.js';
 import { HostedPageReader } from './hosted-reader.js';
@@ -216,7 +215,6 @@ export class HostedEntry {
               },
               call,
             );
-            requireHostedEpoch(hints.epoch);
             const admission = new Admission(
               target.space,
               target.page,

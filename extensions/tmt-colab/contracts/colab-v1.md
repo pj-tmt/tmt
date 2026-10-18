@@ -3741,11 +3741,20 @@ After explicit sign-in, enrollment is one bounded create of the holder's
 `members` row `{space,page,uid,role,link,token,seq:1}`. The token comes from Colab's link model;
 existing enrollment is read, never replaced, and an uncertain create gets one exact readback,
 never another enrollment write. The one-attempt memo survives recovery and hidden-tab resume for that
-page and uid. The following exact `pages` get supplies epoch/expiry hints only. B4 admits epoch 1;
-any later epoch is `COLAB_HOSTED_RESHARE_REQUIRED`: “This page changed its sharing since this
-link was made. Ask the owner to share it again.” Lifting this limit is deferred: consume the exact
-signed baseline original published by B3c-3, addressed by lowercase hex of the epoch advance's
-`objectEnvelopeHash`, using the baseline codec; a checkpoint is never synthesized into a baseline.
+page and uid. The following exact `pages` get supplies epoch/expiry hints only; the verified owner
+log selects the epoch. From epoch 2 on, the reader selects exactly one complete original from the
+already-required bounded checkpoints discovery by the signed epoch advance's `objectEnvelopeHash`
+(lowercase hex carrier object ID). Existing field/chunk/digest admission precedes the baseline
+codec, Catchup/openBaseline/Admission.baseline and Worker commitment/source checks; only that exact
+signed `html` original becomes the baseline, never also a checkpoint. Every other object keeps
+ordinary checkpoint admission, including its header object ID. Zero or several matching originals,
+or any unavailable or unverifiable baseline, retain `COLAB_HOSTED_RESHARE_REQUIRED`: “This page
+changed its sharing since this link was made. Ask the owner to share it again.” Historical wraps
+pass through the existing ordered wrap admission to select the current root. The baseline is
+initialized once per fresh reader; log wakes reuse its encrypted original and admitted state,
+without another checkpoints read or budget path. A signed epoch change ends the old generation
+before fresh bounded bootstrap; cancellation, deadline, expiry, revocation and budget refusals stay
+unchanged. A checkpoint is never synthesized into a baseline.
 
 One active page owns exactly three interests: log, checkpoints and membership authority.
 Subscriptions attach before bounded discovery. Notices only wake the consumer, which retains

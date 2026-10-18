@@ -316,18 +316,17 @@ it('hidden pages have no interests and resume by fresh verified catch-up without
   await f.entry.close();
 });
 
-it('a later-epoch hint refuses before a listener or content decoder is created', async () => {
+it('passes a later-epoch routing hint to the baseline verifier without adding interests', async () => {
   const f = await fixture();
   f.epoch('2');
   await f.entry.select(target());
   await f.entry.signIn();
-  expect(f.states.at(-1)).toMatchObject({
-    phase: 'failed',
-    failure: { code: 'COLAB_HOSTED_RESHARE_REQUIRED', message: 'ask the owner to share it again' },
-  });
-  expect(f.active()).toBe(0);
-  expect(effects).not.toContain('verified');
+  expect(f.states.at(-1)).toMatchObject({ phase: 'ready', view: { source: 'verified only' } });
+  expect(f.active()).toBe(3);
+  expect(f.peak()).toBe(3);
+  expect(effects).toContain('verified');
   await f.entry.close();
+  expect(f.active()).toBe(0);
 });
 
 it('Rules/budget/rate refusal stays stopped across visibility events, with no new port or member create', async () => {
