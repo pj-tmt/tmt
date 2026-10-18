@@ -739,28 +739,47 @@ else throw Error('Unexpected endpoint');
       const script = fileURLToPath(
         new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)
       );
-      const execute = (fail: boolean) =>
-        spawnSync(process.execPath, [script, '--output', directory, '--review-map', map], {
-          encoding: 'utf8',
-          timeout: 10_000,
-          env: {
-            ...process.env,
-            PATH: `${directory}${path.delimiter}${process.env.PATH}`,
-            GH_TOKEN: secret,
-            GITHUB_TOKEN: secret,
-            FAIL_READ: String(fail),
-            TMT_AGENT: '1',
-            BROWSER: 'true',
-          },
-        });
+      const execute = (fail: boolean, extra: string[] = []) =>
+        spawnSync(
+          process.execPath,
+          [script, '--output', directory, '--review-map', map, ...extra],
+          {
+            encoding: 'utf8',
+            timeout: 10_000,
+            env: {
+              ...process.env,
+              PATH: `${directory}${path.delimiter}${process.env.PATH}`,
+              GH_TOKEN: secret,
+              GITHUB_TOKEN: secret,
+              FAIL_READ: String(fail),
+              TMT_AGENT: '1',
+              BROWSER: 'true',
+            },
+          }
+        );
       const first = execute(false);
       expect(first.status, first.stdout + first.stderr).toBe(0);
+      const bootstrap = JSON.parse(readFileSync(path.join(directory, 'summary.json'), 'utf8'));
+      const initialCursor = JSON.parse(readFileSync(path.join(directory, 'cursor.json'), 'utf8'));
+      expect(bootstrap).toMatchObject({
+        baselineEstablished: true,
+        complete: false,
+        evidence: { requests: 0 },
+      });
+      expect(initialCursor.baselineUntil).toBe(bootstrap.until);
+      expect(first.stdout).toContain('details from the next tick');
+      expect(first.stdout).not.toContain('No anomalies');
+      expect(readFileSync(path.join(directory, 'calls.jsonl'), 'utf8')).not.toContain('"request":');
+      const detail = execute(false);
+      expect(detail.status, detail.stdout + detail.stderr).toBe(0);
       const report = JSON.parse(readFileSync(path.join(directory, 'summary.json'), 'utf8'));
       const cursor = readFileSync(path.join(directory, 'cursor.json'), 'utf8');
       expect(report.complete).toBe(true);
+      expect(JSON.parse(cursor).baselineUntil).toBe(initialCursor.baselineUntil);
+      expect(report.coverage).toContain(initialCursor.baselineUntil);
       expect(report.evidence.requests).toBe(18);
       expect(JSON.parse(cursor).until).toBe(report.until);
-      expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(first.stdout);
+      expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(detail.stdout);
       const refused = execute(true);
       expect(refused.status).toBe(1);
       expect(readFileSync(path.join(directory, 'cursor.json'), 'utf8')).toBe(cursor);
@@ -769,8 +788,128 @@ else throw Error('Unexpected endpoint');
       expect(refused.stdout + refused.stderr + refusedJson).not.toContain(secret);
       expect(refusedJson).toContain('[REDACTED]');
       expect(refused.stdout).not.toContain('No anomalies');
+      expect(readFileSync(path.join(directory, 'calls.jsonl'), 'utf8')).not.toContain(secret);
+      const overwritten = execute(false, ['--bootstrap']);
+      expect(overwritten.status).toBe(1);
+      expect(overwritten.stdout).toContain('Cannot bootstrap an existing cursor');
+      expect(readFileSync(path.join(directory, 'cursor.json'), 'utf8')).toBe(cursor);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+});
+
+it('cannot converge by retrying mutable review reads, even with no failed-run details', () => {
+  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-no-convergence-'));
+  const evidence = fixture({
+    open: Array.from({ length: 25 }, (_, i) => ({ id: i + 1, number: i + 1 })),
+    files: [{ filename: '.github/workflows/ci.yml' }],
+  });
+  const trace: string[][] = [];
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const calls: string[] = [];
+      trace.push(calls);
+      const api = createTickClient({
+        repository: 'pj-tmt/tmt',
+        cache,
+        trace: (row) => calls.push(row.endpoint!),
+        execute: (_program, args) => {
+          if (args[1] === 'graphql')
+            return JSON.stringify({
+              data: { repository: { mergeQueue: { entries: evidence.queue() } } },
+            });
+          const endpoint = args.find((arg) => arg.startsWith('repos/'))!;
+          if (endpoint === 'repos/pj-tmt/tmt') return '{"permissions":{"push":true}}';
+          if (endpoint.includes('/releases?')) return 'HTTP/2 200 OK\r\n\r\n[]';
+          const detail = /\/pulls\/(\d+)$/.exec(endpoint);
+          if (detail)
+            return JSON.stringify({
+              number: Number(detail[1]),
+              head: { sha: SHA },
+              changed_files: 1,
+            });
+          return JSON.stringify(evidence.get(endpoint));
+        },
+      });
+      expect(() => collectInfraTick(api, options)).toThrow('call budget exhausted');
+      expect(calls).toHaveLength(80);
+    }
+    expect(trace[1]).toEqual(trace[0]);
+    expect(trace[2]).toEqual(trace[0]);
+    expect(trace[0].filter((endpoint) => endpoint.includes('/pulls/')).length).toBeGreaterThan(40);
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+it('post-bootstrap skips998 historical failures but analyses a newly failed old-created run', () => {
+  const before = new Date(Date.parse(options.since) - 1000).toISOString();
+  const created = new Date(Date.parse(options.since) - 60_000).toISOString();
+  const evidence = fixture({
+    runs: [
+      ...Array.from({ length: 998 }, (_, i) =>
+        run(i + 1, { created_at: created, updated_at: before, conclusion: 'failure' })
+      ),
+      run(999, { created_at: created, updated_at: options.until, conclusion: 'failure' }),
+    ],
+    jobs: [worker(11)],
+    open: Array.from({ length: 25 }, (_, i) => ({ id: i + 1, number: i + 1, updated_at: before })),
+  });
+  const report = collectInfraTick(evidence, {
+    ...options,
+    previous: {
+      schema: 1,
+      until: options.since,
+      baselineUntil: options.since,
+      failedDraftIds: [],
+      failedRunAttempts: [],
+      failureEvidence: [],
+      activeRunIds: [],
+    },
+  });
+  expect(report.complete).toBe(true);
+  expect(report.health.created24h).toBe(999);
+  expect(report.failures).toHaveLength(1);
+  expect(report.failures[0].run).toBe(999);
+  expect(report.failedRunAttempts).toEqual(['999:1']);
+  expect(evidence.calls.filter((endpoint) => endpoint.includes('/jobs?'))).toHaveLength(1);
+  expect(evidence.calls.filter((endpoint) => endpoint.includes('/logs'))).toHaveLength(1);
+  expect(evidence.calls.some((endpoint) => /\/pulls\/\d+/.test(endpoint))).toBe(false);
+  expect(report.coverage).toContain('earlier history was intentionally not analysed');
+  expect(report.coverage).toContain('startup_failure');
+});
+
+it('traces only actual network calls, including errors, without response bodies', () => {
+  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-trace-'));
+  const trace: unknown[] = [];
+  const api = createTickClient({
+    repository: 'pj-tmt/tmt',
+    cache,
+    trace: (row) => trace.push(row),
+    execute: (_program, args) => {
+      if (args.some((arg) => arg.endsWith('/error'))) throw Error('private response detail');
+      return args.includes('--allow-escape-sequences')
+        ? 'raw private log'
+        : '{"private":"response"}';
+    },
+  });
+  try {
+    api.get('repos/pj-tmt/tmt/mutable');
+    api.get('repos/pj-tmt/tmt/mutable');
+    api.get('repos/pj-tmt/tmt/actions/jobs/1/logs', true, true);
+    api.get('repos/pj-tmt/tmt/actions/jobs/1/logs', true, true);
+    expect(() => api.get('repos/pj-tmt/tmt/error')).toThrow('private response detail');
+    expect(trace).toHaveLength(4);
+    expect(api.evidence().requests).toBe(4);
+    expect(trace[3]).toMatchObject({
+      request: 4,
+      method: 'GET',
+      endpoint: 'repos/pj-tmt/tmt/error',
+      outcome: 'error',
+    });
+    expect(JSON.stringify(trace)).not.toContain('private');
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
 });

@@ -311,10 +311,22 @@ the runtime, archive or browser proof it selects.
 hourly Infra lead tick. Run it manually beside the existing tick before changing
 its cron prompt; the lead compares the two reports after the script lands.
 The script does not judge reviews, attribute causes, arm PRs or publish releases.
+A new output directory first records a bootstrap boundary with **zero API calls**:
+"baseline established; details from the next tick." This is not a health report.
+Run the same command again to collect evidence after that boundary:
 
 ```sh
 node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
+node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
 ```
+
+`--bootstrap` explicitly establishes that boundary in an output directory whose
+historical collection refused before creating a cursor. It cannot replace an
+existing cursor or combine with `--since`. Earlier failure details and review
+history are intentionally omitted; old runs that change after the boundary are
+still eligible, and observed active runs remain tracked through completion.
+An older active run that completes before the first observation is outside
+coverage. Historical recurrence starts from observed post-boundary evidence.
 
 The caller supplies a reviewed path-to-lead map with a #606 source line, for
 example `{"rules":[{"prefix":".github/","leads":["tmt-lead","tmt-infra-lead"],"source":"#606 shared paths, lines 17-19"}]}`.
@@ -348,7 +360,8 @@ walking beyond GitHub's searchable evidence. Queued and in-progress discovery
 has no created filter, so older active reruns are tracked; other active states
 are included inside the window. An unobserved older rerun that starts and
 finishes between ticks remains outside coverage, which every report states.
-Only failed attempts absent from the previous cursor incur job/log analysis.
+Workflow `startup_failure` conclusions are not searchable by status and are outside
+detail coverage; the report states this gap. Only failed attempts absent from the previous cursor incur job/log analysis.
 Previously observed test evidence stays in the cursor for 24-hour recurrence.
 Review evidence covers **open PRs updated since `since`, plus PRs merged in that
 interval**; both updated-desc walks stop on the first older row. The listed head
@@ -359,14 +372,20 @@ is the release catalogue's page count: two health counts, nine status searches,
 one queue query, repository visibility, `P+2` catalogue reads and two PR walks.
 Add tracked-run reads, new failed-attempt job pages/logs, extra list pages, and
 two reads per recent PR (files and final identity/count) plus comment pages for
-shared paths. The cold baseline can span bounded invocations: a call or time budget refusal
-keeps the complete cursor unchanged and preserves qualified immutable terminal
-job/log evidence. Retry the same output directory to reuse that evidence;
-mutable discovery, review statements and catalogue evidence are always refreshed.
-Each invocation stays inside 80 calls / 120 seconds; record the measured total
-startup calls and invocation count. An incomplete baseline
-never claims a healthy or complete report. The first run defaults to one hour;
-`--since` selects an explicit UTC boundary within the 24-hour coverage.
+shared paths. Bootstrap avoids all historical detail reads, independent of the
+number of old failures and reviews. An explicit `--since` without a cursor opts
+into historical collection within 24 hours; qualified terminal job/log evidence
+can be reused after refusal, but **convergence is not guaranteed**: mutable status
+and PR reads repeat and can alone exhaust 80 calls. Use bootstrap to start a new
+observer, rather than repeatedly retrying a busy historical baseline.
+
+`calls.jsonl` appends each invocation's network endpoint, method, outcome and
+elapsed milliseconds (including the fixed queue query); cache hits do not appear
+as new network calls. It records no credentials, response bodies or raw logs.
+Each invocation stays inside 80 calls / 120 seconds; inspect repeated endpoints
+when diagnosing exhaustion. A transient "Truncated REST evidence" refusal can
+occur when a listing changes; retry the same output directory with the cursor
+unchanged. No incomplete or bootstrap report claims healthy coverage.
 
 `summary.md` lists anomalies first (up to 20, with an explicit pointer to the full
 JSON), coverage and host disk/load. `summary.json` keeps the complete evidence and

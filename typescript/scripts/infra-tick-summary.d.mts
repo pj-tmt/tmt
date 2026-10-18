@@ -18,6 +18,7 @@ export interface TickOptions {
     failedRunAttempts: string[];
     activeRunIds: number[];
     failureEvidence?: TickReport['failures'];
+    baselineUntil?: string;
   } | null;
   reviewMap: { rules: { prefix: string; source: string; leads: string[] }[] };
   local: {
@@ -79,6 +80,13 @@ export function createTickClient(options: {
   repository: string;
   cache: string;
   clock?: () => number;
+  trace?: (entry: {
+    request: number;
+    method: string;
+    endpoint: string | undefined;
+    outcome: string;
+    milliseconds: number;
+  }) => void;
   execute?: (
     program: string,
     args: string[],

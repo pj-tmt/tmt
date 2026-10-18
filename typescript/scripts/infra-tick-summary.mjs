@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
+  appendFileSync,
+  linkSync,
   mkdirSync,
   readFileSync,
   renameSync,
   statfsSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { loadavg } from 'node:os';
@@ -41,7 +44,7 @@ export const QUEUE_QUERY = `query InfraTickQueue($owner: String!, $name: String!
   }
 }`;
 export const COVERAGE =
-  'Run health uses 24 h/interval counts; failure, timed_out, action_required and stale details use bounded created-window searches, plus tracked older runs and older queued/in-progress runs. Previously analysed failure tokens are retained for 24 h without repeat detail reads. An unobserved older rerun that starts and finishes between ticks is outside coverage. Review scope is open PRs updated since the tick boundary plus PRs merged in the interval. Statements are evidence, not scripted acceptance.';
+  'Run health uses 24 h/interval counts; failure, timed_out, action_required and stale details use bounded created-window searches, plus tracked older runs and older queued/in-progress runs. Previously analysed failure tokens are retained for 24 h without repeat detail reads. Workflow startup_failure conclusions are not searched and remain outside detail coverage. An unobserved older rerun that starts and finishes between ticks is outside coverage. Review scope is open PRs updated since the tick boundary plus PRs merged in the interval. Statements are evidence, not scripted acceptance.';
 const hash = (text) => createHash('sha256').update(text).digest('hex');
 const time = (value) => {
   assert.ok(
@@ -61,6 +64,7 @@ export function createTickClient({
   cache,
   execute = runPackedCommand,
   clock = Date.now,
+  trace,
 }) {
   assert.match(repository, /^[\w.-]+\/[\w.-]+$/);
   const prefix = `repos/${repository}/`;
@@ -114,17 +118,32 @@ export function createTickClient({
       throw new Error('Infra tick API call budget exhausted (80 calls / 120 seconds).');
     if (clock() >= deadline) throw timeBudget();
     requests++;
+    const started = clock();
+    let outcome = 'error';
     try {
-      return execute(program, args, {
+      const result = execute(program, args, {
         ...options,
         // Hosted Rust logs exceed the packed command's 2 MiB default. Keep the
         // existing owner's hard 16 MiB ceiling, only for raw job-log captures.
         ...(args.includes('--allow-escape-sequences') ? { maxBuffer: 16 * 1024 * 1024 } : {}),
         timeoutMs: Math.min(options.timeoutMs, deadline - clock()),
       });
+      outcome = 'success';
+      return result;
     } catch (error) {
       if (clock() >= deadline) throw timeBudget();
       throw error;
+    } finally {
+      trace?.({
+        request: requests,
+        method: args[1] === 'graphql' ? 'POST' : 'GET',
+        endpoint:
+          args[1] === 'graphql'
+            ? 'graphql:InfraTickQueue'
+            : args.find((arg) => arg.startsWith(prefix.slice(0, -1))),
+        outcome,
+        milliseconds: Math.max(0, clock() - started),
+      });
     }
   };
   const api = restClient({ cache, repo: repository, maxRequests: 80, execute: command });
@@ -295,6 +314,8 @@ export function collectInfraTick(
         previous.activeRunIds.every((id) => Number.isSafeInteger(id) && id > 0),
       'Invalid tick cursor.'
     );
+    if (previous.baselineUntil !== undefined)
+      assert.ok(time(previous.baselineUntil) <= start, 'Bootstrap boundary cannot move backwards.');
   }
   const root = `repos/${repository}`,
     anomalies = [];
@@ -391,17 +412,25 @@ export function collectInfraTick(
     ),
     'Invalid retained failure evidence.'
   );
+  const eligibleFailures = runs.filter((run) => {
+    if (!FAILED.has(run.conclusion)) return false;
+    if (!previous?.baselineUntil || tracked.has(run.id)) return true;
+    // Bootstrap deliberately omits historical details, including old queued work
+    // that finished before the first observation. Later transitions remain visible.
+    return (
+      time(run.created_at) > time(previous.baselineUntil) ||
+      time(run.updated_at) > time(previous.baselineUntil)
+    );
+  });
   const failedRunAttempts = [
     ...new Set([
-      ...runs
-        .filter((run) => FAILED.has(run.conclusion))
-        .map((run) => `${run.id}:${run.run_attempt}`),
+      ...eligibleFailures.map((run) => `${run.id}:${run.run_attempt}`),
       ...failures.map((row) => `${row.run}:${row.attempt}`),
     ]),
   ];
   const priorFailures = new Set(previous?.failedRunAttempts ?? []);
-  for (const run of runs.filter(
-    (run) => FAILED.has(run.conclusion) && !priorFailures.has(`${run.id}:${run.run_attempt}`)
+  for (const run of eligibleFailures.filter(
+    (run) => !priorFailures.has(`${run.id}:${run.run_attempt}`)
   )) {
     assert.equal(run.status, 'completed', 'Failed run evidence is not terminal.');
     const jobs = pages(
@@ -719,11 +748,15 @@ export function collectInfraTick(
     repository,
     since,
     until,
-    coverage: COVERAGE,
+    coverage:
+      COVERAGE +
+      (previous?.baselineUntil
+        ? ` Failure details begin at bootstrap boundary ${previous.baselineUntil}; earlier history was intentionally not analysed. Older active work completed before the first observation is outside coverage.`
+        : ''),
     anomalies,
     health,
     baseline: previous
-      ? 'incremental; only unseen failed attempts analysed'
+      ? `incremental; only unseen failed attempts analysed${previous.baselineUntil ? ` after bootstrap ${previous.baselineUntil}` : ''}`
       : 'initial; qualified terminal job/log cache resumes after a budget refusal',
     olderActive: runs
       .filter((run) => time(run.created_at) < day && ACTIVE.has(run.status))
@@ -792,32 +825,85 @@ function main() {
       output: { type: 'string' },
       'review-map': { type: 'string' },
       since: { type: 'string' },
+      bootstrap: { type: 'boolean', default: false },
     },
   });
   assert.ok(
     values.output && values['review-map'],
-    'Usage: infra-tick-summary.mjs --output DIR --review-map FILE [--since UTC] [--repo OWNER/REPO]'
+    'Usage: infra-tick-summary.mjs --output DIR --review-map FILE [--bootstrap | --since UTC] [--repo OWNER/REPO]'
   );
   mkdirSync(values.output, { recursive: true });
   const cursor = path.join(values.output, 'cursor.json');
   const until = new Date().toISOString();
+  const secrets = [process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter(Boolean);
+  const safe = (text) =>
+    secrets.reduce((result, secret) => result.replaceAll(secret, '[REDACTED]'), text);
+  const invocation = `${until}:${process.pid}`;
+  const callLog = path.join(values.output, 'calls.jsonl');
+  const trace = (entry) =>
+    appendFileSync(callLog, safe(JSON.stringify({ invocation, ...entry })) + '\n', { mode: 0o600 });
+  trace({ event: 'invocation', until });
   let since = values.since ?? new Date(Date.parse(until) - 60 * 60_000).toISOString();
   const api = createTickClient({
     repository: values.repo,
     cache: path.join(values.output, 'evidence'),
+    trace,
   });
-  const secrets = [process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter(Boolean);
-  const safe = (text) =>
-    secrets.reduce((result, secret) => result.replaceAll(secret, '[REDACTED]'), text);
   try {
     const previous = existsSync(cursor) ? JSON.parse(readFileSync(cursor, 'utf8')) : null;
     since = values.since ?? previous?.until ?? since;
+    const reviewMap = JSON.parse(readFileSync(values['review-map'], 'utf8'));
+    validateReviewMap(reviewMap);
+    if (values.bootstrap || (!previous && !values.since)) {
+      assert.equal(previous, null, 'Cannot bootstrap an existing cursor.');
+      assert.ok(!values.since, '--bootstrap and --since are mutually exclusive.');
+      const report = {
+        schema: 1,
+        kind: 'baseline established',
+        complete: false,
+        baselineEstablished: true,
+        until,
+        coverage:
+          'Baseline established; details from the next tick. No historical detail reads or health assessment. Run the same command again for evidence after this boundary.',
+        evidence: api.evidence(),
+      };
+      const markdown = `# Infra tick baseline established\n\n${report.coverage}\n\nBoundary: ${until}. API calls: 0.\n`;
+      writeFileSync(
+        path.join(values.output, 'summary.json'),
+        JSON.stringify(report, null, 2) + '\n',
+        { mode: 0o600 }
+      );
+      writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
+      const temporary = `${cursor}.${process.pid}.tmp`;
+      writeFileSync(
+        temporary,
+        JSON.stringify({
+          schema: 1,
+          until,
+          baselineUntil: until,
+          failedDraftIds: [],
+          failedRunAttempts: [],
+          failureEvidence: [],
+          activeRunIds: [],
+        }) + '\n',
+        { mode: 0o600, flag: 'wx' }
+      );
+      try {
+        // Publish an entire cursor without replacing another observer's boundary.
+        linkSync(temporary, cursor);
+      } finally {
+        unlinkSync(temporary);
+      }
+      trace({ event: 'baseline established', requests: 0, complete: false });
+      process.stdout.write(markdown);
+      return;
+    }
     const report = collectInfraTick(api, {
       repository: values.repo,
       since,
       until,
       previous,
-      reviewMap: JSON.parse(readFileSync(values['review-map'], 'utf8')),
+      reviewMap,
       local: {
         budgets: JSON.parse(readFileSync(new URL('./guide-budgets.json', import.meta.url), 'utf8')),
         guides: Object.fromEntries(
@@ -852,11 +938,13 @@ function main() {
           failedRunAttempts: report.failedRunAttempts,
           failureEvidence: report.failures,
           activeRunIds: report.activeRunIds,
+          ...(previous?.baselineUntil ? { baselineUntil: previous.baselineUntil } : {}),
         }) + '\n',
         { mode: 0o600 }
       );
       renameSync(temporary, cursor);
     } else process.exitCode = 1;
+    trace({ event: 'completed', requests: api.evidence().requests, complete: report.complete });
   } catch (error) {
     const report = {
       schema: 1,
@@ -872,9 +960,10 @@ function main() {
       JSON.stringify(report, null, 2) + '\n',
       { mode: 0o600 }
     );
-    const markdown = `# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${safe(error.message)}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained; retry the same output directory to continue a cold baseline.\n`;
+    const markdown = `# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${safe(error.message)}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Historical collection may not converge; use --bootstrap only when intentionally starting a new observer without a cursor.\n`;
     writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
     process.stdout.write(markdown);
+    trace({ event: 'refused', requests: api.evidence().requests, complete: false });
     process.exitCode = 1;
   }
 }
