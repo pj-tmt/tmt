@@ -209,6 +209,7 @@ impl Session {
                 let reply = Reply {
                     from: name.to_owned(),
                     age: "now".into(),
+                    at_ms: None,
                     body: body.to_owned(),
                     key: Some(key),
                     acquired: true,
