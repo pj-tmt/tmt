@@ -99,12 +99,25 @@ delivery. They install and launch nothing.
   `TMT_CALLER_SESSION_DEBUG=1` opts into one stderr diagnostic naming the refusing
   layer, without paths, IDs, provider output or content.
 - A storage-only pane-locator precheck suppresses discovery without an active
-  binding. Private `caller-session-refusals.json` keeps at most 32 refusal hints
+  binding. For an external caller without a pane-ID locator (Herdr's variables
+  hold a target): when its variables name exactly one approved external host and
+  no tmux, the precheck only checks that the host has a stored binding of a
+  non-retired identity, and the worker resolves the pane through the driver. So
+  a caller in an unbound pane on that host can start one refused attempt. The
+  approvals are read once, after the remembered-session shortcut, through the
+  normal approval owner, which may resolve or adopt a first-party companion; the
+  precheck itself runs no host driver operation.
+  Private `caller-session-refusals.json` keeps at most 32 refusal hints
   for 10 minutes; hits do no optional host/provider work and never extend expiry.
   Keys include harness/session, binding, pane PID/incarnation and server locator;
-  Claude adds `CLAUDE_PID`. Missing Codex PID uses the stored pane partition.
-  Changed coordinates or expiry re-run native admission. Neither env locators
-  nor cache contents grant authority; corrupt/missing cache is a miss.
+  Claude adds `CLAUDE_PID`. Missing Codex PID uses the stored pane partition. An
+  external caller's key has the host and a SHA-256 digest of the host's declared
+  caller variables (raw bytes, set or not) and its binding IDs, with no raw value.
+  A bind, unbind or rebind on that host changes it; a rename does not.
+  Changed coordinates or expiry re-run native admission. Hints are best effort:
+  eviction, a lost concurrent write or an unwritable file runs admission again.
+  Neither env locators nor cache contents grant authority; corrupt/missing cache
+  is a miss.
 - Claude's documented `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` locate the main
   resumable session (including same-process subagents). The PID must equal the
   natively verified provider incarnation; nested providers are refused. No Claude

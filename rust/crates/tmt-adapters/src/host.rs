@@ -92,7 +92,13 @@ impl CallerEnvironment {
     }
 
     pub fn current() -> Self {
-        let driver_env = external::approved()
+        Self::approved(&external::approved())
+    }
+
+    /// The current environment, with the caller variables that `records`
+    /// declare.
+    pub fn approved(records: &[crate::driver_protocol::registry::DriverRecord]) -> Self {
+        let driver_env = records
             .iter()
             .flat_map(|record| {
                 record
