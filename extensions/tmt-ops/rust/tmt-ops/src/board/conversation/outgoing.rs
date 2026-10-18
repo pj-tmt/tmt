@@ -7,6 +7,7 @@ use crate::{
         row_detail::{Reply, Target},
     },
     core::SquadError,
+    look::Look,
     send::{Accepted, Disposition},
 };
 
@@ -189,6 +190,22 @@ impl Session {
         self.outgoing
             .iter()
             .filter_map(|entry| entry.reply.as_ref())
+    }
+
+    pub(super) fn grouped_feedback(
+        &self,
+        sequence: u64,
+        width: usize,
+        look: Look,
+    ) -> Option<Vec<ratatui::text::Line<'static>>> {
+        let entry = self
+            .outgoing
+            .iter()
+            .find(|entry| entry.ticket.sequence == sequence)?;
+        Some(super::super::markdown::wrap_styled(
+            super::super::exchange_view::feedback_content(&entry.status(), look),
+            width,
+        ))
     }
 
     pub(super) fn observe_progress(

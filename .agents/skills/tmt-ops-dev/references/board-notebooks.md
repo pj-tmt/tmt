@@ -104,6 +104,11 @@ one glyph without rebuilding the body. The existing token-rate reduced-motion
 preference applies even with sampling disabled (selected room override, otherwise
 global), and NO_COLOR keeps a static glyph with elapsed text. These clocks acquire
 nothing and persist no transcript or provider history.
+The shared exchange painter uses Accent and bold for your sender/replier name,
+Text for the recipient and other names, and Working for the spinner, `is working`
+and `✓`; arrow/time metadata and queued feedback keep their neutral roles.
+Status spans are styled before the shared word wrapper so narrow continuations
+retain their role without parsing member names or changing layout.
 `Scrolls` remains the sole viewport owner. Rendering and reading acknowledge
 nothing. Layout uses terminal cells and degrades side/stack preferences to one
 focused pane when dimensions cannot support a split.

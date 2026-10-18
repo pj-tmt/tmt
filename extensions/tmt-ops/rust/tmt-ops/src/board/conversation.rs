@@ -338,6 +338,21 @@ impl Session {
                 }
                 if let Some(kind) = self.authored_lines.get(&source) {
                     let style = look.role(kind.role());
+                    if gutter > 0
+                        && let AuthoredLine::Status { sequence } = kind
+                        && let Some(status) =
+                            self.grouped_feedback(*sequence, width.saturating_sub(gutter), look)
+                    {
+                        if sources.last() != Some(&source) {
+                            for mut status_line in status {
+                                status_line.style = style;
+                                lines.push(status_line);
+                                sources.push(source);
+                                mentions.push(Vec::new());
+                            }
+                        }
+                        continue;
+                    }
                     line.style = style;
                     for span in &mut line.spans {
                         span.style = style;

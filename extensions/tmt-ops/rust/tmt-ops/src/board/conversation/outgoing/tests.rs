@@ -593,7 +593,11 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
     assert_eq!(
         &text[..3],
-        ["You · now", "[product · auth-fix] literal auth-fix · now", ""]
+        [
+            "You · now",
+            "[product · auth-fix] literal auth-fix · now",
+            ""
+        ]
     );
     assert!(
         text[3].contains("auth-fix")
@@ -604,10 +608,19 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     );
     assert_eq!(text[4], "answer body");
     assert_eq!(lines[0].style, app.look().role(Role::Muted));
-    assert!(lines[3].spans.iter().any(|span| span.content.contains("auth-fix")
-        && span.style.fg == app.look().role(Role::Text).fg));
-    assert!(session.authored_lines.values().all(|line|
-        !matches!(line, super::super::AuthoredLine::Status { .. })));
+    assert!(
+        lines[3]
+            .spans
+            .iter()
+            .any(|span| span.content.contains("auth-fix")
+                && span.style.fg == app.look().role(Role::Text).fg)
+    );
+    assert!(
+        session
+            .authored_lines
+            .values()
+            .all(|line| !matches!(line, super::super::AuthoredLine::Status { .. }))
+    );
     assert_ne!(
         lines[1].style,
         app.look().role(Role::Accent),

@@ -211,7 +211,14 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     strip::paint_left(
         frame.buffer_mut(),
         header,
-        exchange::header(name, me, &stamp, read_only, usize::from(area.width), look),
+        exchange::header(
+            exchange::Sender::Agent(name),
+            me,
+            &stamp,
+            read_only,
+            usize::from(area.width),
+            look,
+        ),
     );
     let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(
@@ -283,16 +290,15 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                     };
                 };
                 match session.authored_lines.get(&source) {
-                    Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
-                    Some(AuthoredLine::Outgoing { answer: false }) => {
-                        exchange::header(me, name, "now", read_only, usize::from(body.width), look)
-                    }
-                    Some(AuthoredLine::ReplyHeading) => {
-                        exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
-                    }
+                    Some(AuthoredLine::Outgoing { answer: true }) =>
+                        exchange::replier(exchange::Sender::You(me), look),
+                    Some(AuthoredLine::Outgoing { answer: false }) => exchange::header(
+                        exchange::Sender::You(me), name, "now", read_only,
+                        usize::from(body.width), look),
+                    Some(AuthoredLine::ReplyHeading) => exchange::replier(
+                        exchange::Sender::Agent(line.to_string().trim().trim_end_matches(" · now")), look),
                     Some(AuthoredLine::Status { .. }) => exchange::feedback(
-                        session.feedback_line(mapped.sources[index], line, crate::status::now_ms())
-                            .to_string().trim_end(), look),
+                        session.feedback_line(mapped.sources[index], line, crate::status::now_ms()), look),
                     None => exchange::body(line.clone(), look),
                 }
             },

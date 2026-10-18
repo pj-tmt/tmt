@@ -106,7 +106,7 @@ fn expected(scene: &str) -> &'static str {
 }
 
 #[test]
-fn every_feedback_state_has_neutral_mock_width_frames() {
+fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
     // The frozen phase is the mock's representative ⠹ frame; elapsed stays 0:42.
     const NOW: u64 = 1_791_600_000_160;
     crate::status::with_now_ms(NOW, || {
@@ -149,16 +149,37 @@ fn every_feedback_state_has_neutral_mock_width_frames() {
                         });
                     if scene != "sent-replied" {
                         let x = lines[y][..start].width();
-                        let dim = look
-                            .role(Role::Dim)
-                            .fg
-                            .unwrap_or(ratatui::style::Color::Reset);
-                        for cell in &buffer.content[y * usize::from(width) + x
+                        let working_at = needle
+                            .find("is working")
+                            .map(|start| needle[..start].width());
+                        for (offset, cell) in buffer.content[y * usize::from(width) + x
                             ..y * usize::from(width) + x + needle.width()]
+                            .iter()
+                            .enumerate()
                         {
+                            let role = if scene == "sent-working"
+                                && working_at.is_some_and(|start| {
+                                    (start..start + "is working".len()).contains(&offset)
+                                })
+                                || matches!(scene, "sent-finished" | "sent-unknown") && offset == 0
+                            {
+                                Role::Working
+                            } else {
+                                Role::Dim
+                            };
                             assert_eq!(
-                                cell.fg, dim,
-                                "{look_name}/{scene}/{width}: feedback is neutral"
+                                cell.fg,
+                                look.role(role).fg.unwrap_or(ratatui::style::Color::Reset),
+                                "{look_name}/{scene}/{width}: feedback cell {offset}"
+                            );
+                        }
+                        if scene == "sent-working" {
+                            let spinner = &buffer.content[y * usize::from(width) + x - 2];
+                            assert_eq!(
+                                spinner.fg,
+                                look.role(Role::Working)
+                                    .fg
+                                    .unwrap_or(ratatui::style::Color::Reset)
                             );
                         }
                     } else {
@@ -167,6 +188,34 @@ fn every_feedback_state_has_neutral_mock_width_frames() {
                                 && !text.contains("activity is not reported")
                                 && !text.contains("finished without replying"),
                             "{text}"
+                        );
+                    }
+                    let (header_y, header) = lines
+                        .iter()
+                        .enumerate()
+                        .find(|(_, line)| line.contains("you → "))
+                        .expect("outgoing sender header");
+                    let sender_x = header[..header.find("you → ").unwrap()].width();
+                    for cell in &buffer.content[header_y * usize::from(width) + sender_x
+                        ..header_y * usize::from(width) + sender_x + 3]
+                    {
+                        assert_eq!(
+                            cell.fg,
+                            look.role(Role::Accent)
+                                .fg
+                                .unwrap_or(ratatui::style::Color::Reset)
+                        );
+                        assert!(cell.modifier.contains(ratatui::style::Modifier::BOLD));
+                    }
+                    let recipient_x = header[..header.find(recipient).unwrap()].width();
+                    for cell in &buffer.content[header_y * usize::from(width) + recipient_x
+                        ..header_y * usize::from(width) + recipient_x + recipient.width()]
+                    {
+                        assert_eq!(
+                            cell.fg,
+                            look.role(Role::Text)
+                                .fg
+                                .unwrap_or(ratatui::style::Color::Reset)
                         );
                     }
                     for line in &lines {
@@ -183,7 +232,7 @@ fn every_feedback_state_has_neutral_mock_width_frames() {
             }
         }
         if let Some(path) = std::env::var_os("TMT_OUTGOING_FEEDBACK_CAPTURE") {
-            std::fs::write(path,serde_json::to_vec(&json!({"source":"Approved Colab6e70ab55; accepted-send composer explicitly closed to show idle input; real context prefix retained; literal fixture reply", "frames":frames})).unwrap()).unwrap();
+            std::fs::write(path,serde_json::to_vec(&json!({"source":"Approved Colab739017fe exchange colours; Colab6e70ab55 activity states; accepted-send composer explicitly closed to show idle input; real context prefix retained; literal fixture reply", "frames":frames})).unwrap()).unwrap();
         }
     });
 }
