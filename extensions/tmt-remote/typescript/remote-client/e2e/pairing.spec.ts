@@ -321,8 +321,6 @@ test.beforeEach(async () => {
     BROWSER: 'true',
     TMT_EXECUTABLE: join(root, 'core.mjs'),
     TMT_FIXTURE_ROOT: root,
-    TMT_AGENT: '1',
-    BROWSER: '/usr/bin/true',
   };
   serve = spawn(BINARY, ['serve', '--json'], { env });
   const descriptor = await lines(serve).next();
