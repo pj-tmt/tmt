@@ -98,7 +98,7 @@ impl Controls {
     pub(super) fn capture(app: &App) -> Self {
         Self {
             ratios: app.pane_resize.ratios(),
-            query: app.search.clone(),
+            query: app.search.to_string(),
             agents_filter: app.workspace.filter,
             overview_view: app.overview_view,
             quota_window: app.usage_chart.borrow().quota_window(),
@@ -107,7 +107,7 @@ impl Controls {
     }
     pub(super) fn apply(&self, app: &mut App) {
         app.pane_resize.restore(self.ratios.clone());
-        app.search = self.query.clone();
+        app.search = self.query.clone().into();
         app.workspace.query = self.query.clone();
         app.workspace.filter = self.agents_filter;
         app.overview_view = self.overview_view;

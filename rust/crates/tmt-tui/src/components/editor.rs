@@ -2,7 +2,7 @@
 //! submission and effects; this component never interprets a recipient or key map.
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tmt_cli_style::table::escape;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -234,19 +234,49 @@ impl Editor {
         }
         self.cursor = boundary_after(&self.text, cursor.min(self.text.len()));
     }
-    fn erase(&mut self, forward: bool) {
-        let mut range = self.selection();
-        if range.is_empty() {
-            if forward {
-                range.end = self.next();
-            } else {
-                range.start = self.previous();
-            }
-        }
+    fn erase_to(&mut self, target: usize) {
+        let selected = self.selection();
+        let range = if selected.is_empty() {
+            self.cursor.min(target)..self.cursor.max(target)
+        } else {
+            selected
+        };
         self.replace(range.clone(), "");
         self.cursor = boundary_after(&self.text, range.start);
         self.anchor = None;
         self.preferred_column = None;
+    }
+    fn word_boundary(&self, forward: bool) -> usize {
+        let target = if forward {
+            self.text
+                .unicode_word_indices()
+                .map(|(start, word)| start + word.len())
+                .find(|end| *end > self.cursor)
+                .unwrap_or(self.text.len())
+        } else {
+            self.text
+                .unicode_word_indices()
+                .map(|(start, _)| start)
+                .take_while(|start| *start < self.cursor)
+                .last()
+                .unwrap_or(0)
+        };
+        // A collapsed range is one visible unit, even when its source has words.
+        self.folds
+            .iter()
+            .find(|fold| !fold.expanded && fold.source.start < target && target < fold.source.end)
+            .map_or(target, |fold| {
+                if forward {
+                    fold.source.end
+                } else {
+                    fold.source.start
+                }
+            })
+    }
+    fn line_boundary(&self, width: u16, end: bool) -> usize {
+        let layout = self.layout(width);
+        let line = &layout.lines[layout.cursor.0];
+        if end { line.end } else { line.start }
     }
     fn previous(&self) -> usize {
         if let Some(fold) = self
@@ -276,27 +306,58 @@ impl Editor {
     }
     /// Editing keys only. Enter/Esc/Tab and application bindings are caller-owned.
     pub fn key(&mut self, key: KeyEvent, width: u16, max_bytes: usize) -> bool {
-        let selecting = key.modifiers.contains(KeyModifiers::SHIFT);
-        if key
-            .modifiers
-            .intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
-        {
+        if key.kind == KeyEventKind::Release {
             return false;
         }
-        let control = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Char('a') if control => {
-                self.anchor = Some(0);
-                self.cursor = self.text.len();
+        let selecting = key.modifiers.contains(KeyModifiers::SHIFT);
+        let modifiers = key.modifiers.difference(KeyModifiers::SHIFT);
+        let code = match key.code {
+            KeyCode::Char(ch) => KeyCode::Char(ch.to_ascii_lowercase()),
+            code => code,
+        };
+        let motion =
+            match (code, modifiers) {
+                (KeyCode::Home, KeyModifiers::CONTROL) => Some(0),
+                (KeyCode::End, KeyModifiers::CONTROL) => Some(self.text.len()),
+                (KeyCode::Char('a'), KeyModifiers::CONTROL)
+                | (KeyCode::Left, KeyModifiers::SUPER) => Some(self.line_boundary(width, false)),
+                (KeyCode::Char('e'), KeyModifiers::CONTROL)
+                | (KeyCode::Right, KeyModifiers::SUPER) => Some(self.line_boundary(width, true)),
+                (KeyCode::Left, KeyModifiers::ALT | KeyModifiers::CONTROL)
+                | (KeyCode::Char('b'), KeyModifiers::ALT) => Some(self.word_boundary(false)),
+                (KeyCode::Right, KeyModifiers::ALT | KeyModifiers::CONTROL)
+                | (KeyCode::Char('f'), KeyModifiers::ALT) => Some(self.word_boundary(true)),
+                _ => None,
+            };
+        if let Some(target) = motion {
+            self.move_to(target, selecting);
+            self.preferred_column = None;
+            return true;
+        }
+        let deletion = match (code, modifiers) {
+            (KeyCode::Backspace, KeyModifiers::ALT)
+            | (KeyCode::Char('w'), KeyModifiers::CONTROL) => Some(self.word_boundary(false)),
+            (KeyCode::Delete, KeyModifiers::ALT) | (KeyCode::Char('d'), KeyModifiers::ALT) => {
+                Some(self.word_boundary(true))
             }
-            KeyCode::Home if control => self.move_to(0, selecting),
-            KeyCode::End if control => self.move_to(self.text.len(), selecting),
-            _ if control => return false,
+            (KeyCode::Char('u'), KeyModifiers::CONTROL)
+            | (KeyCode::Backspace, KeyModifiers::SUPER) => Some(self.line_boundary(width, false)),
+            (KeyCode::Char('k'), KeyModifiers::CONTROL) => Some(self.line_boundary(width, true)),
+            _ => None,
+        };
+        if let Some(target) = deletion {
+            self.erase_to(target);
+            return true;
+        }
+        if !modifiers.is_empty() {
+            return false;
+        }
+        match key.code {
             KeyCode::Char(ch) if !ch.is_control() => {
                 self.insert(&ch.to_string(), max_bytes);
             }
-            KeyCode::Backspace => self.erase(false),
-            KeyCode::Delete => self.erase(true),
+            KeyCode::Backspace => self.erase_to(self.previous()),
+            KeyCode::Delete => self.erase_to(self.next()),
             KeyCode::Left | KeyCode::Right => {
                 let range = self.selection();
                 let at = if !selecting && !range.is_empty() {
@@ -314,14 +375,8 @@ impl Editor {
                 self.preferred_column = None;
             }
             KeyCode::Home | KeyCode::End => {
-                let layout = self.layout(width);
-                let line = &layout.lines[layout.cursor.0];
                 self.move_to(
-                    if key.code == KeyCode::Home {
-                        line.start
-                    } else {
-                        line.end
-                    },
+                    self.line_boundary(width, key.code == KeyCode::End),
                     selecting,
                 );
                 self.preferred_column = None;

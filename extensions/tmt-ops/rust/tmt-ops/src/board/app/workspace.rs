@@ -655,7 +655,7 @@ impl App {
         {
             self.search_anchor = None;
         }
-        let query_changed = self.workspace.query != self.search;
+        let query_changed = self.workspace.query != self.search.as_str();
         let selects_matches = matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents);
         if query_changed && selects_matches {
             if self.search.is_empty() {
@@ -680,7 +680,7 @@ impl App {
                     .map(|target| (self.shell.tab, target));
             }
         }
-        self.workspace.query = self.search.clone();
+        self.workspace.query = self.search.to_string();
         if let Some(startup) = self.workspace_startup.take() {
             if let Some(id) = startup.room_id {
                 if let Some(squad) = self.workspace_snapshot().and_then(|snapshot| {

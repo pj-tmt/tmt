@@ -164,7 +164,7 @@ fn exact_passage_precedes_the_comment_in_the_delivered_row_message() {
         assert_eq!(reply.body, RAW);
         let mut selection = Selection::new(reply.key.unwrap(), reply.body);
         selection.source.key(
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
             80,
             usize::MAX,
         );

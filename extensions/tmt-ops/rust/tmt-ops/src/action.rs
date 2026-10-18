@@ -398,7 +398,15 @@ pub fn valid_event(event: &str) -> bool {
     let ctrl = event
         .strip_prefix("ctrl-")
         .is_some_and(|key| key.len() == 1 && key.as_bytes()[0].is_ascii_lowercase() && key != "c");
-    NAMED.contains(&event) || single || function || ctrl
+    let alt = event.strip_prefix("alt-").is_some_and(|key| {
+        (key.len() == 1
+            && key.as_bytes()[0].is_ascii_graphic()
+            && !key.as_bytes()[0].is_ascii_uppercase())
+            || NAMED
+                .iter()
+                .any(|name| *name == key && !name.contains("click"))
+    });
+    NAMED.contains(&event) || single || function || ctrl || alt
 }
 
 /// Parsed bindings, by event.
@@ -524,6 +532,33 @@ pub fn all_preset() -> Bindings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn authored_alt_events_are_explicit_and_do_not_alias_unmodified_bindings() {
+        for event in [
+            "alt-b",
+            "alt-f",
+            "alt-d",
+            "alt-left",
+            "alt-right",
+            "alt-backspace",
+            "alt-delete",
+        ] {
+            let bindings = parse_bindings([(event, Some("refresh"))].into_iter(), "bind").unwrap();
+            assert_eq!(bindings.len(), 1);
+            assert!(bindings.contains_key(event));
+            assert!(!bindings.contains_key(event.strip_prefix("alt-").unwrap()));
+        }
+        for event in [
+            "alt-",
+            "alt-click",
+            "alt-double-click",
+            "alt-B",
+            "alt-ctrl-b",
+        ] {
+            assert!(!valid_event(event), "{event}");
+        }
+    }
+
     #[test]
     fn escape_stays_reserved_and_rejection_names_its_authored_table() {
         for place in ["bind", "bind.tmux", "squad.product.section[0].bind"] {

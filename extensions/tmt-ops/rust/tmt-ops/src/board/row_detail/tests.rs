@@ -220,8 +220,25 @@ fn exact_response_selection_attaches_to_a_retained_draft_without_acknowledging()
     press(&mut app, KeyCode::Esc);
     press(&mut app, KeyCode::Enter);
     assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
+    app.paste("two words");
     app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "two ");
+    assert_eq!(app.input.as_ref().unwrap().response_quotes[0].text, source);
+    draw(&app, 160, 44);
+    let hit = app.composer.quote_hit.borrow().clone().unwrap();
+    app.mouse(
+        ratatui::crossterm::event::MouseEvent {
+            kind: ratatui::crossterm::event::MouseEventKind::Down(
+                ratatui::crossterm::event::MouseButton::Left,
+            ),
+            column: hit.area.x,
+            row: hit.area.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        std::time::Instant::now(),
+    );
     assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "two ");
 }
 
 #[test]

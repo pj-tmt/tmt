@@ -197,3 +197,50 @@ fn cursor_motion_and_rejected_edits_are_handled_before_the_modal_handler() {
     }
     assert_eq!(picker.list.selected(), Some("first"));
 }
+
+#[test]
+fn query_uses_shared_word_editing_selection_and_unbound_modifier_routing() {
+    let mut picker = Picker::new(Some("one 你我".into())).unwrap();
+    let frame = frame(&mut picker);
+    for (code, modifiers) in [
+        (KeyCode::Char('a'), KeyModifiers::CONTROL),
+        (KeyCode::Char('f'), KeyModifiers::ALT),
+    ] {
+        assert_eq!(
+            picker.input(&Event::Key(KeyEvent::new(code, modifiers)), &frame),
+            Some(PickerInput::Captured)
+        );
+    }
+    assert_eq!(picker.query_display().as_deref(), Some("one▏ 你我"));
+    assert_eq!(
+        picker.input(
+            &Event::Key(KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT)),
+            &frame
+        ),
+        Some(PickerInput::Event(PickerEvent::QueryChanged(
+            "one我".into()
+        )))
+    );
+    picker.input(
+        &Event::Key(KeyEvent::new(
+            KeyCode::End,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )),
+        &frame,
+    );
+    assert_eq!(
+        picker.input(&Event::Paste("replacement".into()), &frame),
+        Some(PickerInput::Event(PickerEvent::QueryChanged(
+            "onereplacement".into()
+        )))
+    );
+    assert_eq!(
+        picker.input(
+            &Event::Key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::ALT)),
+            &frame
+        ),
+        None
+    );
+    assert_eq!(picker.input(&key(KeyCode::Tab), &frame), None);
+    assert_eq!(picker.list.selected(), Some("first"));
+}

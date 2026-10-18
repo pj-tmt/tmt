@@ -663,7 +663,7 @@ pub struct App {
     pub current: Option<String>,
     pub view: Option<View>,
     pub error: Option<String>,
-    pub search: String,
+    pub search: tmt_tui::components::Editor,
     pub searching: bool,
     /// Exact pre-filter selection, restored when this tab's query clears.
     pub(super) search_anchor: Option<(super::shell::OpsTab, super::workspace::OpsTarget)>,
@@ -750,11 +750,31 @@ pub(super) fn matches(row: &Value, needle: &str) -> bool {
 
 /// The binding name of a key, as `[bind]` spells it.
 pub fn event_name(key: KeyEvent) -> Option<String> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    Some(match key.code {
-        KeyCode::Char(character) if ctrl => format!("ctrl-{}", character.to_ascii_lowercase()),
+    if key
+        .modifiers
+        .intersects(KeyModifiers::HYPER | KeyModifiers::META)
+    {
+        return None;
+    }
+    // Control letters retain their established case normalization (Ctrl-Shift-R
+    // and Ctrl-R name the same authored action). Other modified events stay exact.
+    if key.modifiers.difference(KeyModifiers::SHIFT) == KeyModifiers::CONTROL
+        && let KeyCode::Char(character) = key.code
+    {
+        return Some(format!("ctrl-{}", character.to_ascii_lowercase()));
+    }
+    let modified = key
+        .modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
+    let name = match key.code {
         KeyCode::Char(' ') => "space".into(),
-        KeyCode::Char(character) if character.is_ascii_graphic() => character.to_string(),
+        KeyCode::Char(character) if character.is_ascii_graphic() => {
+            if modified {
+                character.to_ascii_lowercase().to_string()
+            } else {
+                character.to_string()
+            }
+        }
         KeyCode::Enter => "enter".into(),
         KeyCode::Up => "up".into(),
         KeyCode::Down => "down".into(),
@@ -772,7 +792,23 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
         KeyCode::PageDown => "pagedown".into(),
         KeyCode::F(number) => format!("f{number}"),
         _ => return None,
-    })
+    };
+    let mut prefixes = String::new();
+    for (modifier, prefix) in [
+        (KeyModifiers::CONTROL, "ctrl-"),
+        (KeyModifiers::ALT, "alt-"),
+        (KeyModifiers::SUPER, "super-"),
+    ] {
+        if key.modifiers.contains(modifier) {
+            prefixes.push_str(prefix);
+        }
+    }
+    if key.modifiers.contains(KeyModifiers::SHIFT)
+        && (modified || !matches!(key.code, KeyCode::Char(_) | KeyCode::Tab | KeyCode::BackTab))
+    {
+        prefixes.push_str("shift-");
+    }
+    Some(format!("{prefixes}{name}"))
 }
 
 impl App {
@@ -2830,10 +2866,6 @@ impl App {
                 }
                 return self.say("Nothing sent.");
             }
-            KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
-                input.response_quotes.pop();
-                return Effect::None;
-            }
             KeyCode::Tab => return Effect::None,
             KeyCode::Enter
                 if key.modifiers.contains(KeyModifiers::SHIFT)
@@ -3534,6 +3566,14 @@ impl App {
         }
         if let Some(effect) = self.conversation_body_key(key) {
             return effect;
+        }
+        // Alt letters are editing keys unless this exact event is authored.
+        // Factory bindings contain no Alt events; an ordinary f/b/d never matches.
+        if typing
+            && key.modifiers.contains(KeyModifiers::ALT)
+            && let Some(action) = event_name(key).and_then(|name| self.bindings().remove(&name))
+        {
+            return self.perform(&action);
         }
         if self.input.is_some() {
             self.update_mentions();
@@ -4670,6 +4710,80 @@ pub(crate) mod tests {
             .configure(&config)
             .unwrap();
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn composer_standard_keys_edit_unicode_and_only_exact_authored_alt_bindings_win() {
+        let mut app = workspace_composer();
+        composer_bindings(&mut app, "[bind]\nf = 'quit'\nalt-b = 'refresh'\n");
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        app.paste("one 你我");
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+            Effect::None
+        );
+        assert_eq!(app.input.as_ref().unwrap().text.cursor(), 0);
+        assert!(app.input.as_ref().unwrap().text.selection().is_empty());
+        // A bare f binding must not consume the terminal's ESC f / Alt-F.
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT)),
+            Effect::None
+        );
+        assert_eq!(app.input.as_ref().unwrap().text.cursor(), 3);
+        app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT));
+        assert_eq!(app.input.as_ref().unwrap().text.cursor(), "one 你".len());
+        app.key(KeyEvent::new(KeyCode::Delete, KeyModifiers::ALT));
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "one 你");
+        // This exact Alt event was authored, so its action keeps precedence.
+        let before = app.input.as_ref().unwrap().text.clone();
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT)),
+            Effect::Refresh
+        );
+        assert_eq!(app.input.as_ref().unwrap().text, before);
+        app.key(KeyEvent::new(
+            KeyCode::Home,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ));
+        app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.input.as_ref().unwrap().text.as_str(), "");
+        app.paste("keep words");
+        app.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert!(app.input.as_ref().unwrap().text.is_empty());
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none());
+    }
+
+    #[test]
+    fn binding_event_names_preserve_the_actual_modifiers() {
+        assert_eq!(
+            event_name(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::ALT)).as_deref(),
+            Some("alt-f")
+        );
+        assert_eq!(
+            event_name(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL)).as_deref(),
+            Some("ctrl-left")
+        );
+        assert_eq!(
+            event_name(KeyEvent::new(
+                KeyCode::Left,
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT
+            ))
+            .as_deref(),
+            Some("ctrl-shift-left")
+        );
+        assert_eq!(
+            event_name(KeyEvent::new(
+                KeyCode::Char('f'),
+                KeyModifiers::ALT | KeyModifiers::CONTROL
+            ))
+            .as_deref(),
+            Some("ctrl-alt-f")
+        );
+        assert_eq!(
+            event_name(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT)).as_deref(),
+            Some("backtab")
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers},
+    crossterm::event::{KeyCode, KeyEvent},
     layout::Rect,
     text::{Line, Span},
 };
@@ -19,13 +19,7 @@ pub(super) enum Input {
     Next,
 }
 
-pub(super) fn key(query: &mut String, editing: &mut bool, key: KeyEvent) -> Option<Input> {
-    if key
-        .modifiers
-        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-    {
-        return editing.then_some(Input::Changed);
-    }
+pub(super) fn key(query: &mut Editor, editing: &mut bool, key: KeyEvent) -> Option<Input> {
     if !*editing && (query.is_empty() || key.code != KeyCode::Esc) {
         return None;
     }
@@ -35,24 +29,18 @@ pub(super) fn key(query: &mut String, editing: &mut bool, key: KeyEvent) -> Opti
             *editing = false;
         }
         KeyCode::Enter => *editing = false,
-        KeyCode::Backspace if query.is_empty() => *editing = false,
-        KeyCode::Backspace => {
-            query.pop();
-        }
+        KeyCode::Backspace if query.is_empty() && key.modifiers.is_empty() => *editing = false,
         KeyCode::Up => return Some(Input::Previous),
         KeyCode::Down => return Some(Input::Next),
-        KeyCode::Char(character)
-            if !character.is_control() && query.len() + character.len_utf8() <= MAX_BYTES =>
-        {
-            query.push(character);
+        _ => {
+            query.key(key, u16::MAX, MAX_BYTES);
         }
-        _ => return Some(Input::Changed),
     }
     Some(Input::Changed)
 }
 
 /// Paste remains a single-line query; reject the whole edit at the cache bound.
-pub(super) fn paste(query: &mut String, text: &str) -> bool {
+pub(super) fn paste(query: &mut Editor, text: &str) -> bool {
     let text: String = crate::board::notes::sanitize(text)
         .chars()
         .map(|character| {
@@ -63,60 +51,93 @@ pub(super) fn paste(query: &mut String, text: &str) -> bool {
             }
         })
         .collect();
-    if query.len().saturating_add(text.len()) > MAX_BYTES {
-        return false;
-    }
-    query.push_str(&text);
-    true
+    query.insert(&text, MAX_BYTES)
 }
 
-pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &str, editing: bool, look: Look) {
+pub(super) fn paint(buffer: &mut Buffer, area: Rect, query: &Editor, editing: bool, look: Look) {
     let value = if query.is_empty() && !editing {
         "Search"
     } else {
-        query
+        query.as_str()
     };
     let value = crate::board::notes::sanitize(value);
-    let text = if editing && area.width >= 4 {
-        let available = usize::from(area.width - 4); // Leading space, slash, space, caret.
-        let editor = Editor::from(value.as_str());
+    let style = look.role(Role::Text).patch(look.role(Role::Track));
+    let mut spans = Vec::new();
+    if editing && area.width >= 4 {
+        let editor = query;
+        let available = usize::from(area.width - 4);
         let layout = editor.layout(u16::MAX);
         let cells = &layout.lines[0].cells;
-        let clipped = cells.iter().map(|cell| cell.width).sum::<usize>() > available;
+        let before: Vec<_> = cells
+            .iter()
+            .filter(|cell| cell.source.end <= editor.cursor())
+            .collect();
+        let clipped = before.iter().map(|cell| cell.width).sum::<usize>() > available;
         let limit = available.saturating_sub(usize::from(clipped));
         let mut width = 0;
-        let mut tail: Vec<_> = cells
-            .iter()
+        let mut tail: Vec<_> = before
+            .into_iter()
             .rev()
             .take_while(|cell| {
                 width += cell.width;
                 width <= limit
             })
-            .map(|cell| cell.text.as_str())
             .collect();
         tail.reverse();
-        format!(
-            "/ {}{}▏",
-            if clipped && available > 0 { "…" } else { "" },
-            tail.concat()
-        )
+        spans.push(Span::styled(
+            if clipped && available > 0 {
+                " / …"
+            } else {
+                " / "
+            },
+            style,
+        ));
+        let selected = editor.selection();
+        let cell_span = |cell: &tmt_tui::components::EditorCell| {
+            Span::styled(
+                cell.text.clone(),
+                if cell.source.start < selected.end && cell.source.end > selected.start {
+                    style.add_modifier(ratatui::style::Modifier::REVERSED)
+                } else {
+                    style
+                },
+            )
+        };
+        let used = tail.iter().map(|cell| cell.width).sum::<usize>() + usize::from(clipped);
+        spans.extend(tail.into_iter().map(cell_span));
+        spans.push(Span::styled("▏", style));
+        let mut remaining = available.saturating_sub(used);
+        for cell in cells
+            .iter()
+            .filter(|cell| cell.source.start >= editor.cursor())
+        {
+            if cell.width > remaining {
+                break;
+            }
+            spans.push(cell_span(cell));
+            remaining -= cell.width;
+        }
     } else {
-        crate::board::view::fit(
-            &format!("/ {value}"),
-            usize::from(area.width.saturating_sub(1)),
-        )
-    };
-    let text = format!(" {text}");
-    let padding = usize::from(area.width)
-        .saturating_sub(unicode_width::UnicodeWidthStr::width(text.as_str()));
-    strip::paint_left(
-        buffer,
-        area,
-        Line::styled(
-            format!("{text}{}", " ".repeat(padding)),
-            look.role(Role::Text).patch(look.role(Role::Track)),
-        ),
-    );
+        spans.push(Span::styled(
+            format!(
+                " {}",
+                crate::board::view::fit(
+                    &format!("/ {value}"),
+                    usize::from(area.width.saturating_sub(1))
+                )
+            ),
+            style,
+        ));
+    }
+    let used = spans
+        .iter()
+        .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+        .sum::<usize>();
+    spans.push(Span::styled(
+        " ".repeat(usize::from(area.width).saturating_sub(used)),
+        style,
+    ));
+    strip::paint_left(buffer, area, Line::from(spans));
 }
 
 /// Highlight original characters, including Unicode case-fold expansions, with
@@ -171,12 +192,13 @@ pub(super) fn highlight_line(mut line: Line<'static>, query: &str) -> Line<'stat
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn press(query: &mut String, editing: &mut bool, code: KeyCode) -> Option<Input> {
+    use ratatui::crossterm::event::KeyModifiers;
+    fn press(query: &mut Editor, editing: &mut bool, code: KeyCode) -> Option<Input> {
         key(query, editing, KeyEvent::new(code, KeyModifiers::NONE))
     }
     #[test]
     fn typing_moves_without_committing_enter_retains_and_escape_clears_both_states() {
-        let mut query = String::from("night");
+        let mut query = Editor::from("night");
         let mut editing = true;
         assert_eq!(
             press(&mut query, &mut editing, KeyCode::Down),
@@ -203,7 +225,7 @@ mod tests {
     }
     #[test]
     fn editing_consumes_modified_shortcuts_without_mutating_the_query() {
-        let mut query = String::from("worker");
+        let mut query = Editor::from("worker");
         let mut editing = true;
         assert_eq!(
             key(
@@ -233,7 +255,7 @@ mod tests {
         paint(
             &mut buffer,
             area,
-            query,
+            &Editor::from(query),
             true,
             Look::new(tmt_cli_style::Theme::default()),
         );
@@ -245,12 +267,94 @@ mod tests {
     }
     #[test]
     fn paste_normalizes_lines_and_rejects_a_whole_oversize_edit() {
-        let mut query = String::from("night");
+        let mut query = Editor::from("night");
         assert!(paste(&mut query, "\nworker"));
         assert_eq!(query, "night worker");
         assert!(!paste(&mut query, &"x".repeat(MAX_BYTES)));
         assert_eq!(query, "night worker");
     }
+    #[test]
+    fn search_edits_at_the_caret_and_shift_selection_replaces_the_selected_query() {
+        let mut query = Editor::from("one 你我");
+        let mut editing = true;
+        for (code, modifiers) in [
+            (KeyCode::Char('b'), KeyModifiers::ALT),
+            (KeyCode::Char('w'), KeyModifiers::CONTROL),
+        ] {
+            key(&mut query, &mut editing, KeyEvent::new(code, modifiers));
+        }
+        assert_eq!(query.as_str(), "one 我");
+        key(
+            &mut query,
+            &mut editing,
+            KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+        );
+        key(
+            &mut query,
+            &mut editing,
+            KeyEvent::new(KeyCode::End, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+        );
+        assert!(paste(&mut query, "replacement"));
+        assert_eq!(query.as_str(), "replacement");
+        key(
+            &mut query,
+            &mut editing,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(query.cursor(), 0);
+        assert!(editing);
+        let area = Rect::new(0, 0, 24, 1);
+        let mut buffer = Buffer::empty(area);
+        paint(
+            &mut buffer,
+            area,
+            &query,
+            true,
+            Look::new(tmt_cli_style::Theme::default()),
+        );
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.starts_with(" / ▏replacement"), "{text}");
+    }
+
+    #[test]
+    fn search_selection_paints_the_visible_source_range_and_keeps_the_caret() {
+        let mut query = Editor::from("a你b");
+        for _ in 0..2 {
+            query.key(
+                KeyEvent::new(KeyCode::Left, KeyModifiers::ALT | KeyModifiers::SHIFT),
+                u16::MAX,
+                MAX_BYTES,
+            );
+        }
+        assert_eq!(query.selection(), 1..query.len());
+        let area = Rect::new(0, 0, 14, 1);
+        let mut buffer = Buffer::empty(area);
+        paint(
+            &mut buffer,
+            area,
+            &query,
+            true,
+            Look::new(tmt_cli_style::Theme::default()),
+        );
+        assert_eq!(buffer[(4, 0)].symbol(), "▏");
+        assert_eq!(buffer[(5, 0)].symbol(), "你");
+        assert_eq!(buffer[(7, 0)].symbol(), "b");
+        for x in [5, 7] {
+            assert!(
+                buffer[(x, 0)]
+                    .modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
+            );
+        }
+        for x in [3, 4, 8, 13] {
+            assert!(
+                !buffer[(x, 0)]
+                    .modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
+            );
+        }
+    }
+
     #[test]
     fn an_empty_query_preserves_every_existing_span_style() {
         use ratatui::style::{Color, Modifier, Style};

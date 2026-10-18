@@ -312,7 +312,15 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   bounded session-only outgoing turns, truthful typed delivery labels and replies
   correlated by exact sender/recipient/request identity. Acquired agent state and
   freshness remain independent of delivery; delivered means written to the pane.
-- Message fields use `tmt_tui::components::Editor` for grapheme-safe multiline
+- Editable fields, search and picker queries use `tmt_tui::components::Editor`.
+  Home/End, Ctrl-A/E and reported Cmd-Left/Right move within the visual line;
+  Alt/Ctrl-Left/Right and Alt-B/F move by Unicode word (CJK characters individually).
+  Shift extends selection. Alt-Backspace/Ctrl-W and Alt-D/Delete remove words;
+  Ctrl-U/Cmd-Backspace and Ctrl-K delete to the visual line edge. Any deletion
+  removes an active selection first. Ctrl-Home/End reach the text edges.
+  Read-only response selection retains Ctrl-A select-all. Authored Alt bindings
+  match their modifier exactly; unbound Alt letters reach the editor.
+- Message fields use the same editor for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits; distinct Shift+Enter, Alt+Enter, Ctrl+J or retained Ctrl+N inserts a newline, and Escape
   retains the draft. The hint is `Shift+Enter new line` only with confirmed keyboard

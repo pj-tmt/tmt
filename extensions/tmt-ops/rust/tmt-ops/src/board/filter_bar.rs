@@ -8,7 +8,7 @@ pub(in crate::board) fn paint(
     area: Rect,
     options: &[(&str, &str)],
     selected: usize,
-    query: &str,
+    query: &tmt_tui::components::Editor,
     app: &App,
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
@@ -95,7 +95,7 @@ mod tests {
                         let area = Rect::new(0, 0, width, 1);
                         let mut buffer = Buffer::empty(area);
                         buffer.set_style(area, ratatui::style::Style::default().bg(Color::Magenta));
-                        let hits = paint(&mut buffer, area, &options, 0, query, &app);
+                        let hits = paint(&mut buffer, area, &options, 0, &query.into(), &app);
                         let slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
                         assert_eq!(slot.width, 34);
                         assert_eq!(*geometry.get_or_insert(slot), slot);
@@ -131,7 +131,7 @@ mod tests {
                 let mut buffer = Buffer::empty(Rect::new(0, 0, width + 4, 5));
                 let mut app = App::default();
                 app.initial_look = Some(crate::look::Look::new(tmt_cli_style::Theme::default()));
-                let hits = paint(&mut buffer, area, &options, 1, "", &app);
+                let hits = paint(&mut buffer, area, &options, 1, &"".into(), &app);
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);
                     assert!(hit.id == "search" || options.iter().any(|(id, _)| *id == hit.id));

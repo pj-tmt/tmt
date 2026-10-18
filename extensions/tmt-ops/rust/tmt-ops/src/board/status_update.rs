@@ -17,7 +17,7 @@ pub(super) struct Draft {
     pub preview: Option<Preview>,
     pub clear_pending: bool,
     pub replace_state: bool,
-    pub state: String,
+    pub state: tmt_tui::components::Editor,
     pub reason: tmt_tui::components::Editor,
     pub focus: usize,
     pub scroll: Option<usize>,
@@ -198,6 +198,20 @@ impl App {
             draft.reason.key(key, width, super::app::INPUT_LIMIT);
             return Effect::None;
         }
+        if draft.focus == 1
+            && !matches!(
+                key.code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+                    | KeyCode::Enter
+                    | KeyCode::Tab
+            )
+        {
+            draft.state.key(key, u16::MAX, super::app::INPUT_LIMIT);
+            return Effect::None;
+        }
         let max = 3 + usize::from(!open.is_empty());
         match key.code {
             KeyCode::Up => {
@@ -221,7 +235,7 @@ impl App {
                     return Effect::Act(Request::Status(Box::new(Action::Apply(Submit {
                         preview: preview.clone(),
                         clear_pending: draft.clear_pending,
-                        state: draft.replace_state.then(|| draft.state.clone()),
+                        state: draft.replace_state.then(|| draft.state.to_string()),
                         reason: draft.reason.as_str().to_owned(),
                     }))));
                 }
@@ -235,22 +249,6 @@ impl App {
                 }
                 _ => {}
             },
-            KeyCode::Backspace => {
-                if draft.focus == 1 {
-                    draft.state.pop();
-                }
-            }
-            KeyCode::Char(c)
-                if !c.is_control() && !key.modifiers.contains(KeyModifiers::CONTROL) =>
-            {
-                if draft.focus != 1 {
-                    return Effect::None;
-                }
-                let text = &mut draft.state;
-                if text.len().saturating_add(c.len_utf8()) <= super::app::INPUT_LIMIT {
-                    text.push(c);
-                }
-            }
             _ => {}
         }
         self.follow = true;
@@ -286,14 +284,15 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
             (
                 1,
                 format!(
-                    "[{}] Replace state: {}{}",
+                    "[{}] Replace state: {}{}{}",
                     if draft.replace_state { "x" } else { " " },
-                    draft.state,
-                    if draft.focus == 1 { "▏" } else { "" }
+                    &draft.state[..draft.state.cursor()],
+                    if draft.focus == 1 { "▏" } else { "" },
+                    &draft.state[draft.state.cursor()..]
                 ),
                 &preview.state,
                 if draft.replace_state {
-                    format!("{:?}", draft.state)
+                    format!("{:?}", draft.state.as_str())
                 } else {
                     "(unchanged)".into()
                 },
@@ -435,6 +434,26 @@ mod tests {
             .loaded(Ok(preview.clone()));
         preview
     }
+    #[test]
+    fn status_state_and_reason_share_editor_keys_without_inserting_alt_letters() {
+        let mut app = app();
+        ready(&mut app);
+        let draft = app.status_draft.as_mut().unwrap();
+        draft.focus = 1;
+        draft.state = "one 你我".into();
+        app.key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT));
+        app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.status_draft.as_ref().unwrap().state.as_str(), "one 我");
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        assert_eq!(app.status_draft.as_ref().unwrap().state.cursor(), 0);
+        let draft = app.status_draft.as_mut().unwrap();
+        draft.focus = 2;
+        draft.reason = "one two".into();
+        app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT));
+        assert_eq!(app.status_draft.as_ref().unwrap().reason.as_str(), "one ");
+        assert!(app.input.is_some());
+    }
+
     #[test]
     fn status_reason_accepts_portable_and_distinct_newlines_without_submitting() {
         let mut app = app();
