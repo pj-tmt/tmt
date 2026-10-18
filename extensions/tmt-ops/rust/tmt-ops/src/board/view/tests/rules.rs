@@ -77,20 +77,23 @@ fn workspace_layouts_never_stack_boundary_rules_at_supported_sizes() {
 }
 
 fn snapshots() -> Value {
-    let mut frames = Vec::new();
-    for layout in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
-        for member in [false, true] {
-            for width in [160, 100, 80] {
-                let mut app = workspace(layout, member, OpsTab::Agents);
-                app.set_body_width(width);
-                frames.push(json!({
-                    "layout":format!("{layout:?}"),"selection":if member {"member"} else {"squad"},
-                    "width":width,"height":24,"lines":draw(&app,width,24),
-                }));
+    // Keep reply ages at the capture epoch (2026-10-17 12:00 UTC), independent of wall time.
+    crate::status::with_now_ms(1_792_238_400_000, || {
+        let mut frames = Vec::new();
+        for layout in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
+            for member in [false, true] {
+                for width in [160, 100, 80] {
+                    let mut app = workspace(layout, member, OpsTab::Agents);
+                    app.set_body_width(width);
+                    frames.push(json!({
+                        "layout":format!("{layout:?}"),"selection":if member {"member"} else {"squad"},
+                        "width":width,"height":24,"lines":draw(&app,width,24),
+                    }));
+                }
             }
         }
-    }
-    json!(frames)
+        json!(frames)
+    })
 }
 
 #[test]
@@ -124,4 +127,11 @@ fn dump_workspace_rule_snapshots() {
         serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
+}
+
+#[test]
+fn snapshot_reply_ages_do_not_follow_the_wall_clock_date() {
+    let before = crate::status::with_now_ms(1_792_152_000_000, snapshots);
+    let after = crate::status::with_now_ms(1_792_324_800_000, snapshots);
+    assert_eq!(before, after);
 }
