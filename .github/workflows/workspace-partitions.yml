@@ -181,6 +181,10 @@ jobs:
         run: |
           rm "$RUNNER_TEMP/workspace-proof/phases.json"
           node ../typescript/scripts/workspace-nextest.mjs consume "$RUNNER_TEMP/workspace-proof" "$PARTITION"
+          if [ "$PARTITION" = 2 ] && [ "$GITHUB_RUN_ATTEMPT" = 1 ]; then
+            echo "::error::Intentional #3571 qualification failure after partition 2 completed"
+            exit 17
+          fi
       - name: Preserve partition identity and phase evidence
         if: always()
         uses: actions/upload-artifact@v4
