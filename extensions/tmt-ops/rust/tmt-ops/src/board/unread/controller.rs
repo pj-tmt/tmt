@@ -99,12 +99,20 @@ impl App {
         Seen::new(actor, member, at)
     }
     /// Called after a successful draw, outside paint. A hidden/modal/paused or
-    /// still-loading conversation cannot mark a reply that was never displayed.
+    /// still-loading conversation cannot mark a reply that was never displayed,
+    /// and neither can a selection that only moved onto the row: the reader
+    /// must hold focus, which is the explicit act of opening the conversation.
     pub(in crate::board) fn unread_drawn(&mut self) {
         if self.loading()
             || self.modal_open()
             || self.shell.tab != crate::board::shell::OpsTab::Agents
         {
+            return;
+        }
+        if self.focused_pane() != Some(crate::config::Pane::Replies) {
+            // Leaving the reader closes the conversation: opening it again is
+            // the explicit retry that "Reopen the conversation" promises.
+            self.unread.displayed = None;
             return;
         }
         let next = (|| {
