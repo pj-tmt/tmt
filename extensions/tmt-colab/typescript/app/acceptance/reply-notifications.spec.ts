@@ -211,15 +211,23 @@ for (const [destination, forceFallback] of [
       const proposalId =
         destination === 'Proposal' ? await block.getAttribute('data-proposal-id') : undefined;
       if (destination === 'Answer') {
+        const row = page.locator('.question-line');
+        await expect(row).toHaveAttribute('aria-expanded', 'false');
+        await row.click();
         await block.getByLabel('Your answer', { exact: true }).fill('Follow this direction.');
         const send = page
           .locator('[data-question-group]')
           .getByRole('button', { name: /^Send answer/ });
         await expect(send).toBeEnabled();
         await send.click();
+        await expect(row).toContainText('Answered: Follow this direction.');
+        await expect(row).toHaveAttribute('aria-expanded', 'false');
+        await row.click();
         await expect(
           block.getByRole('button', { name: 'Change answer', exact: true }),
         ).toBeEnabled();
+        await row.click();
+        await expect(row).toHaveAttribute('aria-expanded', 'false');
       } else {
         await block.getByRole('button', { name: 'Follow up', exact: true }).click();
         const input = block.getByRole('combobox', { name: 'Message', exact: true });
@@ -264,10 +272,14 @@ for (const [destination, forceFallback] of [
       if (detached) {
         await expect(block).toBeHidden();
         await expect(page.locator('iframe[data-scroll-mode="frame"]')).toBeVisible();
-      } else
+      } else {
+        const placement =
+          destination === 'Answer' ? page.locator('.question-compact-block') : block;
+        await expect(placement).toBeVisible();
         await expect
-          .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+          .poll(() => placement.evaluate((node) => node.getBoundingClientRect().top))
           .toBeGreaterThan(900);
+      }
       const requestId = agent.received()[0].requestId as string;
       writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
       await until(
