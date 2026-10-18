@@ -956,9 +956,10 @@ on disk until collection runs again. Inspect without changes using
 completed-request counters; measure changes within an epoch. Cached input
 already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads
-provider files. `consumption.history` in `tmt api` returns bounded closed history (two
-hours retained, queries up to one hour, 32 UUIDs per batch) with an included
-cumulative seed watermark. Follow [the history contract](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#consumption-history)
+provider files. `consumption.history` in `tmt api` returns bounded closed history (fine
+buckets retained two hours and queried up to one hour; longer windows read the
+[rollup](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#thirty-day-rollup);
+32 UUIDs per batch) with an included cumulative seed watermark. Follow [the history contract](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md#consumption-history)
 for coverage, partial windows and avoiding overlap with live observations.
 Use its epoch/sequence and completeness/gap evidence, never context-size
 differences or a missing value as zero. Hook timestamps are not heartbeats.
