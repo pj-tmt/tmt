@@ -1,6 +1,6 @@
 import { BrowserAction, BrowserChips, BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
-import { AgentList, agentSentence } from './agent-chip.js';
+import { AgentChip, AgentList, agentSentence } from './agent-chip.js';
 import type { AnchorPosition } from '../renderer.js';
 import type { ComposerConnectionPresentation } from '../router.js';
 import { sendAnswers, askedMessageIds, type BatchAnswer } from '../answer-batch.js';
@@ -413,6 +413,7 @@ export function QuestionGroupCard({
     .map((agent) => ({
       id: recipientId(agent),
       label: `@${agent.agentName}`,
+      content: <AgentChip name={agent.agentName} />,
       description: agent.machineName,
       disabled: agent.online !== 'online',
     }));
@@ -448,6 +449,7 @@ export function QuestionGroupCard({
                   items={recipients.map((agent) => ({
                     id: recipientId(agent),
                     label: `@${agent.agentName}`,
+                    content: <AgentChip name={agent.agentName} />,
                     removeLabel: `Remove @${agent.agentName}`,
                   }))}
                   options={options}

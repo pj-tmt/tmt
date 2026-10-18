@@ -211,6 +211,9 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.getByRole('option').filter({ hasText: 'Second machine' }).click();
   await expect(group.locator('.tmt-ui-chip')).toHaveCount(2);
+  // Every recipient is the shared agent chip inside the design-system frame, and the option list too.
+  await expect(group.locator('.tmt-ui-chip .agent-chip')).toHaveCount(2);
+  await expect(group.getByRole('group', { name: 'Answer recipients' })).toContainText('Review');
   await card(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('tab').nth(1).click();
   await card(page).getByLabel('Your answer', { exact: true }).fill('Ask both chosen identities');
