@@ -1,0 +1,96 @@
+/* Layout owned by the app; the numbers are the design proposal and wait for the UX look. */
+.shell-page {
+  --shell-max: 1680px;
+  --shell-gutter: 24px;
+  --shell-columns: 3;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: 40px var(--shell-gutter) 80px;
+}
+.shell-summary {
+  margin: 0 0 32px;
+}
+.shell-summary-line1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.25;
+  font-weight: 700;
+}
+.shell-summary-line2 {
+  margin: 8px 0 0;
+  font-size: 18px;
+  line-height: 1.4;
+}
+.shell-summary-meta {
+  margin: 12px 0 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.shell-changed {
+  color: var(--tmt-ui-color-secondary);
+}
+.shell-state {
+  margin: 0 0 24px;
+  color: var(--tmt-ui-color-secondary);
+}
+.shell-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--shell-columns), minmax(0, 1fr));
+  gap: 0 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.shell-cell {
+  min-width: 0;
+  padding: 16px 0 20px;
+  border-top: 1px solid var(--tmt-ui-surface-rule);
+}
+.shell-cell p {
+  margin: 0;
+}
+.shell-cell-kind {
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  overflow-wrap: anywhere;
+}
+.shell-cell-title {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.shell-cell-unavailable {
+  color: var(--tmt-ui-color-secondary);
+  font-weight: 400;
+}
+.shell-cell-note {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.shell-cell-audience {
+  margin-top: 8px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.shell-cell-needs {
+  margin-top: 8px;
+  font-size: var(--tmt-ui-caption-size);
+}
+.shell-cell-needs > span {
+  color: var(--tmt-ui-color-waiting);
+}
+@media (max-width: 1279px) {
+  .shell-page {
+    --shell-columns: 2;
+  }
+}
+@media (max-width: 639px) {
+  .shell-page {
+    --shell-gutter: 16px;
+    --shell-columns: 1;
+    padding-top: 24px;
+  }
+}

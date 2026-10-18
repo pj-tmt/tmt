@@ -630,6 +630,25 @@ opens, shows the last list of the same transport and space at once (the one a sw
 the one the space home loader remembered with `rememberPages`) and refreshes it, and drops a
 result that arrives after a close, a reopen or a change of transport or space.
 
+## The shell page
+
+A shell opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
+of the HTML frame; the app owns every pixel and the document supplies only data. `shell-grid.ts`
+is the plain per-item view: `shellCells` matches each item, in `order`, to its source page in the
+space list (title, archived, last edit, Needs you count); a page the list does not show is
+`unavailable`, listed but never linked, and a reference grants no access. `shellByline` names the
+summary writer only by the Core-resolved display agent, never by identity, and `pagesChangedSince`
+counts the distinct source pages edited after the summary (unknown times never count).
+
+The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
+filled by the same bounded hint read as the list); a failed read keeps every item as a link with
+an "unavailable" notice. Cells are real `Link`s (`pageLinkKey` keeps the modified-open
+behaviour); a reading item adds the page route's `read` hint. Before it leaves for an item the page
+records the item in its own history entry (`shellFocus`), and the shell restores focus to it when
+the browser comes back. The layout is borderless and wide (grid columns, no card or shadow) and
+holds no per-user state. Editing stays with the seven validated actions; the browser has no edit
+controls, and the shared and hosted readers keep `ShellNotice`.
+
 ## Trusted browser management
 
 - `management.ts` owns frozen device-signed selections, transient link seeds and

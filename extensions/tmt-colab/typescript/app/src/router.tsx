@@ -1,4 +1,4 @@
-import { ShellNotice } from './shell-notice.js';
+import { ShellPage } from './shell-page.js';
 import { usePageLayers } from './page-layers.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
@@ -2092,7 +2092,7 @@ function Page() {
                 remote={{ deviceName: transport.backendName }}
               />
               <main className="canvas">
-                <ShellNotice pageId={snapshot.id} canCopy />
+                {view.shell && <ShellPage shell={view.shell} />}
                 {endedError && <EndedBody error={endedError} action={endedAction} />}
               </main>
             </section>

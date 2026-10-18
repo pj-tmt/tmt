@@ -2260,11 +2260,12 @@ fallback follows a possibly published request.
 
 HTML-only source operations refuse a shell with `COLAB_INPUT_INVALID` rather
 than erase it. Export writes `shell.json` beside the usual metadata, never
-`page.html`. Before the shell UI ships, the browser opens a shell with a neutral
-notice explaining `tmt colab shell read`; list/search use its title and needs-you
-counts do not treat shell references as authored questions or pending readings.
-No shell UI, Today integration or migration of older collection data ships in
-this slice. Native and browser consume the shared `shell-v1.json` vectors.
+`page.html`. The owner app draws a shell as a wide grid of links to its source
+pages; the shared and hosted readers open it with a neutral notice explaining
+`tmt colab shell read`. List/search use its title and needs-you counts do not
+treat shell references as authored questions or pending readings. No Today
+integration or migration of older collection data exists. Native and browser
+consume the shared `shell-v1.json` vectors.
 
 ### Answer blocks
 
