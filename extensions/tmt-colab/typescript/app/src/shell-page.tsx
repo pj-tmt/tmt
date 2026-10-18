@@ -6,8 +6,17 @@ import { HomeTitleLink } from './home-titles.js';
 import { useHomeSpace } from './home-space.js';
 import { pageLinkKey } from './page-link.js';
 import { pageTitle } from './page-index.js';
+import { ReadingDetailsQueue, type ReadingDetails } from './reading-details.js';
 import type { Shell } from './shell.js';
-import { pagesChangedSince, shellByline, shellCells, type ShellCell } from './shell-grid.js';
+import {
+  pagesChangedSince,
+  readingPageIds,
+  readingView,
+  shellByline,
+  shellCells,
+  type ReadingView,
+  type ShellCell,
+} from './shell-grid.js';
 import { text } from './strings.js';
 import type { SpaceHome } from './transport.js';
 import './shell-page.css';
@@ -92,11 +101,33 @@ function ShellSummary({ shell, home }: { shell: Shell; home: SpaceHome | undefin
   );
 }
 
+/** The owner's reading details of the pages the shell's reading items point at, read once per
+ * opening (a return to the shell reads again, so a `Mark read` on the page shows). Optional and
+ * owner-only: a transport without the port, a failed read or a pending page leaves no state. */
+function useReadingDetails(pageIds: readonly string[]): ReadonlyMap<string, ReadingDetails> {
+  const { transport } = rootRoute.useRouteContext();
+  const [details, setDetails] = useState<ReadonlyMap<string, ReadingDetails>>(new Map());
+  const key = pageIds.join(' ');
+  useEffect(() => {
+    const read = transport.readingDetails?.bind(transport);
+    if (!read || !key) return;
+    const queue = new ReadingDetailsQueue(read, (id, value) =>
+      setDetails((previous) => new Map(previous).set(id, value)),
+    );
+    queue.enqueue(key.split(' '));
+    return () => {
+      void queue.close();
+    };
+  }, [transport, key]);
+  return details;
+}
+
 function ShellGrid({ shell, home, failed }: { shell: Shell; home: SpaceHome; failed: boolean }) {
   const { pages, hints } = useHomeSpace(home);
   const cells = failed
     ? shellCells(shell, []).map((cell) => ({ ...cell, unavailable: false, titleMissing: true }))
     : shellCells(shell, pages);
+  const details = useReadingDetails(failed ? [] : readingPageIds(cells));
   const byId = new Map(pages.map((page) => [page.id, page]));
   const list = useRef<HTMLUListElement>(null);
   // Coming back from an item restores focus to it; the browser restores the scroll.
@@ -122,7 +153,13 @@ function ShellGrid({ shell, home, failed }: { shell: Shell; home: SpaceHome; fai
       )}
       <ul className="shell-grid" aria-label={t.items} ref={list}>
         {cells.map((cell) => (
-          <ShellCellView key={cell.id} cell={cell} page={byId.get(cell.pageId)} hints={hints} />
+          <ShellCellView
+            key={cell.id}
+            cell={cell}
+            page={byId.get(cell.pageId)}
+            hints={hints}
+            reading={readingView(cell, details.get(cell.pageId))}
+          />
         ))}
       </ul>
     </>
@@ -133,10 +170,12 @@ function ShellCellView({
   cell,
   page,
   hints,
+  reading,
 }: {
   cell: ShellCell;
   page: ReturnType<typeof useHomeSpace>['pages'][number] | undefined;
   hints: ReturnType<typeof useHomeSpace>['hints'];
+  reading: ReadingView | undefined;
 }) {
   const remember = () => {
     window.history.replaceState({ ...window.history.state, shellFocus: cell.id }, '');
@@ -158,6 +197,20 @@ function ShellCellView({
         {t.kind[cell.kind]}
         {cell.kind === 'anchor' && cell.anchor ? ` · ${cell.anchor}` : ''}
         {cell.archived ? ` · ${t.archived}` : ''}
+        {reading?.kind === 'listed' && (
+          <>
+            {' · '}
+            <span className="shell-cell-state" data-state={reading.state}>
+              <span className="shell-cell-mark" aria-hidden="true">
+                {reading.state === 'unread' ? '•' : '✓'}
+              </span>{' '}
+              <span className="shell-cell-word">
+                {reading.state === 'unread' ? t.unread : t.read}
+              </span>
+            </span>
+          </>
+        )}
+        {reading?.kind === 'missing' && ` · ${t.readingMissing}`}
       </p>
       <p className="shell-cell-title">
         {cell.unavailable ? (
@@ -170,12 +223,24 @@ function ShellCellView({
             onClick={remember}
             onKeyDown={pageLinkKey}
           >
-            {page ? pageTitle(page) : text.unknownPageTitle}
+            {reading?.kind === 'listed'
+              ? reading.title
+              : page
+                ? pageTitle(page)
+                : text.unknownPageTitle}
           </Link>
         ) : (
           <HomeTitleLink page={page} hints={hints} onClick={remember} />
         )}
       </p>
+      {reading?.kind === 'listed' && page && !page.titleMissing && (
+        <p className="shell-cell-source">{t.inPage(pageTitle(page))}</p>
+      )}
+      {reading?.kind === 'listed' && reading.state === 'unread' && (
+        <p className="shell-cell-why">
+          <AgentChip name={reading.agent} />: {reading.why}
+        </p>
+      )}
       {cell.note && (
         <p className="shell-cell-note" title={cell.note}>
           {cell.note}

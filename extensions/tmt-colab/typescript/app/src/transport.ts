@@ -9,6 +9,7 @@ import type { DiscussionRef, ThreadView } from './thread-records.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
+import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 export interface PageView extends Projection {
   readonly archived?: boolean;
@@ -93,6 +94,8 @@ export interface PageTransport {
   readonly drafts?: DraftStore;
   readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
+  /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
+  readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
   /** A verified title only: no editor, discussion or live subscription. */
   readTitle?(id: string, budget: TitleReadBudget, signal: AbortSignal): Promise<string | undefined>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;

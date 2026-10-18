@@ -30,18 +30,31 @@ export class ReadingActions {
   #recorded = new Map<string, { binding: ThreadBinding; context: CommentContext }>();
   constructor(private options: ReadingActionsOptions) {}
 
-  async mark(reading: Reading) {
+  /** The live discussion when Mark read can act on this reading now, else undefined. The button
+   * and the click share this one answer, so an enabled button is never a silent no-op. */
+  #actionable(reading: Reading): ThreadBinding | undefined {
     const binding = this.options.discussion();
+    return binding &&
+      this.options.status() &&
+      this.options.selector(reading.id) &&
+      this.options.current(binding)
+      ? binding
+      : undefined;
+  }
+  ready(reading: Reading): boolean {
+    return this.#actionable(reading) !== undefined;
+  }
+
+  async mark(reading: Reading) {
+    if (this.#inFlight.has(reading.id)) return;
+    const binding = this.#actionable(reading);
     const status = this.options.status();
     const selector = this.options.selector(reading.id);
-    if (
-      !binding ||
-      !status ||
-      !selector ||
-      !this.options.current(binding) ||
-      this.#inFlight.has(reading.id)
-    )
+    if (!binding || !status || !selector) {
+      // Not ready (the button is disabled meanwhile): never a silent no-op.
+      this.options.changed(reading.id, { state: 'failed', step: 'recording' });
       return;
+    }
     const currentThread = this.options.thread(reading.id);
     if (readingState(reading, currentThread).kind === 'read') return;
     this.#inFlight.add(reading.id);

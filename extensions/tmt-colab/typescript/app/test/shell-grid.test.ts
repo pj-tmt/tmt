@@ -1,6 +1,13 @@
 import { expect, it } from 'vite-plus/test';
 import type { Shell } from '../src/shell.js';
-import { pagesChangedSince, shellByline, shellCells } from '../src/shell-grid.js';
+import type { ReadingDetails } from '../src/reading-details.js';
+import {
+  pagesChangedSince,
+  readingPageIds,
+  readingView,
+  shellByline,
+  shellCells,
+} from '../src/shell-grid.js';
 import type { PageSummary } from '../src/transport.js';
 
 const A = '10000000-0000-4000-8000-00000000000a';
@@ -86,4 +93,61 @@ it('counts the distinct pages edited after the summary, ignoring unknown times a
   expect(pagesChangedSince(cells, 2_000)).toBe(0);
   expect(pagesChangedSince(cells, 1_999)).toBe(1);
   expect(pagesChangedSince([], 0)).toBe(0);
+});
+
+const READING = '40000000-0000-4000-8000-000000000001';
+const details = (readings: { id: string; state: 'unread' | 'read' }[]): ReadingDetails => ({
+  pageId: A,
+  state: 'ready',
+  fingerprint: 'a'.repeat(64),
+  summary: { comments: 0, waiting: false, needsYou: 0 },
+  readings: readings.map((reading) => ({
+    title: 'Decide',
+    agent: 'Atlas',
+    why: 'Before Friday',
+    ...reading,
+  })),
+});
+
+it('asks about each source page of a reading item once and never about a page the list lacks', () => {
+  const readings: Shell = {
+    version: 1,
+    items: {
+      [id(1)]: { kind: 'reading', pageId: A, readingId: READING },
+      [id(2)]: { kind: 'reading', pageId: A, readingId: '40000000-0000-4000-8000-000000000002' },
+      [id(3)]: { kind: 'reading', pageId: B, readingId: READING },
+      [id(4)]: { kind: 'reading', pageId: GONE, readingId: READING },
+      [id(5)]: { kind: 'page', pageId: A },
+    },
+    order: [id(3), id(1), id(2), id(4), id(5)],
+  };
+  expect(readingPageIds(shellCells(readings, [page(A), page(B)]))).toEqual([B, A]);
+  expect(readingPageIds(shellCells(readings, []))).toEqual([]);
+  expect(readingPageIds(shellCells(shell, [page(A), page(B)]))).toEqual([A]);
+});
+
+it("takes a reading item's state only from ready details and never from anything else", () => {
+  const [anchor, , , reading] = shellCells(shell, [page(A), page(B)]);
+  const listed = readingView(reading, details([{ id: READING, state: 'unread' }]));
+  expect(listed).toEqual({
+    kind: 'listed',
+    title: 'Decide',
+    agent: 'Atlas',
+    why: 'Before Friday',
+    state: 'unread',
+  });
+  expect(readingView(reading, details([{ id: READING, state: 'read' }]))).toMatchObject({
+    state: 'read',
+  });
+  // The page no longer lists the reading.
+  expect(readingView(reading, details([]))).toEqual({ kind: 'missing' });
+  // Not ready, not asked or not a reading item: no state, never a guess.
+  expect(readingView(reading, { pageId: A, state: 'pending' })).toBeUndefined();
+  expect(readingView(reading, { pageId: A, state: 'unavailable' })).toBeUndefined();
+  expect(readingView(reading, undefined)).toBeUndefined();
+  expect(readingView(anchor, details([{ id: READING, state: 'read' }]))).toBeUndefined();
+  const [, , vanished] = shellCells(shell, [page(B)]);
+  expect(
+    readingView({ ...vanished, kind: 'reading', readingId: READING }, details([])),
+  ).toBeUndefined();
 });

@@ -115,3 +115,17 @@
     padding-top: 24px;
   }
 }
+.shell-cell-state[data-state='unread'] .shell-cell-mark {
+  color: var(--tmt-ui-color-waiting);
+}
+.shell-cell-state[data-state='unread'] .shell-cell-word {
+  color: var(--tmt-ui-color-text);
+  font-weight: 600;
+}
+.shell-cell-source,
+.shell-cell-why {
+  margin-top: 4px;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  overflow-wrap: anywhere;
+}

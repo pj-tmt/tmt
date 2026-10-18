@@ -46,9 +46,13 @@ function fixture() {
     thread = { ...thread!, resolved, status: { resolved, actor: 'person' } } as ThreadView;
     return { changed: true, status: thread.status, warnings: [] };
   });
+  let anchored = true;
   const actions = new ReadingActions({
     thread: () => thread,
-    selector: () => ({ type: 'TextQuoteSelector', exact: 'Hosting', prefix: '', suffix: '' }),
+    selector: () =>
+      anchored
+        ? { type: 'TextQuoteSelector', exact: 'Hosting', prefix: '', suffix: '' }
+        : undefined,
     threadHolding: () => thread,
     discussion: () => binding,
     status: () => ({ change }) as unknown as ThreadStatusCoordinator,
@@ -65,6 +69,9 @@ function fixture() {
     outcomes,
     stale: () => {
       current = false;
+    },
+    unanchor: () => {
+      anchored = false;
     },
     thread: () => thread,
   };
@@ -103,4 +110,18 @@ it('a page transition after the comment lands cannot resolve or notify in the ol
   expect(f.create).toHaveBeenCalledTimes(1);
   expect(f.change).not.toHaveBeenCalled();
   expect(f.outcomes.some((outcome) => outcome.state === 'settled')).toBe(false);
+});
+
+it('says when Mark read cannot act and never turns a click into a silent no-op', async () => {
+  const f = fixture();
+  expect(f.actions.ready(reading)).toBe(true);
+  f.unanchor();
+  expect(f.actions.ready(reading)).toBe(false);
+  await f.actions.mark(reading);
+  expect(f.create).not.toHaveBeenCalled();
+  expect(f.change).not.toHaveBeenCalled();
+  expect(f.outcomes).toEqual([{ state: 'failed', step: 'recording' }]);
+  const stale = fixture();
+  stale.stale();
+  expect(stale.actions.ready(reading)).toBe(false);
 });

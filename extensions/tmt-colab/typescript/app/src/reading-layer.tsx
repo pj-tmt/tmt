@@ -2,6 +2,7 @@ import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
+import { ReadingConnecting } from './reading-connecting.js';
 import { focusNeedsYouTarget } from './needs-you.js';
 import { compactRelativeTime } from './display-time.js';
 import { text } from './strings.js';
@@ -181,6 +182,9 @@ export function useReadingLayer({
     const at = read && state.at ? Number(state.at) : NaN;
     const time = Number.isFinite(at) ? compactRelativeTime(at, now) : text.readingTimeUnknown;
     const busy = !writable || !attached || outcome?.state === 'working';
+    // Mark read acts only when the discussion, status and passage are all live; until then it is
+    // disabled and says so, so a click is never ignored.
+    const markReady = actions.ready(reading);
     const activate = (label: string, action: () => void, disabled = busy) => (
       <BrowserAction
         key={label}
@@ -227,7 +231,9 @@ export function useReadingLayer({
           actions={
             readOnly ? undefined : (
               <>
-                {!read && activate(text.readingMark, () => void actions.mark(reading))}
+                {!read &&
+                  activate(text.readingMark, () => void actions.mark(reading), busy || !markReady)}
+                {!read && <ReadingConnecting waiting={writable && attached && !markReady} />}
                 {activate(
                   text.readingNext,
                   () => next(reading.id),
