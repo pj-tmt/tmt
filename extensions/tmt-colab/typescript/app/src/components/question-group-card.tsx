@@ -1,6 +1,6 @@
 import { BrowserAction, BrowserChips, BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
-import { AgentList } from './agent-chip.js';
+import { AgentList, agentSentence } from './agent-chip.js';
 import type { AnchorPosition } from '../renderer.js';
 import type { ComposerConnectionPresentation } from '../router.js';
 import { sendAnswers, askedMessageIds, type BatchAnswer } from '../answer-batch.js';
@@ -526,7 +526,7 @@ export function QuestionGroupCard({
                   {resolvingDefaults
                     ? text.messageAgentsChecking
                     : decision.unavailable.length
-                      ? text.messageRecipientUnavailable(decision.unavailable[0])
+                      ? agentSentence(text.messageRecipientUnavailable, decision.unavailable[0])
                       : !recipients.length
                         ? 'Stays on the page, no one is asked'
                         : undefined}

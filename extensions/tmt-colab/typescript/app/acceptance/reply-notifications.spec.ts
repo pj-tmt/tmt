@@ -228,7 +228,7 @@ for (const [destination, forceFallback] of [
         await input.fill(`@${agent.name} Please follow up on this proposal.`);
         await annotationInput(block, agent.name);
         await expect(block.locator('.annotation-hint[role="status"]')).toContainText(
-          `Asks @${agent.name}.`,
+          `Asks ${agent.name}.`,
         );
         await block.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
       }

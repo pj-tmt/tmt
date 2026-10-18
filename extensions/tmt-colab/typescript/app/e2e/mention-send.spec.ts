@@ -68,7 +68,7 @@ test('one Send fans out once per UUID, including offline, with one recorded comm
   const input = await mount(page);
   await input.pressSequentially('@alpha @beta @alpha explain');
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Asks @alpha, @beta (offline).',
+    'Asks alpha, beta (offline).',
   );
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
@@ -155,7 +155,7 @@ test('loading and failed directory fence mention sends, retaining a draft throug
   );
   await run(page, 'setDirectory', 'ok');
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks alpha.');
   await expect(input).toHaveText('@alpha note', { useInnerText: true });
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
@@ -253,7 +253,7 @@ test('removing and undoing multiple tokens changes the visible recipients withou
   const input = await mount(page);
   await input.pressSequentially('@alpha @beta note');
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Asks @alpha, @beta (offline).',
+    'Asks alpha, beta (offline).',
   );
   await input.press('ControlOrMeta+A');
   await input.press('Backspace');
@@ -263,7 +263,7 @@ test('removing and undoing multiple tokens changes the visible recipients withou
   await input.press('ControlOrMeta+Z');
   await expect(input).toHaveText('@alpha @beta note', { useInnerText: true });
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Asks @alpha, @beta (offline).',
+    'Asks alpha, beta (offline).',
   );
   await input.press('Escape');
   expect((await run(page, 'proof')).writes).toBe(0);
@@ -304,10 +304,10 @@ test('directory retry keeps keyboard focus and ignores a late result from the re
   await retry.press('Enter');
   await run(page, 'setDirectory', 'ok');
   await run(page, 'reconnectAsk');
-  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks alpha.');
   await expect(input).toBeFocused();
   await run(page, 'releaseDirectory', 'fail');
-  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks alpha.');
   await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
   expect((await run(page, 'directoryProof')).reads).toBe(4);
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
@@ -557,14 +557,14 @@ for (const phase of ['reconnecting', 'ended'] as const) {
     const input = await mount(page, { mode: 'write-failure' });
     await input.fill('@beta note');
     await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-      'Asks @beta (offline).',
+      'Asks beta (offline).',
     );
     await run(page, 'setConnection', phase);
     const message =
       phase === 'reconnecting' ? 'Reconnecting…' : 'Access to this page has ended. Pair again.';
     await expect(page.locator('.annotation-hint[role="status"]')).toContainText(message);
     await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText(
-      'Asks @beta (offline).',
+      'Asks beta (offline).',
     );
     await expect(
       page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),

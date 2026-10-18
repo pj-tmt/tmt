@@ -173,12 +173,11 @@ export const text = {
   messageComment: 'Posts as a comment.',
   messageCommentOnly: 'Posts as a comment. No agent will be asked.',
   messageAskCreator: (name: string) => `Ask @${name}`,
-  messageAsks: (audience: string) => `Asks ${audience}.`,
-  messageUnknown: (name: string, audience: string) =>
-    `No agent named @${name}. ${audience ? `Asks ${audience}.` : 'This posts as a comment.'}`,
-  messageAmbiguous: (name: string) => `Several agents are named @${name}. Choose one.`,
-  messageRecipientUnavailable: (name: string) =>
-    `@${name} is unavailable. Remove the mention to post.`,
+  messageAsks: 'Asks {agents}.',
+  messageUnknown: (name: string) => `No agent named @${name}.`,
+  messageUnknownComment: 'This posts as a comment.',
+  messageAmbiguous: 'Several agents are named {agent}. Choose one.',
+  messageRecipientUnavailable: '{agent} is unavailable. Remove the mention to post.',
   messageRecipientLimit: 'Mention up to 8 agents per message.',
   messageAgentsEmpty: 'No agents are available. This posts as a comment.',
   messageAskAgain: 'Mention {agent} in a new message to ask again.',

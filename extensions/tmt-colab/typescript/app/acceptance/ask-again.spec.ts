@@ -54,10 +54,10 @@ for (const surface of ['chat', 'thread'])
       const body = `@${alpha.name} @${beta.name} Explain the original comment.\n  Keep these bytes.  `;
       await input.fill(body);
       if (surface === 'chat') {
-        await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks @');
+        await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks ');
       } else {
         await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
-          `Asks @${alpha.name}, @${beta.name}.`,
+          `Asks ${alpha.name}, ${beta.name}.`,
         );
       }
       // Lose one ordinary context GET before adoption; no signed Remote outcome,

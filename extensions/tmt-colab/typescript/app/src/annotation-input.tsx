@@ -5,6 +5,7 @@ import { useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction, BrowserIconAction, type BrowserActionProps } from '@tmt/browser-ui/react';
 import { ArrowRight } from 'lucide-react';
 import {
+  Fragment,
   useContext,
   useEffect,
   useId,
@@ -19,6 +20,7 @@ import { AttachmentDraft } from './attachment-draft.js';
 import { AttachmentStaleError } from './attachment-service.js';
 import { AttachButton, PendingAttachments } from './attachment-tray.js';
 import { useAgentDirectory } from './agent-directory.js';
+import { AgentChip, agentSentence, agentsSentence } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import type {
   ComposerActivation,
@@ -206,26 +208,46 @@ export function AnnotationInput({
         (agent) => agent.machine === creator.machine && agent.agent === creator.agent,
       ));
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
-  const audience = decision.agents
-    .map((agent) => `@${agent.agentName}${agent.presence === 'offline' ? ' (offline)' : ''}`)
-    .join(', ');
-  const status = decision.tooMany
-    ? text.messageRecipientLimit
-    : decision.ambiguous.length
-      ? text.messageAmbiguous(decision.ambiguous[0])
-      : decision.unavailable.length
-        ? text.messageRecipientUnavailable(decision.unavailable[0])
-        : decision.unknown.length
-          ? text.messageUnknown(decision.unknown[0], audience)
-          : audience
-            ? chat
-              ? ''
-              : text.messageAsks(audience)
-            : agents?.length === 0
-              ? chat
-                ? text.messageComment
-                : text.messageAgentsEmpty
-              : text.messageComment;
+  const audience = decision.agents.length > 0 && (
+    <>
+      {decision.agents.map((agent, index) => (
+        <Fragment key={`${agent.machine}:${agent.agent}`}>
+          {index > 0 && ', '}
+          <AgentChip name={agent.agentName} />
+          {agent.presence === 'offline' && ' (offline)'}
+        </Fragment>
+      ))}
+    </>
+  );
+  const status = decision.tooMany ? (
+    text.messageRecipientLimit
+  ) : decision.ambiguous.length ? (
+    agentSentence(text.messageAmbiguous, decision.ambiguous[0])
+  ) : decision.unavailable.length ? (
+    agentSentence(text.messageRecipientUnavailable, decision.unavailable[0])
+  ) : decision.unknown.length ? (
+    audience ? (
+      <>
+        {text.messageUnknown(decision.unknown[0])} {agentsSentence(text.messageAsks, audience)}
+      </>
+    ) : (
+      `${text.messageUnknown(decision.unknown[0])} ${text.messageUnknownComment}`
+    )
+  ) : audience ? (
+    chat ? (
+      ''
+    ) : (
+      agentsSentence(text.messageAsks, audience)
+    )
+  ) : agents?.length === 0 ? (
+    chat ? (
+      text.messageComment
+    ) : (
+      text.messageAgentsEmpty
+    )
+  ) : (
+    text.messageComment
+  );
   const showCreatorHint =
     !!creator &&
     directory.state === 'ready' &&

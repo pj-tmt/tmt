@@ -66,6 +66,18 @@ export function agentSentence(template: string, ...names: string[]): ReactNode {
   ));
 }
 
+/** A sentence template with `{agents}` where an already built list of chips goes. */
+export function agentsSentence(template: string, agents: ReactNode): ReactNode {
+  const [before, after = ''] = template.split('{agents}');
+  return (
+    <>
+      {before}
+      {agents}
+      {after}
+    </>
+  );
+}
+
 /** Several agents in running text, as inline chips separated by commas. */
 export function AgentList({ names }: { names: readonly string[] }) {
   return names.map((name, index) => (

@@ -464,7 +464,7 @@ for (const width of [1440, 390]) {
         useInnerText: true,
       });
       await expect(dialog.locator('.annotation-hint[role="status"]')).toContainText(
-        'Asks @Agent 1.',
+        'Asks Agent 1.',
       );
       await expect
         .poll(() =>

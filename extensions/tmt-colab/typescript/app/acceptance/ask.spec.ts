@@ -429,7 +429,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           });
           await expect(action).toBeEnabled();
           await expect(container.locator('.annotation-hint[role="status"]')).toHaveText(
-            surface === 'Chat' ? '' : `Asks @${s.recipient.name}.`,
+            surface === 'Chat' ? '' : `Asks ${s.recipient.name}.`,
           );
           await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));

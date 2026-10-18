@@ -932,7 +932,7 @@ for (const [width, theme] of [
     await expect(input).toHaveText('');
     await input.pressSequentially('@A');
     await page.getByRole('option').first().click();
-    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks @');
+    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks ');
     await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText(
       text.messageComment,
     );

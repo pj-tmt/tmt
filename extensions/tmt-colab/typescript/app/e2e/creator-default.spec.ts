@@ -402,7 +402,7 @@ for (const surface of ['chat', 'annotation']) {
       await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
       await expect(action).toHaveCount(0);
       await expect(page.locator('.annotation-hint').first()).toHaveText(
-        surface === 'chat' ? '' : 'Asks @alpha.',
+        surface === 'chat' ? '' : 'Asks alpha.',
       );
       expect(
         await input.evaluate(() => ({
