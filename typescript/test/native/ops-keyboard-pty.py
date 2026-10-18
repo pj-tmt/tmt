@@ -286,8 +286,8 @@ sys.exit(0)
                  "refreshed member identity with the draft retained")
     # Newline keys and external request changes must never dispatch the draft.
     if spec.get("foldLong"):
-        # Paragraphs exceed twelve rendered rows independently of the separate
-        # reply soft-break preservation work.
+        # Paragraphs make the long-body viewport and toggle explicit in this
+        # terminal fixture; reply soft breaks are covered by renderer tests.
         extra = "\n\n" + "\n\n".join(f"fold line {index:03d}" for index in range(24))
         os.write(master, b"\x1b[200~" + extra.encode() + b"\x1b[201~")
         expected += extra

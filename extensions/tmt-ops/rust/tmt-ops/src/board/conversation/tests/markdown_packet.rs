@@ -6,6 +6,7 @@ use super::*;
 fn capture_conversation_markdown_packet() {
     let output = std::env::var_os("TMT_MARKDOWN_PACKET").expect("task-owned packet path");
     let _no_commands = crate::runner::forbid_commands();
+    let grouped = std::env::var_os("TMT_MARKDOWN_GROUPED").is_some();
     let mut frames = Vec::new();
     for (name, base, depth) in [
         (
@@ -68,10 +69,25 @@ fn capture_conversation_markdown_packet() {
                 }
                 let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
                 terminal
-                    .draw(|frame| render(frame, &app, frame.area()))
+                    .draw(|frame| {
+                        if grouped {
+                            let target = app.conversation_target().unwrap();
+                            super::super::exchange::render_for(
+                                frame,
+                                &app,
+                                frame.area(),
+                                &super::super::exchange::Surface::Agents {
+                                    target,
+                                    interactive: true,
+                                },
+                            );
+                        } else {
+                            render(frame, &app, frame.area());
+                        }
+                    })
                     .unwrap();
                 let buffer = terminal.backend().buffer();
-                frames.push(json!({"scene":scene,"base":name,"depth":format!("{depth:?}"),"width":width,"height":36,
+                frames.push(json!({"surface":if grouped {"Agents"} else {"legacy"},"scene":scene,"base":name,"depth":format!("{depth:?}"),"width":width,"height":36,
                     "lines":buffer.content.chunks(usize::from(width)).map(|row|row.iter().map(|cell|cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
                     "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
                     "foldHits":app.conversation.borrow().fold_hits.len()}));
