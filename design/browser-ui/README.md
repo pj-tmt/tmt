@@ -640,6 +640,11 @@ Backspace removes only the last eligible supplied chip; nonempty editing is
 native. Caps are supplied through eligible options and state words, never
 inferred as a recipient/parser rule in this leaf.
 
+After an admitted removal, Chips focuses the first candidate that actually takes
+focus: the next, then previous, enabled surviving remove control, then its input,
+then the host `focusFallback`. A candidate that the same host update disabled, hid
+or made inert is skipped, and native `focus()` keeps its normal scrolling.
+
 While Chips is open, its persistent input owns one `visualViewport.resize`
 listener. On the next animation frame, only an actually focused input outside
 the real visual viewport is revealed with nearest-block/inline `scrollIntoView`.
