@@ -221,6 +221,9 @@ fn grammar() -> Command {
                 .arg(Arg::new("view").long("view").value_name("NAME")
                     .value_parser(board::ViewLayer::parse).default_value("default")
                     .help("Retain this board's view in a named layer (1–32 lowercase letters, digits or hyphens)"))
+                .arg(Arg::new("tab").long("tab").value_name("overview|agents|digest")
+                    .value_parser(config::StartupTab::flag)
+                    .help("Open this tab (also 1, 2 or 3), overriding the startup preference and retained tab"))
                 .arg(Arg::new("reset-view").long("reset-view").action(ArgAction::SetTrue)
                     .help("Clear the selected view layer before opening the board (terminal required)"))
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
@@ -235,7 +238,7 @@ fn grammar() -> Command {
                     Arg::new("reload-all")
                         .long("reload-all")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with_all(["squad", "tabs", "popup", "view", "reset-view"])
+                        .conflicts_with_all(["squad", "tabs", "popup", "view", "reset-view", "tab"])
                         .help("Reload every open board in place once it is idle, keeping its tab and place"),
                 ),
         )
@@ -1235,6 +1238,7 @@ fn main() -> ExitCode {
                     .cloned()
                     .unwrap_or_default(),
                 sub.get_flag("reset-view"),
+                sub.get_one::<config::StartupTab>("tab").copied(),
                 interaction,
             )
         }) {
@@ -1507,6 +1511,49 @@ mod tests {
     }
 
     #[test]
+    fn startup_tab_flag_admits_fixed_destinations_and_rejects_invalid_values() {
+        for (name, expected) in [
+            ("overview", config::StartupTab::Overview),
+            ("1", config::StartupTab::Overview),
+            ("agents", config::StartupTab::Agents),
+            ("2", config::StartupTab::Agents),
+            ("digest", config::StartupTab::Digest),
+            ("3", config::StartupTab::Digest),
+        ] {
+            let parsed = grammar()
+                .try_get_matches_from(["tmt-ops", "ui", "--tab", name])
+                .unwrap();
+            assert_eq!(
+                parsed
+                    .subcommand()
+                    .unwrap()
+                    .1
+                    .get_one::<config::StartupTab>("tab"),
+                Some(&expected)
+            );
+        }
+        for name in ["last", "0", "4", "bogus"] {
+            let error = grammar()
+                .try_get_matches_from(["tmt-ops", "ui", "--tab", name])
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("Tab must be overview, agents or digest"));
+        }
+        assert!(
+            grammar()
+                .try_get_matches_from(["tmt-ops", "ui", "--tab", "agents", "--reload-all"])
+                .is_err()
+        );
+        let help = grammar()
+            .find_subcommand_mut("ui")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("--tab"));
+        assert!(help.contains("retained tab"));
+    }
+
+    #[test]
     fn completion_offers_literal_subcommands_and_options_only() {
         assert_eq!(complete(&words("-- s")), ["skill", "squad"]);
         assert_eq!(
@@ -1555,6 +1602,7 @@ mod tests {
                 "--reload-all",
                 "--reset-view",
                 "--squad",
+                "--tab",
                 "--tabs",
                 "--view"
             ]

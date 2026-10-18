@@ -3354,7 +3354,10 @@ fn scoped_hidden_squad_is_visible_and_escape_clear_is_carried_across_reload() {
     preferences.hidden.insert(ROOM.into());
     app.finished_workspace_preferences(preferences, "Saved".into());
     app.workspace.visibility.scope = vec![ROOM.into()];
-    app.workspace_startup = Some(ROOM.into());
+    app.workspace_startup = Some(crate::board::app::WorkspaceStartup {
+        room_id: Some(ROOM.into()),
+        tab: None,
+    });
     app.workspace_reconcile();
     assert_eq!(app.workspace.selected, Some(OpsTarget::Squad(ROOM.into())));
     assert!(
@@ -3374,7 +3377,10 @@ fn scoped_hidden_squad_is_visible_and_escape_clear_is_carried_across_reload() {
     assert!(!app.workspace_selection_visible());
     let cleared = app.resume().unwrap();
     let mut reloaded = board();
-    reloaded.workspace_startup = Some(ROOM.into());
+    reloaded.workspace_startup = Some(crate::board::app::WorkspaceStartup {
+        room_id: Some(ROOM.into()),
+        tab: None,
+    });
     reloaded.workspace.visibility.scope = vec![ROOM.into()];
     reloaded.carry(cleared);
     reloaded.restore_pending();

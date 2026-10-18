@@ -618,6 +618,13 @@ impl std::fmt::Debug for Hit {
     }
 }
 
+/// One cold-start request, consumed by the existing workspace reconciliation.
+#[derive(Debug, Clone)]
+pub(super) struct WorkspaceStartup {
+    pub room_id: Option<String>,
+    pub tab: Option<super::shell::OpsTab>,
+}
+
 #[derive(Default)]
 pub struct App {
     pub(super) buttons: super::buttons::State,
@@ -632,7 +639,7 @@ pub struct App {
     pub(super) shell: super::shell::OpsShell,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
-    pub(super) workspace_startup: Option<String>,
+    pub(super) workspace_startup: Option<WorkspaceStartup>,
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
