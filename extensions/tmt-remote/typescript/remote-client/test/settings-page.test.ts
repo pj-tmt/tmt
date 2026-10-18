@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test, vi } from 'vite-plus/test';
 
 // These minimal DOM fixtures own management access/copy; the static registry/menu is
 // exercised against the real browser/IndexedDB in pairing.spec.ts.
 vi.mock('../src/remote-registry-page.js', () => ({ remoteRegistryPage: () => () => {} }));
+vi.mock('../src/settings-controls.js', () => ({ settingsChoice: () => () => {} }));
 
 for (const code of [
   'REMOTE_CLOSED',
@@ -176,5 +178,20 @@ test('settings refresh uses bounded admission and renders its verified capacity 
     vi.doUnmock('../src/firestore-page.js');
     vi.unstubAllGlobals();
     vi.resetModules();
+  }
+});
+
+// The served document must remain usable while the SDK checks current authority.
+test('settings initial choices are named disabled listboxes, without native select or confirm', async () => {
+  const html = await readFile(
+    new URL('../../../rust/tmt-remote/assets/settings.html', import.meta.url),
+    'utf8',
+  );
+  const entry = await readFile(new URL('../src/settings-page.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /<select\b/);
+  assert.doesNotMatch(entry, /\bconfirm\(/);
+  for (const id of ['opening', 'limit-mode']) {
+    assert.match(html, new RegExp(`id="${id}"[^>]*aria-haspopup="listbox"[^>]*disabled`, 's'));
+    assert.match(html, new RegExp(`id="${id}-options"[^>]*popover="auto"[^>]*role="listbox"`, 's'));
   }
 });

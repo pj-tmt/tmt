@@ -283,6 +283,8 @@ test.beforeEach(async () => {
   env = {
     PATH: process.env.PATH,
     HOME: root,
+    TMT_AGENT: '1',
+    BROWSER: 'true',
     TMT_EXECUTABLE: join(root, 'core.mjs'),
     TMT_FIXTURE_ROOT: root,
   };
@@ -1789,6 +1791,12 @@ test('agents list carries only verified runtime evidence through the served SDK'
   await context.close();
 });
 
+async function chooseSetting(page: Page, id: string, value: string): Promise<void> {
+  await page.locator(`#${id}`).click();
+  await page.locator(`#${id}-options [data-value="${value}"]`).click();
+  await expect(page.locator(`#${id}`)).toBeFocused();
+}
+
 test('bare pairing is read only and settings explicitly enables audited sending', async () => {
   pair = spawn(BINARY, ['pair', '--json'], { env });
   const events = lines(pair);
@@ -1830,14 +1838,64 @@ test('bare pairing is read only and settings explicitly enables audited sending'
     [390],
     ['dark'],
   );
-  const confirmation = page.waitForEvent('dialog');
-  const enable = page
-    .getByRole('button', { name: 'Enable sending for Settings browser', exact: true })
-    .click();
-  const dialog = await confirmation;
-  expect(dialog.message()).toBe('Allow Settings browser to send to its permitted agents?');
-  await dialog.accept();
-  await enable;
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(dialog.type());
+    void dialog.dismiss();
+  });
+  let mutations = 0;
+  page.on('request', (request) => {
+    if (
+      request.url().endsWith('/append') &&
+      request.postDataJSON().operation === 'remote.devices.talk'
+    )
+      mutations++;
+  });
+  const enable = page.getByRole('button', {
+    name: 'Enable sending for Settings browser',
+    exact: true,
+  });
+  await page.evaluate(() => {
+    const original = crypto.randomUUID;
+    const fixture = window as typeof window & { confirmationIds?: number };
+    fixture.confirmationIds = 0;
+    crypto.randomUUID = () => {
+      fixture.confirmationIds!++;
+      return original.call(crypto);
+    };
+  });
+  await enable.dblclick();
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { confirmationIds?: number }).confirmationIds,
+    ),
+  ).toBe(0);
+  await expect(page.locator('[data-confirmation]')).toContainText(
+    'Settings browser will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.',
+  );
+  await captureState(page, 'settings-enable-confirmation', 'Inline consequence before any effect');
+  expect(mutations).toBe(0);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(enable).toBeFocused();
+  await expect(page.locator('[data-confirmation]')).toBeHidden();
+  expect(mutations).toBe(0);
+  await enable.focus();
+  await page.keyboard.down('Enter');
+  await page.keyboard.down('Enter');
+  await page.keyboard.up('Enter');
+  await expect(page.locator('[data-confirmation]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(enable).toBeFocused();
+  await expect(page.locator('[data-confirmation]')).toBeHidden();
+  expect(mutations).toBe(0);
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { confirmationIds?: number }).confirmationIds,
+    ),
+  ).toBe(0);
+  await enable.click();
+  await enable.click();
+  expect(dialogs).toEqual([]);
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await page.click('#recover');
   await expect(
@@ -1862,6 +1920,7 @@ test('bare pairing is read only and settings explicitly enables audited sending'
     execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
   ) as { devices: { scopes: string[] }[] };
   expect(enabled.devices[0]!.scopes).toContain('talk');
+  expect(mutations).toBe(1);
   await context.close();
 });
 
@@ -1966,7 +2025,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleName(
       'Device name for Settings browser',
     );
-    await expect(page.locator('#opening')).toHaveAccessibleName('Open a browser when pairing');
+    await expect(page.locator('#opening')).toHaveAccessibleName('Open a browser when pairing On');
   }
   await page.emulateMedia({ colorScheme: 'light' });
   await page.locator(`#name-${clientId}`).focus();
@@ -1981,13 +2040,48 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-device-keyboard-focus',
     'Shared field focus outline and stable native device control',
   );
-  await page.selectOption('#opening', 'off');
+  await expect(page.locator('select')).toHaveCount(0);
+  await page.locator('#opening').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('option', { name: 'On', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByRole('option', { name: 'Off', exact: true })).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(page.getByRole('option', { name: 'On', exact: true })).toBeFocused();
+  await page.keyboard.press('o');
+  await expect(page.getByRole('option', { name: 'Off', exact: true })).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(page.getByRole('option', { name: 'Off', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#opening')).toBeFocused();
+  await expect(page.locator('#opening')).toHaveJSProperty('value', 'on');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('End');
+  await captureState(page, 'settings-choice-open', 'Named listbox; focused option, no mutation');
+  await page.keyboard.press('Space');
+  await expect(page.locator('#opening')).toHaveJSProperty('value', 'off');
+  await expect(page.locator('#opening')).toBeFocused();
+  await page.locator('#limit-mode').click();
+  await expect(page.getByRole('option', { name: 'Default (8, not configured)' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#limit-mode')).toBeFocused();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('End');
+  await expect(page.getByRole('option', { name: 'Custom', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#firestore-budget summary')).toBeFocused();
+  await expect(page.locator('#limit-mode')).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('#opening').click();
+  await page.locator(`#name-${clientId}`).click();
+  await expect(page.locator(`#name-${clientId}`)).toBeFocused();
+  await expect(page.locator('#opening')).toHaveAttribute('aria-expanded', 'false');
+  await chooseSetting(page, 'opening', 'off');
   await page.locator('#opening').focus();
   await page.keyboard.press('Tab');
-  await expect(page.locator('#opening-form button')).toBeFocused();
+  await expect(page.locator('#opening-form button[type=submit]')).toBeFocused();
   expect(
     await page
-      .locator('#opening-form button')
+      .locator('#opening-form button[type=submit]')
       .evaluate((control) => control.matches(':focus-visible')),
   ).toBe(true);
   await captureState(
@@ -1995,7 +2089,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'settings-action-keyboard-focus',
     'Shared Action keyboard focus; native submit ownership',
   );
-  await page.selectOption('#opening', 'on');
+  await chooseSetting(page, 'opening', 'on');
   await captureState(
     page,
     'settings-designated-default',
@@ -2022,14 +2116,12 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
       'Explicit sending scope disabled; other device policy and original receipt retained',
     );
   }
-  const sendingConfirmation = page.waitForEvent('dialog');
-  const enableSending = page
-    .getByRole('button', { name: 'Enable sending for Settings browser', exact: true })
-    .click();
-  const sendingDialog = await sendingConfirmation;
-  expect(sendingDialog.message()).toBe('Allow Settings browser to send to its permitted agents?');
-  await sendingDialog.accept();
-  await enableSending;
+  const enableSending = page.getByRole('button', {
+    name: 'Enable sending for Settings browser',
+    exact: true,
+  });
+  await enableSending.click();
+  await enableSending.click();
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await page.click('#recover');
   await expect(
@@ -2055,34 +2147,34 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
       .sessionsPerDeviceSource,
   ).toBe('default');
-  await page.selectOption('#limit-mode', 'custom');
+  await chooseSetting(page, 'limit-mode', 'custom');
   await page.fill('#limit-custom', '8');
-  await page.click('#limit-form button');
+  await page.click('#limit-form button[type=submit]');
   await expect(page.locator('#limit-value')).toHaveText('8 · settings.json');
   await captureState(
     page,
     'settings-explicit-custom',
     'Explicit custom8 differs from default source',
   );
-  await page.selectOption('#opening', 'off');
-  await page.click('#opening-form button');
+  await chooseSetting(page, 'opening', 'off');
+  await page.click('#opening-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'committed');
   await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
-  await page.selectOption('#limit-mode', 'custom');
+  await chooseSetting(page, 'limit-mode', 'custom');
   await page.fill('#limit-custom', '18446744073709551615');
-  await page.click('#limit-form button');
+  await page.click('#limit-form button[type=submit]');
   await expect(page.locator('#limit-value')).toHaveText('18446744073709551615 · settings.json');
   expect(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' })).toContain(
     '18446744073709551615',
   );
-  await page.selectOption('#limit-mode', 'off');
-  await page.click('#limit-form button');
+  await chooseSetting(page, 'limit-mode', 'off');
+  await page.click('#limit-form button[type=submit]');
   await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · settings.json');
   // Role removal fences stale admitted capabilities and keeps unsent text.
-  await page.selectOption('#limit-mode', 'custom');
+  await chooseSetting(page, 'limit-mode', 'custom');
   await page.fill('#limit-custom', '19');
   execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
-  await page.click('#limit-form button');
+  await page.click('#limit-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
   await expect(page.locator('#limit-custom')).toHaveValue('19');
   const roleRefresh = routeBarrier();
@@ -2223,6 +2315,11 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
       'settings-saving-self-rename',
       'Actual native effect with acknowledgement held; saving and disabled actions',
     );
+    // A pending effect fences Save, while native-style choice drafts stay editable.
+    await expect(page.locator('#opening')).toBeEnabled();
+    await chooseSetting(page, 'opening', 'on');
+    await expect(page.locator('#opening-form button[type=submit]')).toBeDisabled();
+    await chooseSetting(page, 'opening', 'off');
     await name.fill('Unsent next name');
     await name.evaluate((input) => {
       (input as HTMLInputElement).setSelectionRange(2, 2);
@@ -2269,19 +2366,34 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'Fresh live Session reads committed original; next-name draft retained',
   );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
-  const confirmation = page.waitForEvent('dialog');
-  const revokeClick = page
-    .locator('.device')
-    .getByRole('button', { name: 'Revoke Renamed browser', exact: true })
-    .click();
-  const dialog = await confirmation;
-  try {
-    expect(dialog.type()).toBe('confirm');
-    expect(dialog.message()).toBe('Revoke Renamed browser (this device)?');
-  } finally {
-    await dialog.accept();
-  }
-  await revokeClick;
+  const revoke = page.getByRole('button', { name: 'Revoke Renamed browser', exact: true });
+  await page.evaluate(() => {
+    const original = crypto.randomUUID;
+    const fixture = window as typeof window & { confirmationIds?: number };
+    fixture.confirmationIds = 0;
+    crypto.randomUUID = () => {
+      fixture.confirmationIds!++;
+      return original.call(crypto);
+    };
+  });
+  await revoke.dblclick();
+  expect(
+    await page.evaluate(
+      () => (window as typeof window & { confirmationIds?: number }).confirmationIds,
+    ),
+  ).toBe(0);
+  await expect(page.locator('[data-confirmation]')).toContainText(
+    'This ends access for Renamed browser, the browser you are using. Press Revoke again to confirm. Pair again to restore access.',
+  );
+  await expect(name).toHaveValue('Unsent next name');
+  expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
+  await captureState(page, 'settings-revoke-confirmation', 'Admitted name, unsent draft retained');
+  expect(revokeCalls).toBe(0);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(revoke).toBeFocused();
+  expect(revokeCalls).toBe(0);
+  await revoke.click();
+  await revoke.click();
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'unknown');
   await page.click('#recover');
   await expect(page.locator('#access')).toContainText('refused');
@@ -2357,8 +2469,8 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await expect(name).toHaveValue('Unsent later-page name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(3);
   // A different committed effect also refreshes this page without resetting its forms.
-  await page.selectOption('#opening', 'off');
-  await page.click('#opening-form button');
+  await chooseSetting(page, 'opening', 'off');
+  await page.click('#opening-form button[type=submit]');
   await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
   await expect(name).toHaveValue('Unsent later-page name');
   // Original-receipt recovery refresh also stays on this page after a real lost ack.
@@ -2370,8 +2482,8 @@ test('settings pagination retains later-page drafts across refresh and guards na
       await route.abort();
     } else await route.continue();
   });
-  await page.selectOption('#opening', 'on');
-  await page.click('#opening-form button');
+  await chooseSetting(page, 'opening', 'on');
+  await page.click('#opening-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'unknown');
   await expect(page.locator('#original')).toHaveText(/^Original operation [0-9a-f-]{36}$/);
   await page.click('#recover');
@@ -2431,17 +2543,17 @@ test('settings pagination retains later-page drafts across refresh and guards na
     'settings-other-device-renamed',
     'Committed non-self rename; unchanged current browser authority',
   );
-  page.once('dialog', async (dialog) => {
-    expect(dialog.type()).toBe('confirm');
-    expect(dialog.message()).toBe('Revoke Reviewed device?');
-    await dialog.accept();
-  });
+  const revoke = target.getByRole('button', { name: 'Revoke Reviewed device', exact: true });
+  await revoke.click();
+  await expect(target.locator('[data-confirmation]')).toContainText(
+    'This ends access for Reviewed device. Press Revoke again to confirm. Pair again to restore access.',
+  );
   await captureState(
     page,
     'settings-revoke-ready',
-    'Native revoke action; confirm text is asserted separately, not rasterized by headless Chromium',
+    'Inline revoke consequence beside admitted target',
   );
-  await target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }).click();
+  await revoke.click();
   await expect(target.locator('.device-summary')).toContainText('Revoked');
   await expect(
     target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }),
@@ -2461,13 +2573,13 @@ test('settings pagination retains later-page drafts across refresh and guards na
     join(root, 'state/remote/remote.db'),
     inventory.devices[0]!.clientId,
   ]);
-  await page.selectOption('#opening', 'off');
-  await page.click('#opening-form button');
+  await chooseSetting(page, 'opening', 'off');
+  await page.click('#opening-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'refused');
   await expect(page.locator('#controls-reason')).toHaveText(
     'Browser change limit reached. Use the local CLI; do not retry or reset storage.',
   );
-  await expect(page.locator('#opening-form button')).toBeDisabled();
+  await expect(page.locator('#opening-form button[type=submit]')).toBeDisabled();
   await captureState(
     page,
     'settings-capacity-refused',
@@ -2556,8 +2668,8 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
       await route.abort();
     } else await route.continue();
   });
-  await page.selectOption('#opening', 'off');
-  await page.click('#opening-form button');
+  await chooseSetting(page, 'opening', 'off');
+  await page.click('#opening-form button[type=submit]');
   await expect(page.locator('#outcome')).toHaveAttribute('data-state', 'unknown');
   await captureState(
     page,
@@ -3173,10 +3285,10 @@ for (const [width, theme] of [
       [theme],
       '#opening-unchanged',
     );
-    await page.selectOption('#opening', 'off');
+    await chooseSetting(page, 'opening', 'off');
     await expect(openingSave).toBeEnabled();
     await expect(page.locator('#opening-unchanged')).toBeHidden();
-    await page.selectOption('#opening', 'on');
+    await chooseSetting(page, 'opening', 'on');
     await expect(openingSave).toBeDisabled();
     await page
       .locator('#limit-form')
@@ -3185,14 +3297,14 @@ for (const [width, theme] of [
       );
     await page.locator('#limit-form').evaluate((form) => (form as HTMLFormElement).requestSubmit());
     await feedbackBounds(page, '#limit-unchanged');
-    await page.selectOption('#limit-mode', 'custom');
+    await chooseSetting(page, 'limit-mode', 'custom');
     await page.fill('#limit-custom', '');
     await expect(limitSave).toBeDisabled();
     await page.fill('#limit-custom', '8');
     await expect(limitSave).toBeEnabled(); // Explicit 8 differs from admitted default provenance.
-    await page.locator('#limit-mode').evaluate((select) => {
-      (select as HTMLSelectElement).value = 'default';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+    await page.locator('#limit-mode').evaluate((choice) => {
+      (choice as HTMLButtonElement).value = 'default';
+      choice.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await expect(limitSave).toBeDisabled();
     expect(writes).toHaveLength(0);
@@ -3227,9 +3339,9 @@ for (const [width, theme] of [
     );
     expect(writes).toHaveLength(1);
     // A changed setting draft only clears its hint, never this retained device outcome.
-    await page.selectOption('#opening', 'off');
+    await chooseSetting(page, 'opening', 'off');
     await expect(slot).toHaveText('Device renamed.');
-    await page.selectOption('#opening', 'on');
+    await chooseSetting(page, 'opening', 'on');
     await expect(openingSave).toBeDisabled();
 
     execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
@@ -3437,7 +3549,7 @@ for (const [width, theme] of [
         subtree: true,
       });
     });
-    await page.selectOption('#limit-mode', 'custom');
+    await chooseSetting(page, 'limit-mode', 'custom');
     await page.locator('#limit-custom').fill('');
     await page.locator('#limit-custom').pressSequentially('123');
     await page.locator('#limit-custom').press('Tab');

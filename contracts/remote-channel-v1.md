@@ -762,7 +762,7 @@ embed another signer/channel implementation. The additive public SDK exports are
 `FirestoreSettingsView`, `budget.parsePublishedLimits` and `budget.publishedLimitRows`. The sections are
 Browser opening, Session limit per device, Firestore and Paired devices. Effective values, sources,
 warning and write capabilities come from admitted server reads. The shared package supplies checked CSS
-and static presentation contracts; Remote owns host layout and native select controls. Shared
+and static presentation contracts; Remote owns host layout and static listbox controls. Shared
 presentation never supplies authority or management outcomes.
 
 The read-only Firestore section uses the signed opt-in settings view, showing the same recorded
@@ -773,6 +773,10 @@ or measured headroom; their guard thresholds do not create a usage warning. Miss
 reports not configured without inventing layer verdicts. An unsupported, malformed or failed optional
 read clears stale Firestore evidence and reports unconfirmed setup without replacing current settings
 access, frozen management outcomes or drafts. Inspection never deploys, retries or repairs.
+
+Enable sending and Revoke require an inline consequence and a second deliberate press against the
+current admitted target; cancellation creates no intent or operation ID. This is presentation,
+not authority. Changing a choice only edits a draft until Save.
 
 An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
 remain decimal text. The default option describes the missing key and does not invent a reset
