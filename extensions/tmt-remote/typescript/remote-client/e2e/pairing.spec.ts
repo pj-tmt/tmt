@@ -332,16 +332,42 @@ test.beforeEach(async () => {
   fixture = await colab(join(root, 'state/colab/door.sock'), (head) => publicHeads.push(head));
   browser = await chromium.launch();
 });
+// The one teardown owner. It releases only what this test assigned (a setup that failed early
+// leaves the rest unassigned, never a prior test's), runs every step even when an earlier one
+// rejects, and rethrows after the root is removed.
 test.afterEach(async () => {
-  await browser.close();
-  // A failed run can leave the owner's pair client waiting; end it first.
-  pair?.kill('SIGTERM');
-  if (pair) await exited(pair);
+  const held: {
+    browser?: Browser;
+    pair?: ChildProcessWithoutNullStreams;
+    serve?: ChildProcessWithoutNullStreams;
+    fixture?: Server;
+    root?: string;
+  } = { browser, pair, serve, fixture, root };
+  browser = undefined as never;
   pair = undefined;
-  serve.kill('SIGTERM');
-  await exited(serve);
-  await new Promise((resolve) => fixture.close(resolve));
-  await rm(root, { recursive: true, force: true });
+  serve = undefined as never;
+  fixture = undefined as never;
+  root = undefined as never;
+  const failures: unknown[] = [];
+  const step = async (release: () => unknown) => {
+    try {
+      await release();
+    } catch (error) {
+      failures.push(error);
+    }
+  };
+  await step(() => held.browser?.close());
+  // A failed run can leave the owner's pair client waiting; end it before serve.
+  for (const child of [held.pair, held.serve])
+    await step(async () => {
+      if (!child) return;
+      child.kill('SIGTERM');
+      await exited(child);
+    });
+  await step(() => held.fixture && new Promise((resolve) => held.fixture!.close(resolve)));
+  await step(() => held.root && rm(held.root, { recursive: true, force: true }));
+  if (failures.length === 1) throw failures[0];
+  if (failures.length) throw new AggregateError(failures, 'Pairing teardown failed');
 });
 
 // The extension is a public-entry stand-in, not Colab app/routing acceptance.
