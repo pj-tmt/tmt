@@ -221,3 +221,38 @@ fn a_different_supplier_window_never_changes_the_fixed_twenty_four_hour_captions
             .contains_key(MEMBER)
     );
 }
+
+#[test]
+fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
+    use tmt_cli_style::{Depth, Theme, theme::Base};
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Tmt, Depth::None),
+        ] {
+            for width in [60, 80, 103] {
+                for count in [1, 3, 24] {
+                    let mut app = many_agents(count);
+                    app.view.as_mut().unwrap().look = crate::look::Look {
+                        theme: Theme::new(base),
+                        depth,
+                    };
+                    let buffer = paint(&mut app, width, 51);
+                    let lines: Vec<String> = buffer
+                        .content
+                        .chunks(usize::from(width))
+                        .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+                        .collect();
+                    let cost = lines
+                        .iter()
+                        .find(|line| line.contains("cost avoided"))
+                        .expect("the narrow Digest cost row is visible");
+                    assert!(cost.contains("cost avoided 24h"), "{width}/{count}: {cost}");
+                    assert!(!cost.contains("cost avoided 2…"));
+                    assert!(cost.contains("≈ $"), "cost remains an estimate: {cost}");
+                }
+            }
+        }
+    });
+}

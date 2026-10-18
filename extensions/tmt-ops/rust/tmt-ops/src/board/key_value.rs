@@ -32,8 +32,12 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
     let key = crate::board::notes::sanitize(row.key);
     let value = crate::board::notes::sanitize(row.value.text());
     let inner = width - 2;
+    // The label carries units and time windows; the value yields first.
     let value_width = value.width().min(inner.saturating_sub(2));
-    let key_width = inner.saturating_sub(value_width + 1);
+    let key_width = inner
+        .saturating_sub(value_width + 1)
+        .max(key.width().min(inner.saturating_sub(1)));
+    let value_width = inner.saturating_sub(key_width + 1);
     Line::from(vec![
         Span::raw(" "),
         Span::styled(
