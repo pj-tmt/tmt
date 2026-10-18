@@ -1,8 +1,11 @@
-//! A thin Markdown view of already-sanitized notes. Only headings, lists,
-//! bold, italic, inline code and links get styles; every other construct
-//! (tables, HTML, images, code blocks, quotes, footnotes) is shown as its own
-//! source text, never dropped or half-rendered. Nothing here executes,
-//! fetches or opens anything; recognized links receive only a text style.
+//! Read-only Markdown over sanitized held text, with source-line and member
+//! identities retained through wrapping. Code, quotes and fitted table grids are
+//! presentation only; unsupported HTML/images/footnotes remain literal. Nothing
+//! executes, fetches or turns an untrusted destination into an action.
+
+mod blocks;
+mod inline;
+mod tables;
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
@@ -19,6 +22,10 @@ struct Block {
     indent: usize,
     spans: Vec<Part>,
     source_line: usize,
+    literal: bool,
+    style: Style,
+    prefix_style: Style,
+    quote_depth: usize,
 }
 
 /// Styled source text with an optional resolved UUID and occurrence identity.
@@ -53,6 +60,8 @@ struct Renderer<'a> {
     italic: usize,
     heading: bool,
     link: bool,
+    quote_depth: usize,
+    width: usize,
     /// Numbering for each open list; None for bullets.
     lists: Vec<Option<u64>>,
     /// Skip events inside an unsupported construct already shown as source.
@@ -61,7 +70,11 @@ struct Renderer<'a> {
 
 impl Renderer<'_> {
     fn style(&self) -> Style {
-        let mut style = Style::new();
+        let mut style = if self.quote_depth > 0 {
+            self.look.role(Role::Muted)
+        } else {
+            self.look.role(Role::Text)
+        };
         if self.bold > 0 || self.heading {
             style = style.add_modifier(Modifier::BOLD);
         }
@@ -70,19 +83,31 @@ impl Renderer<'_> {
         }
         if self.link {
             style = style
-                .patch(self.look.role(Role::Link))
+                .patch(self.look.role(Role::Text))
                 .add_modifier(Modifier::UNDERLINED);
         }
         style
     }
 
-    fn start(&mut self, prefix: String, indent: usize) {
+    fn start(&mut self, mut prefix: String, mut indent: usize) {
         self.finish();
+        if self.quote_depth > 0 {
+            prefix = "▎ ".repeat(self.quote_depth) + &prefix;
+            indent += self.quote_depth * 2;
+        }
         self.current = Some(Block {
             prefix,
             indent,
             spans: Vec::new(),
             source_line: self.source_line,
+            literal: false,
+            style: Style::new(),
+            quote_depth: self.quote_depth,
+            prefix_style: self.look.role(if self.quote_depth > 0 {
+                Role::Dim
+            } else {
+                Role::Muted
+            }),
         });
     }
 
@@ -113,7 +138,7 @@ impl Renderer<'_> {
                 block.spans.push(Part::new(
                     mention.name,
                     style
-                        .patch(self.look.role(Role::Link))
+                        .patch(self.look.role(Role::Text))
                         .add_modifier(Modifier::UNDERLINED),
                     self.source_line,
                     Some((mention.identity, self.next_mention)),
@@ -138,6 +163,10 @@ impl Renderer<'_> {
                 indent: 0,
                 spans: Vec::new(),
                 source_line: self.source_line.saturating_sub(1),
+                literal: false,
+                style: Style::new(),
+                prefix_style: Style::new(),
+                quote_depth: 0,
             });
         }
     }
@@ -157,6 +186,10 @@ impl Renderer<'_> {
                     None,
                 )],
                 source_line: self.source_line + offset,
+                literal: false,
+                style: Style::new(),
+                prefix_style: Style::new(),
+                quote_depth: 0,
             });
         }
         self.skip_until = range.end;
@@ -172,16 +205,29 @@ impl Renderer<'_> {
             .saturating_sub(1);
         match event {
             Event::Start(
-                Tag::Table(_)
-                | Tag::HtmlBlock
-                | Tag::CodeBlock(_)
-                | Tag::BlockQuote(_)
+                Tag::HtmlBlock
                 | Tag::FootnoteDefinition(_)
                 | Tag::MetadataBlock(_)
                 | Tag::DefinitionList,
             ) => {
                 self.separate();
                 self.source(range);
+            }
+            Event::Start(Tag::Table(_)) => {
+                self.separate();
+                self.table(range);
+            }
+            Event::Start(Tag::CodeBlock(_)) => {
+                self.separate();
+                self.code_block(range);
+            }
+            Event::Start(Tag::BlockQuote(_)) => {
+                self.separate();
+                self.quote_depth += 1;
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                self.finish();
+                self.quote_depth = self.quote_depth.saturating_sub(1);
             }
             Event::Start(Tag::Image { .. }) => {
                 let text = self.source[range.clone()].to_owned();
@@ -242,24 +288,20 @@ impl Renderer<'_> {
             }
             Event::End(TagEnd::Link) => self.link = false,
             Event::Text(text) => {
-                let style = self.style();
-                self.push(&text, style);
+                self.prose(&text);
             }
-            Event::Code(code) => self.push(
-                &code,
-                if self.link {
-                    self.style()
-                } else {
-                    self.look.role(Role::Accent)
-                },
-            ),
+            Event::Code(code) => self.push(&code, self.style().patch(self.look.role(Role::Track))),
             Event::SoftBreak if !self.preserve_breaks => self.push(" ", self.style()),
             Event::SoftBreak => {
                 let indent = self.current.as_ref().map_or(0, |block| block.indent);
                 self.start(" ".repeat(indent), indent);
             }
             Event::HardBreak => {
-                let indent = self.current.as_ref().map_or(0, |block| block.indent);
+                let indent = self
+                    .current
+                    .as_ref()
+                    .map_or(0, |block| block.indent)
+                    .saturating_sub(self.quote_depth * 2);
                 self.start(" ".repeat(indent), indent);
             }
             Event::Rule => {
@@ -274,6 +316,10 @@ impl Renderer<'_> {
                         None,
                     )],
                     source_line: self.source_line,
+                    literal: false,
+                    style: Style::new(),
+                    prefix_style: Style::new(),
+                    quote_depth: 0,
                 });
             }
             // Inline HTML, footnote references and anything else: as written.
@@ -353,6 +399,8 @@ fn project<'a>(
         italic: 0,
         heading: false,
         link: false,
+        quote_depth: 0,
+        width: width.max(1),
         lists: Vec::new(),
         skip_until: 0,
     };
@@ -391,13 +439,50 @@ fn cells(text: &str) -> usize {
 /// Greedy word wrap over styled spans; continuation lines use the hanging
 /// indent, and a word longer than a line is split between characters.
 fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::member_links::Link>)> {
+    if block.literal {
+        let mut spans = Vec::new();
+        let mut mentions = Vec::new();
+        let mut column = 0;
+        for part in block.spans {
+            let width = cells(&part.text);
+            if let Some((identity, occurrence)) = part.member {
+                mentions.push(super::member_links::Link {
+                    column,
+                    width,
+                    identity,
+                    occurrence,
+                });
+            }
+            column += width;
+            spans.push(Span::styled(part.text, part.style));
+        }
+        return vec![(
+            Line::from(spans).style(block.style),
+            block.source_line,
+            mentions,
+        )];
+    }
+    if cells(&block.prefix) >= width {
+        let text = block.prefix.clone()
+            + &block
+                .spans
+                .iter()
+                .map(|part| part.text.as_str())
+                .collect::<String>();
+        return vec![(
+            Line::styled(crate::board::view::fit(&text, width), block.prefix_style),
+            block.source_line,
+            Vec::new(),
+        )];
+    }
     let mut lines = Vec::new();
     let mut mentions = Vec::new();
-    let mut line: Vec<Span<'static>> = vec![Span::raw(block.prefix.clone())];
+    let mut line: Vec<Span<'static>> = vec![Span::styled(block.prefix.clone(), block.prefix_style)];
     let mut used = cells(&block.prefix);
     let start = used;
     let mut source_line = block.source_line;
-    let indent = " ".repeat(block.indent);
+    let indent = "▎ ".repeat(block.quote_depth)
+        + &" ".repeat(block.indent.saturating_sub(block.quote_depth * 2));
     let mut words = Vec::new();
     for Part {
         text,
@@ -428,11 +513,16 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
                 std::mem::take(&mut mentions),
             ));
             source_line = source;
-            line.push(Span::raw(indent.clone()));
+            line.push(Span::styled(indent.clone(), block.prefix_style));
             used = block.indent;
         }
         let mut piece = String::new();
         for character in body.chars() {
+            let character = if character.width().unwrap_or(0) > width.saturating_sub(block.indent) {
+                '…'
+            } else {
+                character
+            };
             let size = character.width().unwrap_or(0);
             if used + size > width {
                 line.push(Span::styled(std::mem::take(&mut piece), style));
@@ -442,7 +532,7 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
                     std::mem::take(&mut mentions),
                 ));
                 source_line = source;
-                line.push(Span::raw(indent.clone()));
+                line.push(Span::styled(indent.clone(), block.prefix_style));
                 used = block.indent;
             }
             if let Some((identity, occurrence)) = &identity {
@@ -490,6 +580,98 @@ fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::mem
 mod tests {
     use super::*;
     use crate::look::Look;
+
+    #[test]
+    fn fenced_code_is_filled_and_clipped_without_wrapping_or_fences() {
+        let look = Look::default();
+        let mapped = render_mapped("```rust\n  let value = 1;\n界界界界界\n```", 8, look);
+        assert_eq!(text(&mapped.lines), ["  let v…", "界界界…"]);
+        assert_eq!(mapped.sources, [1, 2]);
+        for line in &mapped.lines {
+            assert_eq!(line.width(), 8, "the fill covers the whole block row");
+            assert_eq!(line.style.bg, look.role(Role::Track).bg);
+        }
+    }
+
+    #[test]
+    fn quotes_use_a_muted_body_and_a_dim_gutter_without_source_markers() {
+        let look = Look::default();
+        let mapped = render_mapped("> first **bold**", 30, look);
+        assert_eq!(text(&mapped.lines), ["▎ first bold"]);
+        let gutter = &mapped.lines[0].spans[0];
+        assert_eq!(gutter.content, "▎ ");
+        assert_eq!(gutter.style.fg, look.role(Role::Dim).fg);
+        assert_eq!(
+            style_of(&mapped.lines, "first").fg,
+            look.role(Role::Muted).fg
+        );
+        assert!(
+            style_of(&mapped.lines, "bold")
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+    }
+
+    #[test]
+    fn wrapped_quote_rows_keep_the_gutter_inside_the_width() {
+        let lines = render("> wide words that wrap", 10, Look::default());
+        assert!(lines.len() > 1);
+        for line in lines {
+            assert!(line.to_string().starts_with("▎ "));
+            assert!(line.width() <= 10);
+        }
+    }
+
+    #[test]
+    fn tables_have_a_boxed_header_grid_and_fall_back_when_the_grid_cannot_fit() {
+        let source = "| a | b |\n|---|---|\n| 1 | 2 |";
+        let look = Look::default();
+        let wide = render_mapped(source, 9, look);
+        assert_eq!(
+            text(&wide.lines),
+            [
+                "┌───┬───┐",
+                "│ a │ b │",
+                "├───┼───┤",
+                "│ 1 │ 2 │",
+                "└───┴───┘"
+            ]
+        );
+        assert!(
+            style_of(&wide.lines, "a")
+                .add_modifier
+                .contains(Modifier::BOLD)
+        );
+        assert_eq!(wide.sources, [0, 0, 0, 2, 2]);
+        let narrow_mapped = render_mapped(source, 8, look);
+        assert!(
+            narrow_mapped
+                .sources
+                .iter()
+                .all(|line| *line < source.lines().count())
+        );
+        let narrow = text(&narrow_mapped.lines).join(" ");
+        assert!(!narrow.contains('┌'));
+        assert!(narrow.contains('|') && narrow.contains("---"));
+    }
+
+    #[test]
+    fn structured_blocks_stay_inside_tiny_and_unicode_widths() {
+        for source in [
+            "> > 界界界 wide text",
+            "1. 界界界 wide text",
+            "```\n界界界\n```",
+            "| 界 | b |\n|---|---|\n| x | |",
+        ] {
+            for width in 0..=24 {
+                let mapped = render_mapped(source, width, Look::default());
+                assert_eq!(mapped.lines.len(), mapped.sources.len());
+                for line in mapped.lines {
+                    assert!(line.width() <= width.max(1), "width={width}: {line:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn mapped_render_keeps_source_lines_through_wrapping_and_unsupported_blocks() {
@@ -611,7 +793,7 @@ mod tests {
         );
         assert_eq!(
             style_of(&lines, "sweep").fg,
-            Look::default().role(Role::Accent).fg
+            Look::default().role(Role::Text).fg
         );
         assert!(
             style_of(&lines, "412")
@@ -621,25 +803,17 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_blocks_are_shown_as_their_source() {
+    fn unsupported_html_images_and_footnotes_remain_literal_beside_supported_blocks() {
         let notes = "| a | b |\n|---|---|\n| 1 | 2 |\n\n<div>raw html</div>\n\n```sh\ntmt x\n```\n\n> quoted\n\nsee ![diagram](d.png) and <b>bold</b>[^1]\n\n[^1]: footnote\n";
         let rendered = text(&render(notes, 80, Look::default()));
-        for expected in [
-            "| a | b |",
-            "|---|---|",
-            "| 1 | 2 |",
-            "<div>raw html</div>",
-            "```sh",
-            "tmt x",
-            "```",
-            "> quoted",
-            "[^1]: footnote",
-        ] {
+        for expected in ["<div>raw html</div>", "tmt x", "▎ quoted", "[^1]: footnote"] {
             assert!(
                 rendered.iter().any(|line| line == expected),
                 "{expected}: {rendered:#?}"
             );
         }
+        assert!(rendered.iter().any(|line| line.starts_with("┌")));
+        assert!(!rendered.iter().any(|line| line.starts_with("```")));
         let inline = rendered
             .iter()
             .find(|line| line.starts_with("see "))

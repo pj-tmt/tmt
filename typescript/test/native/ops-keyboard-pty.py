@@ -285,6 +285,13 @@ sys.exit(0)
         wait_for(lambda: fresh_text("worker-fresh") and fresh_text("second"),
                  "refreshed member identity with the draft retained")
     # Newline keys and external request changes must never dispatch the draft.
+    if spec.get("foldLong"):
+        # Paragraphs exceed twelve rendered rows independently of the separate
+        # reply soft-break preservation work.
+        extra = "\n\n" + "\n\n".join(f"fold line {index:03d}" for index in range(24))
+        os.write(master, b"\x1b[200~" + extra.encode() + b"\x1b[201~")
+        expected += extra
+    # Newline keys cannot silently dispatch. Inspect Core before plain Enter.
     if received():
         raise AssertionError("a newline key or refresh submitted a request")
     os.write(master, b"\r")
@@ -313,6 +320,23 @@ sys.exit(0)
         older = api("requests.show", {"requestId": original_request})
         if older["final"].get("response") != "Settled outside while drafting":
             raise AssertionError("the new message changed the settled answer")
+    if spec.get("foldLong"):
+        wait_for(lambda: fresh_text("more lines · ⏎ expand") and not fresh_text("Sending…"), "accepted outgoing body is folded")
+        os.write(master, b"\x1b[27u")
+        wait_for(lambda: fresh_text("⏎ to message worker"), "leave composer before expanding")
+        row, column = next(
+            (row, "".join(cells).index("more lines"))
+            for row, cells in enumerate(screen.cells)
+            if "more lines · ⏎ expand" in "".join(cells)
+        )
+        os.write(master, f"\x1b[<0;{column + 1};{row + 1}M\x1b[<0;{column + 1};{row + 1}m".encode())
+        wait_for(lambda: fresh_text("fold line 005") and not fresh_text("more lines · ⏎ expand"), "pointer expands while preserving the reading position")
+        os.write(master, b"\x1b[F")
+        wait_for(lambda: fresh_text("fold line 023") and fresh_text("⏎ collapse"), "End reaches the expanded body's final line")
+        os.write(master, b"\r")
+        wait_for(lambda: fresh_text("more lines · ⏎ expand") and not fresh_text("fold line 023"), "Enter on the fold control collapses without Send")
+        if len(received()) != 1:
+            raise AssertionError("fold activation submitted another request")
     if spec["lifecycle"] == "reload":
         # Retained drafts correctly block exec: submit first, then leave the
         # empty composer. The reload must pop and renegotiate its own mode.
@@ -372,6 +396,7 @@ sys.exit(0)
                 "pushes": pushes,
                 "pops": pops,
                 "terminalRestored": True,
+                "foldedReadOnly": bool(spec.get("foldLong")),
                 "returncode": board_status,
             }
         )

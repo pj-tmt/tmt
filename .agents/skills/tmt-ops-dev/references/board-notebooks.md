@@ -20,10 +20,20 @@ located migration notices without rewriting authored values.
 
 `board::notes::sanitize` removes escapes, controls and hidden bidi/format
 characters, preserves newlines and script/emoji joiners, and expands tabs to four
-spaces. Shared Markdown renders sanitized text and leaves unsupported constructs
-as source. The retained `NotesCursor` anchors response source lines and wrapped
+spaces. Shared Markdown renders headings, lists, neutral underlined links,
+filled code and quote gutters; fitted tables use a boxed grid and fall back to
+source when they cannot fit. Unsupported HTML, images and footnotes remain
+literal. Code lines clip without wrapping, and inline code adds no padding. The retained `NotesCursor` anchors response source lines and wrapped
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
+
+Conversation bodies fold independently after 12 rendered rows (11 plus the expand
+caption); the newest reply starts expanded. The conversation session retains
+presentation choices by request/source or outgoing sequence and prunes vanished
+bodies. Fold captions have neither exact-source nor member-action hits. A separate
+anchor map preserves reading position while source mappings retain raw identities.
+Visible fold controls support pointer activation and read-focus Tab/Enter/Esc;
+editors, member menus and authored bindings keep priority. No fold action sends.
 
 Markdown keeps styled text and source-line mapping; it retains no URL destinations
 or URL activation hits. `member_links` resolves explicit `#tmt:` references against

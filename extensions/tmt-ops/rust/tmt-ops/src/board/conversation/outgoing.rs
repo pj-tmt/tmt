@@ -265,6 +265,66 @@ impl Session {
             }
         }
     }
+    pub(super) fn body_ranges(&self) -> Vec<super::body::Body> {
+        use super::{
+            AuthoredLine,
+            body::{Body, Key},
+        };
+        let latest = if self.outgoing.is_empty() {
+            self.reply
+                .as_ref()
+                .and_then(|reply| reply.key.as_ref())
+                .filter(|key| key.kind == crate::board::home_leads::Kind::Reply)
+        } else {
+            self.response_spans
+                .iter()
+                .rev()
+                .map(|(_, key, _)| key)
+                .find(|key| key.kind == crate::board::home_leads::Kind::Reply)
+        };
+        let key_of = |key: &crate::board::home_leads::MessageKey| {
+            Key::Reply(format!("{:?}:{}", key.kind, key.request))
+        };
+        let mut bodies = if self.outgoing.is_empty() {
+            self.reply
+                .as_ref()
+                .and_then(|reply| reply.key.as_ref())
+                .map(|key| Body {
+                    key: key_of(key),
+                    sources: 0..self.text.split('\n').count(),
+                    newest_reply: latest == Some(key),
+                })
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            self.response_spans
+                .iter()
+                .map(|(_, key, range)| Body {
+                    key: key_of(key),
+                    sources: range.clone(),
+                    newest_reply: latest == Some(key),
+                })
+                .collect()
+        };
+        let headers = self.authored_lines.iter().filter_map(|(line, kind)| {
+            matches!(kind, AuthoredLine::Outgoing { .. }).then_some(*line)
+        });
+        for (entry, header) in self.outgoing.iter().zip(headers) {
+            if let Some((status, _)) = self
+                .authored_lines
+                .range(header + 1..)
+                .find(|(_, kind)| matches!(kind, AuthoredLine::Status))
+            {
+                bodies.push(Body {
+                    key: Key::Outgoing(entry.ticket.sequence),
+                    sources: header + 2..status.saturating_sub(1),
+                    newest_reply: false,
+                });
+            }
+        }
+        bodies
+    }
+
     fn refresh_outgoing(&mut self) {
         let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
             crate::board::notes::sanitize(&reply.body)

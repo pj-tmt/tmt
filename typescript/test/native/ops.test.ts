@@ -5553,6 +5553,7 @@ describe('verified former-board switching', () => {
 
 describe('composer terminal input', () => {
   it.each([
+    { enhanced: true, lifecycle: 'quit', foldLong: true },
     { enhanced: true, lifecycle: 'quit' },
     { enhanced: false, lifecycle: 'quit' },
     { enhanced: true, lifecycle: 'suspend' },
@@ -5595,13 +5596,17 @@ describe('composer terminal input', () => {
         );
         expect(result.status, result.stdout + result.stderr).toBe(0);
         const proof = JSON.parse(result.stdout);
+        const multiline = scenario.enhanced
+          ? '[product · worker] first\nsecond'
+          : '[product · worker] first\nmiddle\nsecond';
         expect(proof.message).toBe(
           'requestTransition' in scenario
             ? '[product · worker-fresh] first\nsecond'
-            : scenario.enhanced
-              ? '[product · worker] first\nsecond'
-              : '[product · worker] first\nmiddle\nsecond'
+            : 'foldLong' in scenario && scenario.foldLong
+              ? `${multiline}\n\n${Array.from({ length: 24 }, (_, index) => `fold line ${String(index).padStart(3, '0')}`).join('\n\n')}`
+              : multiline
         );
+        expect(proof.foldedReadOnly).toBe('foldLong' in scenario && scenario.foldLong === true);
         expect(proof.terminalRestored).toBe(true);
         expect(proof.queries).toBeGreaterThan(0);
         if (scenario.enhanced) {

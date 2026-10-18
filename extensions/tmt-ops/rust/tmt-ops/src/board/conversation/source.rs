@@ -101,11 +101,19 @@ impl State {
 
 impl Session {
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {
+        if self
+            .rendered
+            .as_ref()
+            .is_some_and(|rendered| rendered.fold_controls.contains_key(&line))
+        {
+            return None;
+        }
         if let Some((_, index)) = self.rendered.as_ref().and_then(|rendered| {
+            let original = *rendered.anchor_sources.get(line)?;
             rendered
                 .final_spans
                 .iter()
-                .find(|(range, _)| range.contains(&line))
+                .find(|(range, _)| range.contains(&original))
         }) {
             return self
                 .finals
@@ -141,7 +149,9 @@ impl Session {
 }
 
 impl App {
-    fn receiving_conversation(&self) -> Option<(ConversationKey, RowTarget)> {
+    pub(in crate::board::conversation) fn receiving_conversation(
+        &self,
+    ) -> Option<(ConversationKey, RowTarget)> {
         let target = self.conversation_target()?;
         let id = self.target_row(&target)?["id"].as_str()?.to_owned();
         Some(((self.view.as_ref()?.me_id.clone(), id), target))

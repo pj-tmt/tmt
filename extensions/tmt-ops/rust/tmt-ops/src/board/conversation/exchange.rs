@@ -89,6 +89,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         let mut state = app.conversation.borrow_mut();
         state.header_hits.clear();
         state.reply_hits.clear();
+        state.fold_hits.clear();
         state.response_area = None;
     }
     let Some(target) = surface.target(app) else {
@@ -154,7 +155,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
-    let session = state.sessions.entry(identity).or_default();
+    let session = state.sessions.entry(identity.clone()).or_default();
     session.observe_context(app, &target, row);
     if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
         empty_state::paint(
@@ -253,7 +254,10 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     } else if switched || rebuilt {
         app.scrolls.restore([(
             Pane::Replies,
-            session.anchor.visual(&mapped.sources).unwrap_or_default(),
+            session
+                .anchor
+                .visual(&session.rendered.as_ref().unwrap().anchor_sources)
+                .unwrap_or_default(),
         )]);
     }
     let (offset, shown) = app.scrolls.show_exchange(
@@ -344,11 +348,27 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             });
         }
     }
-    session.anchor.select_visual(
-        &session.rendered.as_ref().unwrap().anchor_text,
-        &mapped.sources,
-        offset,
-    );
+    let fold_hits = if surface.interactive() {
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .fold_controls
+            .iter()
+            .filter(|(line, _)| **line >= offset && **line < offset + shown)
+            .map(|(line, key)| body::Hit {
+                area: Rect::new(body.x, body.y + (*line - offset) as u16, body.width, 1),
+                conversation: identity.clone(),
+                key: key.clone(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let rendered = session.rendered.as_ref().unwrap();
+    session
+        .anchor
+        .select_visual(&rendered.anchor_text, &rendered.anchor_sources, offset);
     let mut y = body.bottom();
     if question && session.outgoing.is_empty() && footer_rows > 0 {
         strip::paint_left(
@@ -372,6 +392,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         );
     }
     state.reply_hits = hits;
+    state.fold_hits = fold_hits;
     state.response_area = Some(body);
 }
 
