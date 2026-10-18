@@ -45,6 +45,31 @@ impl Lead {
     }
 }
 
+/// One agent's own settled finals to one user, read from storage when the
+/// bounded windows above may have scrolled them past.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FinalsKey {
+    pub(super) sender: String,
+    pub(super) agent: String,
+}
+
+impl FinalsKey {
+    /// The newest settled finals to this user by this agent as the same
+    /// normalized rows the windows produce. An older core rejects the
+    /// recipient form (`API_INPUT_INVALID`); the caller treats any failure as
+    /// "no more finals than the windows already show".
+    pub(super) fn read(&self, core: &Core) -> Result<Vec<Value>, SquadError> {
+        let document = core.api(
+            "requests.list",
+            json!({"originatorId":self.sender,"recipientId":self.agent,"view":"results","limit":super::row_detail::FINALS}),
+        )?;
+        let mut replies = Vec::new();
+        collect_replies(&mut replies, &page(document)?, &self.sender);
+        replies.retain(|reply| reply["recipientId"] == self.agent);
+        Ok(replies)
+    }
+}
+
 /// A full-body read is anchored to the exact user, lead and latest exchange.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageKey {

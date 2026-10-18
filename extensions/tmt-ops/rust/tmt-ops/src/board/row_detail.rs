@@ -2,7 +2,7 @@
 //! Acquisition remains on the refresh worker; this module only consumes snapshots.
 use super::{
     app::{App, Effect, RowTarget},
-    home_leads::{Kind, MessageKey},
+    home_leads::{FinalsKey, Kind, MessageKey},
 };
 use crate::look::Look;
 use ratatui::{
@@ -25,6 +25,9 @@ pub(super) struct State {
     pub expanded: Vec<Target>,
     /// Bodies belong to active rows and exact request identities, never row positions.
     bodies: Vec<(MessageKey, Result<String, String>)>,
+    /// Each active agent's own finals, read once per activation. A failed read
+    /// is kept as empty so it is not retried in a loop; the windows still show.
+    agent_finals: Vec<(FinalsKey, Vec<Value>)>,
     pub reader: Option<Reader>,
 }
 
@@ -90,6 +93,8 @@ pub(super) struct Detail {
     /// The newest settled finals to this user's requests, oldest first, read
     /// from storage by request ID. `reply` is the last of them.
     pub finals: Vec<Reply>,
+    /// Whose finals these are, when they can be read from storage by agent.
+    pub(super) agent: Option<FinalsKey>,
     pub show_reply: bool,
 }
 
@@ -253,6 +258,10 @@ impl App {
         }
         detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
         detail.reply = detail.finals.last().cloned();
+        detail.agent = sender.map(|sender| FinalsKey {
+            sender,
+            agent: id.into(),
+        });
         Some(detail.additional(visible))
     }
 
@@ -268,11 +277,18 @@ impl App {
         now: u64,
     ) -> Vec<Reply> {
         let mut settled: Vec<&Value> = Vec::new();
+        let own = self
+            .row_details
+            .agent_finals
+            .iter()
+            .filter(|(key, _)| Some(key.sender.as_str()) == sender && key.agent == id)
+            .flat_map(|(_, replies)| replies);
         for reply in self
             .home_leads
             .replies
             .iter()
             .chain(self.view.iter().flat_map(|view| &view.replies))
+            .chain(own)
             .filter(|reply| reply["recipientId"] == id)
         {
             match settled
@@ -466,7 +482,44 @@ impl App {
                     .map(|(key, _)| key.clone()),
             );
         }
+        let owner = self.conversation_finals();
         self.row_details.reconcile(&alive, &keys);
+        self.row_details
+            .agent_finals
+            .retain(|(key, _)| Some(key) == owner.as_ref());
+    }
+    /// Whose finals the painted conversation shows. Only that conversation reads
+    /// an agent's whole run of finals; other details show the newest alone.
+    fn conversation_finals(&self) -> Option<FinalsKey> {
+        if self.loading()
+            || !self.pane_output_enabled()
+            || !self.scrolls.visible(crate::config::Pane::Replies)
+        {
+            return None;
+        }
+        self.detail(&Target::Row(self.conversation_target()?))?
+            .agent
+    }
+    /// The conversation's agent, until its own finals have been read once.
+    pub(super) fn finals_read(&self) -> Option<FinalsKey> {
+        self.conversation_finals().filter(|key| {
+            !self
+                .row_details
+                .agent_finals
+                .iter()
+                .any(|(read, _)| read == key)
+        })
+    }
+    pub(super) fn apply_finals(&mut self, key: FinalsKey, result: Result<Vec<Value>, String>) {
+        if self.conversation_finals().as_ref() != Some(&key) {
+            return;
+        }
+        self.row_details
+            .agent_finals
+            .retain(|(current, _)| current != &key);
+        self.row_details
+            .agent_finals
+            .push((key, result.unwrap_or_default()));
     }
     pub(super) fn detail_read(&self) -> Option<MessageKey> {
         if self.loading() {

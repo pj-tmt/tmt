@@ -4131,6 +4131,10 @@ impl App {
                 .clone()
                 .map(super::refresh::SelectedRead::Status);
         }
+        // Before bodies: a final found here is read like any other.
+        if let Some(key) = self.finals_read() {
+            return Some(super::refresh::SelectedRead::Finals(key));
+        }
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }

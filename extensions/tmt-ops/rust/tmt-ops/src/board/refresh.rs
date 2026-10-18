@@ -66,6 +66,8 @@ pub(super) enum SelectedRead {
     Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
     PaneOutput(super::conversation::ConversationKey),
+    /// One agent's own newest finals, for finals the shared windows scrolled past.
+    Finals(super::home_leads::FinalsKey),
 }
 
 pub struct Worker {
@@ -235,6 +237,15 @@ impl Worker {
                             revision,
                         } => super::BoardEvent::PaneOutput {
                             observation: super::recent_responses::read(&reader, &key.1),
+                            key,
+                            revision,
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Selected {
+                            read: SelectedRead::Finals(key),
+                            revision,
+                        } => super::BoardEvent::Finals {
+                            result: key.read(&reader).map_err(|error| error.to_string()),
                             key,
                             revision,
                             cancellation: cancellation.clone(),
@@ -3438,6 +3449,71 @@ printf '%s\n' '{{}}'
         );
         drop(worker);
         assert!(cancellation.cancelled());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The selected agent's own finals are one `requests.list` call with that
+    /// originator and recipient, delivered as a `Finals` event for the revision.
+    #[test]
+    fn a_selected_finals_read_lists_one_agents_finals_for_the_user() {
+        let dir = std::env::temp_dir().join(format!(
+            "ops-selected-finals-{}",
+            crate::id::new_v4().unwrap()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let fake = dir.join("tmt");
+        let calls = dir.join("calls");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  printf '%s\n' "$request" >> '{}'
+  printf '%s\n' '{{"items":[{{"requestId":"req-old","kind":"request","sender":{{"identityId":"owner"}},"recipientId":"agent","final":{{"status":"retained","submittedAtMs":7}}}}],"nextBefore":null}}'
+  exit 0
+fi
+printf '%s\n' '{{}}'
+"###,
+                calls.display()
+            ),
+        );
+        let key = super::super::home_leads::FinalsKey {
+            sender: "owner".into(),
+            agent: "agent".into(),
+        };
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake), false, events, None);
+        worker.selected(21, Some(SelectedRead::Finals(key.clone())));
+        let super::super::BoardEvent::Finals {
+            key: delivered,
+            revision,
+            result,
+            cancellation,
+        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("finals event")
+        };
+        assert_eq!((delivered, revision), (key, 21));
+        assert_eq!(
+            result.unwrap(),
+            [
+                json!({"requestId":"req-old","recipientId":"agent","submittedAtMs":7,"status":"retained"})
+            ]
+        );
+        assert!(!cancellation.cancelled());
+        let calls: Vec<Value> = std::fs::read_to_string(calls)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            calls,
+            [json!({"version":1,"operation":"requests.list","input":{
+                "originatorId":"owner","recipientId":"agent","view":"results",
+                "limit":super::super::row_detail::FINALS}})]
+        );
+        drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
