@@ -458,7 +458,7 @@ own module/drawing boundaries and verification.
 
 ## Testing and evidence boundaries
 
-Rust tests stay beside their owners. TypeScript native, E2E, tooling and stress
+Rust tests stay beside their owners. TypeScript native, E2E and tooling
 suites share `test/support`, which imports no suite; native and E2E import neither
 each other nor tooling. Scenarios retain assertions; helpers own fixture
 mechanics. Frozen inputs and independent SQL/schema oracles must not derive

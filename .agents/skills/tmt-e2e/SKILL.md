@@ -86,6 +86,6 @@ Prefer the repository's documented E2E command through [`typescript/scripts/run-
 
 - [references/e2e-scenarios.md](references/e2e-scenarios.md): scenario ownership table and harness rules.
 - [references/runtime-smoke-matrix.md](references/runtime-smoke-matrix.md): the six native smoke environments, Rosetta and Intel policy.
-- [references/native-provider-checks.md](references/native-provider-checks.md): provider contracts, setup/lifecycle, Herdr, context and inbox, load diagnostics.
+- [references/native-provider-checks.md](references/native-provider-checks.md): provider contracts, setup/lifecycle, Herdr, context and inbox.
 - [references/performance-probes.md](references/performance-probes.md): opt-in startup and latency probes.
 - [references/test-boundaries.md](references/test-boundaries.md): helper responsibilities and failure behavior for executable publication, native ancestry/input isolation and harness cleanup.

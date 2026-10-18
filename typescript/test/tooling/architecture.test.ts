@@ -28,7 +28,7 @@ function repositoryPath(file: string): string {
 
 function suiteImportViolations(file: string, text: string): string[] {
   const from = repositoryPath(file);
-  const fromSuite = /^typescript\/test\/(support|native|e2e|tooling|stress)\//.exec(from)?.[1];
+  const fromSuite = /^typescript\/test\/(support|native|e2e|tooling)\//.exec(from)?.[1];
   const harness = 'typescript/test/e2e/harness/';
   const facade = 'typescript/test/e2e/harness.ts';
   const fixture = `${harness}fixture.ts`;
@@ -46,7 +46,7 @@ function suiteImportViolations(file: string, text: string): string[] {
     ).resolvedModule;
     if (!resolved) return [];
     const to = repositoryPath(resolved.resolvedFileName);
-    const toSuite = /^typescript\/test\/(support|native|e2e|tooling|stress)\//.exec(to)?.[1];
+    const toSuite = /^typescript\/test\/(support|native|e2e|tooling)\//.exec(to)?.[1];
     let action: string | undefined;
     if (fromSuite === 'support' && toSuite && toSuite !== 'support') {
       action = 'move cross-suite behavior to test/support; shared support cannot import a suite';
@@ -147,7 +147,6 @@ describe('retained developer tooling boundaries', () => {
       ['support', '../native/cli.test.js'],
       ['support', '../e2e/harness.js'],
       ['support', '../tooling/cli-process.test.js'],
-      ['support', '../stress/vitest.config.js'],
       ['native', '../tooling/cli-process.test.js'],
       ['e2e', '../native/cli.test.js'],
       ['e2e', '../tooling/cli-process.test.js'],
