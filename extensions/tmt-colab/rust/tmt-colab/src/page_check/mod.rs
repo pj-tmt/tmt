@@ -67,7 +67,7 @@ pub struct Question {
     pub agent: String,
     /// The group it belongs to; `None` for a lone question.
     pub group: Option<String>,
-    /// The group tab label (the authored `data-label`, else `Q<n>` by admitted order); `None` for
+    /// The group report label (authored `data-label`, else `Q<n>` by admitted order); `None` for
     /// a lone question.
     pub label: Option<String>,
 }

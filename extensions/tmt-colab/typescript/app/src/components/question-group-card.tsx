@@ -278,7 +278,7 @@ export function QuestionGroupCard({
     busy.current = true;
     setSending(answers.map((answer) => answer.question.id));
     setError(undefined);
-    // Keep the chosen tab even when the verified answer arrives; Send never advances it.
+    // Keep the chosen disclosure until its recorded answers are verified.
     onSelect(selected);
     try {
       const result = await sendAnswers(

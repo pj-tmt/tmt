@@ -263,7 +263,7 @@ const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) 
   ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
   ['group-label-control', hasControl],
 ];
-/** `data-form` is opt-in and has one value: `chip`. Anything else is a warning and the block form. */
+/** Retain the declared `chip` hint for checking; every admitted form uses compact lines. */
 const formOf = (node: Element): 'chip' | 'invalid' | undefined =>
   !node.hasAttribute('data-form')
     ? undefined

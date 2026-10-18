@@ -552,8 +552,11 @@ for (const [width, theme] of [
         destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
       );
       await expect(block).toHaveCount(1);
+      // A question starts closed; its compact row owns placement until arrival opens the controls.
+      const placement = destination === 'Answer' ? page.locator('.question-compact-block') : block;
+      await expect(placement).toBeVisible();
       await expect
-        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .poll(() => placement.evaluate((node) => node.getBoundingClientRect().top))
         .toBeGreaterThan(900);
       await run(page, 'arrive', { destination, body: `${destination} exact follow-up` });
       await expect(cards(page)).toHaveCount(1);
