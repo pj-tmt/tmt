@@ -1,33 +1,92 @@
-/* Settings layout and static choices; shared CSS and Remote host metrics load first. */
+/* Settings own layout; shared roles retain control, focus and state presentation. */
 .settings-page {
   margin-top: 32px;
-  width: min(100% - 32px, 760px);
-  --tmt-ui-host-notice-heading-size: 25px;
+  width: min(100% - 32px, 820px);
 }
-.settings-page .tmt-ui-notice {
-  margin: 24px 0;
+.settings-title {
+  margin: 0 0 12px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.settings-intro,
+.settings-summary p {
+  color: var(--tmt-ui-color-secondary);
+}
+.settings-page #access-notice {
+  margin: 16px 0;
+  padding: 12px 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.settings-page #access-notice:has(#read-only[hidden]) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.settings-page #access-notice:has(#read-only[hidden]) .eyebrow,
+.settings-page #access-notice:has(#read-only[hidden]) .settings-cli {
+  display: none;
+}
+.settings-page #access-notice:has(#read-only[hidden]) .tmt-ui-notice-mark {
+  margin: 0;
+}
+.settings-page #access-notice:has(#read-only[hidden]) #refresh {
+  margin-left: auto;
+}
+.settings-page #access-notice #controls-reason,
+.settings-page #access-notice #warning {
+  flex-basis: 100%;
 }
 .settings-page .tmt-ui-notice-mark p {
   margin: 0;
 }
-.settings-page #read-only,
-.settings-page #controls-reason,
-.settings-page #warning {
-  margin-top: 20px;
+.settings-section {
+  padding: 22px 0;
+  border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+}
+.settings-heading {
+  margin: 0 0 12px;
+  font: 600 16px/1.5 var(--tmt-ui-font-body);
+}
+.settings-section-body:has(> .settings-fields) {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.4fr);
+  gap: 24px;
+}
+.settings-summary,
+.settings-fields {
+  min-width: 0;
+}
+.settings-fields {
+  margin: 0;
 }
 .settings-page .settings-choice {
   box-sizing: border-box;
+  position: relative;
   justify-content: space-between;
   text-align: left;
   width: 100%;
-  margin: 8px 0 20px;
+  margin: 0;
   min-height: var(--tmt-ui-host-action-min-height);
-  padding: var(--tmt-ui-host-field-padding);
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  padding: 7px 36px 7px 8px;
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   background: var(--tmt-ui-surface-sheet);
   color: var(--tmt-ui-color-text);
-  font: var(--tmt-ui-host-field-size)/var(--tmt-ui-host-field-line-height) var(--tmt-ui-font-body);
+  font: 14px/20px var(--tmt-ui-font-body);
+}
+/* A fixed collapsed arrow shares the approved native-select geometry. */
+.settings-choice > [aria-hidden] {
+  position: absolute;
+  right: 12px;
+  top: calc(50% - 4px);
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(45deg);
+  font-size: 0;
 }
 .settings-page .settings-choice:disabled {
   background: var(--tmt-ui-surface-disabled);
@@ -37,18 +96,79 @@
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
-.settings-page .tmt-ui-action {
-  margin: 4px 8px 8px 0;
+.settings-page #remotes {
+  margin-top: 0;
+  padding-top: 22px;
+  border-top: 0;
+}
+.settings-fields > .tmt-ui-field {
+  margin-top: 12px;
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 8px;
+  margin-top: 12px;
+}
+.settings-actions > .tmt-ui-field-description {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tmt-ui-host-action-min-height);
+  margin: 0;
+  font-size: 13px;
+}
+.settings-actions .change-feedback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
 }
 .settings-page .device {
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
-  padding: 20px 0;
+  padding: 14px 0;
 }
 .settings-page .device p {
   overflow-wrap: anywhere;
 }
 .settings-page .device form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.settings-page .device form > .tmt-ui-field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.settings-page .device input {
+  margin: 0;
+}
+.settings-page .device .change-feedback {
   margin-top: 8px;
+}
+@media (max-width: 650px) {
+  .settings-title {
+    font-size: 22px;
+  }
+  .settings-page #access-notice:has(#read-only[hidden]) #refresh {
+    margin-left: 0;
+  }
+  .settings-section-body:has(> .settings-fields) {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .settings-page .settings-choice {
+    padding-block: 11px;
+  }
+}
+@media (pointer: coarse) {
+  .settings-page .settings-choice {
+    padding-block: 11px;
+  }
 }
 
 .settings-page .firestore-layer {
@@ -92,7 +212,7 @@
 }
 
 .settings-page .change-feedback [data-outcome-slot] {
-  margin: 8px 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 .settings-page .change-feedback [data-outcome-slot]:empty {

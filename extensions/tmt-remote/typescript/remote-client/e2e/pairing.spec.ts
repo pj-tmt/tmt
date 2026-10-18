@@ -1168,6 +1168,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
               shadow: style.boxShadow,
               radius: style.borderRadius,
               border: style.borderTopWidth,
+              bodySize: getComputedStyle(document.body).fontSize,
+              headingSize: getComputedStyle(document.querySelector('.tmt-ui-notice-heading')!)
+                .fontSize,
               opacity: style.opacity,
               overflow: document.documentElement.scrollWidth > innerWidth,
               // Playwright restores the input caret with an empty style attribute.
@@ -1177,11 +1180,16 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           });
           expect(look).toMatchObject({
             paper: tokenRgb('surface', 'paper', colorScheme),
-            sheet: tokenRgb('surface', 'sheet', colorScheme),
+            sheet:
+              state === 'pairing' || state === 'confirmation'
+                ? 'rgba(0, 0, 0, 0)'
+                : tokenRgb('surface', 'sheet', colorScheme),
             text: tokenRgb('color', 'text', colorScheme),
             markAboveEyebrow: true,
             radius: '0px',
-            border: '1px',
+            border: '0px',
+            bodySize: '14px',
+            headingSize: width <= 650 ? '22px' : '24px',
             opacity: '1',
             overflow: false,
             inline: 0,
@@ -1261,6 +1269,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           body: getComputedStyle(document.body).color,
           mark: getComputedStyle(document.getElementById('mark')!).color,
           wordsSize: parseFloat(getComputedStyle(document.getElementById('words')!).fontSize),
+          outerOutline: getComputedStyle(document.getElementById('comparison')!).outlineStyle,
+          wordsBorder: getComputedStyle(document.getElementById('words')!).borderTopWidth,
+          wordsOutline: getComputedStyle(document.getElementById('words')!).outlineStyle,
           labelInside: document
             .getElementById('words')!
             .contains(document.querySelector('.words-label')),
@@ -1269,7 +1280,32 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         expect(confirmation.mark).toBe(tokenRgb('color', 'waiting', colorScheme));
         expect(confirmation.wordsSize).toBeGreaterThanOrEqual(24);
         expect(confirmation.labelInside).toBe(false);
+        expect(confirmation.outerOutline).toBe('none');
+        expect(confirmation.wordsBorder).toBe('1px');
+        expect(confirmation.wordsOutline).toBe('solid');
         await inspect('confirmation');
+        await page.locator('#heading').click();
+        const pointerComparison = await page.locator('#words').evaluate((words) => {
+          const style = getComputedStyle(words);
+          const label = document.querySelector('.words-label')!;
+          return {
+            border: style.borderTopColor,
+            outline: style.outlineStyle,
+            labelAbove: label.getBoundingClientRect().bottom <= words.getBoundingClientRect().top,
+          };
+        });
+        expect(pointerComparison).toEqual({
+          border: tokenRgb('surface', 'rule', colorScheme),
+          outline: 'none',
+          labelAbove: true,
+        });
+        await captureState(
+          page,
+          'pair-comparison-pointer',
+          'One light words frame; label outside and no keyboard focus ring',
+          [width],
+          [colorScheme],
+        );
         pair.stdin.write('refuse\n');
         expect((await events.next()).reason).toBe('refused');
         await exited(pair);
@@ -3374,6 +3410,41 @@ for (const [width, theme] of [
     await expect(limitSave).toBeDisabled();
     await expect(openingSave).toHaveAccessibleDescription('No changes to save.');
     await expect(limitSave).toHaveAccessibleDescription('No changes to save.');
+    const layout = await page.evaluate(() => {
+      const form = document.querySelector('#opening-form')!;
+      const section = form.closest('section')!;
+      const summary = section.querySelector('.settings-summary')!.getBoundingClientRect();
+      const field = form.getBoundingClientRect();
+      const button = form.querySelector('button[type=submit]')!.getBoundingClientRect();
+      const hint = document.querySelector('#opening-unchanged')!.getBoundingClientRect();
+      const choice = document.querySelector('#opening')!;
+      return {
+        bodySize: getComputedStyle(document.body).fontSize,
+        sectionBorder: getComputedStyle(section).borderTopWidth,
+        choiceHeight: choice.getBoundingClientRect().height,
+        arrowPadding: getComputedStyle(choice).paddingRight,
+        columns: summary.right <= field.left,
+        stacked: summary.bottom <= field.top,
+        feedbackGap: hint.left - button.right,
+        feedbackTop: hint.top - button.top,
+        noOverflow: document.documentElement.scrollWidth <= innerWidth,
+      };
+    });
+    expect(layout).toMatchObject({
+      bodySize: '14px',
+      sectionBorder: '0px',
+      choiceHeight: width <= 650 ? 44 : 36,
+      arrowPadding: '36px',
+      columns: width > 650,
+      stacked: width <= 650,
+      noOverflow: true,
+    });
+    // When there is room, the hint shares the action baseline and the approved gap.
+    if (width > 650) {
+      expect(layout.feedbackGap).toBe(12);
+      expect(Math.abs(layout.feedbackTop)).toBeLessThanOrEqual(1);
+    }
+
     // Align the originating form before its action, never scroll to manufacture feedback visibility.
     await page
       .locator('#opening-form')
