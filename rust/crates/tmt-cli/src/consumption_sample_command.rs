@@ -107,7 +107,8 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             return Ok(());
         }
     }
-    let host = Host::for_server_with(&binding.server, SupervisedProbeRunner);
+    let host = Host::for_server_with(&binding.server, SupervisedProbeRunner)
+        .with_drivers(tmt_adapters::host::external::approved());
     let snapshot = host
         .observe_snapshot(OperationOptions {
             deadline: Some(deadline),
