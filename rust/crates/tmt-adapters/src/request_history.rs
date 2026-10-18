@@ -48,8 +48,13 @@ pub fn decode_history_query(bytes: &[u8]) -> Option<HistoryQuery> {
         input.recipient_id,
         input.room_id,
     ) {
-        (Some(id), Some("results"), None, None) if canonical_id(&id) => {
-            HistoryScope::OriginatorResults(id)
+        (Some(originator_id), Some("results"), recipient_id, None)
+            if canonical_id(&originator_id) =>
+        {
+            HistoryScope::OriginatorResults {
+                originator_id,
+                recipient_id,
+            }
         }
         (None, None, Some(identity_id), room_id) => HistoryScope::Recipient {
             identity_id,
@@ -58,7 +63,7 @@ pub fn decode_history_query(bytes: &[u8]) -> Option<HistoryQuery> {
         (None, None, None, Some(room)) => HistoryScope::Room(room),
         _ => return None,
     };
-    let results = matches!(scope, HistoryScope::OriginatorResults(_));
+    let results = matches!(scope, HistoryScope::OriginatorResults { .. });
     let limit = input.limit.unwrap_or(if results {
         RESULTS_LIMIT
     } else {

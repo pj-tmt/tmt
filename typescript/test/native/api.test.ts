@@ -702,9 +702,33 @@ describe('public local extension API', () => {
       expect(next.body.nextBefore).toBeNull();
       const all = await api(sandbox, 'requests.list', { ...input, limit: 50 });
       expect(all.body.items).toHaveLength(10);
+      // One recipient's finals, paged by the same submission cursor.
+      const one = { ...input, recipientId: recipients[1] };
+      const forOne = await api(sandbox, 'requests.list', { ...one, limit: 50 });
+      expect(forOne.status).toBe(0);
+      const ordered = forOne.body.items.map((row: { requestId: string }) => row.requestId);
+      expect(ordered).toHaveLength(5);
+      expect(
+        forOne.body.items.every((row: { recipientId: string }) => row.recipientId === recipients[1])
+      ).toBe(true);
+      const paged: string[] = [];
+      let cursor: unknown = null;
+      do {
+        const page = await api(sandbox, 'requests.list', {
+          ...one,
+          limit: 2,
+          ...(cursor ? { before: cursor } : {}),
+        });
+        expect(page.status).toBe(0);
+        paged.push(...page.body.items.map((row: { requestId: string }) => row.requestId));
+        cursor = page.body.nextBefore;
+      } while (cursor);
+      expect(paged).toEqual(ordered);
       for (const invalid of [
         { ...input, roomId: randomUUID() },
-        { ...input, recipientId: recipients[0] },
+        { ...input, recipientId: 'not-a-uuid' },
+        { ...input, recipientId: recipients[0], roomId: randomUUID() },
+        { ...input, recipientId: recipients[0], before: { preparedAtMs: now, requestId: ids[0] } },
         { ...input, limit: 51 },
         { ...input, before: { preparedAtMs: now, requestId: ids[0] } },
       ]) {

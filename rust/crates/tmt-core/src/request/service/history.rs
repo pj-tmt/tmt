@@ -14,7 +14,10 @@ fn valid_query(query: &HistoryQuery) -> bool {
             room_id,
         } => canonical_id(identity_id) && room_id.as_deref().is_none_or(canonical_id),
         HistoryScope::Room(room_id) => canonical_id(room_id),
-        HistoryScope::OriginatorResults(identity_id) => canonical_id(identity_id),
+        HistoryScope::OriginatorResults {
+            originator_id,
+            recipient_id,
+        } => canonical_id(originator_id) && recipient_id.as_deref().is_none_or(canonical_id),
     };
     scope
         && (1..=HISTORY_MAX_LIMIT).contains(&query.limit)
@@ -22,7 +25,7 @@ fn valid_query(query: &HistoryQuery) -> bool {
             matches!(
                 (&query.scope, cursor),
                 (
-                    HistoryScope::OriginatorResults(_),
+                    HistoryScope::OriginatorResults { .. },
                     HistoryCursor::Submitted { .. }
                 ) | (
                     HistoryScope::Recipient { .. } | HistoryScope::Room(_),
@@ -70,7 +73,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         if !valid_query(&query) {
             return Err(RequestError::Invalid("Invalid request history query."));
         }
-        let results = matches!(query.scope, HistoryScope::OriginatorResults(_));
+        let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
         let observe = |records: &mut dyn RequestRecords<Error = R::Error>, now| {
             let mut rows = records.list_request_history(&query, query.limit + 1, now)?;
             let more = rows.len() as u64 > query.limit;

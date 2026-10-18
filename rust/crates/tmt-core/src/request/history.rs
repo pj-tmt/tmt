@@ -17,8 +17,12 @@ pub enum HistoryScope {
         room_id: Option<String>,
     },
     Room(String),
-    /// Submitted finals authored by one identity across recipients and rooms.
-    OriginatorResults(String),
+    /// Submitted finals authored by one identity across recipients and rooms,
+    /// or only those answered by one recipient.
+    OriginatorResults {
+        originator_id: String,
+        recipient_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

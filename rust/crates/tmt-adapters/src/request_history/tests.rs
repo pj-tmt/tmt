@@ -3,6 +3,7 @@ use tmt_core::request::{AttemptStatus, Originator, RequestKind, RequestOrigin, S
 
 const ID: &str = "11111111-1111-4111-8111-111111111111";
 const REQUEST: &str = "req_22222222-2222-4222-8222-222222222222";
+const OTHER: &str = "33333333-3333-4333-8333-333333333333";
 
 #[test]
 fn history_admission_is_scoped_strict_and_bounded() {
@@ -164,11 +165,36 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
 }
 
 #[test]
-fn results_admission_uses_exclusive_originator_scope_and_submission_cursor() {
+fn results_admission_scopes_by_originator_with_an_optional_recipient_and_a_submission_cursor() {
     let decode = |value: Value| decode_history_query(&serde_json::to_vec(&value).unwrap());
     let query = decode(json!({"originatorId":ID,"view":"results"})).unwrap();
     assert_eq!(query.limit, 8);
-    assert_eq!(query.scope, HistoryScope::OriginatorResults(ID.into()));
+    assert_eq!(
+        query.scope,
+        HistoryScope::OriginatorResults {
+            originator_id: ID.into(),
+            recipient_id: None
+        }
+    );
+    let query = decode(
+        json!({"originatorId":ID,"view":"results","recipientId":OTHER,"limit":8,
+        "before":{"submittedAtMs":7,"requestId":REQUEST}}),
+    )
+    .unwrap();
+    assert_eq!(
+        query.scope,
+        HistoryScope::OriginatorResults {
+            originator_id: ID.into(),
+            recipient_id: Some(OTHER.into())
+        }
+    );
+    assert_eq!(
+        query.before,
+        Some(HistoryCursor::Submitted {
+            submitted_at_ms: 7,
+            request_id: REQUEST.into()
+        })
+    );
     let query = decode(json!({"originatorId":ID,"view":"results","limit":50,
         "before":{"submittedAtMs":7,"requestId":REQUEST}}))
     .unwrap();
@@ -185,7 +211,11 @@ fn results_admission_uses_exclusive_originator_scope_and_submission_cursor() {
         json!({"originatorId":"name","view":"results"}),
         json!({"originatorId":ID,"view":"history"}),
         json!({"originatorId":ID,"view":"results","roomId":ID}),
-        json!({"originatorId":ID,"view":"results","recipientId":ID}),
+        json!({"originatorId":ID,"view":"results","recipientId":"name"}),
+        json!({"originatorId":ID,"view":"results","recipientId":OTHER,"roomId":ID}),
+        json!({"originatorId":ID,"recipientId":OTHER}),
+        json!({"originatorId":ID,"view":"results","recipientId":OTHER,
+            "before":{"preparedAtMs":1,"requestId":REQUEST}}),
         json!({"originatorId":ID,"view":"results","limit":0}),
         json!({"originatorId":ID,"view":"results","limit":51}),
         json!({"originatorId":ID,"view":"results","before":{"preparedAtMs":1,"requestId":REQUEST}}),

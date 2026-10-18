@@ -670,7 +670,12 @@ person's request. Core records the value at creation and derives it from nothing
 else, so neither a sender's name nor the message text can change it.
 For submitted replies across rooms and recipients, call `requests.list` with
 `{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
-and cannot be combined with `recipientId` or `roomId`. The default limit is 8;
+and the view cannot be combined with `roomId`. Adding `recipientId` lists only that
+recipient's finals with the same order, cursor and limits, so one agent's older
+replies stay reachable past the newest page; a page then walks the originator's
+submitted finals newest first until it has `limit` + 1 matches, which in the worst
+case reads every retained final of that originator, and an older core answers
+`API_INPUT_INVALID` for this form. The default limit is 8;
 `limit` accepts 1 through 50. This view includes acknowledged submitted finals,
 newest first by `(submittedAtMs, requestId)` descending. `nextBefore` is null
 at the end or `{submittedAtMs, requestId}`; pass it unchanged as `before` with the

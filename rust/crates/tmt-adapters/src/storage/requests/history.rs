@@ -90,7 +90,7 @@ fn history_select(source: &str, condition: &str, preview: &str, response_preview
 }
 
 pub(super) fn history_query(scope: &HistoryScope, has_cursor: bool) -> String {
-    let results = matches!(scope, HistoryScope::OriginatorResults(_));
+    let results = matches!(scope, HistoryScope::OriginatorResults { .. });
     let time = if results {
         "response_submitted_at_ms"
     } else {
@@ -108,9 +108,12 @@ pub(super) fn history_query(scope: &HistoryScope, has_cursor: bool) -> String {
             "a.recipient_identity_id=?1 AND a.room_id=?2",
         ),
         HistoryScope::Room(_) => ("request_history_room", "?1 IS NULL AND a.room_id=?2"),
-        HistoryScope::OriginatorResults(_) => (
+        // ?2 narrows to one recipient. The index orders by originator and
+        // submission time only, so the recipient test is applied to each entry
+        // the page walks.
+        HistoryScope::OriginatorResults { .. } => (
             "request_history_originator_results",
-            "a.originator_identity_id=?1 AND ?2 IS NULL AND a.response_submitted_at_ms IS NOT NULL",
+            "a.originator_identity_id=?1 AND (?2 IS NULL OR a.recipient_identity_id=?2) AND a.response_submitted_at_ms IS NOT NULL",
         ),
     };
     let cursor = if has_cursor {
@@ -141,13 +144,17 @@ pub(super) fn list_request_history(
     limit: u64,
     now_ms: u64,
 ) -> Result<Vec<HistoryRecord>, StorageError> {
-    let (recipient, room) = match &query.scope {
+    // The values `history_query` binds as ?1 and ?2 for this scope.
+    let (identity, narrow) = match &query.scope {
         HistoryScope::Recipient {
             identity_id,
             room_id,
         } => (Some(identity_id.as_str()), room_id.as_deref()),
         HistoryScope::Room(id) => (None, Some(id.as_str())),
-        HistoryScope::OriginatorResults(id) => (Some(id.as_str()), None),
+        HistoryScope::OriginatorResults {
+            originator_id,
+            recipient_id,
+        } => (Some(originator_id.as_str()), recipient_id.as_deref()),
     };
     let before = query
         .before
@@ -160,8 +167,8 @@ pub(super) fn list_request_history(
     statement
         .query_map(
             params![
-                recipient,
-                room,
+                identity,
+                narrow,
                 before,
                 query.before.as_ref().map(|cursor| cursor.request_id()),
                 checked_limit(limit)?,

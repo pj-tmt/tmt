@@ -20,7 +20,7 @@ pub(super) fn decode_show(input: &[u8]) -> Result<String, Fault> {
 }
 
 pub(super) fn list_history(storage: &mut Storage, query: HistoryQuery) -> Result<Vec<u8>, Fault> {
-    let results = matches!(query.scope, HistoryScope::OriginatorResults(_));
+    let results = matches!(query.scope, HistoryScope::OriginatorResults { .. });
     RequestService::new(storage, wall_time_ms)
         .request_history(query)
         .map(|value| request_history::encode_history_page(&value, results))

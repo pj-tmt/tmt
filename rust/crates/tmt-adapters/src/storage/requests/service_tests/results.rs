@@ -18,6 +18,16 @@ fn sender(fixture: &mut Fixture, name: &str) -> String {
         .id
 }
 fn queue(fixture: &mut Fixture, originator: &str, id: &str, room: Option<&str>) {
+    let recipient = fixture.identity_id.clone();
+    queue_to(fixture, &recipient, originator, id, room);
+}
+fn queue_to(
+    fixture: &mut Fixture,
+    recipient: &str,
+    originator: &str,
+    id: &str,
+    room: Option<&str>,
+) {
     let mut input = prepare_input(
         fixture,
         id,
@@ -27,8 +37,9 @@ fn queue(fixture: &mut Fixture, originator: &str, id: &str, room: Option<&str>) 
         Originator::Explicit(originator.into()),
         false,
     );
+    input.recipient_identity_id = Some(recipient.into());
     input.route = RequestRoute::Inbox {
-        recipient_identity_id: fixture.identity_id.clone(),
+        recipient_identity_id: recipient.into(),
     };
     input.room_id = room.map(str::to_owned);
     service(fixture)
@@ -36,8 +47,12 @@ fn queue(fixture: &mut Fixture, originator: &str, id: &str, room: Option<&str>) 
         .unwrap();
 }
 fn reply(fixture: &mut Fixture, id: &str, body: &str) {
+    let recipient = fixture.identity_id.clone();
+    reply_from(fixture, &recipient, id, body);
+}
+fn reply_from(fixture: &mut Fixture, recipient: &str, id: &str, body: &str) {
     let route = RequestRoute::Inbox {
-        recipient_identity_id: fixture.identity_id.clone(),
+        recipient_identity_id: recipient.into(),
     };
     service(fixture)
         .submit_response(SubmitResponse {
@@ -53,10 +68,110 @@ fn reply(fixture: &mut Fixture, id: &str, body: &str) {
 }
 fn query(originator: &str, limit: u64, before: Option<HistoryCursor>) -> HistoryQuery {
     HistoryQuery {
-        scope: HistoryScope::OriginatorResults(originator.into()),
+        scope: HistoryScope::OriginatorResults {
+            originator_id: originator.into(),
+            recipient_id: None,
+        },
         limit,
         before,
     }
+}
+fn recipient_query(
+    originator: &str,
+    recipient: &str,
+    limit: u64,
+    before: Option<HistoryCursor>,
+) -> HistoryQuery {
+    HistoryQuery {
+        scope: HistoryScope::OriginatorResults {
+            originator_id: originator.into(),
+            recipient_id: Some(recipient.into()),
+        },
+        limit,
+        before,
+    }
+}
+fn ids(page: &tmt_core::request::history::HistoryPage) -> Vec<&str> {
+    page.items
+        .iter()
+        .map(|row| row.item.request_id.as_str())
+        .collect()
+}
+#[test]
+fn results_for_one_recipient_reach_past_the_newest_page_and_page_by_submission() {
+    let mut fixture = Fixture::new();
+    let first = fixture.identity_id.clone();
+    let second = sender(&mut fixture, "Second");
+    let originator = sender(&mut fixture, "Originator");
+    let outsider = sender(&mut fixture, "Outsider");
+    // Submission order: second-old, a1, a2, second-mid, a3, a4, a5, then a
+    // foreign originator's final to the second recipient.
+    for (step, (recipient, id)) in [
+        (&second, "second-old"),
+        (&first, "a1"),
+        (&first, "a2"),
+        (&second, "second-mid"),
+        (&first, "a3"),
+        (&first, "a4"),
+        (&first, "a5"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        fixture.set_now(NOW_MS + step as u64);
+        queue_to(&mut fixture, recipient, &originator, id, None);
+        reply_from(&mut fixture, recipient, id, id);
+    }
+    fixture.set_now(NOW_MS + 7);
+    queue_to(&mut fixture, &second, &outsider, "foreign", None);
+    reply_from(&mut fixture, &second, "foreign", "foreign");
+    let before = request_snapshot(&fixture.database);
+
+    // The unfiltered newest page never reaches the second recipient's oldest
+    // final; the filtered page does, in one call.
+    let newest = service(&mut fixture)
+        .request_history(query(&originator, 5, None))
+        .unwrap();
+    assert_eq!(ids(&newest), ["a5", "a4", "a3", "second-mid", "a2"]);
+    let only_second = service(&mut fixture)
+        .request_history(recipient_query(&originator, &second, 8, None))
+        .unwrap();
+    assert_eq!(ids(&only_second), ["second-mid", "second-old"]);
+    assert_eq!(only_second.next_before, None);
+
+    // The cursor skips the other recipient's rows between a3 and a2.
+    let mut seen = Vec::new();
+    let mut cursor = None;
+    let mut pages = 0;
+    loop {
+        let page = service(&mut fixture)
+            .request_history(recipient_query(&originator, &first, 2, cursor))
+            .unwrap();
+        seen.extend(ids(&page).into_iter().map(str::to_owned));
+        pages += 1;
+        cursor = page.next_before;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seen, ["a5", "a4", "a3", "a2", "a1"]);
+    assert_eq!(pages, 3);
+
+    // A recipient the originator never wrote to, and a limit of one with a cursor.
+    let none = service(&mut fixture)
+        .request_history(recipient_query(&originator, &outsider, 8, None))
+        .unwrap();
+    assert!(none.items.is_empty() && none.next_before.is_none());
+    let one = service(&mut fixture)
+        .request_history(recipient_query(&originator, &second, 1, None))
+        .unwrap();
+    assert_eq!(ids(&one), ["second-mid"]);
+    let rest = service(&mut fixture)
+        .request_history(recipient_query(&originator, &second, 1, one.next_before))
+        .unwrap();
+    assert_eq!(ids(&rest), ["second-old"]);
+    assert_eq!(rest.next_before, None);
+    assert_eq!(request_snapshot(&fixture.database), before);
 }
 #[test]
 fn results_order_by_submission_not_preparation_across_rooms_and_keep_acknowledged_work() {
@@ -236,7 +351,10 @@ fn results_preview_sanitizes_the_first_line_and_bounds_utf8_without_changing_exa
         // Inspect the actual SQL projection, not just the rendered output cap.
         let oracle = rusqlite::Connection::open(&fixture.database).unwrap();
         let sql = super::super::history::history_query(
-            &HistoryScope::OriginatorResults(originator.clone()),
+            &HistoryScope::OriginatorResults {
+                originator_id: originator.clone(),
+                recipient_id: None,
+            },
             false,
         );
         let mut statement = oracle.prepare(&sql).unwrap();
