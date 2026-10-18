@@ -2454,8 +2454,10 @@ Removing the markup removes its controls while its ordinary thread record remain
 The shared parent band sits immediately after the passage title, before its content. It uses
 `Please read · <agent>: <why>` and trusted `Mark read` / `Next ↓` actions. `Mark read` is enabled
 only when the page's discussion, status coordinator and the passage's selector are all live; until
-then it is disabled and the band says so, and a click that cannot act reports a failure instead of
-doing nothing. After a person read it
+then it is disabled, a muted `Connecting…` appears beside it on the same row if the wait passes
+400 ms (its live region says `Mark read is available once the page has finished connecting.`;
+nothing below the band moves), and a click that cannot act reports a failure instead of doing
+nothing. After a person read it
 becomes the neutral `Read` done band in the same spot, with the recorded time. Only an accepted
 notification (including an admitted reply) says `<agent> notified`. Held, refused or unavailable
 delivery says `<agent> not notified`; uncertain or missing outcomes say

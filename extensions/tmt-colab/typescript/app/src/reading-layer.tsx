@@ -2,6 +2,7 @@ import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
+import { ReadingConnecting } from './reading-connecting.js';
 import { focusNeedsYouTarget } from './needs-you.js';
 import { compactRelativeTime } from './display-time.js';
 import { text } from './strings.js';
@@ -232,6 +233,7 @@ export function useReadingLayer({
               <>
                 {!read &&
                   activate(text.readingMark, () => void actions.mark(reading), busy || !markReady)}
+                {!read && <ReadingConnecting waiting={writable && attached && !markReady} />}
                 {activate(
                   text.readingNext,
                   () => next(reading.id),
@@ -268,9 +270,6 @@ export function useReadingLayer({
           >
             {reason}
           </p>
-        )}
-        {!read && !outcome && writable && attached && !markReady && (
-          <p role="status">{text.readingNotReady}</p>
         )}
         {!read && outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
         {!read && outcome?.state === 'failed' && (

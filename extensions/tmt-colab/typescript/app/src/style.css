@@ -1226,6 +1226,19 @@ body:has(.needs-you-header-menu) {
 .reading-inline[data-reason-expanded] .needs-you-bar {
   padding-bottom: 0;
 }
+.reading-connecting {
+  align-self: center;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+}
+.reading-connecting-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .reading-reason {
   margin: 4px 0 0;
   padding: 0 12px 8px;

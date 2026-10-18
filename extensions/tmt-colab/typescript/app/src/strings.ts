@@ -88,6 +88,7 @@ export const text = {
   readingWord: 'Read',
   readingPleaseRead: 'Please read',
   readingMark: 'Mark read',
+  readingConnecting: 'Connecting…',
   readingNotReady: 'Mark read is available once the page has finished connecting.',
   readingNext: 'Next ↓',
   readingWhy: 'Why',
