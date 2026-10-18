@@ -839,6 +839,8 @@ function Page() {
     setPanel((previous) => (previous === value ? null : value));
   };
   const [view, setView] = useState<PageView>({
+    pageType: snapshot.pageType,
+    shell: snapshot.shell,
     archived: snapshot.archived,
     source: snapshot.source,
     title: snapshot.title,
@@ -907,6 +909,8 @@ function Page() {
     base.current = snapshot.source;
     setDraft(snapshot.source);
     setView({
+      pageType: snapshot.pageType,
+      shell: snapshot.shell,
       archived: snapshot.archived,
       source: snapshot.source,
       title: snapshot.title,
@@ -1241,7 +1245,11 @@ function Page() {
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
-  const canSelect = !!snapshot.binding?.discussion && !discussionBlocked && state === 'ready';
+  const canSelect =
+    view.pageType !== 'shell' &&
+    !!snapshot.binding?.discussion &&
+    !discussionBlocked &&
+    state === 'ready';
   activateChat.current = () => {
     if (
       archived ||
@@ -1347,6 +1355,11 @@ function Page() {
   });
   useEffect(() => {
     const controller = new AbortController();
+    if (view.pageType === 'shell') {
+      host.current?.replaceChildren();
+      setState('ready');
+      return () => controller.abort();
+    }
     if (endedError) {
       host.current?.replaceChildren();
       setState('failed');
@@ -1411,7 +1424,7 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, endedError, inlineSlots.onSlots, onQuestionAnchors, onReadingAnchors]);
+  }, [view.source, view.pageType, endedError, inlineSlots.onSlots, onQuestionAnchors, onReadingAnchors]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -2061,7 +2074,22 @@ function Page() {
         }}
       >
         <QuickSwitcherModalPresence />
-        <AgentPresentation value={agents}>{content}</AgentPresentation>
+        <AgentPresentation value={agents}>
+          {view.pageType === 'shell' ? (
+            <section className="page">
+              <AppHeader
+                title={view.title || snapshot.title}
+                remote={{ deviceName: transport.backendName }}
+              />
+              <main className="canvas">
+                <p role="status">{text.shellPageNotice}</p>
+                {endedError && <EndedBody error={endedError} action={endedAction} />}
+              </main>
+            </section>
+          ) : (
+            content
+          )}
+        </AgentPresentation>
       </ReplyNotificationContext>
     </CreatorDefaultProvider>
   );

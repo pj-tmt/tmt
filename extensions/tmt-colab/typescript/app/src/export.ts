@@ -1,4 +1,6 @@
 import type { CreationRecipient } from './fold-protocol.js';
+import type { Projection } from './fold-protocol.js';
+import { canonicalShell } from './shell.js';
 import { decimal, digest, generatedId, requireValue, spaceId, text, time } from '@tmt/colab-client';
 import {
   projectConversations,
@@ -28,6 +30,8 @@ export const PAGE_FILES: readonly ExportFile[] = [
 /** One bundle never exceeds this many bytes of conversations (both files together). */
 export const CONVERSATIONS_BYTES = 8 * 1024 * 1024;
 export interface ExportView {
+  pageType?: Projection['pageType'];
+  shell?: Projection['shell'];
   creationRecipient?: CreationRecipient;
   spaceId: string;
   pageId: string;
@@ -61,6 +65,7 @@ export function hex(bytes: Uint8Array): string {
 export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   const view = {
     ...input,
+    ...(input.shell === undefined ? {} : { shell: structuredClone(input.shell) }),
     ...(input.creationRecipient === undefined
       ? {}
       : {
@@ -99,14 +104,15 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
     statusWriter: (writer) => statusWriters.has(writer),
   });
   const attachments = await listAttachments(copiedAttachments);
-  const html = text(view.source);
+  const contentName = view.pageType === 'shell' ? 'shell.json' : 'page.html';
+  const content = text(view.pageType === 'shell' ? canonicalShell(view.shell) : view.source);
   const json = text(serializeConversations(conversations));
   const markdown = text(renderConversationsMarkdown(conversations));
   if (json.length + markdown.length > CONVERSATIONS_BYTES) throw new Error('EXPORT_TOO_LARGE');
   const describe = async (name: ExportFile, bytes: Uint8Array): Promise<FileInfo> =>
     Object.freeze({ name, sizeBytes: bytes.length, sha256: hex(await digest(bytes)) });
   const files = [
-    await describe('page.html', html),
+    await describe(contentName, content),
     await describe('conversations.json', json),
     await describe('conversations.md', markdown),
   ];
@@ -118,6 +124,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
       spaceId: view.spaceId,
       pageId: view.pageId,
       title: view.title,
+      ...(view.pageType === undefined ? {} : { pageType: view.pageType }),
       ...(view.originalAuthor === undefined ? {} : { originalAuthor: view.originalAuthor }),
       ...(view.publisherAgent === undefined ? {} : { publisherAgent: view.publisherAgent }),
       ...(view.creationRecipient === undefined
@@ -143,7 +150,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   const included = attachments.filter((item) => item.bytes !== undefined);
   return new ExportBundle(
     new Map<ExportFile, Uint8Array>([
-      ['page.html', html],
+      [contentName, content],
       ['conversations.json', json],
       ['conversations.md', markdown],
       ...included.map((item): [ExportFile, Uint8Array] => [item.row.file!, item.bytes!]),

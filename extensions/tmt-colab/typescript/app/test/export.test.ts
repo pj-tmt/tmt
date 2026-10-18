@@ -46,6 +46,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it('exports a shell as canonical shell.json with its type, without a fabricated page.html', async () => {
+  const view = {
+    ...input(),
+    source: '',
+    pageType: 'shell' as const,
+    shell: { version: 1 as const, items: {}, order: [] },
+    attachmentEntries: [],
+  };
+  const bundle = await prepareExport(view);
+  expect(bundle.files.map(({ name }) => name)).toEqual([
+    'shell.json',
+    'conversations.json',
+    'conversations.md',
+    'manifest.json',
+  ]);
+  const shell = await bytes(bundle.blob('shell.json'));
+  expect(new TextDecoder().decode(shell)).toBe('{"items":{},"order":[],"version":1}');
+  const manifest = JSON.parse(new TextDecoder().decode(await bytes(bundle.blob('manifest.json'))));
+  expect(manifest.pageType).toBe('shell');
+  expect(manifest.files[0]).toEqual({
+    name: 'shell.json',
+    sizeBytes: shell.length,
+    sha256: sha(shell),
+  });
+  expect(() => bundle.blob('page.html')).toThrow();
+});
+
 it('matches the shared native bundle byte for byte, including exact order and large decimals', async () => {
   const bundle = await prepareExport(input());
   const html = await bytes(bundle.blob('page.html'));

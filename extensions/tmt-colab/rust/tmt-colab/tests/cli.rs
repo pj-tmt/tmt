@@ -1392,6 +1392,252 @@ fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
 }
 
 #[test]
+fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let created = call(
+            &pilot,
+            &["shell", "create", "--title", "Release shell", "--json"],
+        );
+        assert_eq!(created["opened"], false);
+        assert!(pilot.opened().is_empty());
+        let id = created["pageId"].as_str().unwrap();
+        let source = pilot.root.join("source.html");
+        fs::write(&source, "<h1 id=\"plan\">Source</h1>").unwrap();
+        let target = call(
+            &pilot,
+            &[
+                "page",
+                "create",
+                "--title",
+                "Source",
+                "--file",
+                source.to_str().unwrap(),
+                "--no-open",
+                "--json",
+            ],
+        );
+        let page_id = target["pageId"].as_str().unwrap();
+        let first = "10000000-0000-4000-8000-000000000001";
+        let second = "10000000-0000-4000-8000-000000000002";
+        let file = pilot.root.join("action.json");
+        let mut before = call(&pilot, &["shell", "read", id, "--json"]);
+        assert_eq!(before["pageType"], "shell");
+        assert_eq!(before["shell"], json!({"version":1,"items":{},"order":[]}));
+        assert!(before.get("source").is_none());
+        let initial_revision = before["revision"].as_str().unwrap().to_owned();
+        let mut summary = Value::Null;
+        for (name, body) in [
+            (
+                "item-add",
+                json!({"itemId":first,"item":{"kind":"page","pageId":page_id}}),
+            ),
+            (
+                "reading-suggest",
+                json!({"itemId":second,"pageId":page_id,"readingId":"30000000-0000-4000-8000-000000000001"}),
+            ),
+            ("item-move", json!({"itemId":second,"beforeId":first})),
+            (
+                "item-set",
+                json!({"itemId":first,"item":{"kind":"anchor","pageId":page_id,"anchor":"plan"}}),
+            ),
+            (
+                "summary-set",
+                json!({"line1":"Release plan","line2":"Read before the release"}),
+            ),
+            ("summary-clear", json!({})),
+            ("summary-clear", json!({})),
+            ("item-remove", json!({"itemId":first})),
+        ] {
+            fs::write(&file, body.to_string()).unwrap();
+            let mut args = vec![
+                "shell",
+                name,
+                id,
+                "--expected-revision",
+                before["revision"].as_str().unwrap(),
+                "--json",
+            ];
+            if name != "summary-clear" {
+                args.extend(["--file", file.to_str().unwrap()]);
+            }
+            let outcome = call(&pilot, &args);
+            assert_eq!(
+                outcome["changed"],
+                !(name == "summary-clear" && before["shell"].get("summary").is_none())
+            );
+            before = call(&pilot, &["shell", "read", id, "--json"]);
+            if name == "summary-set" {
+                summary = before["shell"]["summary"].clone();
+                tmt_colab_model::values::generated_id(
+                    summary["attribution"]["writerId"].as_str().unwrap(),
+                )
+                .unwrap();
+                assert!(summary["attribution"]["timeMs"].as_u64().unwrap() > 0);
+                assert!(summary["attribution"].get("displayAgent").is_none());
+            }
+            if name == "item-move" {
+                assert_eq!(before["shell"]["order"], json!([second, first]));
+            }
+        }
+        assert!(!summary.is_null());
+        assert_eq!(before["shell"]["order"], json!([second]));
+        // Neither removing the reference nor suggesting a reading changes the source page.
+        assert_eq!(
+            call(&pilot, &["page", "read", page_id, "--json"])["source"],
+            "<h1 id=\"plan\">Source</h1>"
+        );
+        let listed = call(&pilot, &["ls", "--json"]);
+        assert!(
+            listed["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["pageId"] == id && p["title"] == "Release shell")
+        );
+        fs::write(&file, json!({"itemId":second}).to_string()).unwrap();
+        let stale = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args([
+                "shell",
+                "item-remove",
+                id,
+                "--expected-revision",
+                &initial_revision,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert!(!stale.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&stale.stdout).unwrap()["error"]["code"],
+            "COLAB_STALE_BASE"
+        );
+        fs::write(&file, json!({"itemId":second,"seen":true}).to_string()).unwrap();
+        let invalid = pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args([
+                "shell",
+                "item-remove",
+                id,
+                "--expected-revision",
+                before["revision"].as_str().unwrap(),
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        assert!(!invalid.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&invalid.stdout).unwrap()["error"]["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            call(&pilot, &["shell", "read", id, "--json"])["revision"],
+            before["revision"]
+        );
+        for name in ["read", "write"] {
+            let mut args = vec!["page", name, id, "--json"];
+            if name == "write" {
+                args.extend(["--file", source.to_str().unwrap()]);
+            }
+            let out = pilot
+                .command()
+                .env("TMT_AGENT", "1")
+                .env("BROWSER", "/usr/bin/true")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(!out.status.success());
+            assert_eq!(
+                serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"]["code"],
+                "COLAB_INPUT_INVALID"
+            );
+        }
+        let destination = pilot.root.join("export");
+        fs::create_dir(&destination).unwrap();
+        let exported = call(
+            &pilot,
+            &[
+                "export",
+                id,
+                "--dir",
+                destination.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        let directory = PathBuf::from(exported["directory"].as_str().unwrap());
+        assert!(!directory.join("page.html").exists());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(directory.join("shell.json")).unwrap())
+                .unwrap(),
+            before["shell"]
+        );
+        if serving {
+            pilot.stop();
+        }
+        // Advance through the real owner path while stopped, then read the new epoch.
+        let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+            .unwrap()
+            .unwrap();
+        let _lock = layout.serve_lock().unwrap();
+        let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+        let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+        let head = store
+            .owner_head(&key.space_id, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        let mut engine = tmt_colab::transitions::Engine::with_decoder_config(
+            support::decoder_config(BINARY.into()),
+        )
+        .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        engine
+            .advance_epoch(
+                &mut store,
+                &key,
+                tmt_colab::transitions::EpochAdvance {
+                    operation_id: "40000000-0000-4000-8000-000000000099",
+                    expected_revision: head.revision,
+                    page: id,
+                },
+                now,
+            )
+            .unwrap();
+        store.close().unwrap();
+        drop(_lock);
+        let advanced = call(&pilot, &["shell", "read", id, "--json"]);
+        assert_eq!(advanced["epoch"], "2");
+        assert_eq!(advanced["shell"], before["shell"]);
+    }
+}
+
+#[test]
 fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serving() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);

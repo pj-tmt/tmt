@@ -431,6 +431,9 @@ pub fn usage(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) ->
 pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<Page> {
     let s = snapshot(store, key, page, false)?;
     let view = s.materialize_measured(key, page, decoder)?;
+    if view.meta.get("pageType").is_some() {
+        return Err(Fault::Invalid.into());
+    }
     Ok(Page {
         space_id: key.space_id.clone(),
         page_id: page.into(),
@@ -444,6 +447,42 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
         memory_limit: view.memory_limit,
         usage: view.usage,
+    })
+}
+/// Structured read, without inventing an HTML source. The shell value includes owner-supplied
+/// summary attribution; target access is resolved separately by each reader.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellPage {
+    pub space_id: String,
+    pub page_id: String,
+    pub page_type: &'static str,
+    pub title: String,
+    pub shell: serde_json::Value,
+    pub epoch: String,
+    pub membership_head: Head,
+    pub revision: String,
+}
+pub fn read_shell(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<ShellPage> {
+    let s = snapshot(store, key, page, false)?;
+    let view = s.materialize(key, page, decoder)?;
+    if view.meta["pageType"].as_str() != Some("shell") {
+        return Err(Fault::Invalid.into());
+    }
+    Ok(ShellPage {
+        space_id: key.space_id.clone(),
+        page_id: page.into(),
+        page_type: "shell",
+        title: view.title,
+        shell: view.meta["shell"].clone(),
+        epoch: s.epoch.to_string(),
+        membership_head: Head::from(&s.authority.head),
+        revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
     })
 }
 /// NOOP carries no original operation or certificate; it reports the captured base.
@@ -572,6 +611,71 @@ pub fn prepare_publication_with_clock<'a>(
             source: edit.source,
             memory_limit: prepared.memory_limit,
             operation_id: options.operation_id,
+        },
+        now,
+    )?;
+    Ok(PublicationPreparation::Write(frozen))
+}
+/// One explicit shell action against the revision the caller read. Agent metadata is display
+/// only; the writer and time below come from the authenticated write owner.
+pub struct ShellAction<'a> {
+    pub action: &'a str,
+    pub body: &'a serde_json::Value,
+    pub expected_revision: &'a str,
+    pub display_agent: Option<serde_json::Value>,
+}
+pub fn prepare_shell_publication(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    action: ShellAction<'_>,
+    decoder: &mut Decoder,
+    clock: &dyn Fn() -> Result<u64>,
+) -> Result<PublicationPreparation> {
+    use crate::{
+        decoder::{ContentBatch, ShellEdit},
+        publication::PublicationKind,
+    };
+    values::generated_id(page)?;
+    let s = snapshot(store, key, page, true)?;
+    let revision = token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?;
+    if action.expected_revision != revision {
+        return Err(Fault::StaleBase.into());
+    }
+    let now = clock()?;
+    values::time(now)?;
+    let author = Author::of(key, &s, now)?;
+    let mut attribution = serde_json::json!({"writerId":author.id,"timeMs":now});
+    if let Some(agent) = action.display_agent {
+        attribution["displayAgent"] = agent;
+    }
+    crate::shell::validate_attribution(&attribution).map_err(|_| Fault::Invalid)?;
+    let edit = ShellEdit {
+        action: action.action.into(),
+        body: action.body.clone(),
+        attribution,
+    };
+    let prepared = s.prepare_shell_batch(key, page, &edit, decoder)?;
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        return Ok(PublicationPreparation::Noop {
+            epoch: s.epoch.to_string(),
+            membership_head: Head::from(&s.authority.head),
+            base_revision: revision,
+            memory_limit: prepared.memory_limit,
+        });
+    };
+    let frozen = freeze(
+        key,
+        page,
+        &s,
+        author,
+        Sealing {
+            kind: PublicationKind::Content,
+            updates: &updates,
+            revision,
+            source: "",
+            memory_limit: prepared.memory_limit,
+            operation_id: None,
         },
         now,
     )?;

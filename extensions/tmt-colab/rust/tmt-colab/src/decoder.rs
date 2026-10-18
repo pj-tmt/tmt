@@ -74,6 +74,14 @@ pub struct ContentEdit<'a> {
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
+/// Closed shell action data. Attribution is supplied by the admitted write owner.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShellEdit {
+    pub action: String,
+    pub body: Value,
+    pub attribution: Value,
+}
 /// A bounded plain-data batch for one authenticated writer's own document.
 /// The caller establishes writer/page/epoch scope; only the child touches Yjs.
 #[derive(Clone, Serialize, Deserialize)]
@@ -452,6 +460,35 @@ impl Decoder {
         edit: ContentEdit<'_>,
         stop: Option<&AtomicBool>,
     ) -> Result<PreparedContent, DecodeFault> {
+        self.prepare_mutation(batch, expected_base, edit, None, stop)
+    }
+    pub fn prepare_shell_batch(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        expected_base: &Value,
+        shell: &ShellEdit,
+        stop: Option<&AtomicBool>,
+    ) -> Result<PreparedContent, DecodeFault> {
+        self.prepare_mutation(
+            batch,
+            expected_base,
+            ContentEdit {
+                source: "",
+                publisher_agent: None,
+                attachments: None,
+            },
+            Some(shell),
+            stop,
+        )
+    }
+    fn prepare_mutation(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        expected_base: &Value,
+        edit: ContentEdit<'_>,
+        shell: Option<&ShellEdit>,
+        stop: Option<&AtomicBool>,
+    ) -> Result<PreparedContent, DecodeFault> {
         if self.blocked {
             return Err(DecodeFault::CleanupBlocked);
         }
@@ -478,7 +515,10 @@ impl Decoder {
                 .validate(&tmt_colab_model::crypto::digest(edit.source.as_bytes()))
                 .map_err(|_| DecodeFault::InvalidInput)?;
         }
-        let expected = edited_projection(expected_base, edit)?;
+        let expected = match shell {
+            Some(shell) => edited_shell_projection(expected_base, shell)?,
+            None => edited_projection(expected_base, edit)?,
+        };
         let wire = WireContentPreparation {
             version: 1,
             baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
@@ -491,6 +531,7 @@ impl Decoder {
             source: edit.source,
             publisher_agent: edit.publisher_agent,
             attachments: edit.attachments,
+            shell: shell.cloned(),
         };
         let (input, hash) = SerializedInput::serialize(&wire)?.finish();
         let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline, None)?;
@@ -507,7 +548,14 @@ impl Decoder {
         view: BaselineInput<'_>,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
-        self.baseline(view, BaselineAction::Produce { chunk_bytes: None }, stop)
+        self.baseline(
+            view,
+            BaselineAction::Produce {
+                chunk_bytes: None,
+                shell: None,
+            },
+            stop,
+        )
     }
     /// Like `produce_baseline`, plus the state as ordered updates of at most `CREATE_CHUNK_BYTES`
     /// of text each, for a new page whose source is larger than one update.
@@ -520,6 +568,29 @@ impl Decoder {
             view,
             BaselineAction::Produce {
                 chunk_bytes: Some(CREATE_CHUNK_BYTES),
+                shell: None,
+            },
+            stop,
+        )
+    }
+    /// A shell uses the same baseline/commitment protocol, with structured metadata and an
+    /// empty text container. Its bounded value fits one ordinary update for initial creation.
+    pub fn produce_shell(
+        &mut self,
+        view: BaselineInput<'_>,
+        shell: &Value,
+        page: bool,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Baseline, DecodeFault> {
+        crate::shell::validate(shell).map_err(|_| DecodeFault::InvalidInput)?;
+        if !view.source.is_empty() || view.attachments.is_some() {
+            return Err(DecodeFault::InvalidInput);
+        }
+        self.baseline(
+            view,
+            BaselineAction::Produce {
+                chunk_bytes: page.then_some(CREATE_CHUNK_BYTES),
+                shell: Some(shell.clone()),
             },
             stop,
         )
@@ -616,9 +687,12 @@ impl Decoder {
             }
         };
         let command = match &action {
-            BaselineAction::Produce { chunk_bytes: None } => ChildCommand::BaselineProduce,
+            BaselineAction::Produce {
+                chunk_bytes: None, ..
+            } => ChildCommand::BaselineProduce,
             BaselineAction::Produce {
                 chunk_bytes: Some(_),
+                ..
             } => ChildCommand::BaselinePage,
             BaselineAction::Verify { .. } => ChildCommand::BaselineVerify,
         };
@@ -904,6 +978,8 @@ struct WireContentPreparation<
     B = String,
     C = tmt_colab_model::attachment::DocumentChange,
 > {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shell: Option<ShellEdit>,
     version: u8,
     baseline: B,
     updates: Vec<B>,
@@ -912,6 +988,20 @@ struct WireContentPreparation<
     publisher_agent: Option<S>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<C>,
+}
+fn edited_shell_projection(base: &Value, edit: &ShellEdit) -> Result<Value, DecodeFault> {
+    if base["meta"]["pageType"].as_str() != Some("shell") {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let mut expected = base.clone();
+    expected["meta"]["shell"] = crate::shell::apply(
+        &base["meta"]["shell"],
+        &edit.action,
+        &edit.body,
+        &edit.attribution,
+    )
+    .map_err(|_| DecodeFault::InvalidInput)?;
+    Ok(expected)
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
@@ -930,6 +1020,10 @@ struct WirePreparedContent<B = String> {
     pid: u32,
 }
 fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, DecodeFault> {
+    // A source replacement never converts structured content into HTML.
+    if base["meta"].get("pageType").is_some() {
+        return Err(DecodeFault::InvalidInput);
+    }
     let mut expected = serde_json::json!({
         "html": edit.source,
         "meta": base["meta"].clone(),
@@ -1035,6 +1129,8 @@ enum BaselineAction {
     Produce {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chunk_bytes: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shell: Option<Value>,
     },
     Verify {
         update: String,
@@ -1117,8 +1213,16 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     )
                     .is_ok()
                 }),
+                "pageType" => v.as_str() != Some("shell"),
+                "shell" => crate::shell::validate(v).is_err(),
                 _ => true,
             }) {
+                return Err(DecodeFault::InvalidOutput);
+            }
+            if meta.contains_key("pageType") != meta.contains_key("shell")
+                || (meta.contains_key("shell")
+                    && (roots["html"].as_str() != Some("") || meta.contains_key("attachments")))
+            {
                 return Err(DecodeFault::InvalidOutput);
             }
         }

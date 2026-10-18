@@ -460,6 +460,7 @@ fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse()
     let expected = r#"{"version":1,"baseline":"AA","updates":["AAE"],"expected_base":{"html":"old\r\n","meta":{"foreign":null,"title":"T 🐈"}},"source":"new 🐈\n\"\\","publisher_agent":null}"#;
     for publisher in [None, Some("agent")] {
         let borrowed = WireContentPreparation {
+            shell: None,
             version: 1,
             baseline: String::from("AA"),
             updates: vec![String::from("AAE")],
@@ -1100,6 +1101,7 @@ fn observation_preparation_replays_independently_without_normalizing_fresh_bytes
         .encode_state_as_update_v1(&StateVector::default());
     for (source, publisher) in [("old", None), ("new 🐈", Some("agent"))] {
         let wire = WireContentPreparation {
+            shell: None,
             version: 1,
             baseline: URL_SAFE_NO_PAD.encode(&baseline),
             updates: Vec::<String>::new(),
@@ -1291,6 +1293,7 @@ fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
     let wire = WireContentPreparation {
+        shell: None,
         version: 1,
         baseline: URL_SAFE_NO_PAD.encode(&baseline),
         updates: Vec::<String>::new(),
@@ -1352,6 +1355,7 @@ fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
         }
     }
     let wrong = WireContentPreparation {
+        shell: None,
         version: 1,
         baseline: URL_SAFE_NO_PAD.encode(&baseline),
         updates: Vec::<String>::new(),
@@ -1772,6 +1776,7 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
             ("new 🐈", Some("next")),
         ] {
             let input = serde_json::to_vec(&WireContentPreparation {
+                shell: None,
                 version: 1,
                 baseline: URL_SAFE_NO_PAD.encode(&update),
                 updates: Vec::<String>::new(),

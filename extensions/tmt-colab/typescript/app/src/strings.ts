@@ -487,6 +487,7 @@ export const text = {
     unavailable: 'This file is unavailable',
   },
   product: 'Colab',
+  shellPageNotice: 'Shell page: open it with tmt colab shell read.',
   local: 'Local preview',
   mounted: 'Paired space',
   mountedNote: 'Connected through your paired Remote session.',

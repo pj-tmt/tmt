@@ -2228,15 +2228,15 @@ Each action is trial-applied to a detached admitted document. Only a schema-vali
 whole result becomes an ordinary signed content publication. The seven closed
 bodies are:
 
-| Action | Body | Effect |
-| --- | --- | --- |
-| `item.add` | `{itemId,item,beforeId?}` | Add a new reference; omitted placement appends. |
-| `item.remove` | `{itemId}` | Remove the reference and order entry, never the source page. |
-| `item.move` | `{itemId,beforeId?}` | Move an existing reference; omitted placement moves it last. |
-| `item.set` | `{itemId,item}` | Replace the whole item, preserving its position. |
-| `summary.set` | `{line1,line2}` | Set both lines and system attribution. |
-| `summary.clear` | `{}` | Remove summary; absent already is a valid no-op. |
-| `reading.suggest` | `{itemId,pageId,readingId,beforeId?,note?,audience?}` | Add a reading reference under the same add rules. |
+| Action            | Body                                                  | Effect                                                       |
+| ----------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `item.add`        | `{itemId,item,beforeId?}`                             | Add a new reference; omitted placement appends.              |
+| `item.remove`     | `{itemId}`                                            | Remove the reference and order entry, never the source page. |
+| `item.move`       | `{itemId,beforeId?}`                                  | Move an existing reference; omitted placement moves it last. |
+| `item.set`        | `{itemId,item}`                                       | Replace the whole item, preserving its position.             |
+| `summary.set`     | `{line1,line2}`                                       | Set both lines and system attribution.                       |
+| `summary.clear`   | `{}`                                                  | Remove summary; absent already is a valid no-op.             |
+| `reading.suggest` | `{itemId,pageId,readingId,beforeId?,note?,audience?}` | Add a reading reference under the same add rules.            |
 
 Extra/missing fields, invalid types, null optionals, overlimits, duplicate or
 unknown IDs, before-self, unknown placement and an incomplete order refuse the
@@ -5040,25 +5040,31 @@ and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
 claim of globally current membership.
 
+For a [shell page](#shell-pages-3648), `shell.json` replaces `page.html` and
+contains the canonical shell value, including summary attribution. The manifest
+also carries `pageType:"shell"`; ordinary HTML exports omit it. All other
+snapshot, privacy, file-publication and failure rules are unchanged.
+
 The manifest is UTF-8 JSON with these fields:
 
-| Field               | Value / meaning                                                                                                       |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `format`            | `tmt-colab-page-export`                                                                                               |
-| `version`           | JSON integer `1`                                                                                                      |
-| `spaceId`           | Pinned space ID                                                                                                       |
-| `pageId`            | Exported page UUID                                                                                                    |
-| `title`             | Exact admitted title                                                                                                  |
-| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                   |
-| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                     |
-| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                      |
-| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                         |
-| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
-| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                             |
-| `plaintext`         | `true`                                                                                                                |
-| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
-| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                     |
-| `files`             | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                                                 |
+| `version`           | JSON integer `1`                                                                                                                        |
+| `spaceId`           | Pinned space ID                                                                                                                         |
+| `pageId`            | Exported page UUID                                                                                                                      |
+| `title`             | Exact admitted title                                                                                                                    |
+| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                           |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                     |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                       |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                        |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                           |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                    |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                               |
+| `plaintext`         | `true`                                                                                                                                  |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                   |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                       |
+| `files`             | `page.html` (or `shell.json`), `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
 before asynchronous work; it does not acquire or infer a new recipient.

@@ -424,55 +424,75 @@ fn prepare_content(
             .validate(&tmt_colab_model::crypto::digest(wire.source.as_bytes()))
             .map_err(|_| DecodeFault::InvalidInput)?;
     }
-    let expected = edited_projection(&before, edit)?;
+    let expected = if let Some(shell) = &wire.shell {
+        if !wire.source.is_empty() || wire.publisher_agent.is_some() || wire.attachments.is_some() {
+            return Err(DecodeFault::InvalidInput);
+        }
+        edited_shell_projection(&before, shell)?
+    } else {
+        edited_projection(&before, edit)?
+    };
     checkpoint(Stage::Generation, CheckpointBoundary::Enter, 0);
     let mut updates = Vec::new();
     if expected != before {
-        let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
-        let (start, end) = content_diff(old, &wire.source);
-        let mut rest = &wire.source[start..wire.source.len() - end];
-        let html = doc.get_or_insert_text("html");
-        let meta = doc.get_or_insert_map("meta");
-        let mut first = true;
-        let mut offset = start;
-        while first || !rest.is_empty() {
-            let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
-            while !rest.is_char_boundary(cut) {
-                cut -= 1;
-            }
-            let (piece, tail) = rest.split_at(cut);
+        if wire.shell.is_some() {
+            let meta = doc.get_or_insert_map("meta");
             let mut tx = doc.transact_mut();
-            if first {
-                let remove = old.len() - start - end;
-                if remove > 0 {
-                    html.remove_range(&mut tx, start as u32, remove as u32);
-                }
-                if before["meta"]["publisherAgent"].as_str() != edit.publisher_agent {
-                    if let Some(agent) = edit.publisher_agent {
-                        meta.insert(&mut tx, "publisherAgent", agent);
-                    } else {
-                        meta.remove(&mut tx, "publisherAgent");
-                    }
-                }
-                if before["meta"]["attachments"] != expected["meta"]["attachments"] {
-                    if let Some(list) = expected["meta"].get("attachments") {
-                        meta.insert(
-                            &mut tx,
-                            "attachments",
-                            Any::from_json(&list.to_string()).map_err(|_| DecodeFault::Rejected)?,
-                        );
-                    } else {
-                        meta.remove(&mut tx, "attachments");
-                    }
-                }
-            }
-            if !piece.is_empty() {
-                html.insert(&mut tx, offset as u32, piece);
-            }
+            meta.insert(
+                &mut tx,
+                "shell",
+                Any::from_json(&expected["meta"]["shell"].to_string())
+                    .map_err(|_| DecodeFault::Rejected)?,
+            );
             updates.push(tx.encode_update_v1());
-            offset += piece.len();
-            rest = tail;
-            first = false;
+        } else {
+            let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
+            let (start, end) = content_diff(old, &wire.source);
+            let mut rest = &wire.source[start..wire.source.len() - end];
+            let html = doc.get_or_insert_text("html");
+            let meta = doc.get_or_insert_map("meta");
+            let mut first = true;
+            let mut offset = start;
+            while first || !rest.is_empty() {
+                let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
+                while !rest.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                let (piece, tail) = rest.split_at(cut);
+                let mut tx = doc.transact_mut();
+                if first {
+                    let remove = old.len() - start - end;
+                    if remove > 0 {
+                        html.remove_range(&mut tx, start as u32, remove as u32);
+                    }
+                    if before["meta"]["publisherAgent"].as_str() != edit.publisher_agent {
+                        if let Some(agent) = edit.publisher_agent {
+                            meta.insert(&mut tx, "publisherAgent", agent);
+                        } else {
+                            meta.remove(&mut tx, "publisherAgent");
+                        }
+                    }
+                    if before["meta"]["attachments"] != expected["meta"]["attachments"] {
+                        if let Some(list) = expected["meta"].get("attachments") {
+                            meta.insert(
+                                &mut tx,
+                                "attachments",
+                                Any::from_json(&list.to_string())
+                                    .map_err(|_| DecodeFault::Rejected)?,
+                            );
+                        } else {
+                            meta.remove(&mut tx, "attachments");
+                        }
+                    }
+                }
+                if !piece.is_empty() {
+                    html.insert(&mut tx, offset as u32, piece);
+                }
+                updates.push(tx.encode_update_v1());
+                offset += piece.len();
+                rest = tail;
+                first = false;
+            }
         }
         if updates.len() > WRITE_TAIL_UPDATES
             || updates.iter().any(|v| v.len() > UPDATE_BYTES)
@@ -663,9 +683,13 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         return Err(DecodeFault::InvalidInput);
     }
     let producing = matches!(wire.action, BaselineAction::Produce { .. });
+    let expected_shell = match &wire.action {
+        BaselineAction::Produce { shell, .. } => shell.clone(),
+        _ => None,
+    };
     let mut chunks = Vec::new();
     let (update, expected_source, expected_commitment) = match wire.action {
-        BaselineAction::Produce { chunk_bytes } => {
+        BaselineAction::Produce { chunk_bytes, shell } => {
             let source = binary(&wire.source, BASELINE_BYTES)?;
             validate_view(&source, &wire.title, &digest)?;
             let source_text =
@@ -676,15 +700,43 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 creation_recipient: wire.creation_recipient.as_ref(),
                 attachments: wire.attachments.as_ref(),
             };
-            let update = match chunk_bytes {
-                Some(size) if (1024..=UPDATE_BYTES - 1024).contains(&size) => {
-                    let doc = Doc::new();
-                    chunks = chunked_baseline(&doc, source_text, &wire.title, &creation, size);
-                    doc.transact()
-                        .encode_state_as_update_v1(&StateVector::default())
+            let update = if let Some(shell) = shell {
+                crate::shell::validate(&shell).map_err(|_| DecodeFault::InvalidInput)?;
+                if !source.is_empty() || wire.attachments.is_some() {
+                    return Err(DecodeFault::InvalidInput);
                 }
-                Some(_) => return Err(DecodeFault::InvalidInput),
-                None => fresh_baseline(Doc::new(), source_text, &wire.title, &creation),
+                let doc = Doc::new();
+                let initial = fresh_baseline(Doc::new(), source_text, &wire.title, &creation);
+                doc.get_or_insert_text("html");
+                let meta = doc.get_or_insert_map("meta");
+                let mut tx = doc.transact_mut();
+                tx.apply_update(Update::decode_v1(&initial).map_err(|_| DecodeFault::Rejected)?)
+                    .map_err(|_| DecodeFault::Rejected)?;
+                meta.insert(&mut tx, "pageType", "shell");
+                meta.insert(
+                    &mut tx,
+                    "shell",
+                    Any::from_json(&shell.to_string()).map_err(|_| DecodeFault::Rejected)?,
+                );
+                let update = tx.encode_state_as_update_v1(&StateVector::default());
+                if chunk_bytes.is_some() {
+                    if update.len() > UPDATE_BYTES {
+                        return Err(DecodeFault::Rejected);
+                    }
+                    chunks.push(update.clone());
+                }
+                update
+            } else {
+                match chunk_bytes {
+                    Some(size) if (1024..=UPDATE_BYTES - 1024).contains(&size) => {
+                        let doc = Doc::new();
+                        chunks = chunked_baseline(&doc, source_text, &wire.title, &creation, size);
+                        doc.transact()
+                            .encode_state_as_update_v1(&StateVector::default())
+                    }
+                    Some(_) => return Err(DecodeFault::InvalidInput),
+                    None => fresh_baseline(Doc::new(), source_text, &wire.title, &creation),
+                }
             };
             (update, Some(source), None)
         }
@@ -713,6 +765,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         .apply_update(Update::decode_v1(&update).map_err(|_| DecodeFault::Rejected)?)
         .map_err(|_| DecodeFault::Rejected)?;
     let projection = project(&doc, Namespace::Content)?;
+    if producing && projection["meta"].get("shell") != expected_shell.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
     let source_text = projection["html"].as_str().ok_or(DecodeFault::Rejected)?;
     validate_view(source_text.as_bytes(), &wire.title, &digest)?;
     if projection["meta"]["title"].as_str() != Some(wire.title.as_str())

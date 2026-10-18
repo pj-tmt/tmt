@@ -4,8 +4,7 @@ use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 use tmt_colab_model::values;
 
-pub const ITEM_LIMIT: usize = 256;
-pub const DOCUMENT_BYTES: usize = 128 * 1024;
+pub use crate::limits::{SHELL_BYTES as DOCUMENT_BYTES, SHELL_ITEMS as ITEM_LIMIT};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Invalid;
@@ -46,7 +45,10 @@ pub fn valid_anchor(value: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
 }
 fn optional_text(value: &Value) -> Result<()> {
-    for (key, bytes) in [("note", 512), ("audience", 128)] {
+    for (key, bytes) in [
+        ("note", crate::limits::SHELL_NOTE_BYTES),
+        ("audience", crate::limits::SHELL_AUDIENCE_BYTES),
+    ] {
         if let Some(value) = value.get(key) {
             plain(value, bytes)?;
         }
@@ -72,7 +74,10 @@ pub fn validate_item(value: &Value) -> Result<()> {
     optional_text(value)
 }
 fn lines(value: &Value) -> Result<()> {
-    for (key, limit) in [("line1", 24), ("line2", 60)] {
+    for (key, limit) in [
+        ("line1", crate::limits::SHELL_SUMMARY_LINE1_POINTS),
+        ("line2", crate::limits::SHELL_SUMMARY_LINE2_POINTS),
+    ] {
         let line = plain(&value[key], limit * 4)?;
         require(line.chars().count() <= limit)?;
     }
@@ -80,7 +85,7 @@ fn lines(value: &Value) -> Result<()> {
 }
 fn integer(value: &Value) -> Result<u64> {
     let number = value.as_f64().ok_or(Invalid)?;
-    require(number >= 0.0 && number <= 9_007_199_254_740_991.0 && number.fract() == 0.0)?;
+    require((0.0..=9_007_199_254_740_991.0).contains(&number) && number.fract() == 0.0)?;
     Ok(number as u64)
 }
 /// Agent details are display-only Core metadata, never proof of agent authority.

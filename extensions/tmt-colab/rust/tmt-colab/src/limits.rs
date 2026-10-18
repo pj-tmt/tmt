@@ -149,6 +149,13 @@ pub const PAGE_PROPOSALS: usize = 200;
 /// the `/api/pages` reply stays under its 1 MiB cap with 1,000 pages.
 pub const LABEL_POINTS: usize = 32;
 pub const PAGE_LABELS: usize = 8;
+/// Structured shell value and reference bounds (contract: Shell pages).
+pub const SHELL_ITEMS: usize = 256;
+pub const SHELL_BYTES: usize = 128 * 1024;
+pub const SHELL_NOTE_BYTES: usize = 512;
+pub const SHELL_AUDIENCE_BYTES: usize = 128;
+pub const SHELL_SUMMARY_LINE1_POINTS: usize = 24;
+pub const SHELL_SUMMARY_LINE2_POINTS: usize = 60;
 pub const SPACE_LABELS: usize = 1000;
 /// Pages one `page.labels` request may change, in one store transaction (the payload stays under
 /// the 16 KiB management cap for ordinary names; a larger batch is several requests).

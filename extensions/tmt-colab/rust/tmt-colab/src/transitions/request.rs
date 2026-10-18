@@ -42,6 +42,12 @@ pub struct RequestScope {
     pub affected_pages: Vec<String>,
 }
 pub enum OwnerAction<'a> {
+    CreateShell {
+        page: &'a str,
+        title: &'a str,
+        publisher_agent: Option<&'a str>,
+        creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
+    },
     Create {
         page: &'a str,
         title: &'a str,
@@ -196,6 +202,26 @@ impl Engine {
                     source,
                     publisher_agent,
                     creation_recipient,
+                    shell: false,
+                },
+                now,
+            )?,
+            OwnerAction::CreateShell {
+                page,
+                title,
+                publisher_agent,
+                creation_recipient,
+            } => self.create_page(
+                store,
+                key,
+                context,
+                super::create::Selection {
+                    page,
+                    title,
+                    source: "",
+                    publisher_agent,
+                    creation_recipient,
+                    shell: true,
                 },
                 now,
             )?,

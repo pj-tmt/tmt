@@ -117,6 +117,8 @@ fn required_option<'de, D: serde::Deserializer<'de>>(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Create {
+    #[serde(default, deserialize_with = "publisher_label")]
+    page_type: Option<String>,
     #[serde(default, deserialize_with = "creation_recipient")]
     creation_recipient: Option<crate::decoder::CreationRecipient>,
     page_id: String,
@@ -378,6 +380,10 @@ impl Command {
                     || create.title.len() > crate::decoder::BASELINE_TITLE_BYTES
                     || create.source.len() > crate::decoder::BASELINE_BYTES
                     || create
+                        .page_type
+                        .as_deref()
+                        .is_some_and(|kind| kind != "shell" || !create.source.is_empty())
+                    || create
                         .publisher_agent
                         .as_deref()
                         .is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
@@ -529,6 +535,12 @@ fn apply(
     };
 
     let action = match &command.action {
+        Action::Create(v) if v.page_type.is_some() => OwnerAction::CreateShell {
+            page: &v.page_id,
+            title: &v.title,
+            publisher_agent: v.publisher_agent.as_deref(),
+            creation_recipient: v.creation_recipient.as_ref(),
+        },
         Action::Create(v) => OwnerAction::Create {
             page: &v.page_id,
             title: &v.title,

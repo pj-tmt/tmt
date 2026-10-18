@@ -35,6 +35,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly summary?: PageActivity;
 }
 export interface PageSnapshot extends PageSummary {
+  readonly pageType?: Projection['pageType'];
+  readonly shell?: Projection['shell'];
   readonly originalAuthor?: Projection['originalAuthor'];
   readonly publisherAgent?: Projection['publisherAgent'];
   readonly source: string;
