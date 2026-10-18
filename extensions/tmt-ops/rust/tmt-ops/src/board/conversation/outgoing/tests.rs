@@ -666,10 +666,11 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
                 .iter()
                 .position(|line| line == &format!("[product · auth-fix] message {index}"))
                 .unwrap();
+            assert_eq!(lines[message + 1], "", "{lines:?}");
             assert_eq!(
-                &lines[message + 1..message + 4],
-                &["", "auth-fix · now", &format!("reply {index}")],
-                "the correlated reply replaces feedback: {lines:?}"
+                lines[message + 3],
+                format!("reply {index}"),
+                "the correlated reply immediately replaces feedback: {lines:?}"
             );
             let reply = lines
                 .iter()
@@ -1567,7 +1568,7 @@ fn provider_feedback_names_are_literal_and_do_not_create_authored_member_links()
             mapped
                 .lines
                 .iter()
-                .any(|line| line.to_string() == format!("{NAME} · now")),
+                .any(|line| line.to_string().starts_with(&format!(" {NAME} → "))),
             "reply author names stay literal"
         );
         assert_eq!(mapped.mentions.iter().map(Vec::len).sum::<usize>(), 1);

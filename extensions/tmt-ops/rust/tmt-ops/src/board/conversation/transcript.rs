@@ -305,7 +305,7 @@ impl Session {
                         let reply = &self.finals[index];
                         let header = append(
                             super::super::exchange_view::header(
-                                &reply.from,
+                                super::super::exchange_view::Sender::Agent(&reply.from),
                                 reader,
                                 final_ages.get(index).map_or("—", String::as_str),
                                 false,

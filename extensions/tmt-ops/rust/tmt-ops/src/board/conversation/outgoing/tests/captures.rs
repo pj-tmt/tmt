@@ -135,10 +135,31 @@ fn every_feedback_state_has_approved_exchange_colours_at_mock_widths() {
                     } else {
                         "night-2"
                     };
-                    assert!(
-                        !text.contains(&format!("{recipient} → you")),
-                        "first outgoing turn has no empty incoming heading: {text}"
+                    let incoming = format!("{recipient} → you");
+                    let incoming_headers: Vec<_> = lines
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, line)| line.contains(&incoming))
+                        .collect();
+                    assert_eq!(
+                        incoming_headers.len(),
+                        usize::from(scene == "sent-replied"),
+                        "only the settled reply owns an incoming heading: {text}"
                     );
+                    if let Some((y, header)) = incoming_headers.first() {
+                        let x = header[..header.find(&incoming).unwrap()].width();
+                        for cell in &buffer.content[y * usize::from(width) + x
+                            ..y * usize::from(width) + x + recipient.width()]
+                        {
+                            assert_eq!(
+                                cell.fg,
+                                look.role(Role::Text)
+                                    .fg
+                                    .unwrap_or(ratatui::style::Color::Reset)
+                            );
+                            assert!(cell.modifier.contains(ratatui::style::Modifier::BOLD));
+                        }
+                    }
                     let needle = expected(scene);
                     let (y, start) = lines
                         .iter()
