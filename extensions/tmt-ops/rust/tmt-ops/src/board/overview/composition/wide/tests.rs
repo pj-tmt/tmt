@@ -53,7 +53,7 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
     assert_eq!(band.height, 3);
     assert_eq!(band.x, 90);
     assert_eq!(band.width, 57);
-    assert!(shown.contains("⏎ to reply to worker"));
+    assert!(shown.contains("⏎ to message worker"));
     assert!(!shown.contains("[ Send ]"));
     let rule = app.conversation.borrow().pane.unwrap().y;
     assert_eq!(buffer[(88, rule)].symbol(), "┬");
@@ -192,8 +192,8 @@ fn a_squad_uses_its_observed_lead_and_never_borrows_a_waiting_members_question()
         "the passive field must admit the exact lead reply"
     );
     key(&mut app, KeyCode::Enter);
-    assert!(matches!(app.input.as_ref().unwrap().compose,
-        Compose::Reply { ref request, .. } if request == "req_88888888-8888-4888-8888-888888888888"));
+    assert!(matches!(&app.input.as_ref().unwrap().compose,
+        Compose::Talk { to } if to == "observed-lead"));
     app.paste("Reply to the lead only.");
     assert!(matches!(key(&mut app, KeyCode::Enter),
         Effect::Act(Request::Reply { request, text, .. })
@@ -240,9 +240,7 @@ fn enter_and_pointer_reply_to_the_exact_question_and_an_unrelated_result_never_r
         crate::config::OpsKeyScope::OverviewReader
     );
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose,Compose::Reply {request,..} if request.as_str()==read.request.as_str())
-    );
+    assert!(matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker"));
     let shown = text(&paint(&mut app, 148, 51));
     assert!(shown.contains("⏎ send · Esc cancel"));
     let band = app.input_band.get().unwrap();
@@ -271,7 +269,7 @@ fn enter_and_pointer_reply_to_the_exact_question_and_an_unrelated_result_never_r
         std::time::Instant::now(),
     );
     assert!(
-        matches!(&pointer.input.as_ref().unwrap().compose,Compose::Reply {request,..} if request.as_str()==read.request.as_str())
+        matches!(&pointer.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker")
     );
 }
 #[test]

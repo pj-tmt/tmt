@@ -259,8 +259,6 @@ mod tests {
                     draft_key: None,
                     response_quotes: Vec::new(),
                     row_send: None,
-                    others: Vec::new(),
-                    quote: None,
                     link: None,
                     prompt: String::new(),
                     text: "a draft".into(),

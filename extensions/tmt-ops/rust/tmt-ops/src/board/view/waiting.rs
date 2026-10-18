@@ -141,14 +141,6 @@ pub(in crate::board) fn input_lines(
                 .saturating_add(3)
                 .max(5)
         }
-        crate::board::app::Compose::Reply { .. } => {
-            5 + input
-                .text
-                .layout(area.width.saturating_sub(4))
-                .lines
-                .len()
-                .clamp(1, 6)
-        }
         _ => {
             4 + input
                 .text
@@ -168,10 +160,7 @@ pub(in crate::board) fn inline_prompt(
     app: &crate::board::app::App,
     body: ratatui::layout::Rect,
 ) {
-    use ratatui::{
-        layout::Rect,
-        text::{Line, Span},
-    };
+    use ratatui::{layout::Rect, text::Line};
     use tmt_cli_style::Role;
     use tmt_tui::components::{Modal, Placement};
     app.composer.invalidate();
@@ -508,39 +497,7 @@ pub(in crate::board) fn inline_prompt(
                     .add_modifier(ratatui::style::Modifier::BOLD),
             ),
         );
-        if matches!(input.compose, crate::board::app::Compose::Reply { .. })
-            && areas.content.height > 1
-        {
-            let quote = format!(
-                "“{}”",
-                input.quote.as_deref().unwrap_or("question unavailable")
-            );
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect {
-                    y: areas.content.y + 1,
-                    height: 1,
-                    ..areas.content
-                },
-                Line::from(vec![
-                    Span::styled(
-                        "◆ ",
-                        look.role(Role::Waiting)
-                            .add_modifier(ratatui::style::Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        super::fit(&quote, usize::from(areas.content.width.saturating_sub(2))),
-                        look.role(Role::Muted),
-                    ),
-                ]),
-            );
-        }
-        let mut header_lines = if matches!(input.compose, crate::board::app::Compose::Reply { .. })
-        {
-            2
-        } else {
-            1
-        };
+        let mut header_lines = 1;
         if let Some(quote) = input.response_quotes.last() {
             strip::paint_left(
                 frame.buffer_mut(),
@@ -570,20 +527,7 @@ pub(in crate::board) fn inline_prompt(
         );
     }
     let mut hint = if matches!(input.compose, crate::board::app::Compose::Status) {
-        format!(
-            "↑↓ field · Enter choose · PgUp/PgDn · Esc cancel · Tab {}",
-            if areas.footer.width >= tmt_cli_style::breakpoint::LG.cells {
-                input.modes().join("/")
-            } else {
-                "mode".into()
-            }
-        )
-    } else if !input.others.is_empty() {
-        format!(
-            "Enter send · Esc keep draft · {} · Ctrl-P paste · Tab {}",
-            app.newline_hint(),
-            input.modes().join("/")
-        )
+        "↑↓ field · Enter choose · PgUp/PgDn · Esc cancel".to_owned()
     } else {
         format!(
             "Enter send · Esc keep draft · {} · Ctrl-P paste",
@@ -627,10 +571,7 @@ fn final_input(
     app: &crate::board::app::App,
     body: ratatui::layout::Rect,
 ) {
-    use crate::{
-        action::Verb,
-        board::{composer::QuoteHit, input_field as field},
-    };
+    use crate::board::{composer::QuoteHit, input_field as field};
     use ratatui::{layout::Rect, text::Line};
     use tmt_cli_style::Role;
     let Some(projection) = app.composer_projection() else {
@@ -655,22 +596,12 @@ fn final_input(
     let key = start
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
-    let replying = if projection.focused {
-        app.input
-            .as_ref()
-            .is_some_and(|input| matches!(input.compose, crate::board::app::Compose::Reply { .. }))
-    } else {
-        start
-            .as_ref()
-            .is_none_or(|(_, action)| action.verb == Verb::Reply)
-    };
     let editor_area = field::paint(
         frame.buffer_mut(),
         band,
         composer_caption(app, &projection),
         key,
         projection.focused,
-        replying,
         look,
     );
     if projection.focused {
@@ -707,8 +638,7 @@ fn final_input(
             editor_area,
             Line::styled(
                 format!(
-                    "{} {}…",
-                    if replying { "Reply to" } else { "Message" },
+                    "⏎ to message {}",
                     crate::board::notes::sanitize(projection.recipient)
                 ),
                 base.patch(look.role(Role::Dim)),
@@ -724,22 +654,6 @@ fn final_input(
             area: Rect { width: 6, ..hint },
             key,
         });
-    }
-    if projection.quotes.is_empty()
-        && band.height >= 3
-        && let Some(question) = app.input.as_ref().and_then(|input| input.quote.as_deref())
-    {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(editor_area.x, band.bottom() - 1, editor_area.width, 1),
-            Line::styled(
-                super::fit(
-                    &format!("Reply: {}", crate::board::notes::single_line(question)),
-                    usize::from(editor_area.width),
-                ),
-                base.patch(look.role(Role::Dim)),
-            ),
-        );
     }
     if let Some(quote) = projection
         .quotes

@@ -146,10 +146,14 @@ state only, no squad data or durable preference policy.
   read-only modal/ScrollState reader. Source selection and annotation revalidate
   the exact request and raw body before producing an effect; reading alone sends
   and acknowledges nothing.
-- Row composer and footer: `Input.compose` is the current mode (answer, note, talk or status)
-  and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
-  refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
-  mode appears only when available; multiple answers use the same explicit request menu. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
+- Row composer and footer: member messages have one recipient and no Tab mode
+  cycle. App resolves the newest current open request only at submission; no open
+  request means plain Talk. The send worker permits one plain Talk fallback only
+  after a definite settled-request refusal, never after uncertain acceptance.
+  Notes and Status are explicit independent actions; `update-status` in Actions
+  opens the existing form through `start_status`, with no new default key.
+  `attach_row` retains the
+  UUID draft owner; refresh does not bind the editor to a draft-start request.
   Workspace dispatch, help and footer resolve the same Config key table. Active
   text, search and completion keep their input; non-typing panes and overlays
   accept effective destination actions after the overlay's own back path closes it.

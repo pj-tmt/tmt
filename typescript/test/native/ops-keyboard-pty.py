@@ -160,6 +160,17 @@ def api(operation, values):
     return json.loads(result.stdout)
 
 
+def core_json(arguments):
+    result = subprocess.run(spec["cli"] + arguments, text=True, capture_output=True,
+                            timeout=10, check=True)
+    return json.loads(result.stdout)
+
+
+def incoming_question(message):
+    return core_json(["talk", "--identity", spec["recipient"], "--inbox", "--detach",
+                      "--json", "--", spec["sender"], message])["requestId"]
+
+
 def received():
     items = api("requests.list", {"recipientId": spec["recipient"], "limit": 50})["items"]
     return [
@@ -195,6 +206,9 @@ def stop_and_resume():
 
 
 try:
+    transition = spec.get("requestTransition")
+    original_request = incoming_question("An open question before drafting") if transition else None
+    newest_request = None
     command = spec["cli"] + [
         "ops", "ui", "--squad", "product", "--view", "keyboard", "--reset-view"
     ]
@@ -252,21 +266,53 @@ sys.exit(0)
         os.write(master, b"middle\x0a")
         expected = "first\nmiddle\nsecond"
     os.write(master, b"second")
-    # Newline keys cannot silently dispatch. Inspect Core before plain Enter.
+    if transition:
+        wait_for(lambda: fresh_text("second"), "draft visible before request transition")
+        if transition == "settled":
+            core_json(["answer", "--identity", spec["sender"], "--request", original_request,
+                       "--json", "--", spec["recipient"], "Settled outside while drafting"])
+        else:
+            newest_request = incoming_question("A newer question during drafting")
+            old = api("requests.show", {"requestId": original_request})
+            new = api("requests.show", {"requestId": newest_request})
+            if new["preparedAtMs"] <= old["preparedAtMs"]:
+                raise AssertionError("new request must have a later literal timestamp")
+        # The name changes after the request transition. Observing it after an
+        # explicit refresh proves this is the same UUID with a fresh acquired row.
+        api("identity.rename", {"identityId": spec["recipient"], "expectedName": "worker",
+                                "name": "worker-fresh"})
+        os.write(master, b"\x12")
+        wait_for(lambda: fresh_text("worker-fresh") and fresh_text("second"),
+                 "refreshed member identity with the draft retained")
+    # Newline keys and external request changes must never dispatch the draft.
     if received():
-        raise AssertionError("a newline key submitted a request")
+        raise AssertionError("a newline key or refresh submitted a request")
     os.write(master, b"\r")
     requests = []
 
     def submitted():
         global requests
-        requests = received()
+        if newest_request:
+            detail = api("requests.show", {"requestId": newest_request})
+            requests = [detail] if detail["final"]["status"] == "retained" else []
+        else:
+            requests = received()
         return bool(requests)
 
-    wait_for(submitted, "plain Enter submitted the multiline message")
-    expected = "[product · worker] " + expected
-    if len(requests) != 1 or requests[0]["prompt"].get("message") != expected:
+    wait_for(submitted, "plain Enter delivered the multiline message")
+    expected = "[product · " + ("worker-fresh" if transition else "worker") + "] " + expected
+    message = (requests[0]["final"].get("response") if newest_request
+               else requests[0]["prompt"].get("message"))
+    if len(requests) != 1 or message != expected:
         raise AssertionError(f"wrong durable message: {requests!r}")
+    if newest_request:
+        older = api("requests.show", {"requestId": original_request})
+        if older["final"]["status"] != "not_submitted" or received():
+            raise AssertionError("newest-only answer settled an older request or sent a second message")
+    elif transition:
+        older = api("requests.show", {"requestId": original_request})
+        if older["final"].get("response") != "Settled outside while drafting":
+            raise AssertionError("the new message changed the settled answer")
     if spec["lifecycle"] == "reload":
         # Retained drafts correctly block exec: submit first, then leave the
         # empty composer. The reload must pop and renegotiate its own mode.
@@ -321,7 +367,7 @@ sys.exit(0)
     print(
         json.dumps(
             {
-                "message": requests[0]["prompt"]["message"],
+                "message": message,
                 "queries": queries,
                 "pushes": pushes,
                 "pops": pops,

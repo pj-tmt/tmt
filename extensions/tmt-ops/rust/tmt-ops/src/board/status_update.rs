@@ -1,5 +1,5 @@
 //! Status form state inside the shared row composer and band.
-use super::app::{App, Choice, Effect, Request};
+use super::app::{App, Effect, Request};
 use crate::membership::status_update::{self, Outcome, Preview, Submit, Target};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -111,7 +111,6 @@ impl App {
             return self.say("Cancelled; no further action.");
         }
         if key.code == KeyCode::Tab {
-            self.cycle_mode();
             return Effect::None;
         }
         if self.input.as_ref().is_some_and(|input| {
@@ -199,7 +198,7 @@ impl App {
             draft.reason.key(key, width, super::app::INPUT_LIMIT);
             return Effect::None;
         }
-        let max = 3 + open.len();
+        let max = 3 + usize::from(!open.is_empty());
         match key.code {
             KeyCode::Up => {
                 draft.focus = draft.focus.saturating_sub(1);
@@ -226,25 +225,15 @@ impl App {
                         reason: draft.reason.as_str().to_owned(),
                     }))));
                 }
-                n => {
-                    let Some(request) = open
-                        .get(n - 4)
-                        .and_then(|item| item["requestId"].as_str())
-                        .map(str::to_owned)
-                    else {
-                        return Effect::None;
-                    };
+                4 if !open.is_empty() => {
                     let Some(send) = self.input.as_ref().and_then(|input| input.row_send.clone())
                     else {
                         return Effect::None;
                     };
                     let squad = self.input.as_ref().unwrap().squad.clone();
-                    let from = send.name.clone();
-                    self.input = None;
-                    let effect = self.choose(Choice::Reply { request, from });
-                    self.attach_row(send, squad);
-                    return effect;
+                    return self.compose_row(send, crate::action::Verb::Talk, squad);
                 }
+                _ => {}
             },
             KeyCode::Backspace => {
                 if draft.focus == 1 {
@@ -366,19 +355,11 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
             None,
             "Requires a reply (separate from manual status)".into(),
         ));
-        if let Some(open) = open.filter(|open| !open.is_empty()) {
-            for (index, item) in open.iter().enumerate() {
-                lines.push((
-                    Some(4 + index),
-                    format!(
-                        "Answer request {}: {}",
-                        item["requestId"].as_str().unwrap_or("unavailable"),
-                        super::notes::sanitize(
-                            item["preview"].as_str().unwrap_or("question unavailable")
-                        )
-                    ),
-                ));
-            }
+        if open.is_some_and(|open| !open.is_empty()) {
+            lines.push((
+                Some(4),
+                "Message member (answers the newest open request)".into(),
+            ));
         } else {
             lines.push((
                 None,
@@ -436,17 +417,7 @@ mod tests {
             .unwrap()
     }
     fn ready(app: &mut App) -> Preview {
-        app.perform(&crate::action::Action::parse("annotate").unwrap());
-        for _ in 0..4 {
-            if app
-                .input
-                .as_ref()
-                .is_some_and(|input| matches!(input.compose, Compose::Status))
-            {
-                break;
-            }
-            press(app, KeyCode::Tab);
-        }
+        app.perform(&crate::action::Action::parse("update-status").unwrap());
         let target = app.status_draft.as_ref().unwrap().target.clone().unwrap();
         let preview = Preview {
             target,
@@ -482,6 +453,8 @@ mod tests {
     #[test]
     fn no_preselected_changes_reason_bound_and_message_draft_are_independent() {
         let mut app = app();
+        app.perform(&crate::action::Action::parse("talk").unwrap());
+        app.paste("Message draft");
         let opening = ready(&mut app);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
@@ -495,12 +468,7 @@ mod tests {
         for c in "Approved".chars() {
             press(&mut app, KeyCode::Char(c));
         }
-        press(&mut app, KeyCode::Tab); // return to note
-        for c in "Message draft".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
-        // Annotation is about this member even when the lead receives it.
-        // Its editor must stay visible in the same selected conversation.
+        // The status reason has its own editor; it never changes the member draft.
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 42)).unwrap();
         terminal
@@ -516,11 +484,9 @@ mod tests {
                 .iter()
                 .map(|cell| cell.symbol())
                 .collect::<String>()
-                .contains("Message draft")
+                .contains("Approved")
         );
-        press(&mut app, KeyCode::Tab);
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().text, "Message draft");
+        assert!(app.input.as_ref().unwrap().text.is_empty());
         assert_eq!(app.status_draft.as_ref().unwrap().reason, "Approved");
         press(&mut app, KeyCode::Down);
         let Effect::Act(Request::Status(action)) = press(&mut app, KeyCode::Enter) else {
@@ -543,46 +509,29 @@ mod tests {
         );
         press(&mut app, KeyCode::Esc);
         assert!(app.input.is_none() && app.status_draft.is_none());
+        app.perform(&crate::action::Action::parse("talk").unwrap());
+        assert_eq!(app.input.as_ref().unwrap().text, "Message draft");
     }
     #[test]
-    fn multiple_requests_use_the_existing_picker_and_status_answer_selects_one() {
+    fn status_is_explicit_and_its_message_action_uses_the_newest_request() {
         let mut app = app();
-        member_row(&mut app)["waitingOnYou"] =
-            json!([{"requestId":"q1","preview":"First?"},{"requestId":"q2","preview":"Second?"}]);
-        app.perform(&crate::action::Action::parse("reply").unwrap());
-        assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(
-            app.input.as_ref().unwrap().modes(),
-            ["answer", "note", "talk", "status"]
-        );
-        press(&mut app, KeyCode::Tab);
-        press(&mut app, KeyCode::Tab);
+        member_row(&mut app)["waitingOnYou"] = json!([
+            {"requestId":"q1","preparedAtMs":10,"preview":"First?"},
+            {"requestId":"q2","preparedAtMs":20,"preview":"Second?"}
+        ]);
+        ready(&mut app);
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
             Compose::Status
         ));
-        assert_eq!(
-            app.status_draft
-                .as_ref()
-                .unwrap()
-                .target
-                .as_ref()
-                .unwrap()
-                .identity,
-            MEMBER
-        );
-        // Explicit Answer request chooses q2; neither request is finalised by opening.
-        app.status_draft.as_mut().unwrap().focus = 5;
+        app.status_draft.as_mut().unwrap().focus = 4;
         press(&mut app, KeyCode::Enter);
         assert!(
-            matches!(&app.input.as_ref().unwrap().compose,Compose::Reply{request,..} if request=="q2")
+            matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "auth-fix")
         );
-        for c in "Dismissed explicitly".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
+        app.paste("Dismissed explicitly");
         assert!(
-            matches!(press(&mut app,KeyCode::Enter),Effect::Act(Request::Reply{request,..}) if request=="q2")
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { request, .. }) if request == "q2")
         );
         assert_eq!(
             member_row(&mut app)["waitingOnYou"]
@@ -797,8 +746,7 @@ mod tests {
             for label in [
                 "Reason:",
                 "Apply and notify",
-                "Answer request req_11111111-1111-4111-8111-111111111111",
-                "Answer request req_22222222-2222-4222-8222-222222222222",
+                "Message member (answers the newest open request)",
             ] {
                 assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
                 let text = draw(&app, width);

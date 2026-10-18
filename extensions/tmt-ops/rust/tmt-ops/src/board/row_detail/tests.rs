@@ -315,12 +315,6 @@ fn common_pool_response_quote_opens_talk_without_a_squad_note_or_acknowledgment(
     let input = app.input.as_ref().unwrap();
     assert!(matches!(&input.compose, app::Compose::Talk { to } if to == "worker"));
     assert!(input.squad.is_empty());
-    assert!(
-        input
-            .others
-            .iter()
-            .all(|mode| !matches!(mode, app::Compose::Annotate { .. }))
-    );
     let quote = &input.response_quotes[0];
     assert_eq!(quote.key.lead, MEMBER);
     assert_eq!(quote.range, 0..source.len());

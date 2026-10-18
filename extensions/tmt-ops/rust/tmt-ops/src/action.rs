@@ -40,6 +40,7 @@ pub enum Verb {
     OverviewFilter,
     Reply,
     Annotate,
+    UpdateStatus,
     /// The digest dropdown of the selected member.
     Digest,
 }
@@ -72,6 +73,7 @@ impl Verb {
             "overview-filter" => Self::OverviewFilter,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
+            "update-status" => Self::UpdateStatus,
             "digest" => Self::Digest,
             other => Self::Ui(OpsUiAction::parse(other)?),
         })
@@ -91,6 +93,7 @@ impl Verb {
                     | Self::Talk
                     | Self::Reply
                     | Self::Annotate
+                    | Self::UpdateStatus
                     | Self::Digest
             )
     }
@@ -123,6 +126,7 @@ impl Verb {
             Self::OverviewFilter => "overview-filter",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
+            Self::UpdateStatus => "update-status",
             Self::Digest => "digest",
         }
     }
@@ -191,7 +195,7 @@ impl Action {
             Verb::Ui(_) => unreachable!("UI action handled above"),
             Verb::Reply => 0,
             Verb::Talk => 1,
-            Verb::Annotate => 2,
+            Verb::Annotate | Verb::UpdateStatus => 2,
             Verb::Digest => 3,
             Verb::Jump if !lead => 3,
             Verb::Open => 4,
@@ -260,9 +264,10 @@ impl Action {
             Verb::ViewReply => "view the selected row’s full reply".into(),
             Verb::HomeWrite => "write to all HOME leads".into(),
             Verb::HomePick => "pick a HOME lead to write to".into(),
-            Verb::Reply => "answer the member's request, or note its pending decision".into(),
+            Verb::Reply => "focus the member's message composer".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
-            Verb::Annotate => "write answer/note/talk; Tab changes mode".into(),
+            Verb::Annotate => "write a note to the lead about this row".into(),
+            Verb::UpdateStatus => "update the member's manual status".into(),
             Verb::Digest => "change the member's digest".into(),
         }
     }
@@ -553,7 +558,7 @@ mod tests {
             ("jump", "go to the member's pane"),
             ("jump lead", "go to the squad lead's pane"),
             ("annotate member", "send the member a note"),
-            ("annotate lead", "write answer/note/talk; Tab changes mode"),
+            ("annotate lead", "write a note to the lead about this row"),
             ("toggle notes", "fold or unfold the notes pane"),
             (
                 "toggle detail replies",

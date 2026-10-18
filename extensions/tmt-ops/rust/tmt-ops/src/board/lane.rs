@@ -92,21 +92,34 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::Send { request, ticket } => {
             if let Request::Reply {
                 me,
+                squad,
                 request,
                 from,
                 text,
             } = request
             {
+                let outcome =
+                    match crate::send::answer_or_talk(core, &squad, &me, &request, &from, &text) {
+                        crate::send::AnswerOrTalk::Talk(outcome) => super::ActionOutcome::Send(
+                            Box::new(super::conversation::outgoing::Completed {
+                                ticket: Some(ticket),
+                                outcome,
+                                what: "Message".into(),
+                                to: from,
+                            }),
+                        ),
+                        crate::send::AnswerOrTalk::Answer(outcome) => super::ActionOutcome::Answer(
+                            Box::new(super::conversation::outgoing::Answered {
+                                ticket,
+                                outcome,
+                                to: from,
+                            }),
+                        ),
+                    };
                 return BoardEvent::Acted {
                     jump: false,
                     sends: true,
-                    outcome: Ok(super::ActionOutcome::Answer(Box::new(
-                        super::conversation::outgoing::Answered {
-                            ticket,
-                            outcome: crate::send::answer(core, &me, &request, &from, &text),
-                            to: from,
-                        },
-                    ))),
+                    outcome: Ok(outcome),
                 };
             }
             let mut outcome = execute(core, request);

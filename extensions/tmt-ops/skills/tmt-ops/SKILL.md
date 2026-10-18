@@ -593,9 +593,9 @@ opens a note to its observed squad lead with the member named, even when a reque
 is pending. Both actions follow the selection while the conversation is focused.
 A missing lead or Common pool membership shows a notice instead of opening a
 composer to another recipient. Authored bindings retain precedence.
-`reply` uses real request IDs through `tmt answer`; multiple open requests require
-an explicit choice. Notes retain the actual lead or explicit member recipient.
-The recipient and source are frozen and rechecked at submission. Esc returns to
+`reply` focuses the same member message composer; open requests are resolved at
+submission as described below. Notes retain the actual lead or explicit member
+recipient, with the recipient and source rechecked at submission. Esc returns to
 the list with the message draft kept; empty input sends nothing.
 Every workspace message input completes acquired agent and squad references with
 the shared fuzzy matcher. Matching characters are bold; accepting a reference
@@ -603,14 +603,14 @@ inserts text only and never changes the recipient. Colab pages are not candidate
 Member Rename defaults to `r` in the Agents list only;
 its reviewed UUID and exact current name must still match before Core changes the name.
 
-Use a squad member's shared composer and Tab to **Update status** for the selected lead or member. The
+Choose **Update status** from the selected lead or member's Actions menu. The
 shared band shows exact raw manual `pending` and `state` values separately from
 **Requires a reply**. Up/down selects a field or action; Enter toggles **Clear
 pending** or **Replace state**. Type the explicit replacement on its row and a
 reason on **Reason**, then choose **Apply and notify**. Neither change is
 preselected. Clearing pending never infers a new state. PgUp/PgDn scroll long
-previews; old/new values stack at narrow widths. Tab preserves both the message
-draft and the separate status form; Esc cancels.
+previews; old/new values stack at narrow widths. The status form leaves the
+member's message draft intact; Esc cancels.
 
 Every selected field participates in the atomic apply with its exact raw value
 expectation, including locally unchanged selections. The previewed identity UUID,
@@ -625,15 +625,19 @@ failed** offers **Retry notification only** when acceptance has not settled; sel
 that action and press Enter. The
 retry retains the same operation and message and never repeats the metadata update.
 
-**Answer request** opens the existing answer composer for one identified unanswered
-request; an explicit dismissal is a final reply. Clearing manual fields leaves
-request attention intact, and answering leaves unrelated manual status intact.
-Several requests keep the explicit picker; Tab can leave it for the other modes
-without choosing a request. No status action acknowledges requests.
+**Message member** opens the member's message composer. Enter resolves the newest
+currently observed open request from that member and answers it; older requests
+remain open. If none is open, Enter sends a new message to the same member.
+A request settling while you type does not block sending. A definite settled
+refusal permits one fallback new message with the same text; uncertain acceptance
+never triggers a resend. Status changes remain separate and acknowledge nothing. Open **Update status**
+from the row's Actions menu (or an authored `update-status` binding); the form
+reuses the existing preview, permission and conflict checks.
 
 Inside the active message editor, Enter sends and Esc returns to the list with
-text kept; Tab cycles answer, note, talk and status where they apply, preserving
-your text. The boxed composer has a visible rule in both themes and NO_COLOR.
+text kept. The member composer never copies the lead or cycles modes with Tab;
+use the explicit Note to lead action for a lead note. Its placeholder names the
+member receiving the message.
 Narrow or low windows retain an editor row and explain the compact placement in
 its title. After Send, the composer stays ready for the next message. The sent
 turn appears below the retained response, followed by its delivery label and
@@ -645,7 +649,7 @@ observations never become idle by inference. Acceptance clears only the submitte
 draft, including an uncertain delivery or an error carrying a retained request;
 the board never resends automatically. A refusal without a request keeps the
 submitted draft without overwriting newer edits. Opening, cancelling, empty input
-or a changed target sends nothing.
+or an unavailable member sends nothing and retains the draft.
 
 ## Home dashboard
 

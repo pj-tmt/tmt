@@ -236,10 +236,13 @@ Keep the selected recipient, task context and shared WP1 conversation together.
 There is one editor and one session draft/reading position per sender/recipient
 UUID, independent of display names, membership changes and section/placement.
 The opaque composer/read region masks covered cells and hits. Reading sends and
-acknowledges nothing. Composing shows the admitted recipient/mode, quoted request,
-draft and effective hints. Available answer/note/talk/status modes retain drafts;
-several requests require an explicit choice. Notes require a real squad context;
-Common pool Talk never invents a squad. Opening/cancelling/empty input sends nothing.
+acknowledges nothing. The member composer sends only to that member. Enter answers
+the newest currently observed open request, or sends a new message when none is
+open; settling a request while drafting does not invalidate the draft. A definite
+settled-request refusal falls back once to a new message; uncertain acceptance
+never triggers a resend. Lead notes and Status remain explicit separate actions,
+with no Tab mode cycle. Notes require a real squad context; Common pool messages
+never invent a squad. Opening/cancelling/empty input sends nothing.
 
 Refresh preserves exact selection and retained drafts. Loading, unavailable and
 stale values differ from a successful empty result. The existing worker owns

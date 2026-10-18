@@ -671,7 +671,7 @@ fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_g
         app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
-            Compose::Reply { .. }
+            Compose::Talk { .. }
         ));
         app.paste("Exact answer");
         let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
@@ -824,5 +824,97 @@ fn header_and_status_show_core_activity_even_when_the_task_disagrees() {
             !mark.contains("✗"),
             "the task never picks the status glyph: {mark}"
         );
+    }
+}
+
+#[test]
+fn a_settled_answer_falls_back_once_and_keeps_the_actual_talk_acceptance() {
+    use crate::board::app::workspace::tests::board;
+    for uncertain in [false, true] {
+        let mut app = board();
+        let target = app.workspace.selected.clone().unwrap();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .rows
+            .get_mut(&target)
+            .unwrap()["waitingOnYou"] = json!([
+            {"requestId":"settled-request", "preparedAtMs":20}
+        ]);
+        app.focus_composer();
+        let text = "Keep the exact first line.\nAnd the second.";
+        app.paste(text);
+        let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+        else {
+            panic!("member message must dispatch");
+        };
+        let ticket = app.outgoing_ticket(&request).unwrap();
+        let expected = ticket.text.clone();
+        let fake = Fake::new(json!({}), false);
+        let document = if uncertain {
+            json!({"requestId":"accepted-fallback", "error":{"code":"TALK_DELIVERY_FAILED", "message":"Delivery unknown."}})
+        } else {
+            json!({"requestId":"accepted-fallback", "status":"queued"})
+        };
+        let document = document.to_string().replace('\'', "'\"'\"'");
+        let script = format!(
+            r#"#!/bin/sh
+printf '%s\0' "$@" >> '{calls}'
+if [ "$1" = answer ]; then
+  printf '%s\n' '{{"error":{{"code":"RESPONSE_CONFLICT","message":"Settled meanwhile."}}}}'
+  exit 1
+fi
+printf '%s\n' '{document}'
+exit {status}
+"#,
+            calls = fake.calls.display(),
+            status = usize::from(uncertain)
+        );
+        crate::test_support::write_ready_executable(&fake.root.join("tmt"), &script);
+        let BoardEvent::Acted {
+            outcome: Ok(ActionOutcome::Send(completed)),
+            sends: true,
+            ..
+        } = lane::run(&fake.core, None, lane::Job::Send { request, ticket })
+        else {
+            panic!("the fallback must retain Talk completion, not answer completion");
+        };
+        assert!(
+            completed.accepted(),
+            "retained acceptance must not offer a resend"
+        );
+        if uncertain {
+            assert_eq!(
+                completed.outcome.as_ref().unwrap_err().request.as_deref(),
+                Some("accepted-fallback")
+            );
+        } else {
+            assert_eq!(
+                completed.outcome.as_ref().unwrap().request,
+                "accepted-fallback"
+            );
+        }
+        app.finished_send(*completed);
+        assert!(app.input.as_ref().unwrap().text.is_empty());
+        let args = fake.arguments();
+        assert_eq!(
+            args.iter().filter(|arg| arg.as_str() == "answer").count(),
+            1
+        );
+        assert_eq!(args.iter().filter(|arg| arg.as_str() == "talk").count(), 1);
+        assert_eq!(
+            args.iter().filter(|arg| *arg == &expected).count(),
+            2,
+            "both operations receive the identical multiline body"
+        );
+        assert!(app.notice.as_deref().unwrap().contains(if uncertain {
+            "do not resend"
+        } else {
+            "Queued"
+        }));
     }
 }

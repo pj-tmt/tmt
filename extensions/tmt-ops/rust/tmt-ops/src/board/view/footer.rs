@@ -23,7 +23,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Jump if lead => "jump lead",
         Verb::Jump => "host",
         Verb::Menu => "menu",
-        Verb::Talk => "chat",
+        Verb::Talk | Verb::Reply => "chat",
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }
@@ -84,6 +84,7 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
                 | Verb::HomeMessage
                 | Verb::Talk
                 | Verb::Annotate
+                | Verb::UpdateStatus
                 | Verb::Reply
                 | Verb::Open
                 | Verb::Copy
@@ -115,7 +116,11 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
         return false;
     };
     match action.verb {
-        Verb::Reply => crate::attention::waits_on_you(row),
+        Verb::Reply => true,
+        Verb::UpdateStatus => target.as_ref().is_none_or(|target| {
+            app.target_squad(target)
+                .is_some_and(|squad| !squad.is_empty())
+        }),
         Verb::Open => match action.args.first() {
             Some(template) => template.fill(row).is_ok(),
             None => crate::effects::default_link(row).is_some(),

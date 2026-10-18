@@ -5558,6 +5558,8 @@ describe('composer terminal input', () => {
     { enhanced: true, lifecycle: 'suspend' },
     { enhanced: true, lifecycle: 'reload' },
     { enhanced: true, lifecycle: 'term' },
+    { enhanced: true, lifecycle: 'quit', requestTransition: 'settled' },
+    { enhanced: true, lifecycle: 'quit', requestTransition: 'newer' },
   ])(
     'preserves multiline source and restores terminal modes: %j',
     async (scenario) => {
@@ -5594,9 +5596,11 @@ describe('composer terminal input', () => {
         expect(result.status, result.stdout + result.stderr).toBe(0);
         const proof = JSON.parse(result.stdout);
         expect(proof.message).toBe(
-          scenario.enhanced
-            ? '[product · worker] first\nsecond'
-            : '[product · worker] first\nmiddle\nsecond'
+          'requestTransition' in scenario
+            ? '[product · worker-fresh] first\nsecond'
+            : scenario.enhanced
+              ? '[product · worker] first\nsecond'
+              : '[product · worker] first\nmiddle\nsecond'
         );
         expect(proof.terminalRestored).toBe(true);
         expect(proof.queries).toBeGreaterThan(0);
