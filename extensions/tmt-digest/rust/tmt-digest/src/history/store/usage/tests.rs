@@ -58,6 +58,20 @@ fn normative_quotes_and_weighted_ratios_have_independent_values() {
             case["name"]
         );
     }
+    // The producer prices every quote under its one table version and never sums, so the
+    // vector's cost sums are for consumers: each must keep two distinct versions and be
+    // unavailable, or the case no longer proves the rule.
+    for case in vectors["costSums"].as_array().unwrap() {
+        let versions: std::collections::BTreeSet<_> = case["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|member| member["pricingVersion"].as_str().unwrap())
+            .collect();
+        assert!(versions.len() > 1, "{}", case["name"]);
+        assert_eq!(case["expected"], Value::Null, "{}", case["name"]);
+        assert_eq!(case["pricesDiffer"], true, "{}", case["name"]);
+    }
     let table = crate::pricing::table();
     assert_eq!(table["models"].as_array().unwrap().len(), 4);
     assert_eq!(table["version"], "2026-10-14");
