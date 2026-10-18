@@ -409,7 +409,7 @@ description when it has one); a chip's remove control keeps its own `removeLabel
 `@tmt/browser-ui/ui` is a separate React presentation entry; import its checked
 `@tmt/browser-ui/ui.css` explicitly. `cn`, `UiTheme` and `useUiPortalContainer`
 provide its foundation; the allocated primitive exports are described below.
-Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; the selection barrel remains empty. No consumer migration or candidate-5
+Layers exports Dialog, Sheet, DropdownMenu, Popover and stock Tooltip adapters; selection exports the Command family, Combobox, Chip and Chips (see [Controlled selection](#controlled-selection-slice4)). No consumer migration or candidate-5
 page replica is included. The existing `./react`, `./static` and `./static.css` entries stay
 unchanged; static never loads React, Radix, cmdk or the new UI graph.
 
@@ -422,7 +422,7 @@ consumer ownership. Component qualification does not grant product authority.
 upstream path and SHA-256 at shadcn/ui commit
 `8720dec73f5aebed9f649ea58636f54599fdedf1`, plus exact direct dependency versions,
 licenses and repositories. Primitives adapt nine selected sources; layers adapt
-the five pinned Dialog, Sheet, DropdownMenu, Tooltip and Popover sources. Selection sources remain pins for a later slice. The helper is adapted from that revision's
+the five pinned Dialog, Sheet, DropdownMenu, Tooltip and Popover sources; selection adapts the pinned Command source, and the Select pin stays excluded pending #3057. The helper is adapted from that revision's
 `apps/v4/registry/new-york-v4/lib/utils.ts` to configure `extendTailwindMerge` with
 our `tmt` prefix. The upstream MIT notice is retained in
 [`src/ui/LICENSE.shadcn`](src/ui/LICENSE.shadcn). This revision predates upstream's
@@ -436,8 +436,8 @@ the manifest and lockfile. npm tarball integrity and all transitive versions liv
 Combobox qualification uses the pinned Radix Popover + Command/cmdk composition.
 Command imports Dialog; Layers imports Button. The current upstream Base UI
 combobox registry is deliberately not selected; no `@base-ui/react` dependency is
-admitted. Later slices must prove focus, Tab commit and IME with those real
-implementations. This foundation does not make those claims. React and
+admitted. [Controlled selection](#controlled-selection-slice4) owns their focus,
+Tab-commit and composition behavior. React and
 lucide-react remain optional peers for the existing leaf entries. The Tailwind
 compile API is a development dependency confined to this leaf; no CLI package is
 required. No Cargo build or native
@@ -557,8 +557,7 @@ policy. The shared tooling boundary guard admits new dependencies only inside
 serves `/test/browser-ui-foundation.html`; its infrastructure-only gallery checks
 host/legacy computed styles before and after loading UI CSS, tokens, focus and
 originating portals in light/system-dark and nested themes at 320/390/1440.
-Screenshots are per-run evidence, not a replacement for observable assertions or
-qualification of the unimplemented later components.
+Screenshots are per-run evidence, not a replacement for observable assertions.
 
 ### Primitive contract (Slice2)
 
