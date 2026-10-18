@@ -1018,6 +1018,7 @@ function remoteRegistryPage(blocked = () => "") {
 		view.body.append(alias.label, url.label);
 		view.buttons.append(action("Continue", () => {
 			reference(alias.input.value, url.input.value).then((entry) => {
+				if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
 				view.end();
 				confirmAdd(entry, add);
 			}).catch((error) => showError(error, view.message));
