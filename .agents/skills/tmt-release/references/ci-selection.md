@@ -244,12 +244,18 @@ artifact IDs and retains `selection.json` with the exact job/artifact identities
 and result hashes alongside the unchanged aggregate counts. The collector still
 proves every non-ignored case ran exactly once; reuse never replaces test proof.
 
-**Operational recovery is unqualified until the separately granted hosted
-fail-one-partition/re-run-failed-jobs proof in
-[#3571](https://github.com/pj-tmt/tmt/issues/3571) passes. Until then use re-run all
-jobs** (about 68 runner-minutes and 12 minutes per attempt, longer with queueing).
-Qualification records transfer/aggregate times before and after; it grants no
-publication or ordinary workflow-dispatch authority.
+Failed-jobs recovery is qualified for the unchanged-source K=2 lane within these
+bounds ([run 39128389438, attempt 2](https://github.com/pj-tmt/tmt/actions/runs/39128389438/attempts/2)).
+It retained the attempt-1 producer and partition-1 result, executed partition 2
+on attempt 2, and proved the exact case union. Fresh CI job-wall time totaled
+4.90 runner-minutes versus 71.47 for the initial full-scope attempt, excluding
+queue time and retained copies. A production planner replay reproduced the
+selection with 8 metadata GETs; the hosted collector emits no request counter.
+The [qualification record](https://github.com/pj-tmt/tmt/issues/3571#issuecomment-6250385665)
+includes transfer and aggregate timings. These measurements do not establish a
+PR median improvement. Missing, expired or ambiguous evidence, or a changed
+producer generation, requires re-run all jobs. This qualification grants no
+publication or workflow-dispatch authority.
 PR median and child p90 budgets use the five-run K2 series; the PR gate p90 stays
 at 1095 s, below the observed 1190 s macOS-queue outlier (n=5, p90=max).
 The four new job rows inherit the old 861 s MG limit; other MG limits stay unchanged
