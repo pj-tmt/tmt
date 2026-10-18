@@ -396,6 +396,12 @@ real transitions only, including native close, replacement, anchor removal and
 unmount; StrictMode replay owes no false transition. `test/fixtures/chips.html`
 provides isolated keyboard, cap, empty, status and long-name examples.
 
+A chip or option may carry an optional `content` node that the host draws instead of the
+label text, such as an agent mark and name. The required string `label` stays the fallback
+text when `content` is absent and the accessible name of an option (`label`, plus its
+description when it has one); a chip's remove control keeps its own `removeLabel`.
+`content` never changes ordering, filtering, caps or events; the host owns what it draws.
+
 ## Isolated shadcn foundation (Slice1)
 
 `@tmt/browser-ui/ui` is a separate React presentation entry; import its checked

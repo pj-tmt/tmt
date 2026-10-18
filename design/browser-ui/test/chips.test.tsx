@@ -15,6 +15,37 @@ it('shares one chip primitive with full remove names and no host-value mutation'
   expect(html).toContain('aria-label="Remove label filter design"');
   expect(html).not.toContain('role="combobox"');
 });
+it('draws host content instead of the label while the label stays the fallback and name', () => {
+  const chip = renderToStaticMarkup(
+    <BrowserChip
+      label="@x"
+      content={<b data-mark>X</b>}
+      removeLabel="Remove @x"
+      onRemove={() => {}}
+    />,
+  );
+  expect(chip).toContain('<b data-mark="true">X</b>');
+  expect(chip).not.toContain('tmt-ui-chip-label">@x');
+  expect(chip).toContain('aria-label="Remove @x"');
+  const plain = renderToStaticMarkup(
+    <BrowserChip label="@x" removeLabel="Remove @x" onRemove={() => {}} />,
+  );
+  expect(plain).toContain('tmt-ui-chip-label">@x</span>');
+  const props = {
+    label: 'Recipients',
+    query: '',
+    onQueryChange() {},
+    onAdd() {},
+    onRemove() {},
+    addLabel: 'Add recipient',
+    searchLabel: 'Search agents',
+    emptyText: '',
+    items: [{ id: 'x', label: '@x', content: <b data-mark>X</b>, removeLabel: 'Remove @x' }],
+    options: [],
+  };
+  const list = renderToStaticMarkup(<BrowserChips {...props} />);
+  expect(list).toContain('<b data-mark="true">X</b>');
+});
 it('exposes host empty/cap/disabled reasons while keeping values controlled', () => {
   const props = {
     label: 'Recipients',
