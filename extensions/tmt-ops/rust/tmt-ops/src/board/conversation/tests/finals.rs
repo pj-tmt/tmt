@@ -289,3 +289,92 @@ fn capture_settled_reply_packet() {
     });
     std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
 }
+
+#[test]
+fn stored_finals_fold_independently_and_keep_their_source_after_wrapping_and_resize() {
+    let mut app = workspace_fixture();
+    let agent = crate::board::app::workspace::tests::MEMBER;
+    let long = (0..24).map(|n| format!("older final line {n:02} with a wrapping tail that remains exact across terminal widths")).collect::<Vec<_>>().join("\n");
+    app.view.as_mut().unwrap().replies = vec![
+        json!({"recipientId":agent,"requestId":"long-older","submittedAtMs":1000,"response":long}),
+        json!({"recipientId":agent,"requestId":"long-newest","submittedAtMs":2000,"response":(0..20).map(|n|format!("newest final {n:02}")).collect::<Vec<_>>().join("\n")}),
+    ];
+    for width in [148, 60, 100] {
+        draw(&app, width, 44);
+        let state = app.conversation.borrow();
+        let session = state.sessions.get(state.active.as_ref().unwrap()).unwrap();
+        let rendered = session.rendered.as_ref().unwrap();
+        let lines: Vec<_> = rendered.mapped.lines.iter().map(Line::to_string).collect();
+        assert!(
+            lines.iter().any(|line| line.contains("more lines")),
+            "older final folds: {lines:#?}"
+        );
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.contains("older final line 23"))
+        );
+        let newest = lines
+            .iter()
+            .position(|line| line.contains("newest final 19"))
+            .expect("newest final starts expanded");
+        assert_eq!(
+            session.response_key_at(newest).unwrap().0.request,
+            "long-newest"
+        );
+        for row in rendered.fold_controls.keys() {
+            assert!(
+                session.response_key_at(*row).is_none(),
+                "a fold control has no source authority"
+            );
+        }
+        let older = lines
+            .iter()
+            .position(|line| line.contains("older final line 00"))
+            .unwrap();
+        assert_eq!(
+            session.response_key_at(older).unwrap().0.request,
+            "long-older"
+        );
+        drop(state);
+        let target = app.conversation_target().unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(width, 44)).unwrap();
+        terminal
+            .draw(|frame| {
+                super::super::exchange::render_for(
+                    frame,
+                    &app,
+                    frame.area(),
+                    &super::super::exchange::Surface::Agents {
+                        target: target.clone(),
+                        interactive: true,
+                    },
+                )
+            })
+            .unwrap();
+        let rows: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(usize::from(width))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let headers: Vec<_> = rows.iter().filter(|row| row.contains("worker →")).collect();
+        assert_eq!(headers.len(), 2);
+        assert!(
+            headers
+                .iter()
+                .all(|row| row.trim_start().starts_with("worker →")),
+            "folding must not turn a message header into body text: {headers:?}"
+        );
+        let row = rows
+            .iter()
+            .find(|row| row.contains("newest final 19"))
+            .unwrap();
+        let at = row.find("newest final 19").unwrap();
+        assert!(
+            row[..at].trim_end().ends_with('│'),
+            "folded row keeps the final body gutter: {row}"
+        );
+    }
+}

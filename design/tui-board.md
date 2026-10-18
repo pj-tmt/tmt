@@ -244,6 +244,12 @@ never triggers a resend. Lead notes and Status remain explicit separate actions,
 with no Tab mode cycle. Notes require a real squad context; Common pool messages
 never invent a squad. Opening/cancelling/empty input sends nothing.
 
+Conversation body Markdown uses neutral underlined links, filled code, muted quote
+gutters and fitted boxed tables. Each body has an independent 12-row preview;
+the newest reply starts expanded. Folding changes presentation only and preserves
+source/reading anchors; the owning implementation reference is
+[Board notebooks](../.agents/skills/tmt-ops-dev/references/board-notebooks.md).
+
 Refresh preserves exact selection and retained drafts. Loading, unavailable and
 stale values differ from a successful empty result. The existing worker owns
 reads and refresh; display labels never replace sender/recipient/source authority.

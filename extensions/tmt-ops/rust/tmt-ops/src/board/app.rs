@@ -3532,6 +3532,9 @@ impl App {
         {
             return effect;
         }
+        if let Some(effect) = self.conversation_body_key(key) {
+            return effect;
+        }
         if self.input.is_some() {
             self.update_mentions();
             if let Some(effect) = self.mention_key(key) {
@@ -3616,6 +3619,7 @@ impl App {
         }
         self.conversation.borrow_mut().pane = None;
         self.conversation.borrow_mut().header_hits.clear();
+        self.invalidate_body_geometry();
         self.conversation.borrow_mut().invalidate_source_geometry();
         self.scrolls.begin_frame();
         self.mentions.invalidate();
@@ -3882,6 +3886,10 @@ impl App {
                 self.mentions = Default::default();
                 self.focus = 0;
             }
+        }
+        if let Some(effect) = self.conversation_body_mouse(event) {
+            self.focus = 1; // The validated fold control belongs to Replies.
+            return effect;
         }
         if let Some(effect) = self.conversation_source_mouse(event) {
             return effect;

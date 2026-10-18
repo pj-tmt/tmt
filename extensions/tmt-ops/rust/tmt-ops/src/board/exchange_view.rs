@@ -158,14 +158,11 @@ pub(in crate::board) fn body(line: Line<'static>, look: Look) -> Line<'static> {
         Span::styled("│", look.role(Role::Dim)),
         Span::raw(" "),
     ];
-    // Markdown's authored emphasis survives; semantic link/heading colours do not.
+    // The Markdown owner supplies neutral links, filled code and muted quotes.
+    // Add the shared gutter without flattening those authored block styles.
     let line_style = line.style;
     spans.extend(line.spans.into_iter().map(|mut span| {
-        let authored = line_style.patch(span.style);
-        span.style = look
-            .role(Role::Text)
-            .add_modifier(authored.add_modifier)
-            .remove_modifier(authored.sub_modifier);
+        span.style = look.role(Role::Text).patch(line_style).patch(span.style);
         span
     }));
     Line::from(spans)
@@ -248,5 +245,26 @@ mod fitting_tests {
                 .chars()
                 .any(char::is_control)
         );
+    }
+}
+
+#[cfg(test)]
+mod markdown_tests {
+    use super::*;
+    #[test]
+    fn grouped_body_preserves_markdown_fill_and_muted_quote_styles() {
+        let look = Look::default();
+        let track = look.role(Role::Text).patch(look.role(Role::Track));
+        let code = body(Line::styled("code", track), look);
+        assert_eq!(code.spans[3].style, track);
+        let quote = body(
+            Line::from(vec![
+                Span::styled("▎ ", look.role(Role::Dim)),
+                Span::styled("quote", look.role(Role::Muted)),
+            ]),
+            look,
+        );
+        assert_eq!(quote.spans[3].style, look.role(Role::Dim));
+        assert_eq!(quote.spans[4].style, look.role(Role::Muted));
     }
 }

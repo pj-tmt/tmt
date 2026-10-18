@@ -193,6 +193,7 @@ impl Session {
                 anchor_text: self.text.clone(),
                 response_sources: None,
                 final_spans: Vec::new(),
+                bodies: Vec::new(),
             };
         }
         let mut starts = vec![0];
@@ -265,6 +266,7 @@ impl Session {
         let mut original = Vec::new();
         let mut anchor_text = String::new();
         let mut final_spans = Vec::new();
+        let mut bodies = Vec::new();
         let mut header_anchors = std::collections::BTreeMap::new();
         let mut next_mention = mapped
             .mentions
@@ -338,6 +340,16 @@ impl Session {
                             end = append(line, links, None) + 1;
                         }
                         final_spans.push((header + 1..end, index));
+                        if let Some(key) = &reply.key {
+                            bodies.push(super::body::Body {
+                                key: super::body::Key::Reply(format!(
+                                    "{:?}:{}",
+                                    key.kind, key.request
+                                )),
+                                sources: header + 1..end,
+                                newest_reply: index + 1 == self.finals.len(),
+                            });
+                        }
                         continue;
                     }
                     let super::history::Block::Existing(block) = messages[block].1 else {
@@ -381,8 +393,20 @@ impl Session {
                         look,
                         None,
                     );
+                    let mut first_row = None;
+                    let mut end = 0;
                     for line in body.lines {
-                        append(super::super::exchange_view::body(line, look), vec![], None);
+                        let row =
+                            append(super::super::exchange_view::body(line, look), vec![], None);
+                        first_row.get_or_insert(row);
+                        end = row + 1;
+                    }
+                    if let Some(start) = first_row {
+                        bodies.push(super::body::Body {
+                            key: super::body::Key::Pane(format!("{}:{}", item.ended_ms, item.text)),
+                            sources: start..end,
+                            newest_reply: false,
+                        });
                     }
                     if item.truncated {
                         append(
@@ -423,6 +447,7 @@ impl Session {
             anchor_text,
             response_sources: Some(original),
             final_spans,
+            bodies,
         }
     }
 }
@@ -432,4 +457,5 @@ pub(super) struct RenderedTranscript {
     pub anchor_text: String,
     pub response_sources: Option<Vec<Option<usize>>>,
     pub final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    pub bodies: Vec<super::body::Body>,
 }

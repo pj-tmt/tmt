@@ -19,6 +19,7 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
+mod body;
 pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
@@ -41,6 +42,7 @@ pub(super) struct State {
     sequence: u64,
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
+    fold_hits: Vec<body::Hit>,
     reply_hits: Vec<source::ReplyHit>,
     source_drag: Option<source::ReplyHit>,
     response_area: Option<Rect>,
@@ -65,8 +67,10 @@ struct Rendered {
     identities: Option<std::sync::Arc<()>>,
     mapped: Mapped,
     anchor_text: String,
+    anchor_sources: Vec<usize>,
     response_sources: Option<Vec<Option<usize>>>,
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
+    fold_controls: BTreeMap<usize, body::Key>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -113,6 +117,7 @@ struct Session {
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
     transcript_context: transcript::Context,
+    folds: body::Folds,
 }
 
 impl Default for Session {
@@ -135,6 +140,7 @@ impl Default for Session {
             pane_output: Default::default(),
             pane_output_fresh: false,
             transcript_context: Default::default(),
+            folds: Default::default(),
         }
     }
 }
@@ -338,15 +344,26 @@ impl Session {
                 mentions,
             };
             let transcript = self.merge_pane_output(mapped, width, look, inventory);
-            self.anchor.reconcile(&transcript.anchor_text);
+            let bodies = self.visual_bodies(&transcript);
+            let folded = self.folds.project(
+                transcript.mapped,
+                transcript.response_sources,
+                &bodies,
+                width,
+                look,
+            );
+            let anchor_text = transcript.anchor_text;
+            self.anchor.reconcile(&anchor_text);
             self.rendered = Some(Rendered {
                 width,
                 gutter,
                 look,
                 identities,
-                mapped: transcript.mapped,
-                anchor_text: transcript.anchor_text,
-                response_sources: transcript.response_sources,
+                mapped: folded.mapped,
+                anchor_text,
+                anchor_sources: folded.anchors,
+                response_sources: Some(folded.original),
+                fold_controls: folded.controls,
                 final_spans: transcript.final_spans,
             });
         }
@@ -441,7 +458,7 @@ impl App {
         } else if let Some(rendered) = &session.rendered {
             session.anchor.select_visual(
                 &rendered.anchor_text,
-                &rendered.mapped.sources,
+                &rendered.anchor_sources,
                 self.scrolls.offset(pane),
             );
         }
@@ -522,6 +539,7 @@ fn render_target(
 ) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
+    app.conversation.borrow_mut().fold_hits.clear();
     app.conversation.borrow_mut().reply_hits.clear();
     app.conversation.borrow_mut().response_area = None;
     let row = target
@@ -602,7 +620,7 @@ fn render_target(
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
-    let session = state.sessions.entry(identity).or_default();
+    let session = state.sessions.entry(identity.clone()).or_default();
     let state_words = session.observe_context(app, &target, row);
     let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
     let values = tree_row
@@ -982,7 +1000,10 @@ fn render_target(
     } else if switched || rebuilt {
         app.scrolls.restore([(
             Pane::Replies,
-            session.anchor.visual(&mapped.sources).unwrap_or_default(),
+            session
+                .anchor
+                .visual(&session.rendered.as_ref().unwrap().anchor_sources)
+                .unwrap_or_default(),
         )]);
     }
     let (offset, shown) = app
@@ -998,10 +1019,27 @@ fn render_target(
             &mapped.mentions,
             super::member_links::Paint {
                 reader: true,
-                role: Role::Link,
+                role: Role::Text,
             },
         );
     }
+    let painted_folds: Vec<_> = if interactive {
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .fold_controls
+            .iter()
+            .filter(|(line, _)| **line >= offset && **line < offset + shown)
+            .map(|(line, key)| body::Hit {
+                area: Rect::new(body.x, body.y + (*line - offset) as u16, body.width, 1),
+                conversation: identity.clone(),
+                key: key.clone(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));
         strip::paint_left(
@@ -1036,12 +1074,13 @@ fn render_target(
     if switched || rebuilt || previous != offset {
         session.anchor.select_visual(
             &session.rendered.as_ref().unwrap().anchor_text,
-            &mapped.sources,
+            &session.rendered.as_ref().unwrap().anchor_sources,
             offset,
         );
     }
     state.reply_hits = reply_hits;
     state.response_area = Some(body);
+    state.fold_hits = painted_folds;
     state.header_hits = painted_controls;
 }
 

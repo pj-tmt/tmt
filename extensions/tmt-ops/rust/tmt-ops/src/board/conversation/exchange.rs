@@ -89,6 +89,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         let mut state = app.conversation.borrow_mut();
         state.header_hits.clear();
         state.reply_hits.clear();
+        state.fold_hits.clear();
         state.response_area = None;
     }
     let Some(target) = surface.target(app) else {
@@ -154,7 +155,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     let mut state = app.conversation.borrow_mut();
     let switched = state.active.as_ref() != Some(&identity);
     state.active = Some(identity.clone());
-    let session = state.sessions.entry(identity).or_default();
+    let session = state.sessions.entry(identity.clone()).or_default();
     session.observe_context(app, &target, row);
     if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
         empty_state::paint(
@@ -253,62 +254,69 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     } else if switched || rebuilt {
         app.scrolls.restore([(
             Pane::Replies,
-            session.anchor.visual(&mapped.sources).unwrap_or_default(),
+            session
+                .anchor
+                .visual(&session.rendered.as_ref().unwrap().anchor_sources)
+                .unwrap_or_default(),
         )]);
     }
-    let (offset, shown) = app.scrolls.show_exchange(
-        frame,
-        body,
-        &mapped.lines,
-        look,
-        earlier_key,
-        |index, line| {
-            let source = session
-                .rendered
-                .as_ref()
-                .unwrap()
-                .response_sources
-                .as_ref()
-                .map_or(Some(mapped.sources[index]), |sources| {
-                    sources.get(mapped.sources[index]).copied().flatten()
-                });
-            let Some(source) = source else {
-                return if session
+    let (offset, shown) =
+        app.scrolls.show_exchange(
+            frame,
+            body,
+            &mapped.lines,
+            look,
+            earlier_key,
+            |index, line| {
+                let source = session
                     .rendered
                     .as_ref()
                     .unwrap()
-                    .final_spans
-                    .iter()
-                    .any(|(range, _)| range.contains(&mapped.sources[index]))
-                {
-                    exchange::body(line.clone(), look)
-                } else {
-                    line.clone()
+                    .response_sources
+                    .as_ref()
+                    .map_or(Some(mapped.sources[index]), |sources| {
+                        sources.get(mapped.sources[index]).copied().flatten()
+                    });
+                let Some(source) = source else {
+                    return if session.rendered.as_ref().unwrap().final_spans.iter().any(
+                        |(range, _)| {
+                            session
+                                .rendered
+                                .as_ref()
+                                .unwrap()
+                                .anchor_sources
+                                .get(index)
+                                .is_some_and(|original| range.contains(original))
+                        },
+                    ) {
+                        exchange::body(line.clone(), look)
+                    } else {
+                        line.clone()
+                    };
                 };
-            };
-            match session.authored_lines.get(&source) {
-                Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
-                Some(AuthoredLine::Outgoing { answer: false }) => {
-                    exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                match session.authored_lines.get(&source) {
+                    Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
+                    Some(AuthoredLine::Outgoing { answer: false }) => {
+                        exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                    }
+                    Some(AuthoredLine::ReplyHeading) => {
+                        exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
+                    }
+                    Some(AuthoredLine::Status) => {
+                        let text = line.to_string();
+                        let suffix = format!(" · {}", session.agent_mark);
+                        exchange::feedback(
+                            text.trim_end()
+                                .strip_suffix(suffix.trim_end())
+                                .unwrap_or(text.trim_end())
+                                .trim_end(),
+                            look,
+                        )
+                    }
+                    None => exchange::body(line.clone(), look),
                 }
-                Some(AuthoredLine::ReplyHeading) => {
-                    exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
-                }
-                Some(AuthoredLine::Status) => {
-                    let text = line.to_string();
-                    let suffix = format!(" · {}", session.agent_mark);
-                    exchange::feedback(
-                        text.trim_end()
-                            .strip_suffix(suffix.trim_end())
-                            .unwrap_or(text.trim_end())
-                            .trim_end(),
-                        look,
-                    )
-                }
-                None => exchange::body(line.clone(), look),
-            }
-        },
-    );
+            },
+        );
     let text_area = Rect::new(
         body.x + body.width.min(3),
         body.y,
@@ -344,11 +352,27 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             });
         }
     }
-    session.anchor.select_visual(
-        &session.rendered.as_ref().unwrap().anchor_text,
-        &mapped.sources,
-        offset,
-    );
+    let fold_hits = if surface.interactive() {
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .fold_controls
+            .iter()
+            .filter(|(line, _)| **line >= offset && **line < offset + shown)
+            .map(|(line, key)| body::Hit {
+                area: Rect::new(body.x, body.y + (*line - offset) as u16, body.width, 1),
+                conversation: identity.clone(),
+                key: key.clone(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let rendered = session.rendered.as_ref().unwrap();
+    session
+        .anchor
+        .select_visual(&rendered.anchor_text, &rendered.anchor_sources, offset);
     let mut y = body.bottom();
     if question && session.outgoing.is_empty() && footer_rows > 0 {
         strip::paint_left(
@@ -372,6 +396,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         );
     }
     state.reply_hits = hits;
+    state.fold_hits = fold_hits;
     state.response_area = Some(body);
 }
 
