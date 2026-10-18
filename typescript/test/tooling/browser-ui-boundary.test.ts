@@ -9,8 +9,8 @@ import { imports } from '../support/source-imports.js';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const home = path.join(root, 'design/browser-ui');
 const production = path.join(home, 'src');
-function forbiddenLoads(text: string): boolean {
-  const source = ts.createSourceFile('module.ts', text, ts.ScriptTarget.Latest, true);
+function forbiddenLoads(file: string, text: string): boolean {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   let forbidden = false;
   const visit = (node: ts.Node): void => {
     if (
@@ -64,8 +64,8 @@ function violations(
         'class-variance-authority',
       ]
     : ['react', '@types/react', 'lucide-react'];
-  if (forbiddenLoads(source)) failures.push('unproved runtime input');
-  for (const edge of imports(source)) {
+  if (forbiddenLoads(file, source)) failures.push('unproved runtime input');
+  for (const edge of imports(file, source)) {
     if (!edge.startsWith('.') && !edge.startsWith('/')) {
       const resolved = ts.resolveModuleName(
         edge,
@@ -202,6 +202,24 @@ it('admits foundation dependencies only inside the separate UI graph, with no al
     ).toEqual([peer]);
   }
   expect(violations(legacyFile, "export * from './ui/index';", false)).toEqual(['./ui/index']);
+  // Valid JSX before an edge must not hide it: each file parses with its own syntax.
+  expect(
+    violations(
+      legacyFile,
+      "export const View = () => <div />; export { browserUiClasses } from '../static.js';",
+      false
+    )
+  ).toEqual(['../static.js']);
+  expect(
+    violations(
+      legacyFile,
+      'export const View = () => <div />; export const load = (name: string) => import(name);',
+      false
+    )
+  ).toEqual(['unproved runtime input']);
+  expect(
+    violations(legacyFile, "export const View = () => <div />; export * from './chips';", false)
+  ).toEqual([]);
   expect(violations(uiFile, "export * from '../react';", false)).toEqual(['../react']);
   for (const peer of ['@base-ui/react'])
     expect(violations(uiFile, `export * from '${peer}';`, false)).toEqual([peer]);

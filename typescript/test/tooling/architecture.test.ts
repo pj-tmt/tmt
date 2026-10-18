@@ -36,7 +36,7 @@ function suiteImportViolations(file: string, text: string): string[] {
   const scenario =
     (fromSuite === 'e2e' && !from.startsWith(harness) && from !== facade) ||
     (from.startsWith('extensions/') && from.includes('/e2e/'));
-  return imports(text).flatMap((specifier) => {
+  return imports(file, text).flatMap((specifier) => {
     const resolved = ts.resolveModuleName(
       specifier,
       file,
@@ -74,7 +74,7 @@ function retainedTestFiles(directory: string): string[] {
 }
 
 function legacyTestImports(file: string, text: string): string[] {
-  return imports(text).filter((specifier) => {
+  return imports(file, text).filter((specifier) => {
     if (!specifier.startsWith('.') && !path.isAbsolute(specifier)) return false;
     const target = path.resolve(path.dirname(file), specifier);
     const relative = path.relative(sourceRoot, target);
@@ -132,6 +132,20 @@ describe('retained developer tooling boundaries', () => {
     ]) {
       expect(suiteImportViolations(file, form), form).toHaveLength(1);
     }
+    const view = path.join(repositoryRoot, 'typescript/test/native/__fixture__.tsx');
+    expect(
+      suiteImportViolations(
+        view,
+        "export const View = () => <div />; export { check } from '../e2e/cli-assertions.js';"
+      )
+    ).toHaveLength(1);
+    // A .ts file keeps TS semantics: this is a generic arrow, not JSX.
+    expect(
+      suiteImportViolations(
+        file,
+        "const id = <T,>(value: T) => value; export * from '../e2e/cli-assertions.js';"
+      )
+    ).toHaveLength(1);
     for (const form of [
       "// import '../e2e/cli-assertions.js';",
       `const text = 'require("../e2e/cli-assertions.js")';`,

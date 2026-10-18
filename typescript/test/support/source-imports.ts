@@ -1,8 +1,9 @@
 import ts from 'typescript';
 
 // Test-only literal module edge extraction; shared by product and tooling guards.
-export function imports(text: string): string[] {
-  const source = ts.createSourceFile('module.ts', text, ts.ScriptTarget.Latest, true);
+// The file name selects the syntax (TS, TSX or JS), so JSX cannot hide a later edge.
+export function imports(file: string, text: string): string[] {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const values: string[] = [];
   const collect = (node: ts.Node): void => {
     if (
