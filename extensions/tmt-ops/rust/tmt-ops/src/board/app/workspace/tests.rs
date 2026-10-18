@@ -1916,93 +1916,159 @@ fn workspace_annotations_recheck_sender_membership_and_lead_identity() {
 }
 
 #[test]
-fn workspace_replies_keep_the_exact_request_and_recheck_opening_authority() {
-    const FIRST: &str = "req_44444444-4444-4444-8444-444444444441";
-    const SECOND: &str = "req_44444444-4444-4444-8444-444444444442";
-    let opening = || {
-        let mut app = board();
-        let selected = app.workspace.selected.clone().unwrap();
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .rows
-            .get_mut(&selected)
-            .unwrap()["waitingOnYou"] = json!([
-            {"requestId":FIRST,"preparedAtMs":20,"preview":"first question"},
-            {"requestId":SECOND,"preparedAtMs":30,"preview":"second question"}
-        ]);
-        app.perform(&Action::parse("reply").unwrap());
-        assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
-        key(&mut app, KeyCode::Down);
-        key(&mut app, KeyCode::Enter);
-        assert!(matches!(
-            &app.input.as_ref().unwrap().compose,
-            Compose::Reply { request, .. } if request == SECOND
-        ));
-        app
-    };
-    let mut app = opening();
-    key(&mut app, KeyCode::Char('y'));
+fn the_pm_row_composer_never_copies_the_squad_lead() {
+    const LEAD: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    let mut app = board();
+    let selected = app.workspace.selected.clone().unwrap();
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot.roster.members.get_mut(MEMBER).unwrap().name = "tmt-core-pm".into();
+    snapshot.rows.get_mut(&selected).unwrap()["name"] = json!("tmt-core-pm");
+    let mut lead = snapshot.roster.members[MEMBER].clone();
+    lead.id = LEAD.into();
+    lead.name = "tmt-lead".into();
+    snapshot.roster.members.insert(LEAD.into(), lead);
+    snapshot.roster.squads[0].lead = Some(LEAD.into());
+    snapshot.roster.squads[0].members.push(LEAD.into());
+    app.workspace_reconcile();
+    app.focus_composer();
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "tmt-core-pm")
+    );
+    app.paste("PM only");
+    key(&mut app, KeyCode::Tab);
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "tmt-core-pm")
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Talk {
+            me: "Owner".into(),
+            squad: "product".into(),
+            to: "tmt-core-pm".into(),
+            text: "[product · tmt-core-pm] PM only".into(),
+        })
+    );
+}
+
+#[test]
+fn a_newer_request_arriving_mid_draft_is_the_only_one_answered() {
+    let mut app = board();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.focus_composer();
+    app.paste("Answer the current request");
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([
+        {"requestId":"old", "preparedAtMs":20},
+        {"requestId":"newest", "preparedAtMs":40},
+        {"requestId":"middle", "preparedAtMs":30}
+    ]);
     assert_eq!(
         key(&mut app, KeyCode::Enter),
         Effect::Act(Request::Reply {
             me: "Owner".into(),
-            request: SECOND.into(),
+            squad: "product".into(),
+            request: "newest".into(),
             from: "worker".into(),
-            text: "[product · worker] y".into(),
+            text: "[product · worker] Answer the current request".into(),
         })
     );
+    assert_eq!(
+        app.selected_row().unwrap()["waitingOnYou"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3,
+        "submission does not locally acknowledge older requests"
+    );
+}
 
-    for change in [
-        "request",
-        "sender",
-        "sender UUID",
-        "loading",
-        "membership",
-        "name",
-    ] {
-        let mut app = opening();
-        key(&mut app, KeyCode::Char('y'));
-        let selected = app.workspace.selected.clone().unwrap();
-        match change {
-            "sender" => app.view.as_mut().unwrap().me = Some("Other".into()),
-            "sender UUID" => {
-                app.view.as_mut().unwrap().me_id =
-                    Some("99999999-9999-4999-8999-999999999999".into())
-            }
-            "loading" => app.current = Some("unloaded".into()),
-            _ => {
-                let rows = &mut app
-                    .view
-                    .as_mut()
-                    .unwrap()
-                    .home
-                    .as_mut()
-                    .unwrap()
-                    .workspace
-                    .rows;
-                match change {
-                    "request" => rows.get_mut(&selected).unwrap()["waitingOnYou"] = json!([]),
-                    "membership" => {
-                        rows.remove(&selected);
-                    }
-                    _ => rows.get_mut(&selected).unwrap()["name"] = json!("renamed"),
-                }
-            }
+#[test]
+fn a_request_settling_while_drafting_still_sends_to_the_member() {
+    const REQUEST: &str = "req_44444444-4444-4444-8444-444444444441";
+    let mut app = board();
+    let selected = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([
+        {"requestId": REQUEST, "preparedAtMs": 20, "preview": "A question"}
+    ]);
+    app.perform(&Action::parse("reply").unwrap());
+    app.paste("The exact draft stays deliverable.");
+
+    let mut fresh = board();
+    fresh
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["waitingOnYou"] = json!([]);
+    let mut snapshot = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    snapshot.tabs = fresh.tabs;
+    snapshot.view = Ok(fresh.view.take().unwrap());
+    app.apply(snapshot);
+    assert_eq!(app.selected_row().unwrap()["waitingOnYou"], json!([]));
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "The exact draft stays deliverable."
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::Act(Request::Talk {
+            me: "Owner".into(),
+            squad: "product".into(),
+            to: "worker".into(),
+            text: "[product · worker] The exact draft stays deliverable.".into(),
+        })
+    );
+}
+
+#[test]
+fn missing_member_or_sender_refuses_without_losing_the_draft() {
+    for missing in ["member", "sender"] {
+        let mut app = board();
+        app.focus_composer();
+        app.paste("Retain the exact draft");
+        if missing == "sender" {
+            app.view.as_mut().unwrap().me = None;
+        } else {
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .roster
+                .members
+                .remove(MEMBER);
         }
-        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None, "{change}");
-        assert!(app.notice.as_deref().unwrap().contains("nothing sent"));
+        assert_eq!(key(&mut app, KeyCode::Enter), Effect::None, "{missing}");
+        assert_eq!(
+            app.input.as_ref().unwrap().text.as_str(),
+            "Retain the exact draft"
+        );
+        assert!(app.notice.is_some());
     }
-    let mut app = opening();
-    assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
-    let mut app = opening();
-    assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
-    assert!(app.input.is_none() && app.menu.is_none());
 }
 
 #[test]
@@ -2026,7 +2092,7 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
         app.perform(&Action::parse("reply").unwrap());
         assert!(app.menu.is_none());
         assert!(
-            matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == REQUEST)
+            matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker")
         );
         paint(&app, width, 36);
         key(&mut app, KeyCode::Char('y'));
@@ -2034,6 +2100,7 @@ fn a_successful_reply_refresh_keeps_the_exact_member_and_feedback_until_the_next
             key(&mut app, KeyCode::Enter),
             Effect::Act(Request::Reply {
                 me: "Owner".into(),
+                squad: "product".into(),
                 request: REQUEST.into(),
                 from: "worker".into(),
                 text: "[product · worker] y".into(),
@@ -2124,7 +2191,11 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         );
         let lines = paint(&app, width, 36);
         assert!(app.input_band.get().is_some());
-        assert!(lines.iter().any(|line| line.contains("Message worker…")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("⏎ to message worker"))
+        );
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('2')); // Message input owns digits.
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "2");

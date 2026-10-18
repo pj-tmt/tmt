@@ -398,12 +398,25 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
         Request::Cron(request) => cronboard::act(core, request),
         Request::Reply {
             me,
+            squad,
             request,
             from,
             text,
-        } => send::answer(core, &me, &request, &from, &text)
-            .map(|()| format!("Replied to {from}."))
-            .map_err(|error| error.message),
+        } => match send::answer_or_talk(core, &squad, &me, &request, &from, &text) {
+            send::AnswerOrTalk::Answer(outcome) => outcome
+                .map(|()| format!("Replied to {from}."))
+                .map_err(|error| error.message),
+            send::AnswerOrTalk::Talk(outcome) => {
+                return Ok(ActionOutcome::Send(Box::new(
+                    conversation::outgoing::Completed {
+                        ticket: None,
+                        outcome,
+                        what: "Message".into(),
+                        to: from,
+                    },
+                )));
+            }
+        },
     };
     outcome.map(ActionOutcome::Message)
 }
@@ -2082,6 +2095,7 @@ mod tests {
                 &core,
                 Request::Reply {
                     me: "ben".into(),
+                    squad: "product".into(),
                     request: "q1".into(),
                     from: "alice".into(),
                     text: text.into(),
@@ -2894,8 +2908,6 @@ mod tests {
             draft_key: None,
             response_quotes: Vec::new(),
             row_send: None,
-            others: Vec::new(),
-            quote: None,
             link: None,
             prompt: String::new(),
             text: "half a thought".into(),

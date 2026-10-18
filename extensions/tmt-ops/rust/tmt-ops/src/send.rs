@@ -153,6 +153,47 @@ pub fn answer(
     Ok(())
 }
 
+/// Preserve the typed result of the operation actually attempted, including a
+/// fallback Talk whose acceptance is uncertain. Its request ID must still clear
+/// only the submitted draft and prevent a duplicate send.
+pub(crate) enum AnswerOrTalk {
+    Answer(Result<(), SquadError>),
+    Talk(Result<Accepted, SquadError>),
+}
+
+/// Answer the currently selected request, or send one new message if Core
+/// definitively reports that the request settled. No transport/unknown result
+/// permits another send, even if it carries no acceptance ID.
+pub(crate) fn answer_or_talk(
+    core: &Core,
+    squad: &str,
+    me: &str,
+    request: &str,
+    from: &str,
+    text: &str,
+) -> AnswerOrTalk {
+    match answer(core, me, request, from, text) {
+        Err(error)
+            if !error.was_cancelled()
+                && matches!(
+                    error.code.as_str(),
+                    "ANSWER_NOT_WAITING"
+                        | "REQUEST_WITHDRAWN"
+                        | "RESPONSE_NOT_REQUIRED"
+                        | "RESPONSE_CONFLICT"
+                        | "RESPONSE_EXPIRED"
+                ) =>
+        {
+            AnswerOrTalk::Talk(if squad.is_empty() {
+                talk_direct(core, me, from, text)
+            } else {
+                talk(core, squad, me, from, text)
+            })
+        }
+        outcome => AnswerOrTalk::Answer(outcome),
+    }
+}
+
 /// New explicit sends retain this UUID through acceptance recovery.
 pub(crate) fn new_operation() -> Result<String, SquadError> {
     crate::id::new_v4().map_err(|error| SquadError::new("SQUAD_DISPATCH_IO", error.to_string()))

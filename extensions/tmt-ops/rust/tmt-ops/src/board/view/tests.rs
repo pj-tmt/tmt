@@ -350,16 +350,16 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     workspace_keys(&mut app, "[bind]\nenter = \"talk\"\nr = \"reply\"\n");
     let plain = hints(&app, usize::MAX);
     assert!(plain.contains("⏎ chat") && plain.contains("j host"));
-    assert!(!plain.contains("r reply") && !plain.contains("o open"));
+    assert!(plain.contains("r chat") && !plain.contains("o open"));
     workspace_row(&mut app)["waitingOnYou"] = json!([{"requestId":"request","preview":"decision"}]);
     workspace_row(&mut app)["fields"] = json!({"link":"https://example.test/pr"});
     let ready = hints(&app, usize::MAX);
     assert!(
-        ready.contains("r reply") && ready.contains("o open"),
+        ready.contains("r chat") && ready.contains("o open"),
         "{ready}"
     );
     workspace_row(&mut app)["waitingOnYou"] = Value::Null;
-    assert!(!hints(&app, usize::MAX).contains("r reply"));
+    assert!(hints(&app, usize::MAX).contains("r chat"));
     app.select(0);
     let pool = hints(&app, usize::MAX);
     assert!(

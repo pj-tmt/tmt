@@ -79,7 +79,6 @@ pub(in crate::board) fn paint(
     caption: Caption<'_>,
     start: &str,
     focused: bool,
-    replying: bool,
     look: Look,
 ) -> Rect {
     let base = style(look, focused);
@@ -110,11 +109,7 @@ pub(in crate::board) fn paint(
         1,
     );
     if !focused {
-        let words = format!(
-            " to {} {}",
-            if replying { "reply to" } else { "message" },
-            caption.recipient()
-        );
+        let words = format!(" to message {}", caption.recipient());
         strip::paint_left(
             buffer,
             inner,
@@ -172,7 +167,6 @@ mod tests {
             Caption::Message("night-2"),
             "⏎",
             false,
-            true,
             Look::default(),
         );
         let text = buffer
@@ -180,7 +174,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(text.contains("⏎ to reply to night-2"));
+        assert!(text.contains("⏎ to message night-2"));
         assert!(!text.contains("send"));
         assert!(!text.contains('─'));
         assert_eq!(buffer[(2, 1)].symbol(), "⏎");
@@ -189,7 +183,6 @@ mod tests {
             area,
             Caption::Message("night-2"),
             "⏎",
-            true,
             true,
             Look::default(),
         );
