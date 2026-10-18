@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { createPage, expectLive, freePort, run } from './harness/ask.js';
+import { createPage, freePort, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -67,11 +67,9 @@ test('a shell reading item is Unread until the page itself marks it read; openin
     expect(threads()).toHaveLength(0);
 
     await cell.locator('a').click();
-    // Mark read is ignored until the page's discussion is bound: wait for the live page first.
-    await expectLive(page);
-    const mark = band.getByRole('button', { name: 'Mark read', exact: true });
-    await expect(mark).toBeEnabled();
-    await mark.click();
+    // The real user path: Mark read is disabled until the page can act (never a silent no-op),
+    // so the click itself waits for it.
+    await band.getByRole('button', { name: 'Mark read', exact: true }).click();
     await expect(band).toHaveAttribute('data-reading-state', 'read', { timeout: 15_000 });
     await expect.poll(() => agent.received().length).toBe(1);
 

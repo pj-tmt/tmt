@@ -138,7 +138,8 @@ Ask and status owners; see [Review sections](../../../../extensions/tmt-colab/co
 Recommended-reading metadata uses the same inert parser and shared check vectors. `reading.ts`
 projects person read state from ordinary verified thread records; `reading-layer.tsx` reuses the shared NeedsYouBar and exposes its ordered read projection and
 cosmetic navigation; `reading-actions.ts` records
-and resolves through the existing binding/coordinator. Its named-agent restriction excludes
+and resolves through the existing binding/coordinator, and answers `ready` for the same condition
+the click needs, so the layer disables `Mark read` until it can act and a click never does nothing. Its named-agent restriction excludes
 other prose mentions. `reading-link.ts` owns cosmetic owner/paired navigation hints; Ask capture
 accepts only that exact hint and removes it from the canonical admitted URL. Reader capabilities
 are unchanged.

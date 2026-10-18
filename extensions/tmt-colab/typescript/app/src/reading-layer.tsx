@@ -181,6 +181,9 @@ export function useReadingLayer({
     const at = read && state.at ? Number(state.at) : NaN;
     const time = Number.isFinite(at) ? compactRelativeTime(at, now) : text.readingTimeUnknown;
     const busy = !writable || !attached || outcome?.state === 'working';
+    // Mark read acts only when the discussion, status and passage are all live; until then it is
+    // disabled and says so, so a click is never ignored.
+    const markReady = actions.ready(reading);
     const activate = (label: string, action: () => void, disabled = busy) => (
       <BrowserAction
         key={label}
@@ -227,7 +230,8 @@ export function useReadingLayer({
           actions={
             readOnly ? undefined : (
               <>
-                {!read && activate(text.readingMark, () => void actions.mark(reading))}
+                {!read &&
+                  activate(text.readingMark, () => void actions.mark(reading), busy || !markReady)}
                 {activate(
                   text.readingNext,
                   () => next(reading.id),
@@ -264,6 +268,9 @@ export function useReadingLayer({
           >
             {reason}
           </p>
+        )}
+        {!read && !outcome && writable && attached && !markReady && (
+          <p role="status">{text.readingNotReady}</p>
         )}
         {!read && outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
         {!read && outcome?.state === 'failed' && (
