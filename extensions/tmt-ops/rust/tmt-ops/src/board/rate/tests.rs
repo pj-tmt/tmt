@@ -555,6 +555,7 @@ fn rolled_history_is_not_prorated_at_a_short_window_boundary() {
             complete: true,
             gap: false,
             discontinuous: false,
+            by_driver: Vec::new(),
         })
         .collect();
     let mut rate = Rate::default();
@@ -597,6 +598,7 @@ fn uncovered_rollup_outside_short_window_is_not_zero_evidence() {
             complete: false,
             gap: true,
             discontinuous: false,
+            by_driver: Vec::new(),
         })
         .collect();
     let mut rate = Rate::default();
@@ -679,6 +681,60 @@ fn malformed_history_is_not_consumption_evidence() {
             "{kind}"
         );
     }
+}
+
+#[test]
+fn a_recorded_driver_split_is_read_and_an_implausible_one_reads_as_unknown() {
+    let fixture = history_fixture();
+    let original = fixture["response"].clone();
+    let read = |value: &Value| {
+        history::Seed::read(value, &value["identities"][0], 15_000)
+            .expect("an optional split never rejects the window")
+    };
+    // Bucket 1 holds 10 input and 5 output tokens, all of them codex's.
+    let bucket = |value: &mut Value| value["identities"][0]["windows"][0]["buckets"][1].clone();
+    assert_eq!(
+        read(&original).buckets[1].by_driver,
+        vec![("codex".to_owned(), 15)]
+    );
+    let row = |driver: &str, input: u64, output: u64, cached: u64| json!({"driver":driver,"inputTokens":input,"outputTokens":output,"cachedInputTokens":cached});
+    for (kind, split) in [
+        ("over the bucket", json!([row("codex", 11, 5, 0)])),
+        (
+            "over in two rows",
+            json!([row("a", 6, 0, 0), row("b", 6, 0, 0)]),
+        ),
+        ("duplicate", json!([row("a", 1, 0, 0), row("a", 1, 0, 0)])),
+        ("cached above input", json!([row("a", 1, 0, 2)])),
+        ("empty", json!([])),
+        (
+            "too many",
+            json!(
+                (0..5)
+                    .map(|n| row(&format!("d{n}"), 0, 0, 0))
+                    .collect::<Vec<_>>()
+            ),
+        ),
+        ("not an array", json!({"driver":"a"})),
+        ("bad row", json!([{"driver":"a"}])),
+        ("no name", json!([row("", 1, 0, 0)])),
+    ] {
+        let mut value = original.clone();
+        value["identities"][0]["windows"][0]["buckets"][1]["byDriver"] = split;
+        let seed = read(&value);
+        assert!(seed.buckets[1].by_driver.is_empty(), "{kind}");
+        assert_eq!(
+            seed.buckets[1].input_tokens,
+            bucket(&mut value)["inputTokens"]
+        );
+    }
+    // A partial split is accepted: the remainder is unknown, not rejected.
+    let mut value = original;
+    value["identities"][0]["windows"][0]["buckets"][1]["byDriver"] = json!([row("codex", 4, 1, 0)]);
+    assert_eq!(
+        read(&value).buckets[1].by_driver,
+        vec![("codex".to_owned(), 5)]
+    );
 }
 
 #[test]

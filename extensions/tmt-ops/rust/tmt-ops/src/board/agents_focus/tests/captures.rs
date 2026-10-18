@@ -171,6 +171,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
                         complete: true,
                         gap: false,
                         discontinuous: false,
+                        by_driver: Vec::new(),
                     })
                     .collect();
                 seeds.insert(

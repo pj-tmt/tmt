@@ -98,13 +98,13 @@ struct Evidence {
 
 fn intervals(member: &Member, grid: Grid) -> Vec<Evidence> {
     let mut values = vec![Evidence::default(); grid.count()];
-    let selected = if grid.range_ms > 3_600_000 {
+    let (selected, splits) = if grid.range_ms > 3_600_000 {
         let Some(retained) = grid.retained(member) else {
             return values;
         };
-        &retained.buckets
+        (&retained.buckets, &retained.splits)
     } else {
-        &member.buckets
+        (&member.buckets, &member.provider_splits)
     };
     for bucket in selected {
         if matches!(bucket.origin, BucketOrigin::History { .. }) && bucket.source_from.is_none() {
@@ -143,7 +143,7 @@ fn intervals(member: &Member, grid: Grid) -> Vec<Evidence> {
             Some(total) => value.tokens = total,
             None => value.overflow = true,
         }
-        for (id, part) in member.provider_tokens(bucket) {
+        for (id, part) in Member::provider_tokens(bucket, splits) {
             let sum = value.providers.entry(id).or_default();
             match sum.checked_add(part) {
                 Some(total) => *sum = total,
