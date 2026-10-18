@@ -1,4 +1,4 @@
-use super::*;
+use super::{details::DriverUsage, *};
 
 // Literal expectations characterize the pre-optimization public projection.
 #[test]
@@ -595,6 +595,198 @@ fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model()
         history["identities"][0]["latest"]["consumption"]["modelId"],
         "a"
     );
+}
+
+/// The same fixture counters as `latest`, read from another driver's session.
+fn from_driver(
+    driver: &str,
+    input: u64,
+    output: u64,
+    sequence: u64,
+    observed: u64,
+) -> ConsumptionLatest {
+    let mut reading = latest(input, output, sequence, observed);
+    reading.driver = driver.into();
+    reading.session = format!("{driver}-session");
+    reading
+}
+
+fn only_bucket(storage: &mut Storage, id: &str, window: u64, now: u64) -> Value {
+    let history = storage
+        .consumption_history(&[id.to_owned()], &[window], 120, now, false)
+        .unwrap();
+    history["identities"][0]["windows"][0]["buckets"][0].clone()
+}
+
+#[test]
+fn a_driver_switch_inside_one_bucket_splits_its_deltas_by_driver() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    // One 5-second bucket: claude counts, the seat switches to codex (a boundary
+    // that counts nothing), then codex counts.
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("claude", 0, 0, 1, 5100)),
+        5100,
+    )
+    .unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("claude", 10, 2, 2, 6000)),
+        6000,
+    )
+    .unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("codex", 500, 90, 1, 7000)),
+        7000,
+    )
+    .unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("codex", 530, 96, 2, 8000)),
+        8000,
+    )
+    .unwrap();
+    let bucket = only_bucket(&mut storage, &id, 5000, 10_500);
+    assert_eq!(bucket["inputTokens"], 40);
+    assert_eq!(bucket["outputTokens"], 8);
+    assert_eq!(bucket["discontinuous"], true);
+    assert_eq!(
+        bucket["byDriver"],
+        json!([
+            {"driver":"claude","inputTokens":10,"outputTokens":2,"cachedInputTokens":0},
+            {"driver":"codex","inputTokens":30,"outputTokens":6,"cachedInputTokens":0}
+        ])
+    );
+}
+
+#[test]
+fn a_restart_gap_keeps_the_older_tokens_under_their_driver() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("claude", 0, 0, 1, 6000)),
+        6000,
+    )
+    .unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("claude", 10, 2, 2, 11000)),
+        11000,
+    )
+    .unwrap();
+    // A failed read, then a new epoch (a restart): a gap and a boundary, no delta.
+    record_sample(connection, &id, None, 16000).unwrap();
+    let mut restarted = from_driver("claude", 3, 1, 1, 21000);
+    restarted.consumption.epoch = "44444444-4444-4444-8444-444444444444".into();
+    record_sample(connection, &id, Some(restarted), 21000).unwrap();
+    let mut counted = from_driver("claude", 8, 2, 2, 26000);
+    counted.consumption.epoch = "44444444-4444-4444-8444-444444444444".into();
+    record_sample(connection, &id, Some(counted), 26000).unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[25000], 120, 30_500, false)
+        .unwrap();
+    let buckets = history["identities"][0]["windows"][0]["buckets"]
+        .as_array()
+        .unwrap();
+    let share = |from: u64| {
+        buckets
+            .iter()
+            .find(|bucket| bucket["fromMs"] == from)
+            .unwrap()
+            .clone()
+    };
+    let claude = |input: u64, output: u64| json!([{"driver":"claude","inputTokens":input,"outputTokens":output,"cachedInputTokens":0}]);
+    assert_eq!(share(10_000)["byDriver"], claude(10, 2));
+    assert_eq!(share(25_000)["byDriver"], claude(5, 1));
+    // The restart itself counts nothing and carries no attribution to invent.
+    assert!(share(20_000).get("byDriver").is_none());
+    assert_eq!(share(20_000)["discontinuous"], false);
+    assert!(
+        buckets
+            .iter()
+            .any(|bucket| bucket["gap"] == true && bucket.get("byDriver").is_none())
+    );
+}
+
+#[test]
+fn rows_counted_before_drivers_were_recorded_stay_unattributed() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    // A bucket written before this field existed holds 100 tokens with no split.
+    Bucket {
+        from: 5000,
+        input: 100,
+        ..Bucket::default()
+    }
+    .write(storage.connection().unwrap(), FINE, &id)
+    .unwrap();
+    let connection = storage.connection().unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("claude", 0, 0, 1, 6000)),
+        6000,
+    )
+    .unwrap();
+    record_sample(
+        connection,
+        &id,
+        Some(from_driver("claude", 10, 2, 2, 7000)),
+        7000,
+    )
+    .unwrap();
+    let bucket = only_bucket(&mut storage, &id, 5000, 10_500);
+    assert_eq!(bucket["inputTokens"], 110);
+    assert_eq!(
+        bucket["byDriver"],
+        json!([{"driver":"claude","inputTokens":10,"outputTokens":2,"cachedInputTokens":0}])
+    );
+}
+
+#[test]
+fn a_stored_split_that_overcounts_or_is_not_canonical_is_corrupt() {
+    let row = |driver: &str, input: u64| DriverUsage {
+        driver: driver.into(),
+        input_tokens: input,
+        output_tokens: 0,
+        cached_input_tokens: 0,
+    };
+    let write = |rows: Vec<DriverUsage>| {
+        let (_directory, path, id) = fixture();
+        let storage = Storage::open(&path).unwrap();
+        Bucket {
+            from: 5000,
+            input: 10,
+            details: Details {
+                by_driver: Some(rows),
+                ..Details::default()
+            },
+            ..Bucket::default()
+        }
+        .write(storage.connection().unwrap(), FINE, &id)
+    };
+    assert!(write(vec![row("claude", 4), row("codex", 6)]).is_ok());
+    assert!(write(vec![row("claude", 4)]).is_ok());
+    assert!(write(vec![row("claude", 11)]).is_err());
+    assert!(write(vec![row("claude", 6), row("codex", 6)]).is_err());
+    assert!(write(vec![row("codex", 1), row("claude", 1)]).is_err());
+    assert!(write(vec![row("claude", 1), row("claude", 1)]).is_err());
+    assert!(write(vec![row("Claude", 1)]).is_err());
+    assert!(write(Vec::new()).is_err());
 }
 
 #[test]

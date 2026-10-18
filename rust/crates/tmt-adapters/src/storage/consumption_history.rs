@@ -762,7 +762,7 @@ fn record_sample(
             cached: next.consumption.cached_input_tokens - old.consumption.cached_input_tokens,
             changed: next.consumption.input_tokens != old.consumption.input_tokens
                 || next.consumption.output_tokens != old.consumption.output_tokens,
-            details: Details::delta(&old.consumption, &next.consumption),
+            details: Details::delta(&old.consumption, &next.consumption, &next.driver),
         }),
     };
     let from = now / BUCKET_MS * BUCKET_MS;

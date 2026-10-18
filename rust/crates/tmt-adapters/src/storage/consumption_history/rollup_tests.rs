@@ -147,6 +147,7 @@ fn every_rollup_bucket_equals_the_sum_of_the_fine_buckets_it_covers() {
             .any(|bucket| bucket.get("rateLimits").is_some())
     );
     assert!(rolled.iter().any(|bucket| bucket.get("byModel").is_some()));
+    assert!(rolled.iter().any(|bucket| bucket.get("byDriver").is_some()));
     assert!(fine.iter().any(|bucket| bucket["gap"] == true));
     assert!(fine.iter().any(|bucket| bucket["discontinuous"] == true));
 }
@@ -292,17 +293,18 @@ fn the_window_boundaries_and_corrupt_rollup_rows_are_refused() {
 }
 
 /// The size of the rollup on a synthetic full fleet, so growth stays visible: 32
-/// identities for 30 days of 5-minute buckets, half Claude-shaped (one model, no
-/// limits) and half Codex-shaped (one model, both limit windows on a quarter of the buckets). The ceiling is the
-/// budget the plan gave the tier, with a margin over the measured size.
+/// identities for 30 days of 5-minute buckets, half Claude-shaped (one model, one
+/// driver, no limits) and half Codex-shaped (one model, one driver, both limit windows
+/// on a quarter of the buckets). The ceiling is the tier's budget, with a margin over
+/// the measured size: 281 bytes per row before `byDriver` (#3751), 392 after.
 #[test]
 fn the_rollup_fits_its_budget_on_a_full_thirty_day_fleet() {
     let directory = crate::test_support::TestDirectory::new();
     let storage = Storage::open(directory.path.join("budget.sqlite")).unwrap();
     let connection = storage.connection().unwrap();
     let rows_per_identity = ROLLUP_MS / ROLLUP_BUCKET_MS;
-    let claude = r#"{"byModel":[{"modelId":"claude-opus-5-5","inputTokens":62000,"outputTokens":4900,"cachedInputTokens":38000}]}"#;
-    let codex = r#"{"byModel":[{"modelId":"gpt-6.1-sol","inputTokens":62000,"outputTokens":4900,"cachedInputTokens":38000}]}"#;
+    let claude = r#"{"byModel":[{"modelId":"claude-opus-5-5","inputTokens":62000,"outputTokens":4900,"cachedInputTokens":38000}],"byDriver":[{"driver":"claude","inputTokens":62000,"outputTokens":4900,"cachedInputTokens":38000}]}"#;
+    let codex = r#"{"byModel":[{"modelId":"gpt-6.1-sol","inputTokens":62000,"outputTokens":4900,"cachedInputTokens":38000}],"byDriver":[{"driver":"codex","inputTokens":62000,"outputTokens":4900,"cachedInputTokens":38000}]}"#;
     let limits = r#"{"observedAtMs":1791517290230,"windows":[{"windowMinutes":300,"usedPercent":41.5,"resetsAtMs":1791530000000},{"windowMinutes":10080,"usedPercent":63.25,"resetsAtMs":1792000000000}]}"#;
     connection.execute_batch("BEGIN").unwrap();
     for n in 0..32u64 {
@@ -343,7 +345,7 @@ fn the_rollup_fits_its_budget_on_a_full_thirty_day_fleet() {
         "rollup: {rows} rows, {bytes} bytes, {} bytes per row",
         bytes / rows
     );
-    assert!(bytes < 90 * 1024 * 1024, "{bytes} bytes for {rows} rows");
+    assert!(bytes < 125 * 1024 * 1024, "{bytes} bytes for {rows} rows");
 }
 
 #[test]

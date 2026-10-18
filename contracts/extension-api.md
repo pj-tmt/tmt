@@ -394,6 +394,14 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   omit `byModel`; they never relabel a mixed bucket with its latest model.
   Unknown cache-write evidence omits that counter without altering legacy
   totals, coverage, gaps or retention. Existing stored rows are not backfilled.
+- History buckets optionally add `byDriver`: `{driver,inputTokens,outputTokens,
+cachedInputTokens}` rows in ascending `driver` order, holding **deltas for that
+  bucket** counted between two reads of that driver. Core records the driver of the
+  read, so a bucket keeps each share under its own driver across a restart, a gap or a
+  driver switch; a consumer never infers it from `latest.driver`. The rows sum to **at
+  most** the bucket's tokens, and the remainder (a row stored before this field, an
+  uncovered interval) is unknown. A missing `byDriver` means unknown, never one driver.
+  Aggregating beyond four drivers omits it. Existing stored rows are not backfilled.
 
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
 one open bucket per identity; the [rollup](#thirty-day-rollup) keeps coarser sums for 30 days. Expired history is excluded immediately on reads;
@@ -443,7 +451,7 @@ A `windowsMs` above 3,600,000 (a multiple of 300,000 through 30 days) reads the
 rollup instead of the 5-second buckets; shorter windows are unchanged byte for byte.
 Core folds every accepted read into 5-minute buckets in the same transaction that
 writes the 5-second bucket, with one rule for both, so a rollup bucket is the sum of
-the fine buckets it covers: tokens, per-model attribution, covered time and the
+the fine buckets it covers: tokens, per-model and per-driver attribution, covered time and the
 `gap`, `discontinuous` and incomplete flags. Retention is 30 days by time alone
 (a write prunes its identity's expired rows and a few of anyone's, so a retired
 identity ages out too); there is no row cap. Recording starts at the migration, with
