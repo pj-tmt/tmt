@@ -1,5 +1,5 @@
 import { Bot } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { text } from '../strings.js';
 import './agent-chip.css';
 
@@ -53,4 +53,25 @@ export function AgentChip({
       {children}
     </span>
   );
+}
+
+/** A sentence template with `{agent}` where the agent goes; each marker becomes an inline chip. */
+export function agentSentence(template: string, ...names: string[]): ReactNode {
+  const parts = template.split('{agent}');
+  return parts.map((part, index) => (
+    <Fragment key={index}>
+      {part}
+      {index < parts.length - 1 && <AgentChip name={names[index] ?? ''} />}
+    </Fragment>
+  ));
+}
+
+/** Several agents in running text, as inline chips separated by commas. */
+export function AgentList({ names }: { names: readonly string[] }) {
+  return names.map((name, index) => (
+    <Fragment key={`${index}:${name}`}>
+      {index > 0 && ', '}
+      <AgentChip name={name} />
+    </Fragment>
+  ));
 }

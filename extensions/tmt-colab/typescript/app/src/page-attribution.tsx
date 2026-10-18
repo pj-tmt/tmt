@@ -1,3 +1,4 @@
+import { AgentChip } from './components/agent-chip.js';
 import type { Projection } from './fold-protocol.js';
 import { text } from './strings.js';
 
@@ -14,7 +15,9 @@ export function PageAttribution({
         {publisherAgent !== undefined && (
           <>
             <dt>{text.latestPublisher}</dt>
-            <dd>{publisherAgent}</dd>
+            <dd>
+              <AgentChip name={publisherAgent} />
+            </dd>
           </>
         )}
       </dl>

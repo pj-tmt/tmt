@@ -35,7 +35,7 @@
   gap: 12px;
   align-items: baseline;
 }
-.agent-status-list strong {
+.agent-status-list .agent-chip {
   min-width: 0;
   overflow-wrap: anywhere;
 }

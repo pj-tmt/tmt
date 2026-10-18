@@ -1,5 +1,6 @@
 import { Circle, CircleDot, CircleHelp } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AgentChip } from './components/agent-chip.js';
 import type { AskBinding } from './ask-panel.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
@@ -177,7 +178,7 @@ export function AgentStatusPanel({
               return (
                 <li key={`${agent.machine}:${agent.agent}:${index}`} data-presence={presence}>
                   <div>
-                    <strong>{agent.agentName}</strong>
+                    <AgentChip name={agent.agentName} />
                     <span className="agent-status-presence">
                       <Mark aria-hidden />
                       {label}

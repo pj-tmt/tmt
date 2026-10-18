@@ -97,7 +97,7 @@ test('another refusal keeps both honest outcomes and one recipient action; keybo
   await expect(page.locator('[data-ledger-state=refused]')).toHaveCount(2);
   await expect(again).toHaveCount(1);
   await expect(page.getByTestId('ask-state').last()).toContainText('Not delivered');
-  await expect(page.getByTestId('ask-state').last()).toHaveText('@alpha · Not delivered');
+  await expect(page.getByTestId('ask-state').last()).toHaveText('alpha · Not delivered');
   await expect(page.locator('.ask-supporting').last()).toContainText(
     'Remote is busy. Try again later.',
   );
@@ -115,7 +115,7 @@ for (const mode of ['uncertain', 'unknown', 'held'])
     await expect(page.getByTestId('ask-state').last()).toHaveText('Waiting for beta');
     if (mode === 'held')
       await expect(page.getByTestId('ask-state').first()).toHaveText(
-        '@alpha · Waiting for approval',
+        'alpha · Waiting for approval',
       );
     if (mode === 'uncertain')
       await expect(page.getByRole('button', { name: 'Abandon tracking', exact: true })).toHaveCount(

@@ -1094,7 +1094,7 @@ test('a served question group records three answers and asks each recipient once
     // Admitted Ask projection does not promise recipient ordering. Pin both identities
     // and the shared count without treating their arrival order as a UI contract.
     await expect(current().locator('.question-shared-ask')).toHaveText(
-      /^Asked @(?:batch-alpha, @batch-beta|batch-beta, @batch-alpha) with 3 answers\.$/,
+      /^Asked (?:batch-alpha, batch-beta|batch-beta, batch-alpha) with 3 answers\.$/,
     );
     await current().getByRole('button', { name: 'Open reply · Q1', exact: true }).click();
     await expect(current().getByTestId('ask-entry').first()).toBeFocused();

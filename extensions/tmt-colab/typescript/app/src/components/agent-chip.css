@@ -24,6 +24,25 @@
 .agent-chip-name {
   font-weight: 500;
 }
+/* Inside a sentence the chip is plain inline content: it sits on the text baseline and wraps
+ * like text. Only the bordered form is a flex box with one clipped line. */
+.agent-chip[data-variant='inline'] {
+  display: inline;
+}
+.agent-chip[data-variant='inline'] .agent-chip-icon,
+.agent-chip[data-variant='inline'] .agent-chip-spinner {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -0.15em;
+}
+.agent-chip[data-variant='inline'] .agent-chip-name,
+.agent-chip[data-variant='inline'] .agent-chip-machine,
+.agent-chip[data-variant='inline'] .agent-chip-driver {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
 .agent-chip-machine,
 .agent-chip-driver {
   flex-shrink: 1;

@@ -1,5 +1,6 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
+import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { focusNeedsYouTarget } from './needs-you.js';
 import { compactRelativeTime } from './display-time.js';
@@ -162,9 +163,10 @@ export function useReadingLayer({
       notification?.state === 'refused';
     const warning =
       read && !notified
-        ? notNotified
-          ? text.readingNotNotified(notifiedAgent)
-          : text.readingUnconfirmed(notifiedAgent)
+        ? agentSentence(
+            notNotified ? text.readingNotNotified : text.readingUnconfirmed,
+            notifiedAgent,
+          )
         : undefined;
     const reason =
       notification?.state === 'held'
@@ -213,8 +215,14 @@ export function useReadingLayer({
         <NeedsYouBar
           tone={read ? 'done' : 'needs'}
           word={read ? text.readingWord : text.readingPleaseRead}
-          who={read ? time : reading.agent}
-          why={read ? (notified ? text.readingNotified(notifiedAgent) : warning) : reading.why}
+          who={read ? time : <AgentChip name={reading.agent} />}
+          why={
+            read
+              ? notified
+                ? agentSentence(text.readingNotified, notifiedAgent)
+                : warning
+              : reading.why
+          }
           role={read ? 'status' : undefined}
           actions={
             readOnly ? undefined : (

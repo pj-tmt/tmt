@@ -219,7 +219,7 @@ test('a preparation failure leaves the sibling delivered once and never retries 
   await input.pressSequentially('@alpha @beta explain');
   await input.press('Enter');
   await expect(page.getByTestId('recipient-failure')).toHaveCount(1);
-  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  await expect(page.getByTestId('recipient-failure')).toContainText('alpha · Not delivered');
   await expect(
     page.getByTestId('recipient-failure').getByRole('button', { name: 'Ask again', exact: true }),
   ).toBeVisible();
@@ -363,7 +363,7 @@ for (const mode of ['partial-refusal', 'core-refusal'])
     const entries = page.getByTestId('ask-entry');
     await expect(entries).toHaveCount(2);
     await expect(entries.nth(0)).toHaveAttribute('data-ledger-state', 'refused');
-    await expect(entries.nth(0)).toContainText('Mention @alpha in a new message to ask again.');
+    await expect(entries.nth(0)).toContainText('Mention alpha in a new message to ask again.');
     await expect(entries.nth(1)).toHaveAttribute('data-ledger-state', 'accepted');
     await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
     expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 2, commits: 1 });
@@ -377,7 +377,7 @@ test('a pre-adoption Send failure has a local Not delivered label and no invente
   const input = await mount(page, { mode: 'no-adoption' });
   await input.fill('@alpha Explain.');
   await input.press('Enter');
-  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  await expect(page.getByTestId('recipient-failure')).toContainText('alpha · Not delivered');
   await expect(
     page.getByTestId('recipient-failure').getByRole('button', { name: 'Ask again', exact: true }),
   ).toBeVisible();
@@ -413,7 +413,7 @@ test('unknown adoption shows per-recipient uncertainty without claiming Not deli
   await input.fill('@alpha Explain.');
   await input.press('Enter');
   const failure = page.getByTestId('recipient-failure');
-  await expect(failure).toContainText('@alpha · Delivery unconfirmed');
+  await expect(failure).toContainText('alpha · Delivery unconfirmed');
   await expect(failure).not.toContainText('Not delivered');
   await expect(failure).not.toContainText('new message');
   await expect(page.getByTestId('ask-entry')).toHaveCount(0);
@@ -429,7 +429,7 @@ test('a new Chat Send clears local failures from the prior message', async ({ pa
   const input = await mount(page, { surface: 'chat', mode: 'partial-preparation' });
   await input.fill('@alpha First question.');
   await input.press('Enter');
-  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  await expect(page.getByTestId('recipient-failure')).toContainText('alpha · Not delivered');
   expect(await run(page, 'proof')).toMatchObject({
     writes: 1,
     preparations: 1,

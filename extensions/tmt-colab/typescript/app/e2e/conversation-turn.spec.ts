@@ -197,7 +197,7 @@ for (const width of [1440, 390]) {
             );
             if (surface === 'chat' && state === 'failed')
               await expect(status.locator('.ask-state-mark')).toHaveText('✗');
-            else await expect(status.locator('svg.lucide')).toBeVisible();
+            else await expect(status.locator('.ask-state-mark svg.lucide')).toBeVisible();
             await expect(user.locator('header').getByTestId('ask-state')).toHaveCount(0);
             const placement = await user.evaluate((node) => {
               const main = node.querySelector('.conversation-main')!;
@@ -432,7 +432,9 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   ]) {
     await run(page, 'conversation', { surface: 'thread', state });
     await expect(window.getByTestId('ask-state')).toHaveText(label);
-    await expect(window.getByTestId('ask-state').locator('svg.lucide')).toBeVisible();
+    await expect(
+      window.getByTestId('ask-state').locator('.ask-state-mark svg.lucide'),
+    ).toBeVisible();
     if (supporting) await expect(window.locator('.ask-supporting')).toHaveText(supporting);
     else await expect(window.locator('.ask-supporting')).toHaveCount(0);
     await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(

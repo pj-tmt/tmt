@@ -11,6 +11,7 @@ import {
 } from 'react';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { AnnotationInput, type MessageSendFailure } from './annotation-input.js';
+import { AgentChip } from './components/agent-chip.js';
 import { ProposalCard } from './components/proposal-card.js';
 import { ProposalActions, type ProposalOutcome } from './proposal-actions.js';
 import { conversationAsks } from './thread-store.js';
@@ -232,7 +233,8 @@ export function useProposalLayer({
               className="annotation-delivery-failure"
             >
               <p role="status">
-                @{failure.agent} · {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
+                <AgentChip name={failure.agent} /> ·{' '}
+                {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}
               </p>
               {failure.uncertain ? (
                 <p className="ask-supporting">{text.askUncertain}</p>
@@ -283,7 +285,7 @@ export function useProposalLayer({
       !thread.resolved && (!thread.decision || thread.decision.deleted) ? 'waiting' : 'settled',
     id: thread.proposal!.proposalId,
     title: thread.proposal!.title,
-    agent: thread.proposal!.proposer.label,
+    agents: [thread.proposal!.proposer.label],
   }));
   return {
     navigation,

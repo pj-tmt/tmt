@@ -3,6 +3,7 @@ import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
+import { AgentChip, AgentList } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
@@ -12,7 +13,7 @@ import { threadNotificationDestination } from './reply-notification-context.js';
 import { MessageText } from './components/message-text.js';
 import { MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskRetryInput, type AskBinding, type PageAsk } from './ask-panel.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -568,7 +569,7 @@ export function ThreadWindow({
             )}
             {notNotified.length > 0 && (
               <p role="status" className="annotation-hint">
-                {text.threadNotNotified(notNotified.join(', '))}
+                {text.threadNotNotified} <AgentList names={notNotified} />
               </p>
             )}
             {error && <p role="alert">{text.commentFailed}</p>}
@@ -775,15 +776,17 @@ export function ThreadPanel({
       <div className="annotation-list">
         {visibleThreads.map((thread) => {
           const id = `${thread.ref.writer}:${thread.threadId}`;
+          const agentNames = new Set([
+            ...(thread.proposal ? [thread.proposal.proposer.label] : []),
+            ...asks.filter((value) => value.thread === thread.threadId).map((v) => v.agentName),
+          ]);
           const participants = [
             ...new Set([
               thread.proposal?.proposer.label || thread.deviceName || text.commentDevice,
               ...thread.comments
                 .filter((value) => !value.deleted)
                 .map((value) => value.deviceName || text.commentDevice),
-              ...asks
-                .filter((value) => value.thread === thread.threadId)
-                .map((value) => value.agentName),
+              ...agentNames,
             ]),
           ];
           const at = Number(thread.comments.at(-1)?.at ?? thread.at);
@@ -824,8 +827,13 @@ export function ThreadPanel({
                       : (thread.proposal?.title ?? thread.anchor?.exact ?? 'Page comments')}
                   </strong>
                   <span>
-                    {participants.join(', ')} ·{' '}
-                    <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
+                    {participants.map((name, index) => (
+                      <Fragment key={name}>
+                        {index > 0 && ', '}
+                        {agentNames.has(name) ? <AgentChip name={name} /> : name}
+                      </Fragment>
+                    ))}{' '}
+                    · <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
                   </span>
                   <span data-testid="thread-row-status" data-unseen={status?.unseen || undefined}>
                     {thread.resolved ? (

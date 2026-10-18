@@ -1,5 +1,6 @@
 import { BrowserAction, BrowserChips, BrowserTabs, type BrowserTab } from '@tmt/browser-ui/react';
 import { useEffect, useRef, useState } from 'react';
+import { AgentList } from './agent-chip.js';
 import type { AnchorPosition } from '../renderer.js';
 import type { ComposerConnectionPresentation } from '../router.js';
 import { sendAnswers, askedMessageIds, type BatchAnswer } from '../answer-batch.js';
@@ -342,14 +343,13 @@ export function QuestionGroupCard({
     );
     const names = [
       ...new Map(records.map((record) => [recipientId(record), record.agentName])).values(),
-    ]
-      .map((name) => `@${name}`)
-      .join(', ');
-    const sharedAsk = records.length
-      ? batch.length
-        ? `Asked ${names} with ${batch[0].messageIds!.length} answers.`
-        : `Asked ${names}`
-      : undefined;
+    ];
+    const sharedAsk = records.length ? (
+      <>
+        Asked <AgentList names={names} />
+        {batch.length ? ` with ${batch[0].messageIds!.length} answers.` : ''}
+      </>
+    ) : undefined;
     const hasOtherReply =
       canonical &&
       canonical.question.id !== question.id &&

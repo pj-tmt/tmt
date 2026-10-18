@@ -1,7 +1,7 @@
 import { canonicalQuestionThread, currentAnswer, type Question } from './questions.js';
 import type { ThreadView } from './thread-records.js';
 
-type Target = { id: string; title: string; agent: string; targetId?: string };
+type Target = { id: string; title: string; agents: readonly string[]; targetId?: string };
 export type NeedsYouCandidate = Target &
   (
     | { kind: 'proposal'; state: 'waiting' | 'settled' }

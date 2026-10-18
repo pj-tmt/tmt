@@ -212,7 +212,9 @@ test('status states captured for the UX look', async () => {
     await first.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
     const t1 = first.getByTestId('comment-thread').first();
     await t1.getByRole('button', { name: text.threadResolve, exact: true }).click();
-    await expect(t1.getByText(text.threadNotNotified('ghost-agent'))).toBeVisible();
+    const notNotified = t1.getByRole('status').filter({ hasText: text.threadNotNotified });
+    await expect(notNotified).toBeVisible();
+    await expect(notNotified.locator('.agent-chip')).toHaveText('ghost-agent');
     await expect(row2).toContainText(text.threadResolved);
     await expect(row2).toContainText(text.threadResolvedBy('status-author'));
     await shoot(first, 'person-resolved-not-notified');

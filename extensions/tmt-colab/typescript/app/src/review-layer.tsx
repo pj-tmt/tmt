@@ -147,7 +147,7 @@ export function useReviewLayer({
             state: state.kind,
             id: review.id,
             title: review.title,
-            agent: review.agent,
+            agents: [review.agent],
           },
         ],
   );

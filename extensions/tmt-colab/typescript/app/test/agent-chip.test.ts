@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
-import { AgentChip } from '../src/components/agent-chip.js';
+import { AgentChip, AgentList, agentSentence } from '../src/components/agent-chip.js';
 
 const render = (props: Parameters<typeof AgentChip>[0]) =>
   renderToStaticMarkup(createElement(AgentChip, props));
@@ -54,4 +54,19 @@ it('renders a trailing control after the name', () => {
     ),
   );
   expect(markup.indexOf('agent-chip-name')).toBeLessThan(markup.indexOf('<button'));
+});
+
+it('puts inline chips where a sentence names its agents', () => {
+  const sentence = renderToStaticMarkup(
+    createElement('p', null, agentSentence('Waiting for {agent}', 'Atlas')),
+  );
+  expect(sentence).toMatch(
+    /^<p>Waiting for <span class="agent-chip"[^>]*>.*Atlas<\/span><\/span><\/p>$/,
+  );
+  const list = renderToStaticMarkup(
+    createElement('p', null, createElement(AgentList, { names: ['@a', '@b'] })),
+  );
+  expect(list.match(/class="agent-chip"/g)).toHaveLength(2);
+  expect(list).toContain('</span>, <span class="agent-chip"');
+  expect(agentSentence('no agent here')).toHaveLength(1);
 });

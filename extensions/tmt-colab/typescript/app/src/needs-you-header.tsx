@@ -9,6 +9,7 @@ import {
   DropdownMenuLabel,
 } from '@tmt/browser-ui/ui';
 import '@tmt/browser-ui/ui.css';
+import { AgentList } from './components/agent-chip.js';
 import type { NeedsYouCandidate } from './needs-you.js';
 import { useNotificationModalPresence } from './reply-notification-context.js';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -161,9 +162,12 @@ export function NeedsYouHeader({
                         >
                           <span className="needs-you-header-row" title={item.title}>
                             {item.title}
-                            <span className="needs-you-header-agent">
-                              {item.agent ? ` · ${item.agent}` : ''}
-                            </span>
+                            {item.agents.length > 0 && (
+                              <span className="needs-you-header-agent">
+                                {' · '}
+                                <AgentList names={item.agents} />
+                              </span>
+                            )}
                           </span>
                         </a>
                       </DropdownMenuItem>

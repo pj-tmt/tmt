@@ -12,6 +12,7 @@ import {
   useState,
   type RefObject,
 } from 'react';
+import { AgentList } from './components/agent-chip.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
 import { QuestionChip } from './components/question-chip.js';
 import { QuestionGroupCard } from './components/question-group-card.js';
@@ -165,12 +166,13 @@ export function useQuestionLayer({
   );
   const rows = groups.map((group) => {
     const members = group.questions.map((id) => questions.find((question) => question.id === id)!);
-    return { group, members, pending: unansweredQuestions(members, associated) };
+    const agents = [...new Set(members.map((member) => member.agent).filter(Boolean))];
+    return { group, members, agents, pending: unansweredQuestions(members, associated) };
   });
   const navigation: NeedsYouCandidate[] =
     state !== 'ready' || anchors === null
       ? []
-      : rows.flatMap(({ group, members, pending }) => {
+      : rows.flatMap(({ group, members, agents, pending }) => {
           const slot = slots.find((value) => value.id === group.id);
           const attached =
             group.form === 'chip' ? !!slot?.chip : slot?.descriptionHeight !== undefined;
@@ -185,7 +187,7 @@ export function useQuestionLayer({
               state: pending.length ? 'unanswered' : 'answered',
               id: group.id,
               title: group.title ?? members[0].title,
-              agent: [...new Set(members.map((member) => member.agent).filter(Boolean))].join(', '),
+              agents,
               targetId: (pending[0] ?? members[0]).id,
             },
           ];
@@ -230,7 +232,7 @@ export function useQuestionLayer({
     },
     inline: (
       <>
-        {rows.map(({ group, members, pending }) => {
+        {rows.map(({ group, members, agents, pending }) => {
           const current = selected(group);
           const slot = slots.find((slot) => slot.id === group.id);
           const chip = group.form === 'chip';
@@ -318,9 +320,7 @@ export function useQuestionLayer({
                       ? `Please answer ${unanswered} ${unanswered === 1 ? 'question' : 'questions'}`
                       : `Answered ${members.length} ${members.length === 1 ? 'question' : 'questions'}`
                   }
-                  who={[...new Set(members.map((member) => member.agent).filter(Boolean))].join(
-                    ', ',
-                  )}
+                  who={agents.length > 0 ? <AgentList names={agents} /> : undefined}
                   actions={
                     <BrowserAction
                       label="Collapse"
