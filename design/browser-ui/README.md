@@ -225,7 +225,8 @@ strip scrolls horizontally, never wraps or animates; selection and resize keep
 the selected tab in view without moving the host page. A label wider than the
 available strip truncates visually while its full accessible name remains.
 The square panel uses a 1px rule; the selected tab joins it and carries a 2px
-top rule in the link color role. No product state, routing or persistence belongs to Tabs.
+top rule and strong text in the neutral text role. State marks retain their own roles.
+No product state, routing or persistence belongs to Tabs.
 Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`,
 `tabsStatus`, `tabPanel` classes and supply the same IDs, roles, selected state,
 roving tab stop, native activation, panel visibility and disposable resize behavior.
