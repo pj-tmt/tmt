@@ -397,11 +397,24 @@ fn describe_cause(text: &mut String, cause: Option<&deploy_run::StepCause>, labe
                 text,
                 "  File: {}; {}; hash {}; {}.",
                 sample.path,
-                row["status"].as_str().expect("sample status"),
+                row["status"]
+                    .as_str()
+                    .expect("sample status")
+                    .to_ascii_lowercase(),
                 sample.hash_prefix,
                 row["relation"].as_str().expect("sample relation")
             )
             .expect("String write");
+        }
+        if let (Some(files), Some(samples)) = (&cause.files, &cause.file_samples) {
+            let shown = samples
+                .iter()
+                .filter(|sample| sample.relation != deploy_run::FileRelation::Exact)
+                .count();
+            let remaining = usize::from(files.extra).saturating_sub(shown);
+            if remaining > 0 {
+                writeln!(text, "  …and {remaining} more files.").expect("String write");
+            }
         }
     }
 }
@@ -548,8 +561,29 @@ mod tests {
         describe_cause(&mut text, Some(&cause), "Cause");
         assert_eq!(
             text,
-            "Cause: files-mismatch (phase list; HTTP 2xx).\n  File: /404.html; ACTIVE; hash abcdef01; path-missing.\n  File: <redacted>; EXPECTED; hash 01234567; hash-different.\n"
+            "Cause: files-mismatch (phase list; HTTP 2xx).\n  File: /404.html; active; hash abcdef01; path-missing.\n  File: <redacted>; expected; hash 01234567; hash-different.\n"
         );
+    }
+
+    #[test]
+    fn human_file_samples_count_only_unshown_non_exact_rows_without_changing_json() {
+        let mut value = serde_json::json!({"code":"files-mismatch","phase":"list","files":{"planned":15,"expected":0,"active":7,"listed":7,"missing":5,"extra":5},"fileSamples":[
+            {"path":"/404.html","status":"ACTIVE","hashPrefix":"abcdef01","relation":"path-missing"},
+            {"path":"/index.html","status":"ACTIVE","hashPrefix":"01234567","relation":"hash-different"},
+            {"path":"/same.html","status":"EXPECTED","hashPrefix":"12345678","relation":"exact"}
+        ]});
+        for (extra, tail) in [(5, Some("  …and 3 more files.\n")), (2, None), (1, None)] {
+            value["files"]["extra"] = extra.into();
+            let cause: deploy_run::StepCause = serde_json::from_value(value.clone()).unwrap();
+            let mut text = String::new();
+            describe_cause(&mut text, Some(&cause), "Cause");
+            if let Some(tail) = tail {
+                assert!(text.ends_with(tail), "{text}");
+            } else {
+                assert!(!text.contains("more files"), "{text}");
+            }
+            assert_eq!(serde_json::to_value(&cause).unwrap(), value);
+        }
     }
 
     #[test]
