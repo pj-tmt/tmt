@@ -629,6 +629,9 @@ const page = createRoute({
   validateSearch: pageSearch,
   loader: ({ context, params, abortController }) =>
     context.transport.page(params.pageId, abortController.signal),
+  // A loaded page owns a live connection that closes when the reader leaves it. The router must not
+  // keep the match, or entering the page again shows that closed snapshot as Live while it reloads.
+  gcTime: 0,
   component: Page,
 });
 

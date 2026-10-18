@@ -285,7 +285,9 @@ opens a fresh Remote Session first and Remote refuses it. A recoverable 403 or 5
 page opening refreshes the same-device Session once through the mounted owner before
 rediscovery; its abort signal fences registration, and concurrent Live reconnects share that
 owner's pending replacement. PageReopener still owns the finite attempts and timing. Other
-admission refusals never extend the transport loop. `ended` replaces
+admission refusals never extend the transport loop. The page route keeps no loader match after the
+reader leaves (`gcTime: 0`): the binding it loaded closes with the page, so entering the page again
+loads a fresh binding instead of showing the closed one as Live while it reloads. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
 page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
