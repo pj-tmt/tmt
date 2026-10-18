@@ -708,19 +708,26 @@ fn may_take_over(old: &Record, pane: &PaneRecord) -> bool {
     recorded.into_iter().all(is_gone)
 }
 
-/// Quotes a path for a shell command that is printed for the user to run.
-fn shell_quoted(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+/// Quotes exact UTF-8 path text for a shell command that is printed for the user to run.
+fn shell_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 /// The manual removal of a record that cannot be read, which `tmt channel
 /// recover` refuses: run only after verifying that nothing of the launch is left.
+/// Like Codex recovery, a path that is not exact UTF-8 gets guidance, never a
+/// command whose lossy text would name some other file.
 fn recovery(directory: &Path, binding_id: &str) -> String {
-    format!(
-        "rm -- {} {}",
-        shell_quoted(&record_path(directory, binding_id)),
-        shell_quoted(&socket_path(directory, binding_id)),
-    )
+    let record = record_path(directory, binding_id);
+    let socket = socket_path(directory, binding_id);
+    match (record.to_str(), socket.to_str()) {
+        (Some(record), Some(socket)) => {
+            format!("rm -- {} {}", shell_quoted(record), shell_quoted(socket))
+        }
+        _ => "a tool that preserves the non-UTF-8 bytes of its record and socket paths \
+              (no runnable command can name them)"
+            .into(),
+    }
 }
 
 /// Whether an enrollment attributed to `pane` is live, or unconfirmed because its
