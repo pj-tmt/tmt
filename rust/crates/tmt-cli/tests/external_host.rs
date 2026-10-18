@@ -1753,40 +1753,43 @@ fn a_hook_whose_locators_name_two_hosts_refuses() {
     assert_hook_refused(&fixture, &output);
 }
 
-/// One Codex stand-in that runs each hook given to it from the same process,
-/// so that start, prompt and interrupt belong to one provider incarnation. As
-/// in `hook`, it is a link to `sh` named `codex`, the child of this test
-/// process (the pane shell). It is stopped and reaped on drop, also on panic.
-struct Codex {
+/// One provider stand-in that runs each hook given to it from the same
+/// process, so that its lifecycle events (start, prompt, interrupt, end)
+/// belong to one provider incarnation. As in `hook`, it is a link to `sh`
+/// named after `provider`, the child of this test process (the pane shell).
+/// It is stopped and reaped on drop, also on panic.
+struct SteppedProvider {
     child: std::process::Child,
+    provider: &'static str,
     steps: PathBuf,
     next: usize,
 }
 
-impl Codex {
-    fn start(fixture: &Fixture, name: &str) -> Self {
-        let codex = fixture.root.join("bin/codex");
-        if !codex.exists() {
+impl SteppedProvider {
+    fn start(fixture: &Fixture, provider: &'static str, name: &str) -> Self {
+        let program = fixture.root.join("bin").join(provider);
+        if !program.exists() {
             fs::create_dir_all(fixture.root.join("bin")).unwrap();
-            std::os::unix::fs::symlink("/bin/sh", &codex).unwrap();
+            std::os::unix::fs::symlink("/bin/sh", &program).unwrap();
         }
         let steps = fixture.root.join(name);
         fs::create_dir_all(&steps).unwrap();
         let tmt = fixture.command_in(Some("f1"), &[]);
         // Each step waits at most 30 s, so a killed test process cannot
         // leave the stand-in behind for long.
-        let child = std::process::Command::new(codex)
+        let child = std::process::Command::new(program)
             .args([
                 "-c",
                 "i=0; while :; do w=0
                    while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
                    [ -e \"$1/$i.json\" ] || exit 0
-                   \"$0\" __hook codex < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
+                   \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
                    touch \"$1/$i.done\"; i=$((i+1))
                  done",
             ])
             .arg(tmt.get_program())
             .arg(&steps)
+            .arg(provider)
             .env_clear()
             .envs(
                 tmt.get_envs()
@@ -1798,6 +1801,7 @@ impl Codex {
             .unwrap();
         Self {
             child,
+            provider,
             steps,
             next: 0,
         }
@@ -1810,7 +1814,9 @@ impl Codex {
         let staged = step.with_extension("staged");
         fs::write(&staged, payload.to_string()).unwrap();
         fs::rename(&staged, step.with_extension("json")).unwrap();
-        wait_until("the Codex hook", || step.with_extension("done").exists());
+        wait_until(&format!("the {} hook", self.provider), || {
+            step.with_extension("done").exists()
+        });
         self.next += 1;
         let read = |extension| fs::read_to_string(step.with_extension(extension)).unwrap();
         (
@@ -1821,7 +1827,7 @@ impl Codex {
     }
 }
 
-impl Drop for Codex {
+impl Drop for SteppedProvider {
     fn drop(&mut self) {
         let _ = fs::write(self.steps.join("stop"), "");
         if !matches!(self.child.try_wait(), Ok(Some(_))) {
@@ -1927,7 +1933,7 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
         serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
     )
     .unwrap();
-    let mut codex = Codex::start(&fixture, "codex-steps");
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
     let captured = |fixture: &Fixture| {
         stored_rows(fixture)
             .into_iter()
@@ -1937,7 +1943,7 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     let silent = |(status, out, err): (i32, String, String)| {
         assert_eq!((status, out.as_str(), err.as_str()), (0, "", ""));
     };
-    let unchanged = |codex: &mut Codex, payload: Value| {
+    let unchanged = |codex: &mut SteppedProvider, payload: Value| {
         let rows = stored_rows(&fixture);
         let files = settings_files(&fixture);
         silent(codex.hook(payload.clone()));
@@ -1975,7 +1981,7 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     {
         // A replaced provider process: the same session from another
         // incarnation is not the admitted one.
-        let mut replaced = Codex::start(&fixture, "replaced-steps");
+        let mut replaced = SteppedProvider::start(&fixture, "codex", "replaced-steps");
         unchanged(&mut replaced, codex_event("Interrupt", Some("a")));
     }
     assert_eq!(activity(&fixture), working);
@@ -2051,8 +2057,8 @@ fn the_observed_model_follows_only_admitted_codex_events() {
     let fixture = Fixture::new("codex-observed-model");
     let record = fixture.approve();
     bind(&fixture, record);
-    let mut codex = Codex::start(&fixture, "codex-steps");
-    let mut run = |codex: &mut Codex, payload: Value| {
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
+    let mut run = |codex: &mut SteppedProvider, payload: Value| {
         // A start prints its identity context; every other event prints nothing.
         let (status, out, err) = codex.hook(payload.clone());
         assert_eq!((status, err.as_str()), (0, ""), "{payload}");
@@ -2061,9 +2067,9 @@ fn the_observed_model_follows_only_admitted_codex_events() {
         }
     };
     let kept = |fixture: &Fixture,
-                codex: &mut Codex,
+                codex: &mut SteppedProvider,
                 payload: Value,
-                run: &mut dyn FnMut(&mut Codex, Value)| {
+                run: &mut dyn FnMut(&mut SteppedProvider, Value)| {
         let before = observed_model(fixture);
         run(codex, payload.clone());
         assert_eq!(observed_model(fixture), before, "{payload}");
@@ -2106,7 +2112,7 @@ fn the_observed_model_follows_only_admitted_codex_events() {
     other["session_id"] = "s-2".into();
     kept(&fixture, &mut codex, other, &mut run);
     {
-        let mut replaced = Codex::start(&fixture, "replaced-steps");
+        let mut replaced = SteppedProvider::start(&fixture, "codex", "replaced-steps");
         kept(
             &fixture,
             &mut replaced,
