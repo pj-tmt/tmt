@@ -1,4 +1,5 @@
 import { isHostedOrigin } from './hosted-location.js';
+import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -16,6 +17,11 @@ export const MAX_SELECTION_BYTES = 16 * 1024;
 /** Cosmetic layout claims never allocate an unbounded frame or resize it faster than 10 Hz. */
 export const MAX_RENDER_HEIGHT = 1_000_000;
 const HEIGHT_UPDATE_MS = 100;
+/** How long a reveal waits for the frame's answer before reporting that nothing was found. */
+const REVEAL_MS = 3000;
+/** A reveal whose target lies below the height the frame has so far finishes its scroll only when
+ * the frame grows within this time, and never after the reader has scrolled. */
+const PENDING_SCROLL_MS = 2000;
 const GROWTH_REPORT_LIMIT = 5;
 /** Shared inline geometry budget; reading bands use only slots left by existing controls. */
 export const INLINE_SLOT_LIMIT = 250;
@@ -171,6 +177,9 @@ export async function mountRenderer(
   ): void;
   scrollAnchor(id: string): void;
   scrollReading(id: string): void;
+  /** Scroll to the one element with this exact `id` once the frame is ready: true when found,
+   * false when none or several match, undefined when the render ended or never answered. */
+  reveal(id: string): Promise<boolean | undefined>;
   selectionMode(enabled: boolean): void;
   images(input: DocumentImageInput): void;
   /** Cosmetic position already admitted from this render; never discussion authority. */
@@ -196,6 +205,9 @@ export async function mountRenderer(
   const channel = new MessageChannel();
   let imageInput = options.images ?? { descriptors: [] };
   let imageRequestId = '';
+  let pendingReveal: { requestId: string; settle(found: boolean | undefined): void } | undefined;
+  const readyWaiters: (() => void)[] = [];
+  let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
   let imageResolver: DocumentImages | undefined;
   const images = (input: DocumentImageInput) => {
     imageInput = input;
@@ -307,9 +319,26 @@ export async function mountRenderer(
     lastHeight = next;
     updatedAt = now;
     frame.style.height = `${next}px`;
+    if (pendingScroll) {
+      const { top, until, scrollY } = pendingScroll;
+      pendingScroll = undefined;
+      // Any scroll by the reader (wheel, touch, keys, bar) moves the page off the reveal's own
+      // position, and a late growth (images, slots) no longer pulls them back.
+      if (now <= until && Math.abs(window.scrollY - scrollY) < 1)
+        window.scrollTo({
+          top: Math.max(
+            0,
+            Math.min(document.documentElement.scrollHeight - window.innerHeight, top),
+          ),
+          behavior: 'instant',
+        });
+    }
   };
   const release = () => {
     if (stopped) return;
+    pendingReveal?.settle(undefined);
+    pendingScroll = undefined;
+    readyWaiters.splice(0).forEach((resume) => resume());
     imageResolver?.close();
     if (ready)
       channel.port1.postMessage({
@@ -376,13 +405,13 @@ export async function mountRenderer(
           window.scrollY +
           (innerScroll ? 0 : value.top) -
           inset();
-        window.scrollTo({
-          top: Math.max(
-            0,
-            Math.min(document.documentElement.scrollHeight - window.innerHeight, top),
-          ),
-          behavior: 'instant',
-        });
+        const limit = document.documentElement.scrollHeight - window.innerHeight;
+        window.scrollTo({ top: Math.max(0, Math.min(limit, top)), behavior: 'instant' });
+        // The frame may not have its full height yet: finish the scroll once it grows.
+        pendingScroll =
+          top > limit
+            ? { top, until: now + PENDING_SCROLL_MS, scrollY: window.scrollY }
+            : undefined;
         return;
       }
     }
@@ -473,6 +502,7 @@ export async function mountRenderer(
       return;
     clearTimeout(deadline);
     ready = true;
+    readyWaiters.splice(0).forEach((resume) => resume());
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
     images(imageInput);
@@ -503,6 +533,18 @@ export async function mountRenderer(
             ...image,
           });
       });
+      return;
+    }
+    if (value?.type === 'colab.render.revealed') {
+      const pending = pendingReveal;
+      if (
+        pending &&
+        Object.keys(value).length === 4 &&
+        value.renderId === snapshot.renderId &&
+        value.requestId === pending.requestId &&
+        typeof value.found === 'boolean'
+      )
+        pending.settle(value.found);
       return;
     }
     if (value?.type === 'colab.render.questions') {
@@ -1048,6 +1090,31 @@ export async function mountRenderer(
         id,
       });
     },
+    reveal: (id: string) =>
+      new Promise<boolean | undefined>((resolve) => {
+        if (stopped) return resolve(undefined);
+        if (!validShellAnchor(id)) return resolve(false);
+        const send = () => {
+          if (stopped || !ready) return resolve(undefined);
+          pendingReveal?.settle(undefined);
+          const requestId = crypto.randomUUID();
+          const timer = setTimeout(() => settle(undefined), REVEAL_MS);
+          const settle = (found: boolean | undefined) => {
+            clearTimeout(timer);
+            if (pendingReveal?.requestId === requestId) pendingReveal = undefined;
+            resolve(found);
+          };
+          pendingReveal = { requestId, settle };
+          channel.port1.postMessage({
+            type: 'colab.render.reveal',
+            renderId: snapshot.renderId,
+            requestId,
+            id,
+          });
+        };
+        if (ready) send();
+        else readyWaiters.push(send);
+      }),
     selectionMode,
     images,
     anchorRectangle,

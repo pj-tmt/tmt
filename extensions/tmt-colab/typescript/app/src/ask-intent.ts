@@ -17,7 +17,7 @@ import {
 } from '@tmt/colab-client';
 
 import { shortPageUrl } from './short-links.js';
-import { ownerReadingHint } from './reading-link.js';
+import { ownerPageHint } from './reading-link.js';
 
 export const REQUEST_BYTES = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
@@ -123,7 +123,7 @@ export class FrozenAsk {
     requireValue(
       (url.hash === '' ||
         url.hash === pageFragment ||
-        ownerReadingHint(url, selection.space, selection.page) !== undefined) &&
+        ownerPageHint(url, selection.space, selection.page) !== undefined) &&
         url.search === '' &&
         !url.pathname.endsWith('/read'),
     );

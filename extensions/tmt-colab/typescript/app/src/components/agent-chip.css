@@ -32,6 +32,9 @@
 .agent-chip[data-variant='inline'] .agent-chip-icon,
 .agent-chip[data-variant='inline'] .agent-chip-spinner {
   display: inline-block;
+  /* The surrounding text's 1em, whatever the global icon size says. */
+  width: 1em;
+  height: 1em;
   margin-right: 4px;
   vertical-align: -0.15em;
 }

@@ -106,8 +106,9 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   actions; `cli_shell.rs` exposes conditional actions through the same page publication
   owner. The isolated decoder prepares and replays each action; no parent parses Yjs.
   Shell metadata survives fresh epoch baselines. Source operations refuse shells; export
-  publishes their canonical value as `shell.json`. The mounted page dispatches a neutral
-  notice until shell UI support ships, rather than rendering the empty wire text container.
+  publishes their canonical value as `shell.json`. The owner app draws a shell as the
+  [shell page](architecture-state.md#the-shell-page); the shared and hosted readers show a
+  neutral notice, never the empty wire text container.
   The [Shell pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#shell-pages-3648)
   owns roots, action grammar, attribution and shared validation vectors.
 

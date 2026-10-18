@@ -1,4 +1,4 @@
-import { ShellNotice } from './shell-notice.js';
+import { ShellPage } from './shell-page.js';
 import { usePageLayers } from './page-layers.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
@@ -12,7 +12,7 @@ import {
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
-import { ownerReadingHint, ownerReadingHref, readingSearch } from './reading-link.js';
+import { ownerPageHint, ownerReadingHref, pageSearch, readingSearch } from './reading-link.js';
 import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
@@ -626,7 +626,7 @@ const allPages = createRoute({
 const page = createRoute({
   getParentRoute: () => root,
   path: '/pages/$pageId',
-  validateSearch: readingSearch,
+  validateSearch: pageSearch,
   loader: ({ context, params, abortController }) =>
     context.transport.page(params.pageId, abortController.signal),
   component: Page,
@@ -1317,7 +1317,24 @@ function Page() {
     return () => document.removeEventListener('keydown', key);
   }, [canSelect, selectionMode]);
   const host = useRef<HTMLDivElement>(null);
-  const { read: readingHint } = page.useSearch();
+  const { read: readingHint, anchor } = page.useSearch();
+  // A shell item can open the page at one exact element; when it is not there, say so once.
+  const [missingAnchor, setMissingAnchor] = useState<string>();
+  const revealed = useRef('');
+  const [rendererMounts, setRendererMounts] = useState(0);
+  useEffect(() => {
+    const key = anchor ? `${snapshot.id}:${anchor}` : '';
+    if (!anchor || !renderer.current || revealed.current === key) return;
+    // Once per opening: a later live edit of the page never pulls the reader back to it.
+    revealed.current = key;
+    setMissingAnchor(undefined);
+    void renderer.current.reveal(anchor).then((found) => {
+      if (found === false) setMissingAnchor(anchor);
+    });
+  }, [anchor, rendererMounts, snapshot.id]);
+  useEffect(() => {
+    if (!anchor) setMissingAnchor(undefined);
+  }, [anchor]);
   const {
     readings,
     inlineSlots,
@@ -1410,6 +1427,7 @@ function Page() {
         else {
           renderer.current = handle;
           handle.images(imageInput.current);
+          setRendererMounts((count) => count + 1);
         }
       })
       .catch(() => {
@@ -1667,6 +1685,11 @@ function Page() {
       </BrowserDrawer>
       <div className="workspace">
         <div className="canvas">
+          {missingAnchor && (
+            <p className="page-anchor-missing" role="status">
+              {text.anchorMissing}
+            </p>
+          )}
           <div className="frame-host" ref={host} />
           {proposalLayer.inline}
           {reviewLayer.inline}
@@ -2092,7 +2115,7 @@ function Page() {
                 remote={{ deviceName: transport.backendName }}
               />
               <main className="canvas">
-                <ShellNotice pageId={snapshot.id} canCopy />
+                {(view.shell || !endedError) && <ShellPage shell={view.shell} />}
                 {endedError && <EndedBody error={endedError} action={endedAction} />}
               </main>
             </section>
@@ -2112,8 +2135,12 @@ export function createAppRouter(transport: PageTransport, space?: string) {
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
           if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
             path = '/blocked';
-          const read = ownerReadingHint(new URL(location.href), space);
-          const search = read ? `?read=${read}` : '';
+          const hint = ownerPageHint(new URL(location.href), space);
+          const search = hint
+            ? 'read' in hint
+              ? `?read=${hint.read}`
+              : `?anchor=${hint.anchor}`
+            : '';
           return {
             href: path + search,
             pathname: path,
