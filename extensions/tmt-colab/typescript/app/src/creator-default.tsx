@@ -1,12 +1,6 @@
 import { BrowserToggle } from '@tmt/browser-ui/react';
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { text } from './strings.js';
 
 type Preference = { enabled: boolean; revision: number; toggle(): void };
@@ -69,18 +63,15 @@ function subscribeCompact(changed: () => void) {
 /** The leaf owns its toggle-button semantics; Colab owns the responsive recipient label. */
 export function CreatorToggle({ name, preference }: { name: string; preference: Preference }) {
   const compact = useSyncExternalStore(subscribeCompact, () => matchMedia(compactQuery).matches);
-  const full = text.messageCreatorToggle(name);
-  const [host, setHost] = useState<HTMLSpanElement | null>(null);
-  useEffect(() => {
-    // BrowserToggle has one label port. The local wrapper keeps its full accessible
-    // name while the visible label compacts; no leaf interaction or role is replaced.
-    host?.querySelector('button')?.setAttribute('aria-label', full);
-  }, [host, full]);
   return (
-    <span className="creator-toggle" ref={setHost}>
+    <span className="creator-toggle">
       <BrowserToggle
         pressed={preference.enabled}
-        label={compact ? `@${name}` : full}
+        // The visible label compacts to the agent; the accessible name keeps the whole phrase.
+        label={
+          compact ? <AgentChip name={name} /> : agentSentence(text.messageCreatorToggleLabel, name)
+        }
+        ariaLabel={text.messageCreatorToggle(name)}
         onActivate={(event) => {
           if (event.isTrusted) preference.toggle();
         }}

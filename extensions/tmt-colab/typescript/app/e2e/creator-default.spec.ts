@@ -211,7 +211,9 @@ for (const variant of [
     await page.emulateMedia({ colorScheme: variant.theme });
     await mount(page);
     await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
-    await expect(toggle(page)).toHaveText(variant.width <= 640 ? /@alpha/ : /Send to @alpha/);
+    await expect(toggle(page)).toHaveText(variant.width <= 640 ? /alpha/ : /Send to alpha/);
+    // The visible label is the shared chip; the accessible name keeps the whole phrase.
+    await expect(toggle(page).locator('.agent-chip')).toHaveCount(1);
     const geometry = await toggle(page).evaluate((node) => {
       const r = node.getBoundingClientRect();
       return { left: r.left, right: r.right };

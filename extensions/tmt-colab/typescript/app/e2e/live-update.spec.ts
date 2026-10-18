@@ -381,7 +381,7 @@ for (const width of [1440, 390]) {
       await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       await expect(
-        thread.getByText('@Agent 1 Second turn from the same window.', { exact: true }),
+        thread.getByText('Agent 1 Second turn from the same window.', { exact: true }),
       ).toBeInViewport({ ratio: 1 });
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;

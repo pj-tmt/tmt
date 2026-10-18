@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from 'react';
 import { compactRelativeTime } from '../display-time.js';
-import { text } from '../strings.js';
 import { UserRound } from 'lucide-react';
 import { AgentChip } from './agent-chip.js';
 import type { RunningDriver } from '../ask-remote.js';
@@ -61,7 +60,6 @@ export function ConversationTurn({
                 <span className="conversation-author">
                   <AgentChip name={author} driver={driver} />
                 </span>{' '}
-                <span className="conversation-agent-label">{text.conversationAgent}</span>{' '}
               </>
             ) : (
               <>

@@ -182,9 +182,7 @@ for (const width of [1440, 390]) {
             await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
             await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '13px' : '8px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
-            await expect(agent.getByTestId('ask-reply-attribution')).toHaveText(
-              `Atlas ${text.conversationAgent} · 5m ago`,
-            );
+            await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
             computed[`${surface}-agent`] = await styles(agent);
             await expect(window.getByTestId('ask-state')).toHaveCount(0);
             await expect(user.locator('.conversation-turn-status')).toHaveCount(0);
@@ -473,10 +471,10 @@ test('editable mention chips send only their original text; annotation keeps its
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toHaveAttribute('data-layout', 'anchored');
   await expect(input).toHaveAttribute('id', id!);
-  await expect(thread.locator('.comment-body')).toHaveText('@Agent 1 Explain this. @someone');
+  await expect(thread.locator('.comment-body')).toHaveText('Agent 1 Explain this. someone');
   const sent = thread.locator('.comment-body .agent-chip');
   await expect(sent).toHaveCount(2);
-  await expect(sent).toHaveText(['@Agent 1', '@someone']);
+  await expect(sent).toHaveText(['Agent 1', 'someone']);
   await expect(sent.getByRole('button')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });

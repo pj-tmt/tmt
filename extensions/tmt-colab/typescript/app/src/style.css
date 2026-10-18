@@ -1716,13 +1716,6 @@ body:has(.needs-you-header-menu) {
   flex-shrink: 0;
   white-space: nowrap;
 }
-.conversation-agent-label {
-  flex: none;
-  font: 600 10px/1.3 var(--f-body);
-  letter-spacing: 0.06em;
-  border: 1px solid var(--c-rule);
-  padding: 0 4px;
-}
 .chat-panel .conversation-body {
   margin-top: 6px;
 }
