@@ -12,6 +12,7 @@ import {
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { runInPrivateWorld } from './private-world.mjs';
+import { runPackedCommand } from './packed-command.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -210,8 +211,8 @@ export function verifyRuntimeExecutables(files, targetDirectory) {
 
 /** Admit bytes and producer identity before nextest can decode or execute anything. */
 export function admitArchive(manifest, bytes, expectedIdentity) {
-  assert.equal(manifest.schema, 1, 'manifest schema');
-  assert.deepEqual(manifest.identity, expectedIdentity, 'consumer identity differs');
+  assert.equal(manifest.schema, 2, 'manifest schema');
+  assert.deepEqual(manifest.producerIdentity, expectedIdentity, 'consumer identity differs');
   assert.ok(bytes.length > 0 && bytes.length <= 1024 ** 3, 'archive byte bound');
   assert.equal(bytes.length, manifest.archive.bytes, 'archive size differs');
   assert.equal(sha256(bytes), manifest.archive.sha256, 'archive hash differs');
@@ -221,8 +222,8 @@ export function admitArchive(manifest, bytes, expectedIdentity) {
 }
 
 /** Missing/skipped/failed/foreign consumers can never satisfy the caller's original gate. */
-export function aggregatePartitions(manifest, results, states) {
-  assert.equal(manifest.schema, 1, 'manifest schema');
+export function aggregatePartitions(manifest, results, states, selection) {
+  assert.equal(manifest.schema, 2, 'manifest schema');
   assert.deepEqual(
     states,
     { producer: 'success', consumers: 'success' },
@@ -230,12 +231,29 @@ export function aggregatePartitions(manifest, results, states) {
   );
   const cases = admittedCases(manifest.cases);
   partitionCases(cases, 1, manifest.partitions);
+  if (selection) admitSelection(manifest, selection);
   assert.equal(results.length, manifest.partitions, 'missing/extra partition result');
   const seen = new Set();
   const union = [];
   for (const result of results) {
-    assert.equal(result.schema, 1, 'result schema');
-    assert.deepEqual(result.identity, manifest.identity, 'foreign partition identity');
+    assert.equal(result.schema, 2, 'result schema');
+    assert.deepEqual(
+      result.producerIdentity,
+      manifest.producerIdentity,
+      'foreign partition identity'
+    );
+    const selected = selection?.partitions.find((row) => row.index === result.index);
+    const attempt = selected?.attempt ?? manifest.producerIdentity.attempt;
+    assert.deepEqual(
+      result.executionIdentity,
+      { ...manifest.producerIdentity, attempt },
+      'foreign partition execution identity'
+    );
+    assert.equal(
+      result.manifestSha256,
+      sha256(JSON.stringify(manifest) + '\n'),
+      'foreign manifest hash'
+    );
     assert.deepEqual(result.archive, manifest.archive, 'foreign partition archive');
     assert.equal(result.partitions, manifest.partitions, 'result partition count');
     assert.ok(!seen.has(result.index), 'duplicate partition result');
@@ -259,13 +277,334 @@ export function aggregatePartitions(manifest, results, states) {
   return { passed: union.length, ignored: cases.length - union.length, total: cases.length };
 }
 
-function readJSON(file) {
+const attemptNumber = (value) => {
+  assert.match(value ?? '', /^[1-9][0-9]{0,5}$/, 'invalid execution attempt');
+  return Number(value);
+};
+const artifactId = (value) => {
+  assert.match(value ?? '', /^[1-9][0-9]{0,15}$/, 'invalid artifact id');
+  assert.ok(Number.isSafeInteger(Number(value)), 'unsafe artifact id');
+  return value;
+};
+const digest = (value) => assert.match(value ?? '', /^[a-f0-9]{64}$/, 'invalid artifact digest');
+const timestamp = (value) => {
+  assert.ok(
+    typeof value === 'string' && value.endsWith('Z') && Number.isFinite(Date.parse(value)),
+    'invalid job timestamp'
+  );
+  return Date.parse(value);
+};
+export const resultArtifactName = (index, identity, attempt) =>
+  `workspace-result-${index}-${identity.run}-${identity.attempt}-${attempt}`;
+
+/** Outputs become a receipt only when the entire producer job and both uploads succeeded. */
+export function admitProducerReceipt(receipt, expectedRun, producerResult) {
+  assert.equal(producerResult, 'success', 'producer receipt requires successful job');
+  assert.equal(receipt?.proof?.schema, 1, 'missing producer receipt');
+  const { proof } = receipt;
+  const a = attemptNumber(proof.producerIdentity?.attempt);
+  const c = attemptNumber(expectedRun.attempt);
+  assert.ok(a <= c && c - a <= 2, 'producer generation attempt bound; rerun all jobs');
+  admitMachineIdentity(proof.producerIdentity, { ...expectedRun, attempt: String(a) });
+  assert.ok(proof.partitions === 2 || proof.partitions === 3, 'receipt partition count');
+  digest(proof.manifestSha256);
+  digest(proof.archive?.sha256);
+  assert.ok(
+    Number.isSafeInteger(proof.archive.bytes) &&
+      proof.archive.bytes > 0 &&
+      proof.archive.bytes <= 1024 ** 3,
+    'receipt archive byte bound'
+  );
+  for (const kind of ['closure', 'inventory']) {
+    artifactId(receipt[kind]?.id);
+    digest(receipt[kind]?.digest);
+  }
+  assert.notEqual(receipt.closure.id, receipt.inventory.id, 'duplicate producer artifact');
+  return receipt;
+}
+
+/** Bind the downloaded manifest's exact bytes before admitting its archive or result slices. */
+export function admitManifest(receipt, bytes) {
+  assert.equal(sha256(bytes), receipt.proof.manifestSha256, 'producer manifest hash differs');
+  const manifest = JSON.parse(Buffer.from(bytes).toString('utf8'));
+  assert.equal(manifest.schema, 2, 'manifest schema');
+  assert.deepEqual(
+    manifest.producerIdentity,
+    receipt.proof.producerIdentity,
+    'producer identity differs'
+  );
+  assert.deepEqual(manifest.archive, receipt.proof.archive, 'producer archive differs');
+  assert.equal(manifest.partitions, receipt.proof.partitions, 'producer partitions differ');
+  partitionCases(manifest.cases, 1, manifest.partitions);
+  runtimeArchiveConfig(manifest.runtimeFiles);
+  return manifest;
+}
+
+/** A later consumer may change only its execution attempt, never its compiled environment. */
+export function admitExecutionIdentity(producer, execution, collectorAttempt = execution.attempt) {
+  const a = attemptNumber(producer.attempt);
+  const e = attemptNumber(execution.attempt);
+  const c = attemptNumber(collectorAttempt);
+  assert.ok(a <= e && e <= c && c - a <= 2, 'execution attempt outside producer generation');
+  assert.deepEqual(
+    { ...execution, attempt: producer.attempt },
+    producer,
+    'consumer identity differs'
+  );
+  return execution;
+}
+
+function admitSelection(manifest, selection) {
+  assert.equal(selection.schema, 1, 'selection schema');
+  assert.deepEqual(
+    selection.producerIdentity,
+    manifest.producerIdentity,
+    'foreign selection producer'
+  );
+  assert.equal(
+    selection.manifestSha256,
+    sha256(JSON.stringify(manifest) + '\n'),
+    'foreign selection manifest'
+  );
+  const producer = manifest.producerIdentity;
+  admitMachineIdentity(producer, { ...selection.collectorIdentity, attempt: producer.attempt });
+  assert.equal(selection.partitions.length, manifest.partitions, 'incomplete partition selection');
+  const seen = new Set();
+  const artifacts = new Set();
+  for (const row of selection.partitions) {
+    partitionCases(manifest.cases, row.index, manifest.partitions);
+    assert.ok(!seen.has(row.index), 'duplicate partition selection');
+    seen.add(row.index);
+    admitExecutionIdentity(
+      producer,
+      { ...producer, attempt: row.attempt },
+      selection.collectorIdentity.attempt
+    );
+    if (producer.attempt !== selection.collectorIdentity.attempt) {
+      assert.ok(Number.isSafeInteger(row.jobId) && row.jobId > 0, 'missing selected job');
+      artifactId(row.artifact?.id);
+      assert.ok(!artifacts.has(row.artifact.id), 'duplicate selected artifact');
+      artifacts.add(row.artifact.id);
+      assert.equal(
+        row.artifact.name,
+        resultArtifactName(row.index, producer, row.attempt),
+        'foreign selected artifact'
+      );
+      assert.match(row.artifact.digest ?? '', /^sha256:[a-f0-9]{64}$/, 'selected artifact digest');
+    } else
+      assert.ok(
+        row.attempt === producer.attempt && row.jobId === null && row.artifact === null,
+        'unexpected single-attempt selection'
+      );
+  }
+}
+
+/** Only the recovery collector constructs this bounded GET-only metadata port. */
+export function createRecoveryReader(repository, execute = runPackedCommand, clock = Date.now) {
+  assert.match(repository ?? '', /^[\w.-]+\/[\w.-]+$/);
+  let requests = 0;
+  const deadline = clock() + 90_000;
+  return (resource) => {
+    assert.match(
+      resource,
+      /^actions\/(?:runs\/[1-9][0-9]*(?:\/attempts\/[1-9][0-9]*(?:\/jobs\?per_page=100&page=[12])?|\/artifacts\?name=workspace-result-[0-9-]+&per_page=2)|artifacts\/[1-9][0-9]*)$/,
+      'unexpected recovery metadata path'
+    );
+    assert.ok(requests < 20, 'recovery metadata request bound');
+    assert.ok(clock() < deadline, 'recovery metadata deadline');
+    requests++;
+    return JSON.parse(
+      execute('gh', ['api', '--method', 'GET', `repos/${repository}/${resource}`], {
+        timeoutMs: Math.min(10_000, deadline - clock()),
+      })
+    );
+  };
+}
+
+/** Select actual executions, not the synthetic job IDs GitHub assigns retained successes. */
+export function planPartitionRecovery(receipt, collectorIdentity, states, read, workflowHead) {
+  admitProducerReceipt(receipt, collectorIdentity, states.producer);
+  assert.equal(states.consumers, 'success', 'workspace worker failed or skipped');
+  const producer = receipt.proof.producerIdentity;
+  const a = attemptNumber(producer.attempt);
+  const c = attemptNumber(collectorIdentity.attempt);
+  const plan = {
+    schema: 1,
+    producerIdentity: producer,
+    collectorIdentity,
+    manifestSha256: receipt.proof.manifestSha256,
+    partitions: Array.from({ length: receipt.proof.partitions }, (_, i) => ({
+      index: i + 1,
+      attempt: String(c),
+      jobId: null,
+      artifact: null,
+    })),
+  };
+  if (a === c) return plan; // No extra REST or artifact discovery on the ordinary path.
+  assert.match(workflowHead ?? '', /^[a-f0-9]{40}$/, 'missing workflow head');
+  let prefix;
+  let previousStart = -1;
+  const actual = new Map();
+  const fingerprint = (job) => ({
+    name: job.name,
+    started: job.started_at,
+    completed: job.completed_at,
+    status: job.status,
+    conclusion: job.conclusion,
+    steps: job.steps,
+  });
+  let producerJob;
+  for (let e = a; e <= c; e++) {
+    const context = read(`actions/runs/${producer.run}/attempts/${e}`);
+    assert.equal(String(context.id), producer.run, 'foreign attempt run');
+    assert.equal(context.run_attempt, e, 'foreign attempt number');
+    assert.equal(context.head_sha, workflowHead, 'foreign attempt source');
+    const start = timestamp(context.run_started_at);
+    assert.ok(start > previousStart, 'attempts not chronological');
+    previousStart = start;
+    const jobs = [];
+    let count;
+    for (let page = 1; page <= 2; page++) {
+      const data = read(
+        `actions/runs/${producer.run}/attempts/${e}/jobs?per_page=100&page=${page}`
+      );
+      assert.ok(
+        Number.isSafeInteger(data.total_count) &&
+          data.total_count > 0 &&
+          data.total_count <= 200 &&
+          Array.isArray(data.jobs),
+        'job page bound'
+      );
+      if (count === undefined) count = data.total_count;
+      assert.equal(data.total_count, count, 'changing job count');
+      assert.equal(data.jobs.length, Math.min(100, count - jobs.length), 'incomplete job page');
+      jobs.push(...data.jobs);
+      if (jobs.length === count) break;
+    }
+    const ids = new Set();
+    const labels = new Set();
+    for (const job of jobs) {
+      assert.ok(
+        Number.isSafeInteger(job.id) && job.id > 0 && !ids.has(job.id),
+        'duplicate/invalid job id'
+      );
+      ids.add(job.id);
+      assert.equal(String(job.run_id), producer.run, 'foreign job run');
+      assert.equal(job.run_attempt, e, 'foreign job attempt');
+      assert.equal(job.head_sha, workflowHead, 'foreign job source');
+      assert.ok(typeof job.name === 'string', 'missing job label');
+      const label =
+        /^(?:(.*) \/ )?(Compile workspace test closure|Execute partition ([1-3]))$/.exec(job.name);
+      if (!label) {
+        assert.ok(
+          !job.name.includes('Execute partition') &&
+            !job.name.includes('Compile workspace test closure'),
+          'ambiguous workspace job label'
+        );
+        continue;
+      }
+      if (prefix === undefined) prefix = label[1] ?? '';
+      assert.equal(label[1] ?? '', prefix, 'ambiguous workspace job prefix');
+      assert.ok(!labels.has(label[2]), 'duplicate workspace job label');
+      labels.add(label[2]);
+      assert.ok(Array.isArray(job.steps) && job.steps.length > 0, 'missing job steps');
+      const started = timestamp(job.started_at);
+      const prior = actual.get(job.name);
+      if (started < start) {
+        assert.ok(
+          job.status === 'completed' &&
+            job.conclusion === 'success' &&
+            timestamp(job.completed_at) <= start &&
+            prior,
+          'unproved retained job'
+        );
+        assert.deepEqual(
+          fingerprint(job),
+          fingerprint(prior.job),
+          'retained success fingerprint differs'
+        );
+        continue;
+      }
+      if (label[2] === 'Compile workspace test closure') {
+        assert.equal(e, a, 'producer generation changed; rerun all jobs');
+        assert.ok(
+          job.status === 'completed' && job.conclusion === 'success',
+          'producer job not successful'
+        );
+        producerJob = job;
+      } else assert.ok(Number(label[3]) <= receipt.proof.partitions, 'unexpected partition label');
+      actual.set(job.name, { job, attempt: String(e) });
+    }
+  }
+  assert.ok(producerJob, 'missing producer execution');
+  const artifacts = new Set();
+  const admitArtifact = (row, name, job, expected) => {
+    artifactId(String(row?.id));
+    assert.ok(!artifacts.has(row.id), 'duplicate artifact id');
+    artifacts.add(row.id);
+    assert.equal(row.name, name, 'foreign artifact name');
+    assert.equal(String(row.workflow_run?.id), producer.run, 'foreign artifact run');
+    assert.equal(row.workflow_run?.head_sha, workflowHead, 'foreign artifact source');
+    assert.equal(row.expired, false, 'artifact expired; rerun all jobs');
+    assert.ok(
+      Number.isSafeInteger(row.size_in_bytes) &&
+        row.size_in_bytes > 0 &&
+        row.size_in_bytes <= 2 * 1024 ** 3,
+      'artifact byte bound'
+    );
+    assert.match(row.digest ?? '', /^sha256:[a-f0-9]{64}$/, 'artifact digest missing');
+    assert.ok(
+      timestamp(row.created_at) >= timestamp(job.started_at) &&
+        timestamp(row.created_at) <= timestamp(job.completed_at),
+      'artifact outside selected execution'
+    );
+    if (expected) {
+      assert.equal(String(row.id), expected.id, 'producer artifact id differs');
+      assert.equal(row.digest, `sha256:${expected.digest}`, 'producer artifact digest differs');
+    }
+    return { id: String(row.id), name: row.name, digest: row.digest };
+  };
+  for (const kind of ['closure', 'inventory'])
+    admitArtifact(
+      read(`actions/artifacts/${receipt[kind].id}`),
+      `workspace-${kind === 'closure' ? 'closure' : 'producer'}-${producer.run}-${producer.attempt}`,
+      producerJob,
+      receipt[kind]
+    );
+  plan.partitions = plan.partitions.map(({ index }) => {
+    const label = `${prefix ? prefix + ' / ' : ''}Execute partition ${index}`;
+    const selected = actual.get(label);
+    assert.ok(selected, 'missing partition execution');
+    assert.ok(
+      selected.job.status === 'completed' && selected.job.conclusion === 'success',
+      'latest partition execution failed or incomplete'
+    );
+    const name = resultArtifactName(index, producer, selected.attempt);
+    const data = read(`actions/runs/${producer.run}/artifacts?name=${name}&per_page=2`);
+    assert.ok(
+      data.total_count === 1 && Array.isArray(data.artifacts) && data.artifacts.length === 1,
+      'missing/duplicate partition artifact'
+    );
+    return {
+      index,
+      attempt: selected.attempt,
+      jobId: selected.job.id,
+      artifact: admitArtifact(data.artifacts[0], name, selected.job),
+    };
+  });
+  return plan;
+}
+
+function readJSONBytes(file) {
   const stat = lstatSync(file);
   assert.ok(
     stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 * 1024 ** 2,
     'JSON file bound/type'
   );
-  return JSON.parse(readFileSync(file, 'utf8'));
+  return readFileSync(file);
+}
+function readJSON(file) {
+  return JSON.parse(readJSONBytes(file).toString('utf8'));
 }
 function writeJSON(file, data) {
   writeFileSync(file, JSON.stringify(data) + '\n');
@@ -319,7 +658,7 @@ export function admitMachineIdentity(identity, expectedRun) {
   return identity;
 }
 
-function executionIdentity() {
+function executionIdentity(context = runIdentity()) {
   const read = (program, args) => {
     const result = spawnSync(program, args, { encoding: 'utf8', timeout: 30_000, maxBuffer: 4096 });
     if (result.error) throw result.error;
@@ -327,7 +666,6 @@ function executionIdentity() {
     return result.stdout.trim();
   };
   const cargo = realpathSync(read('rustup', ['which', 'cargo']));
-  const context = runIdentity();
   return admitMachineIdentity(
     {
       ...context,
@@ -508,20 +846,40 @@ async function archive(directory, total) {
   assert.ok(stat.isFile() && stat.size > 0 && stat.size <= 1024 ** 3, 'archive byte bound');
   const cases = admittedCases(readJSON(path.join(directory, 'cases.json')));
   partitionCases(cases, 1, total);
-  writeJSON(path.join(directory, 'manifest.json'), {
-    schema: 1,
-    identity: executionIdentity(),
+  const manifest = {
+    schema: 2,
+    producerIdentity: executionIdentity(),
     partitions: total,
     cases,
     runtimeFiles,
     archive: { bytes: stat.size, sha256: sha256(readFileSync(archive)) },
-  });
+  };
+  const file = path.join(directory, 'manifest.json');
+  writeJSON(file, manifest);
+  assert.ok(process.env.GITHUB_OUTPUT, 'producer output port missing');
+  writeFileSync(
+    process.env.GITHUB_OUTPUT,
+    `proof=${JSON.stringify({
+      schema: 1,
+      producerIdentity: manifest.producerIdentity,
+      partitions: total,
+      manifestSha256: sha256(readFileSync(file)),
+      archive: manifest.archive,
+    })}\nattempt=${manifest.producerIdentity.attempt}\n`,
+    { flag: 'a' }
+  );
 }
 
 async function consume(directory, index) {
-  const manifest = readJSON(path.join(directory, 'manifest.json'));
-  const machine = executionIdentity();
-  assert.deepEqual(manifest.identity, machine, 'consumer identity differs');
+  const run = runIdentity();
+  const machine = executionIdentity(run);
+  const receipt = admitProducerReceipt(
+    JSON.parse(process.env.PRODUCER_RECEIPT || 'null'),
+    run,
+    process.env.PRODUCER_RESULT
+  );
+  const manifest = admitManifest(receipt, readJSONBytes(path.join(directory, 'manifest.json')));
+  admitExecutionIdentity(manifest.producerIdentity, machine);
   const expected = partitionCases(manifest.cases, index, manifest.partitions);
   const archive = path.join(directory, 'workspace.tar.zst');
   const stat = lstatSync(archive);
@@ -529,7 +887,7 @@ async function consume(directory, index) {
     stat.isFile() && !stat.isSymbolicLink() && stat.size <= 1024 ** 3,
     'archive byte bound/type'
   );
-  admitArchive(manifest, readFileSync(archive), machine);
+  admitArchive(manifest, readFileSync(archive), manifest.producerIdentity);
   assert.ok(!existsSync('target'), 'consumer target must start absent');
   // nextest owns decoding; extraction into this existing workspace preserves compiled absolute paths.
   const inventory = JSON.parse(
@@ -589,8 +947,10 @@ async function consume(directory, index) {
   const log = readFileSync(path.join(directory, 'nextest-execution.log'), 'utf8');
   verifyExecution(expected, log);
   writeJSON(path.join(directory, 'result.json'), {
-    schema: 1,
-    identity: manifest.identity,
+    schema: 2,
+    producerIdentity: manifest.producerIdentity,
+    executionIdentity: machine,
+    manifestSha256: receipt.proof.manifestSha256,
     archive: manifest.archive,
     index,
     partitions: manifest.partitions,
@@ -617,17 +977,51 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
     const [program, ...args] = process.argv.slice(5);
     assert.ok(program, 'phase program missing');
     await command(directory, value, program, args, true);
-  } else if (mode === 'aggregate') {
-    const manifest = readJSON(path.join(directory, 'manifest.json'));
-    admitMachineIdentity(manifest.identity, runIdentity());
+  } else if (mode === 'plan') {
+    const collector = runIdentity();
     const states = {
       producer: process.env.PRODUCER_RESULT,
       consumers: process.env.CONSUMERS_RESULT,
     };
-    const names = Array.from(
-      { length: manifest.partitions },
-      (_, index) =>
-        `workspace-result-${index + 1}-${manifest.identity.run}-${manifest.identity.attempt}`
+    const receipt = JSON.parse(process.env.PRODUCER_RECEIPT || 'null');
+    const read =
+      collector.attempt === receipt?.proof?.producerIdentity?.attempt
+        ? () => assert.fail('single-attempt REST is forbidden')
+        : createRecoveryReader(process.env.GITHUB_REPOSITORY);
+    const selection = planPartitionRecovery(
+      receipt,
+      collector,
+      states,
+      read,
+      process.env.WORKFLOW_HEAD_SHA
+    );
+    writeJSON(path.join(directory, 'selection.json'), selection);
+    assert.ok(process.env.GITHUB_OUTPUT, 'collector output port missing');
+    writeFileSync(
+      process.env.GITHUB_OUTPUT,
+      `artifact-ids=${selection.partitions
+        .map((row) => row.artifact?.id)
+        .filter(Boolean)
+        .join(',')}\n`,
+      { flag: 'a' }
+    );
+  } else if (mode === 'aggregate') {
+    const collector = runIdentity();
+    const receipt = admitProducerReceipt(
+      JSON.parse(process.env.PRODUCER_RECEIPT || 'null'),
+      collector,
+      process.env.PRODUCER_RESULT
+    );
+    const manifest = admitManifest(receipt, readJSONBytes(path.join(directory, 'manifest.json')));
+    const selection = readJSON(path.join(directory, 'selection.json'));
+    assert.deepEqual(selection.collectorIdentity, collector, 'foreign collector identity');
+    admitSelection(manifest, selection);
+    const states = {
+      producer: process.env.PRODUCER_RESULT,
+      consumers: process.env.CONSUMERS_RESULT,
+    };
+    const names = selection.partitions.map((row) =>
+      resultArtifactName(row.index, manifest.producerIdentity, row.attempt)
     );
     assert.deepEqual(
       readdirSync(directory)
@@ -637,8 +1031,16 @@ if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.me
       'missing/extra partition artifact'
     );
     const results = names.map((name) => readJSON(path.join(directory, name, 'result.json')));
-    const summary = aggregatePartitions(manifest, results, states);
+    const summary = aggregatePartitions(manifest, results, states, selection);
     writeJSON(path.join(directory, 'summary.json'), summary);
+    writeJSON(path.join(directory, 'selection.json'), {
+      ...selection,
+      archive: manifest.archive,
+      partitions: selection.partitions.map((row, index) => ({
+        ...row,
+        resultSha256: sha256(readJSONBytes(path.join(directory, names[index], 'result.json'))),
+      })),
+    });
     console.log(JSON.stringify(summary));
   } else assert.fail('unknown workspace-nextest mode');
 }

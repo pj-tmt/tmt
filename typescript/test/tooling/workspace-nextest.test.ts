@@ -16,6 +16,13 @@ import { runInPrivateWorld } from '../../scripts/private-world.mjs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  admitProducerReceipt,
+  admitManifest,
+  admitExecutionIdentity,
+  planPartitionRecovery,
+  createRecoveryReader,
+  resultArtifactName,
+  type ProducerReceipt,
   exampleExecutables,
   runtimeArchiveConfig,
   verifyRuntimeExecutables,
@@ -140,8 +147,8 @@ describe('compiled workspace partitions', () => {
   const identity = { source: 'a'.repeat(40), run: '123', attempt: '1' };
   const bytes = Buffer.from('compiled test closure');
   const manifest = (): WorkspaceManifest => ({
-    schema: 1,
-    identity,
+    schema: 2,
+    producerIdentity: identity,
     partitions: 2,
     cases,
     runtimeFiles: [],
@@ -153,8 +160,12 @@ describe('compiled workspace partitions', () => {
     [1, 2].map((index) => {
       const selected = partitionCases(cases, index, 2);
       return {
-        schema: 1,
-        identity,
+        schema: 2,
+        producerIdentity: identity,
+        executionIdentity: identity,
+        manifestSha256: createHash('sha256')
+          .update(JSON.stringify(manifest()) + '\n')
+          .digest('hex'),
         archive: manifest().archive,
         index,
         partitions: 2,
@@ -232,7 +243,7 @@ describe('compiled workspace partitions', () => {
 
   it('binds source/run/attempt/toolchain/platform and exact archive bytes before decoding', () => {
     expect(admitArchive(manifest(), bytes, identity)).toEqual(manifest());
-    expect(() => admitArchive({ ...manifest(), schema: 2 }, bytes, identity)).toThrow('schema');
+    expect(() => admitArchive({ ...manifest(), schema: 1 }, bytes, identity)).toThrow('schema');
     for (const field of ['source', 'run', 'attempt', 'toolchain', 'platform'])
       expect(() => admitArchive(manifest(), bytes, { ...identity, [field]: 'other' })).toThrow(
         'identity differs'
@@ -280,9 +291,9 @@ describe('compiled workspace partitions', () => {
     if (kind === 'duplicate') input[1] = input[0];
     if (kind === 'failed') input[0].exit = 1;
     if (kind === 'retained') input[0].worldRemoved = false;
-    if (kind === 'foreign') input[0].identity = { ...identity, attempt: '2' };
+    if (kind === 'foreign') input[0].producerIdentity = { ...identity, attempt: '2' };
     if (kind === 'archive') input[0].archive = { ...manifest().archive, sha256: 'b'.repeat(64) };
-    if (kind === 'schema') input[0].schema = 2;
+    if (kind === 'schema') input[0].schema = 1;
     if (kind === 'partition') input[0].partitions = 3;
     if (kind === 'case') input[0].cases = partitionCases(cases, 2, 2);
     if (kind === 'pass') input[0].log = input[0].log.replace(' a', ' z');
@@ -401,6 +412,103 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(setup).toContain(`cargo-nextest-${NEXTEST_VERSION}`);
   expect(setup).toContain('223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc');
   expect(setup).toContain('sha256sum --check');
+});
+
+it('keeps recovery within the existing steps and gives only the collector the read token', () => {
+  const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+  const workflow = read('.github/workflows/workspace-partitions.yml');
+  const producer = workflow.split('\n  producer:\n')[1].split('\n  consumers:')[0];
+  const consumers = workflow.split('\n  consumers:\n')[1].split('\n  aggregate:')[0];
+  const aggregate = workflow.split('\n  aggregate:\n')[1];
+  expect(producer.match(/\n      - /g)).toHaveLength(18);
+  expect(consumers.match(/\n      - /g)).toHaveLength(8);
+  expect(aggregate.match(/\n      - /g)).toHaveLength(7);
+  expect(workflow.match(/actions: read/g)).toHaveLength(1);
+  expect(workflow.split('\njobs:')[0]).toContain('permissions:\n  contents: read');
+  expect(producer + consumers).not.toContain('GH_TOKEN');
+  expect(producer + consumers).not.toContain('permissions:');
+  expect(aggregate).toContain('permissions:\n      contents: read\n      actions: read');
+  const caller = read('.github/workflows/ci.yml')
+    .split('\n  native-workspace-tests:\n')[1]
+    .split('\n  native-process-tests:')[0];
+  expect(caller).toContain('permissions:\n      contents: read\n      actions: read');
+  expect(aggregate.indexOf('actions/setup-node')).toBeLessThan(aggregate.indexOf('id: selection'));
+  expect(
+    aggregate.match(
+      /if: inputs.scope == 'full' && needs\.producer\.result == 'success' && needs\.consumers\.result == 'success'/g
+    )
+  ).toHaveLength(2);
+  expect(aggregate).toMatch(
+    /if \[ "\$SCOPE" = full \]; then\n            cd rust\n            node .*workspace-nextest\.mjs plan/
+  );
+  expect(aggregate).toContain(
+    'WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}'
+  );
+  const resultsDownload = aggregate
+    .split('      - name: Download exact partition results\n')[1]
+    .split('\n      - name:')[0];
+  expect(resultsDownload).toContain('artifact-ids: ${{ steps.selection.outputs.artifact-ids }}');
+  expect(resultsDownload).toContain(
+    'pattern: workspace-result-*-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}'
+  );
+  expect(aggregate).toContain('merge-multiple: false');
+  expect(aggregate).toContain('/workspace-proof/selection.json');
+  expect(consumers).toContain('PRODUCER_RECEIPT: ${{ needs.producer.outputs.receipt }}');
+  expect(consumers).toContain('PRODUCER_RESULT: ${{ needs.producer.result }}');
+  expect(consumers).toContain(
+    'workspace-result-${{ matrix.partition }}-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}'
+  );
+  const downloads = workflow
+    .split(/\n      - /)
+    .filter((step) => step.includes('uses: actions/download-artifact'));
+  expect(downloads).toHaveLength(4);
+  for (const step of downloads) {
+    expect(step).toContain('uses: actions/download-artifact@v8');
+    expect(step).toContain('digest-mismatch: error');
+  }
+  for (const step of downloads.filter(
+    (step) => !step.includes('Download exact partition results')
+  )) {
+    expect(step).toContain('artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).');
+    expect(step).toContain('merge-multiple: true');
+  }
+  const uploads = workflow
+    .split(/\n      - /)
+    .filter((step) => step.includes('uses: actions/upload-artifact'));
+  expect(uploads).toHaveLength(4);
+  for (const step of uploads) {
+    expect(step).toContain('uses: actions/upload-artifact@v4');
+    expect(step).not.toMatch(/artifact-ids:|merge-multiple:|digest-mismatch:/);
+  }
+});
+
+it('renders a producer receipt from the proof and original upload outputs only on whole-job success', () => {
+  const workflow = readFileSync(
+    new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+    'utf8'
+  );
+  const output = workflow.split('      receipt: >-\n')[1].split('    steps:')[0];
+  expect(output).toContain(
+    "job.status == 'success' && steps.closure.outcome == 'success' && steps.inventory.outcome == 'success'"
+  );
+  expect(output).toContain(
+    'steps.archive.outputs.proof, steps.closure.outputs.artifact-id, steps.closure.outputs.artifact-digest'
+  );
+  expect(output).toContain(
+    'steps.inventory.outputs.artifact-id, steps.inventory.outputs.artifact-digest'
+  );
+  const format = /format\('([^']+)'/.exec(output)![1];
+  const proof = { schema: 1, producerIdentity: { attempt: '1' } };
+  const inputs = [JSON.stringify(proof), '101', 'a'.repeat(64), '102', 'b'.repeat(64)];
+  // Interpret GitHub format's escaped braces/placeholders, then admit the actual JSON shape.
+  const rendered = format.replace(/\{\{|\}\}|\{(\d+)\}/g, (match, index) =>
+    match === '{{' ? '{' : match === '}}' ? '}' : inputs[Number(index)]
+  );
+  expect(JSON.parse(rendered)).toEqual({
+    proof,
+    closure: { id: '101', digest: 'a'.repeat(64) },
+    inventory: { id: '102', digest: 'b'.repeat(64) },
+  });
 });
 
 it('keeps Ops on common setup plus Cargo/architecture while full scope owns the partition path', () => {
@@ -717,4 +825,486 @@ it('carries Cargo-built example workers and refuses missing, foreign or non-exec
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe('successful producer generations and explicit recovery executions', () => {
+  const source = 'a'.repeat(40);
+  const workflowHead = 'b'.repeat(40); // PR REST head differs from the checked-out merge commit.
+  const context = (attempt: string) => ({
+    source,
+    run: '123',
+    attempt,
+    toolchain: TOOLCHAIN,
+    nextest: NEXTEST_VERSION,
+    platform: 'linux-x64',
+    debug: '0',
+    incremental: '0',
+    workspace: '/work/tmt/rust',
+  });
+  const machine = (attempt = '1') => ({
+    ...context(attempt),
+    cargo: '/toolchain/bin/cargo',
+    cargoVersion: `cargo ${TOOLCHAIN} (fixture)`,
+    rustcVersion: `rustc ${TOOLCHAIN} (fixture)`,
+  });
+  const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+  const base = Date.parse('2026-10-17T19:05:59Z');
+  const date = (offset: number) => new Date(base + offset * 1000).toISOString();
+  const success = { producer: 'success', consumers: 'success' };
+  const fixture = (k = 3) => {
+    const cases = Array.from({ length: 6 }, (_, i) => ({
+      binary: 'suite',
+      name: `case${i}`,
+      ignored: false,
+    }));
+    cases.push({ binary: 'suite', name: 'ignored', ignored: true });
+    const bytes = Buffer.from('same compiled archive bytes');
+    const manifest: WorkspaceManifest = {
+      schema: 2,
+      producerIdentity: machine(),
+      partitions: k,
+      cases,
+      runtimeFiles: [],
+      archive: { bytes: bytes.length, sha256: hash(bytes) },
+    };
+    const raw = Buffer.from(JSON.stringify(manifest) + '\n');
+    const receipt: ProducerReceipt = {
+      proof: {
+        schema: 1,
+        producerIdentity: machine(),
+        partitions: k,
+        manifestSha256: hash(raw),
+        archive: manifest.archive,
+      },
+      closure: { id: '21', digest: 'c'.repeat(64) },
+      inventory: { id: '22', digest: 'd'.repeat(64) },
+    };
+    const job = (index: number, attempt: number, start: number, id: number) => ({
+      id,
+      run_id: 123,
+      run_attempt: attempt,
+      head_sha: workflowHead,
+      name:
+        'Native Rust workspace tests / ' +
+        (index === 0 ? 'Compile workspace test closure' : `Execute partition ${index}`),
+      status: 'completed',
+      conclusion: 'success',
+      started_at: date(start),
+      completed_at: date(start + 30),
+      steps: [
+        {
+          name:
+            index === 0
+              ? 'Preserve independent inventory and phase evidence'
+              : 'Preserve partition identity and phase evidence',
+          number: 8,
+          status: 'completed',
+          conclusion: 'success',
+          started_at: date(start + 20),
+          completed_at: date(start + 25),
+        },
+      ],
+    });
+    const first = [
+      job(0, 1, 10, 100),
+      ...Array.from({ length: k }, (_, i) => job(i + 1, 1, 100 + i, 101 + i)),
+    ];
+    first[2].conclusion = 'failure';
+    const second = first.map((j, i) =>
+      i === 2 ? job(2, 2, 3620, 202) : { ...structuredClone(j), id: j.id + 100, run_attempt: 2 }
+    );
+    const jobs = new Map([
+      [1, first],
+      [2, second],
+    ]);
+    const artifact = (
+      id: number,
+      name: string,
+      selected: ReturnType<typeof job>,
+      digest: string
+    ) => ({
+      id,
+      name,
+      expired: false,
+      size_in_bytes: 500,
+      digest: `sha256:${digest}`,
+      created_at: selected.steps[0].completed_at,
+      workflow_run: { id: 123, head_sha: workflowHead },
+    });
+    const metadata = new Map<string, unknown>();
+    metadata.set(
+      'actions/artifacts/21',
+      artifact(21, 'workspace-closure-123-1', first[0], receipt.closure.digest)
+    );
+    metadata.set(
+      'actions/artifacts/22',
+      artifact(22, 'workspace-producer-123-1', first[0], receipt.inventory.digest)
+    );
+    for (let i = 1; i <= k; i++) {
+      const e = i === 2 ? '2' : '1';
+      const name = resultArtifactName(i, machine(), e);
+      metadata.set(`actions/runs/123/artifacts?name=${name}&per_page=2`, {
+        total_count: 1,
+        artifacts: [artifact(30 + i, name, i === 2 ? second[i] : first[i], 'e'.repeat(64))],
+      });
+    }
+    const calls: string[] = [];
+    const read = (resource: string): unknown => {
+      calls.push(resource);
+      const match = /^actions\/runs\/123\/attempts\/(\d+)(?:\/jobs\?per_page=100&page=(\d))?$/.exec(
+        resource
+      );
+      if (match) {
+        const e = Number(match[1]);
+        if (!match[2])
+          return {
+            id: 123,
+            run_attempt: e,
+            head_sha: workflowHead,
+            run_started_at: date((e - 1) * 3600),
+          };
+        const rows = jobs.get(e) ?? [];
+        return structuredClone({
+          total_count: rows.length,
+          jobs: rows.slice((Number(match[2]) - 1) * 100, Number(match[2]) * 100),
+        });
+      }
+      const row = metadata.get(resource);
+      if (!row) throw Error(`Unexpected request: ${resource}`);
+      return structuredClone(row);
+    };
+    const plan = () => planPartitionRecovery(receipt, context('2'), success, read, workflowHead);
+    const results = () =>
+      plan().partitions.map((row) => {
+        const selected = partitionCases(cases, row.index, k);
+        return {
+          schema: 2,
+          producerIdentity: machine(),
+          executionIdentity: machine(row.attempt),
+          manifestSha256: hash(raw),
+          archive: manifest.archive,
+          index: row.index,
+          partitions: k,
+          exit: 0,
+          worldRemoved: true,
+          cases: selected,
+          log: selected.map((t) => `PASS [ 0.001s] (1/3) ${t.binary} ${t.name}`).join('\n'),
+        };
+      });
+    return { manifest, raw, bytes, receipt, jobs, metadata, calls, read, plan, results, job };
+  };
+
+  it('makes no REST read on a single attempt and preserves the exact union summary bytes', () => {
+    const f = fixture();
+    const plan = planPartitionRecovery(f.receipt, context('1'), success, () => {
+      throw Error('REST forbidden');
+    });
+    expect(plan.partitions.map((p) => p.attempt)).toEqual(['1', '1', '1']);
+    const results = f.results().map((r) => ({ ...r, executionIdentity: machine() }));
+    expect(JSON.stringify(aggregatePartitions(f.manifest, results, success, plan)) + '\n').toBe(
+      '{"passed":6,"ignored":1,"total":7}\n'
+    );
+    expect(admitManifest(f.receipt, f.raw)).toEqual(f.manifest);
+    expect(admitArchive(f.manifest, f.bytes, machine())).toEqual(f.manifest);
+  });
+
+  it('admits mixed E1/E2 results only from one successful producer generation', () => {
+    const f = fixture();
+    const plan = f.plan();
+    expect(plan.partitions.map((r) => [r.index, r.attempt, r.jobId, r.artifact?.id])).toEqual([
+      [1, '1', 101, '31'],
+      [2, '2', 202, '32'],
+      [3, '1', 103, '33'],
+    ]);
+    expect(f.calls).toHaveLength(9);
+    expect(aggregatePartitions(f.manifest, f.results(), success, plan)).toEqual({
+      passed: 6,
+      ignored: 1,
+      total: 7,
+    });
+    expect(() => aggregatePartitions(f.manifest, f.results(), success)).toThrow(
+      'execution identity'
+    );
+  });
+
+  it('pins the retained-copy shape from run39060975141 rather than trusting rewritten IDs/attempts', () => {
+    const f = fixture(2);
+    // Bounded excerpt: attempt2 begins19:19:05, but its copied partition1 still ran19:08:59-19:13:38.
+    const original = f.jobs.get(1)![1];
+    original.id = 117479323135;
+    original.started_at = '2026-10-17T19:08:59Z';
+    original.completed_at = '2026-10-17T19:13:38Z';
+    original.steps[0].started_at = '2026-10-17T19:13:33Z';
+    original.steps[0].completed_at = '2026-10-17T19:13:35Z';
+    f.jobs.get(2)![1] = { ...structuredClone(original), id: 117481506661, run_attempt: 2 };
+    const artifact = f.metadata.get(
+      'actions/runs/123/artifacts?name=workspace-result-1-123-1-1&per_page=2'
+    ) as { artifacts: { created_at: string }[] };
+    artifact.artifacts[0].created_at = original.steps[0].completed_at;
+    const select = () =>
+      planPartitionRecovery(
+        f.receipt,
+        context('2'),
+        success,
+        (resource) => {
+          const data = f.read(resource);
+          return resource.endsWith('/attempts/2')
+            ? { ...(data as object), run_started_at: '2026-10-17T19:19:05Z' }
+            : data;
+        },
+        workflowHead
+      );
+    const plan = select();
+    expect(plan.partitions[0]).toMatchObject({ attempt: '1', jobId: 117479323135 });
+    expect(plan.partitions[0].artifact?.name).toBe('workspace-result-1-123-1-1');
+    f.jobs.get(2)![1].steps[0].conclusion = 'failure';
+    expect(select).toThrow('fingerprint differs');
+  });
+
+  it.each(['failure', 'cancelled', 'skipped', 'in_progress'])(
+    'never falls back when the latest real execution is %s',
+    (state) => {
+      const f = fixture();
+      f.jobs.get(2)![2].conclusion = state;
+      if (state === 'in_progress') f.jobs.get(2)![2].status = state;
+      expect(f.plan).toThrow('latest partition execution');
+    }
+  );
+
+  it.each(['producer', 'consumers'] as const)(
+    'refuses unsuccessful or missing %s outputs before discovery',
+    (worker) => {
+      const f = fixture();
+      for (const status of ['failure', 'skipped', 'cancelled', '', 'unknown'])
+        expect(() =>
+          planPartitionRecovery(
+            f.receipt,
+            context('2'),
+            { ...success, [worker]: status },
+            f.read,
+            workflowHead
+          )
+        ).toThrow();
+      expect(f.calls).toEqual([]);
+      expect(() => admitProducerReceipt({} as ProducerReceipt, context('2'), 'success')).toThrow(
+        'missing producer receipt'
+      );
+    }
+  );
+
+  it('rejects a changed producer generation and unproved retained rows', () => {
+    const f = fixture();
+    f.jobs.get(2)![0] = f.job(0, 2, 3601, 200);
+    expect(f.plan).toThrow('producer generation changed');
+    const g = fixture();
+    g.jobs.get(1)![0].started_at = date(-10);
+    expect(g.plan).toThrow('unproved retained job');
+    const h = fixture();
+    h.jobs.get(1)![0].conclusion = 'failure';
+    expect(h.plan).toThrow('producer job not successful');
+  });
+
+  it('allows only the attempt to differ on a consumer machine', () => {
+    expect(admitExecutionIdentity(machine(), machine('2'))).toEqual(machine('2'));
+    for (const field of [
+      'source',
+      'run',
+      'toolchain',
+      'nextest',
+      'platform',
+      'debug',
+      'incremental',
+      'workspace',
+      'cargo',
+      'cargoVersion',
+      'rustcVersion',
+    ])
+      expect(() =>
+        admitExecutionIdentity(machine(), { ...machine('2'), [field]: 'foreign' })
+      ).toThrow('identity differs');
+    for (const attempt of ['0', '4', 'later', '-1'])
+      expect(() => admitExecutionIdentity(machine(), machine(attempt))).toThrow();
+    expect(() => admitExecutionIdentity(machine('2'), machine('1'), '2')).toThrow(
+      'outside producer'
+    );
+    expect(() => admitExecutionIdentity(machine(), machine('3'), '2')).toThrow('outside producer');
+  });
+
+  it('binds the exact manifest, archive, artifact IDs and compiler proof in the receipt', () => {
+    const f = fixture();
+    expect(admitProducerReceipt(f.receipt, context('2'), 'success')).toEqual(f.receipt);
+    expect(() => admitManifest(f.receipt, Buffer.concat([f.raw, Buffer.from(' ')]))).toThrow(
+      'manifest hash'
+    );
+    for (const field of ['source', 'run', 'toolchain', 'workspace'])
+      expect(() =>
+        admitProducerReceipt(f.receipt, { ...context('2'), [field]: 'foreign' }, 'success')
+      ).toThrow('run identity differs');
+    for (const mutate of [
+      (r: ProducerReceipt) => {
+        r.proof.archive.sha256 = 'wrong';
+      },
+      (r: ProducerReceipt) => {
+        r.proof.manifestSha256 = '';
+      },
+      (r: ProducerReceipt) => {
+        r.inventory.id = r.closure.id;
+      },
+      (r: ProducerReceipt) => {
+        r.closure.id = '0';
+      },
+      (r: ProducerReceipt) => {
+        r.inventory.digest = '';
+      },
+    ]) {
+      const receipt = structuredClone(f.receipt);
+      mutate(receipt);
+      expect(() => admitProducerReceipt(receipt, context('2'), 'success')).toThrow();
+    }
+    expect(() => admitProducerReceipt(f.receipt, context('4'), 'success')).toThrow('attempt bound');
+  });
+
+  it.each(['expired', 'source', 'run', 'digest', 'name', 'time', 'size'])(
+    'refuses %s producer artifacts',
+    (kind) => {
+      const f = fixture();
+      const record = f.metadata.get('actions/artifacts/21') as Record<string, unknown>;
+      if (kind === 'expired') record.expired = true;
+      if (kind === 'source') record.workflow_run = { id: 123, head_sha: source };
+      if (kind === 'run') record.workflow_run = { id: 999, head_sha: workflowHead };
+      if (kind === 'digest') record.digest = 'sha256:' + 'f'.repeat(64);
+      if (kind === 'name') record.name = 'workspace-closure-123-2';
+      if (kind === 'time') record.created_at = date(3601);
+      if (kind === 'size') record.size_in_bytes = 0;
+      expect(f.plan).toThrow();
+    }
+  );
+
+  it('refuses missing/duplicate result artifacts and duplicate or ambiguous jobs', () => {
+    const f = fixture();
+    f.metadata.set('actions/runs/123/artifacts?name=workspace-result-2-123-1-2&per_page=2', {
+      total_count: 0,
+      artifacts: [],
+    });
+    expect(f.plan).toThrow('missing/duplicate partition artifact');
+    const g = fixture();
+    g.jobs.get(2)!.push(g.jobs.get(2)![2]);
+    expect(g.plan).toThrow('duplicate/invalid job');
+    const h = fixture();
+    h.jobs.get(2)!.push({ ...h.jobs.get(2)![2], id: 299 });
+    expect(h.plan).toThrow('duplicate workspace job label');
+    const j = fixture();
+    j.jobs.get(2)![2].name += ' extra';
+    expect(j.plan).toThrow('ambiguous workspace job label');
+  });
+
+  it('bounds complete two-page discovery to14 reads and refuses truncation/changing counts', () => {
+    const f = fixture();
+    const third = f.jobs
+      .get(2)!
+      .map((j) => ({ ...structuredClone(j), id: j.id + 100, run_attempt: 3 }));
+    f.jobs.set(3, third);
+    for (const [e, rows] of f.jobs)
+      for (let i = rows.length; i < 101; i++)
+        rows.push({ ...f.job(1, e, 100, e * 1000 + i), name: `unrelated-${i}` });
+    const plan = planPartitionRecovery(f.receipt, context('3'), success, f.read, workflowHead);
+    expect(plan.partitions.map((r) => r.attempt)).toEqual(['1', '2', '1']);
+    expect(f.calls).toHaveLength(14);
+    for (const kind of ['count', 'short', 'cap']) {
+      const g = fixture();
+      const read = (resource: string): unknown => {
+        if (resource.includes('/jobs?'))
+          return kind === 'cap'
+            ? { total_count: 201, jobs: [] }
+            : kind === 'short'
+              ? { total_count: 10, jobs: [] }
+              : resource.endsWith('page=1')
+                ? {
+                    total_count: 101,
+                    jobs: Array.from({ length: 100 }, (_, i) => ({
+                      ...g.job(1, 1, 100, 1000 + i),
+                      name: `unrelated-${i}`,
+                    })),
+                  }
+                : { total_count: 100, jobs: [] };
+        return g.read(resource);
+      };
+      expect(() =>
+        planPartitionRecovery(g.receipt, context('2'), success, read, workflowHead)
+      ).toThrow();
+    }
+  });
+
+  it('refuses foreign attempts and newer results cannot bypass execution or union validation', () => {
+    const f = fixture();
+    expect(() =>
+      planPartitionRecovery(
+        f.receipt,
+        context('2'),
+        success,
+        (resource) =>
+          resource.endsWith('/attempts/2')
+            ? { id: 999, run_attempt: 2, head_sha: workflowHead, run_started_at: date(3600) }
+            : f.read(resource),
+        workflowHead
+      )
+    ).toThrow('foreign attempt run');
+    const plan = f.plan();
+    const results = f.results();
+    results[1].executionIdentity.attempt = '1';
+    expect(() => aggregatePartitions(f.manifest, results, success, plan)).toThrow(
+      'execution identity'
+    );
+    for (const kind of ['missing', 'retained', 'overlap', 'manifest', 'archive', 'execution']) {
+      const rows = f.results();
+      if (kind === 'missing') rows.pop();
+      if (kind === 'retained') rows[0].worldRemoved = false;
+      if (kind === 'overlap') rows[0].cases = rows[1].cases;
+      if (kind === 'manifest') rows[0].manifestSha256 = 'f'.repeat(64);
+      if (kind === 'archive') rows[0].archive = { ...rows[0].archive, bytes: 1 };
+      if (kind === 'execution') rows[0].log = '';
+      expect(() => aggregatePartitions(f.manifest, rows, success, plan)).toThrow();
+    }
+    const badPlan = structuredClone(plan);
+    badPlan.partitions.pop();
+    expect(() => aggregatePartitions(f.manifest, f.results(), success, badPlan)).toThrow(
+      'incomplete partition selection'
+    );
+  });
+
+  it('uses one GET-only20-call/90-second port and rejects arbitrary transport paths', () => {
+    const calls: string[][] = [];
+    let now = 0;
+    const read = createRecoveryReader(
+      'pj-tmt/tmt',
+      (program, args, options) => {
+        expect(program).toBe('gh');
+        expect(options.timeoutMs).toBeGreaterThan(0);
+        calls.push(args);
+        return '{}';
+      },
+      () => now
+    );
+    for (let i = 0; i < 20; i++) read('actions/runs/123/attempts/1');
+    expect(() => read('actions/runs/123/attempts/1')).toThrow('request bound');
+    expect(calls).toHaveLength(20);
+    expect(calls.every((a) => a[1] === '--method' && a[2] === 'GET')).toBe(true);
+    const invalid = createRecoveryReader('pj-tmt/tmt', () => {
+      throw Error('transport must not execute');
+    });
+    for (const route of [
+      '../issues/1',
+      'actions/runs/123/cancel',
+      'actions/runs/123/attempts/1/jobs?per_page=100&page=3',
+    ])
+      expect(() => invalid(route)).toThrow('unexpected recovery metadata path');
+    now = 90_001;
+    const expired = createRecoveryReader(
+      'pj-tmt/tmt',
+      () => '{}',
+      () => now
+    );
+    now += 90_000;
+    expect(() => expired('actions/runs/123/attempts/1')).toThrow('deadline');
+  });
 });
