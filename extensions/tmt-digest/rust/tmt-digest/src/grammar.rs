@@ -59,13 +59,23 @@ const STATUS: CommandSpec = CommandSpec {
 
 const DECISIONS: CommandSpec = CommandSpec {
     name: "decisions",
-    summary: "List the delivery decisions each tick recorded",
-    examples: &[Example {
-        command: "tmt digest decisions --json",
-        note: "List the last 24 hours of recorded decisions as one JSON document",
-    }],
+    summary: "List the delivery decisions each tick recorded, or report what the digests saved",
+    examples: &[
+        Example {
+            command: "tmt digest decisions --json",
+            note: "List the last 24 hours of recorded decisions as one JSON document",
+        },
+        Example {
+            command: "tmt digest decisions --report --json",
+            note: "Turns saved and delay against delivering every message on its own",
+        },
+        Example {
+            command: "tmt digest decisions --report --recompute 20m --json",
+            note: "Also estimate what a 20m interval would have done",
+        },
+    ],
     outputs: OutputModes::Json,
-    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_idle_point, off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule, answer or oldest held message changes, and holds until that member's next row. This command does not tick, deliver messages or estimate savings.",
+    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_idle_point, off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule, answer or oldest held message changes, and holds until that member's next row. With --report, every member and the total show the messages delivered, the deliveries that took them (the baseline is one delivery per message), the turns saved, and the delay from arrival to delivery; --recompute INTERVAL adds the same figures for that interval, estimated from arrival times only, so its delay is a lower bound and it compares rules rather than predicting them. This command does not tick or deliver messages.",
 };
 
 const USAGE: CommandSpec = CommandSpec {
@@ -139,6 +149,32 @@ pub fn command() -> Command {
                         .default_value("24h")
                         .value_parser(["24h", "7d", "30d"])
                         .help("Window ending now"),
+                )
+                .arg(
+                    Arg::new("report")
+                        .long("report")
+                        .action(ArgAction::SetTrue)
+                        .help("Report the turns the delivered digests saved, instead of listing decisions"),
+                )
+                .arg(
+                    Arg::new("recompute")
+                        .long("recompute")
+                        .value_name("INTERVAL")
+                        .requires("report")
+                        .help("Also estimate another interval, such as 20m, from the same arrivals")
+                        .value_parser(|text: &str| match crate::settings::Mode::parse(text) {
+                            Ok(crate::settings::Mode::Interval { .. }) => Ok(text.to_owned()),
+                            Ok(_) => Err("auto and off cannot be recomputed; use a duration".to_owned()),
+                            Err(error) => Err(error.message),
+                        }),
+                )
+                .arg(
+                    Arg::new("flush-count")
+                        .long("flush-count")
+                        .value_name("N")
+                        .requires("recompute")
+                        .help("Flush count for the recomputed interval (default: the configured one)")
+                        .value_parser(clap::value_parser!(u64).range(1..=1_000_000)),
                 )
                 .arg(
                     Arg::new("json")
