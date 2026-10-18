@@ -1470,8 +1470,12 @@ fn old_partial_populate_record_retains_its_unfiltered_foreign_fingerprint_and_di
     populate.cause = Some(cause);
     let before = serde_json::to_vec(&record).unwrap();
     let root = deploy_fixture_root::Root::new();
-    let mut writer =
-        tmt_remote::deploy_record::DeployRecordStore::open(&root.layout(), PROJECT).unwrap();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &root.layout(),
+        PROJECT,
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     writer.persist(&record).unwrap();
     let path = root
