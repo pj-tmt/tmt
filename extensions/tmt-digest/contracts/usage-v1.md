@@ -33,9 +33,12 @@ with Core's usual 15 seconds and 1 MiB per call:
   reported; null when no identity could be read).
 - `usage.seats[]` (identities with rollup evidence): `id`, `name` (null when Core
   could not resolve it), `retired`, `totals` `{input,output,cached}`, `byModel`
-  (Core's attribution as `{modelId,input,output,cached}`, or null when Core could
-  not attribute the whole total), `lines` (the lines its tokens belong to, as `usage.lines[]`
-  counts them: its models' families, or `unattributed`; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
+  (Core's attribution as `{modelId,input,output,cached}`, or null when Core attributed
+  none of the total; the rows may sum to less than `totals`), `unattributed`
+  (`{input,output,cached}`, present only when `byModel` is not null and the rows sum to
+  less than `totals`: what no model row covers), `lines` (the lines its tokens belong to,
+  as `usage.lines[]` counts them: its models' families, plus `unattributed` for tokens no
+  model row covers; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
   and `coverage` `{coveredMs,windowMs,startsAtMs,complete,gap}`. A `series[]` point also
   carries `serviceTier` (the provider's tier id, such as `default` or `priority`) when
   Core reports the tier of the seat's newest token-moving read in that bucket; absent is
@@ -96,8 +99,9 @@ Failure exits 1 and prints `{"version":1,"error":{code,message}}` on stdout with
 JSON rows, so the two never disagree.
 
 - `usage`: `id,name,retired,line,model,input,output,cached,coveredMs,windowMs,startsAtMs,complete,unavailable,cause`.
-  One row per model of each seat (`line` from the model id; `unattributed` and an
-  empty `model` when `byModel` is null), then one row per unavailable identity with
+  One row per model of each seat (`line` from the model id), one `unattributed` row with
+  an empty `model` for what no model row covers (the whole total when `byModel` is null),
+  then one row per unavailable identity with
   only `id,name,retired,unavailable,cause`.
 - `credits`: `fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,serviceTiers`, one row
   per point (`serviceTiers` joined by spaces); only the header when `credits` is null.

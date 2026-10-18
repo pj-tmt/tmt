@@ -48,12 +48,18 @@ impl DriverUsage {
 pub(super) struct Details {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Its rows sum to at most the bucket's tokens; the rest is unattributed. An
+    /// empty list says the same as none, so it is never written out.
+    #[serde(default, skip_serializing_if = "unattributed")]
     pub by_model: Option<Vec<ModelUsage>>,
     /// Ascending by driver. Its rows sum to at most the bucket's tokens; the rest
     /// (rows counted before drivers were recorded) is unattributed, never a guess.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by_driver: Option<Vec<DriverUsage>>,
+}
+
+fn unattributed(rows: &Option<Vec<ModelUsage>>) -> bool {
+    rows.as_ref().is_none_or(Vec::is_empty)
 }
 
 impl Details {
@@ -64,13 +70,16 @@ impl Details {
                     && rows.iter().enumerate().all(|(index, row)| {
                         row.valid() && !rows[..index].iter().any(|old| old.model_id == row.model_id)
                     })
-                    && rows.iter().try_fold((0u64, 0u64, 0u64), |(a, b, c), row| {
-                        Some((
-                            a.checked_add(row.input_tokens)?,
-                            b.checked_add(row.output_tokens)?,
-                            c.checked_add(row.cached_input_tokens)?,
-                        ))
-                    }) == Some((input, output, cached))
+                    && rows
+                        .iter()
+                        .try_fold((0u64, 0u64, 0u64), |(a, b, c), row| {
+                            Some((
+                                a.checked_add(row.input_tokens)?,
+                                b.checked_add(row.output_tokens)?,
+                                c.checked_add(row.cached_input_tokens)?,
+                            ))
+                        })
+                        .is_some_and(|(a, b, c)| a <= input && b <= output && c <= cached)
             })
             && self.by_driver.as_ref().is_none_or(|rows| {
                 (1..=MAX_DRIVERS).contains(&rows.len())
@@ -98,16 +107,16 @@ impl Details {
             .zip(next.cache_write_tokens)
             .and_then(|(a, b)| b.checked_sub(a))
             .filter(|n| *n <= input);
-        let by_model = if next.sequence == old.sequence {
-            next.delta_by_model.as_ref().map(|_| Vec::new())
-        } else {
-            next.delta_by_model.clone().filter(|rows| {
-                next.sequence == old.sequence + 1
-                    && rows.iter().map(|row| row.input_tokens).sum::<u64>() == input
-                    && rows.iter().map(|row| row.output_tokens).sum::<u64>() == output
-                    && rows.iter().map(|row| row.cached_input_tokens).sum::<u64>() == cached
-            })
-        };
+        // `delta_by_model` groups the increment since the preceding sequence, so after
+        // a skipped sequence it covers only part of the delta: the rest stays
+        // unattributed. A repeated sequence counts nothing and must not be applied twice.
+        let by_model = next.delta_by_model.clone().filter(|rows| {
+            next.sequence != old.sequence
+                && !rows.is_empty()
+                && rows.iter().map(|row| row.input_tokens).sum::<u64>() <= input
+                && rows.iter().map(|row| row.output_tokens).sum::<u64>() <= output
+                && rows.iter().map(|row| row.cached_input_tokens).sum::<u64>() <= cached
+        });
         // Counted between two reads of one driver, so the whole delta is its own. A
         // driver id that is not a plain id (never expected) is left unattributed.
         let by_driver = (input != 0 || output != 0)
@@ -132,20 +141,20 @@ impl Details {
             .zip(other.cache_write_tokens)
             .map(|(a, b)| a.checked_add(b).ok_or_else(invalid))
             .transpose()?;
-        match (&mut self.by_model, &other.by_model) {
-            (Some(rows), Some(incoming)) => {
-                for row in incoming {
-                    if let Some(old) = rows.iter_mut().find(|old| old.model_id == row.model_id) {
-                        old.merge(row).ok_or_else(invalid)?;
-                    } else if rows.len() < MAX_MODELS {
-                        rows.push(row.clone());
-                    } else {
-                        self.by_model = None;
-                        break;
-                    }
+        // A side without models only leaves its share unattributed; a fifth model
+        // drops the split built so far.
+        if let Some(incoming) = other.by_model.as_ref().filter(|rows| !rows.is_empty()) {
+            let rows = self.by_model.get_or_insert_with(Vec::new);
+            for row in incoming {
+                if let Some(old) = rows.iter_mut().find(|old| old.model_id == row.model_id) {
+                    old.merge(row).ok_or_else(invalid)?;
+                } else if rows.len() < MAX_MODELS {
+                    rows.push(row.clone());
+                } else {
+                    self.by_model = None;
+                    break;
                 }
             }
-            _ => self.by_model = None,
         }
         // Unlike models, a side without drivers only leaves its share unattributed.
         if let Some(incoming) = &other.by_driver {

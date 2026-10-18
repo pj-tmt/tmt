@@ -105,6 +105,7 @@ fn csv_has_one_row_per_json_row() {
             seat["byModel"]
                 .as_array()
                 .map_or(1, |models| models.len().max(1))
+                + usize::from(seat["unattributed"].is_object())
         })
         .sum::<usize>()
         + usage["unavailable"].as_array().unwrap().len();
@@ -449,9 +450,9 @@ fn unreadable_batches_are_unavailable_with_their_labels() {
 
 #[test]
 fn a_response_that_contradicts_itself_is_refused() {
-    // Attribution that does not add up to the total.
+    // Attribution beyond the total.
     let (mut totals, series, ids, labels) = one_seat(None);
-    totals["identities"][0]["windows"][0]["buckets"][0]["byModel"][0]["inputTokens"] = json!(9);
+    totals["identities"][0]["windows"][0]["buckets"][0]["byModel"][0]["inputTokens"] = json!(11);
     assert_eq!(
         model::usage(&totals, &series, &ids, &labels)
             .unwrap_err()
@@ -718,4 +719,73 @@ fn windows_and_tables_parse_only_the_documented_values() {
         assert!(since.window_ms() > 3_600_000 && since.window_ms() <= 2_592_000_000);
         assert_eq!(since.window_ms() % since.buckets(), 0);
     }
+}
+
+/// `one_seat` after Core attributes only `model` rows (or none) of the total 10/2/4.
+fn attributed_as(rows: Value) -> Value {
+    let (mut totals, series, ids, labels) = one_seat(None);
+    let bucket = &mut totals["identities"][0]["windows"][0]["buckets"][0];
+    // Core omits the field when it attributed nothing.
+    if rows.is_null() {
+        bucket.as_object_mut().unwrap().remove("byModel");
+    } else {
+        bucket["byModel"] = rows;
+    }
+    let report = Report {
+        as_of_ms: AS_OF,
+        since: "24h",
+        usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
+        exchange: None,
+        warnings: vec![],
+    };
+    model::document(&report).unwrap()
+}
+
+#[test]
+fn a_partly_attributed_seat_names_its_remainder_and_keeps_it_on_the_unattributed_line() {
+    let document = attributed_as(
+        json!([{"modelId": "gpt-6.1-sol", "inputTokens": 6, "outputTokens": 1, "cachedInputTokens": 1}]),
+    );
+    let seat = &document["usage"]["seats"][0];
+    assert_eq!(
+        seat["byModel"],
+        json!([{"modelId": "gpt-6.1-sol", "input": 6, "output": 1, "cached": 1}])
+    );
+    assert_eq!(
+        seat["unattributed"],
+        json!({"input": 4, "output": 1, "cached": 3})
+    );
+    assert_eq!(seat["lines"], json!(["gpt", "unattributed"]));
+    let lines = document["usage"]["lines"].as_array().unwrap();
+    let tokens =
+        |name: &str| lines.iter().find(|line| line["line"] == name).unwrap()["totals"].clone();
+    assert_eq!(tokens("gpt"), json!({"input": 6, "output": 1, "cached": 1}));
+    assert_eq!(
+        tokens("unattributed"),
+        json!({"input": 4, "output": 1, "cached": 3})
+    );
+    // The CSV table sums to the total: the remainder is its own row.
+    let table = csv::table(&document, Table::Usage).unwrap();
+    let rows: Vec<_> = table.lines().skip(1).collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].contains(",gpt,gpt-6.1-sol,6,1,1,"));
+    assert!(rows[1].contains(",unattributed,,4,1,3,"));
+}
+
+#[test]
+fn a_seat_with_no_rows_or_full_rows_names_no_remainder_and_overcounting_rows_are_refused() {
+    // Core attributed nothing: the whole total is unattributed and no field repeats it.
+    for rows in [Value::Null, json!([])] {
+        let document = attributed_as(rows);
+        let seat = &document["usage"]["seats"][0];
+        assert_eq!(seat["byModel"], Value::Null);
+        assert!(seat.get("unattributed").is_none());
+        assert_eq!(seat["lines"], json!(["unattributed"]));
+    }
+    // Rows that cover the whole total leave nothing over.
+    let document = attributed_as(
+        json!([{"modelId": "gpt-6.1-sol", "inputTokens": 10, "outputTokens": 2, "cachedInputTokens": 4}]),
+    );
+    assert!(document["usage"]["seats"][0].get("unattributed").is_none());
+    assert_eq!(document["usage"]["seats"][0]["lines"], json!(["gpt"]));
 }

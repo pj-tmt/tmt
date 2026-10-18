@@ -589,7 +589,11 @@ fn unknown_attribution_never_labels_the_whole_mixed_bucket_with_the_last_model()
     let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
     assert_eq!(bucket["inputTokens"], 20);
     assert_eq!(bucket["outputTokens"], 4);
-    assert!(bucket.get("byModel").is_none());
+    // Only the attributed part carries a model; the other 10 + 2 stay unattributed.
+    assert_eq!(
+        bucket["byModel"],
+        json!([{"modelId":"a","inputTokens":10,"outputTokens":2,"cachedInputTokens":0,"cacheWriteTokens":3}])
+    );
     assert!(bucket.get("cacheWriteTokens").is_none());
     assert_eq!(
         history["identities"][0]["latest"]["consumption"]["modelId"],
@@ -1123,4 +1127,85 @@ fn a_reporting_or_unknown_identity_has_no_cause() {
     assert!(history["identities"][0].get("cause").is_none());
     assert_eq!(history["identities"][1]["found"], false);
     assert!(history["identities"][1].get("cause").is_none());
+}
+
+#[test]
+fn a_skipped_sequence_attributes_only_its_last_step_and_overcounting_rows_attribute_nothing() {
+    for (rows, expected) in [
+        // Sequence 1 to 3: the delta is (30, 6) but the rows cover the last step.
+        (vec![model_row("a", 10, 2, None)], Some((10, 2))),
+        (vec![model_row("a", 50, 5, None)], None),
+        (vec![model_row("a", 10, 9, None)], None),
+        (vec![], None),
+    ] {
+        let (_directory, path, id) = fixture();
+        let mut storage = Storage::open(&path).unwrap();
+        source(&storage, &id);
+        let connection = storage.connection().unwrap();
+        record_sample(connection, &id, Some(latest(100, 20, 1, 6000)), 6000).unwrap();
+        let mut read = latest(130, 26, 3, 7000);
+        read.consumption.delta_by_model = Some(rows.clone());
+        record_sample(connection, &id, Some(read), 7000).unwrap();
+        let bucket = only_bucket(&mut storage, &id, 5000, 10_500);
+        assert_eq!(bucket["inputTokens"], 30, "{rows:?}");
+        match expected {
+            Some((input, output)) => assert_eq!(
+                bucket["byModel"],
+                json!([{"modelId":"a","inputTokens":input,"outputTokens":output,"cachedInputTokens":0}])
+            ),
+            None => assert!(bucket.get("byModel").is_none(), "{rows:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_window_keeps_the_attributed_models_and_leaves_the_rest_unattributed() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    source(&storage, &id);
+    let connection = storage.connection().unwrap();
+    record_sample(connection, &id, Some(latest(0, 0, 1, 6000)), 6000).unwrap();
+    // Three 5-second buckets: model a, no attribution, model b.
+    let mut read = latest(10, 2, 2, 11000);
+    read.consumption.delta_by_model = Some(vec![model_row("a", 10, 2, None)]);
+    record_sample(connection, &id, Some(read), 11000).unwrap();
+    record_sample(connection, &id, Some(latest(30, 6, 3, 16000)), 16000).unwrap();
+    let mut read = latest(35, 7, 4, 21000);
+    read.consumption.delta_by_model = Some(vec![model_row("b", 5, 1, None)]);
+    record_sample(connection, &id, Some(read), 21000).unwrap();
+    let history = storage
+        .consumption_history(std::slice::from_ref(&id), &[15000], 1, 25_500, false)
+        .unwrap();
+    let bucket = &history["identities"][0]["windows"][0]["buckets"][0];
+    assert_eq!(bucket["inputTokens"], 35);
+    assert_eq!(bucket["outputTokens"], 7);
+    assert_eq!(
+        bucket["byModel"],
+        json!([
+            {"modelId":"a","inputTokens":10,"outputTokens":2,"cachedInputTokens":0},
+            {"modelId":"b","inputTokens":5,"outputTokens":1,"cachedInputTokens":0}
+        ])
+    );
+}
+
+#[test]
+fn a_fifth_model_drops_the_split_built_so_far_and_a_later_one_starts_again() {
+    use crate::storage::consumption_history::details::Details;
+    let split = |ids: &[&str]| Details {
+        by_model: Some(ids.iter().map(|id| model_row(id, 1, 0, None)).collect()),
+        ..Details::default()
+    };
+    let mut held = split(&["a", "b", "c", "d"]);
+    held.merge(&split(&["a"])).unwrap();
+    assert_eq!(held.by_model.as_ref().unwrap()[0].input_tokens, 2);
+    held.merge(&split(&["e"])).unwrap();
+    assert!(held.by_model.is_none());
+    // The at-most rule still holds, so a later split is a partial one.
+    held.merge(&split(&["e"])).unwrap();
+    assert_eq!(held.by_model.as_ref().unwrap().len(), 1);
+    // A side without models leaves the other's share as it was.
+    held.merge(&Details::default()).unwrap();
+    assert_eq!(held.by_model.as_ref().unwrap()[0].model_id, "e");
+    assert!(held.valid(1, 0, 0));
+    assert!(!held.valid(0, 0, 0), "rows above the bucket are corrupt");
 }

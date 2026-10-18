@@ -247,10 +247,10 @@ delivery. They install and launch nothing.
   the wrapper predates sampling, or the seat is new). Relaunching through `tmt run`/`resume`
   fixes the last two; a shell has no agent to fix.
   History stores additive cache-write and `byModel` evidence
-  in the existing buckets, coalesces every model change, and omits unknown mixed portions.
-  It also stores `byDriver` (#3751): every counted delta is between two reads of one driver,
-  so `record_sample` writes that driver's share; unlike `byModel` the rows may sum to less
-  than the bucket (rows stored earlier stay unattributed) and are never backfilled.
+  in the existing buckets, coalesces every model change, and leaves unknown mixed portions
+  unattributed: rows sum to at most the bucket (#3763), and a fifth model drops the split
+  built so far. It also stores `byDriver` (#3751): every counted delta is between two reads
+  of one driver, so `record_sample` writes that driver's share. Neither is backfilled.
   The Claude scan gets half the hook's remaining deadline and keeps validated counts
   with `complete=false` on expiry; the hook supervisor stays the hard time authority.
 - `run_command/run.rs` ticks the foreground wait every five seconds into
