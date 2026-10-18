@@ -303,15 +303,26 @@ fn address(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Op
     }
 }
 
+/// `tmt resume` with the name as exactly one shell word. A name that starts with a dash follows
+/// `--`, because quoting alone does not stop option parsing.
+fn resume_command(name: &str) -> String {
+    let word = crate::output::shell_word(name);
+    if name.starts_with('-') {
+        format!("tmt resume -- {word}")
+    } else {
+        format!("tmt resume {word}")
+    }
+}
+
 /// The trailing action, only where one is possible.
 fn action(row: &IdentityPresence, remembered: Option<&RememberedSession>) -> Option<String> {
     let state = state(row);
     match remembered {
         Some(session) if session.stale_at_ms.is_some() => Some("stale".into()),
         Some(_) if state != State::Running => Some(format!(
-            "{} tmt resume {}",
+            "{} {}",
             Mark::Resumable.symbol(),
-            row.identity.name
+            resume_command(&row.identity.name)
         )),
         _ => (state == State::Shell).then(|| "shell".into()),
     }
@@ -748,5 +759,6 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[""],
         &[],
     ),
-    crate::cli_style_tests::HintSpec::core("{} tmt resume {}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core("tmt resume {word}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core("tmt resume -- {word}", &[""], &[]),
 ];
