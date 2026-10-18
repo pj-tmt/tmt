@@ -477,6 +477,12 @@ for (const width of [1440, 390])
       await expect(titles(page)).toHaveCount(4);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-list-${width}-${theme}.png`) });
+      await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
+      await expect(titles(page)).toHaveCount(1);
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3647-needs-${width}-${theme}.png`) });
+      await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
+      await expect(titles(page)).toHaveCount(4);
       await app(page).getByRole('button', { name: 'design, 2 pages' }).click();
       await app(page).getByRole('combobox', { name: 'Search pages' }).click();
       await page.keyboard.type('label:o');
