@@ -296,7 +296,7 @@ prices or tokens, future model evidence, and unsafe arithmetic produce null;
 known zero tokens produce zero only with a supported evidenced model. Quotes round
 to the nearest micro-dollar, half upward, using checked wide intermediates.
 
-The offline table is owned by `rust/tmt-digest/src/pricing.rs`. A successful status
+The offline table is owned by `extensions/tmt-digest/rust/tmt-digest/src/pricing.rs`. A successful status
 document also contains additive root `pricing: {version, asOf, basis,
 models:[{modelId, usdMicrosPerMillionInputTokens, source}]}` metadata, acquired with
 the same status call. `basis` is `standard-base-input`; `source` is the official
@@ -326,6 +326,13 @@ a zero denominator or unsafe sum produces null. Basis points round
 Consumers aggregate only compatible method/window and exact interval pairs by
 summing their numerators and observed inputs, then calculating the ratio. They
 never sum or average percentages, and must expose partial member coverage.
+Cost quotes combine only when every member quote has the same `pricingVersion`:
+each quote already used its own member's evidenced model, so the total is the sum
+of their `usdMicros` list-price quotes. Quotes under different `pricingVersion`s
+are never summed, converted or reconciled; the total is unavailable and the
+consumer says the prices differ. A sum above 9007199254740991 micro-dollars is
+unavailable too. Ops implements this in `sum_costs`
+(`extensions/tmt-ops/rust/tmt-ops/src/labels/digest.rs`).
 Ops owns the separate display/toggle consumer; this producer adds no UI.
 
 ## History
