@@ -312,7 +312,7 @@ Overview has one Agents/Squads list, starting in Agents unless a saved choice ex
 chips and idle search field; the section rule below owns counts. `v` switches
 views unless an authored binding replaces it. Squads show a lead-first TEAM strip,
 TOK 1h from existing HOUR readings, and NOW from pending questions before tasks.
-Agents show AGENT, SQUAD, STATE, TOK 1h and NOW. Unread agents come first, then waiting agents, ordered
+Agents show AGENT, SQUAD, STATE, TOK 1h and MODEL. Unread agents come first, then waiting agents, ordered
 by oldest proven request, then unknown age and name/UUID; no waiting duration is
 shown. Blocked state alone does not imply waiting. A squad selection messages its
 observed lead; an agent selection uses that exact member. Missing evidence refuses
@@ -389,10 +389,13 @@ marker. It survives restart, named views and reset-view. A save failure keeps th
 unread count and names the cause; reopen the conversation or jump to retry. These
 Ops markers never acknowledge Core results.
 
-The Agents tree keeps SQUAD / AGENT, STATE, TOK 1h, ◷ and a lead marker;
-narrow tables drop whole optional columns. Member token values and squad sums use
+The Agents tree keeps SQUAD / AGENT, STATE, TOK 1h, ◷ and MODEL. A Muted `*`
+directly before the name marks a lead. Model cells show the observed completed-turn
+model, falling back to the session-start model, only with a running driver; a leading
+`claude-` is omitted and unknown is `—`. Narrow tables drop the whole model column
+before TOK 1h; long models end in `…`. Member token values and squad sums use
 the same observed hour. ◷ is the total **timers owned** by that member in the row's
-room, paused included: known zero is `0`, unavailable is `—`. Digest/model/runtime
+room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime
 appear in selection-driven focus. Only attention glyphs carry state colour; a member task state is red only when blocked;
 selected rows use a full neutral background at normal weight, or the existing
 NO_COLOR reverse cue. The All/Pinned chips and search remain above the list;

@@ -3181,7 +3181,7 @@ fn agents_wide_table_uses_hour_readings_once_and_marks_missing_members() {
                 .slots(Rect::new(0, row.y, 160, 1));
             for (field, expected) in [
                 (
-                    crate::board::workspace::columns::AgentsField::Lead,
+                    crate::board::workspace::columns::AgentsField::Model,
                     String::new(),
                 ),
                 (

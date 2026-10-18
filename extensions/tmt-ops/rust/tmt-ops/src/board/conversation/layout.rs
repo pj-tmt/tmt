@@ -6,7 +6,7 @@ pub(in crate::board) const LIST_MIN_ROWS: u16 = 3;
 pub(in crate::board) const CONVERSATION_MIN_ROWS: u16 = 8;
 pub(in crate::board) const LIST_MIN_COLUMNS: u16 = 36;
 pub(in crate::board) const CONVERSATION_MIN_COLUMNS: u16 = 36;
-// Keep the Agents-list header whole through NOW when resizing the wide split.
+// Keep the Agents-list token header whole; the optional model track yields first.
 pub(in crate::board) const OVERVIEW_MIN_COLUMNS: u16 = 1 + 23 + 1 + 11 + 1 + 12 + 1 + 7 + 3 + 3;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

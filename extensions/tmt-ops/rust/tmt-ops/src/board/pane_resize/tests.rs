@@ -954,7 +954,7 @@ fn minimum_column_widths_keep_required_table_fields_whole() {
         .find(|line| line.contains("AGENT"))
         .expect("the actual painted table header");
     assert!(
-        header.contains("TOK 1h") && header.contains("NOW"),
+        header.contains("TOK 1h") && !header.contains("MODEL") && !header.contains("NOW"),
         "{header}"
     );
     assert_eq!(

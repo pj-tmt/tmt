@@ -449,6 +449,16 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     state,
                     state_primary_width,
                     tokens,
+                    model: match &row.target {
+                        OpsTarget::Member { identity_id, .. } => {
+                            let agent = app.references.agents.get(identity_id);
+                            columns::model_text(
+                                agent.and_then(|agent| agent.runtime.as_deref()),
+                                agent.and_then(|agent| agent.model.as_deref()),
+                            )
+                        }
+                        _ => String::new(),
+                    },
                     timers: timers.map(|count| count.total),
                     selected,
                     query: &app.workspace.query,

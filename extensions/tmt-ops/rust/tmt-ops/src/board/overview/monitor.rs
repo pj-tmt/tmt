@@ -123,12 +123,6 @@ fn pending(row: &serde_json::Value) -> Option<&str> {
             })
         })
 }
-pub(super) fn summary_text(row: Option<&serde_json::Value>) -> String {
-    row.and_then(|row| pending(row).or_else(|| row["fields"]["task"].as_str()))
-        .and_then(|text| text.lines().next())
-        .unwrap_or("—")
-        .to_owned()
-}
 pub(super) fn waiting_since(
     snapshot: &OpsWorkspaceSnapshot,
     row: &OpsTreeRow,

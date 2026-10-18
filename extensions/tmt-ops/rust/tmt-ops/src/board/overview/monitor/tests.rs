@@ -526,13 +526,12 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
     }
     app.select_overview_view(View::Agents);
     let agents = text(&paint(&mut app, 103, 51));
-    for required in ["AGENT", "SQUAD", "STATE", "TOK 1h", "NOW"] {
+    for required in ["AGENT", "SQUAD", "STATE", "TOK 1h", "MODEL"] {
         assert!(agents.contains(required), "{required}");
     }
     for retired in [
         "Recent exchanges",
         "Digest status unavailable",
-        "MODE",
         "state unknown",
         "━",
         "Needs you",
@@ -543,6 +542,9 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
             !squads.contains(retired) && !agents.contains(retired),
             "retired {retired}"
         );
+    }
+    for shown in [&squads, &agents] {
+        assert!(!shown.split_whitespace().any(|word| word == "MODE"));
     }
 }
 

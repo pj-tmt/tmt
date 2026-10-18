@@ -96,7 +96,7 @@ fn solve_tracks<K: Copy>(width: u16, tracks: &[(K, u16, &str, u16)]) -> Vec<(K, 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentsField {
     Agent,
-    Lead,
+    Model,
     State,
     Tokens,
     Cron,
@@ -106,7 +106,7 @@ impl AgentsField {
     pub fn caption(self, glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
         match self {
             Self::Agent => "SQUAD / AGENT",
-            Self::Lead => "",
+            Self::Model => "MODEL",
             Self::State => "STATE",
             Self::Tokens => TOKENS_CAPTION,
             Self::Cron => match glyphs {
@@ -121,7 +121,7 @@ impl AgentsField {
             Self::State => 16,
             Self::Tokens => 7,
             Self::Cron => 4,
-            Self::Lead => 4,
+            Self::Model => 12,
         }
     }
     fn gap(self) -> u16 {
@@ -205,7 +205,7 @@ impl AgentsLayout {
                 AgentsField::State,
                 AgentsField::Tokens,
                 AgentsField::Cron,
-                AgentsField::Lead,
+                AgentsField::Model,
             ];
             let demand = |fields: &[AgentsField]| {
                 fields.iter().map(|f| f.minimum()).sum::<u16>()
@@ -215,7 +215,7 @@ impl AgentsLayout {
                         .map(|f| f.gap())
                         .sum::<u16>()
             };
-            for optional in [AgentsField::Lead, AgentsField::Cron, AgentsField::Tokens] {
+            for optional in [AgentsField::Model, AgentsField::Cron, AgentsField::Tokens] {
                 if demand(&fields) <= width {
                     break;
                 }
@@ -584,6 +584,18 @@ pub struct WorkspaceColumnValues {
     pub basic: bool,
 }
 
+/// Dense model cells use the acquired model only while its driver is running.
+/// Keep the original inventory value intact for rate attribution and Details.
+pub(in crate::board) fn model_text(runtime: Option<&str>, model: Option<&str>) -> String {
+    runtime
+        .filter(|runtime| !runtime.is_empty())
+        .and(model)
+        .map(|model| model.strip_prefix("claude-").unwrap_or(model))
+        .filter(|model| !model.is_empty())
+        .map(super::render::safe)
+        .unwrap_or_else(|| "—".into())
+}
+
 impl WorkspaceColumnValues {
     pub fn text(&self, column: Column, row: &OpsTreeRow) -> String {
         match column {
@@ -671,6 +683,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dense_model_text_requires_a_running_driver_and_shortens_only_the_leading_provider() {
+        for (runtime, model, expected) in [
+            (Some("claude"), Some("claude-opus-5-5"), "opus-5-5"),
+            (Some("codex"), Some("gpt-6.1-sol"), "gpt-6.1-sol"),
+            (
+                Some("claude"),
+                Some("other-claude-model"),
+                "other-claude-model",
+            ),
+            (None, Some("claude-opus-5-5"), "—"),
+            (Some(""), Some("gpt-6.1-sol"), "—"),
+            (Some("claude"), None, "—"),
+            (Some("claude"), Some("claude-"), "—"),
+        ] {
+            assert_eq!(model_text(runtime, model), expected);
+        }
+        let shown = model_text(Some("codex"), Some("gpt-6.1-sol"));
+        assert_eq!(crate::board::view::fit(&shown, 8), "gpt-6.1…");
+    }
+
+    #[test]
     fn agents_tracks_follow_pane_width_and_drop_only_whole_optional_fields() {
         let mut layout = AgentsLayout::default();
         let wide = layout.slots(Rect::new(0, 7, 70, 1));
@@ -683,7 +716,7 @@ mod tests {
                 (AgentsField::State, 26, 16),
                 (AgentsField::Tokens, 43, 7),
                 (AgentsField::Cron, 53, 4),
-                (AgentsField::Lead, 58, 4),
+                (AgentsField::Model, 58, 12),
             ]
         );
         for width in 0..=160 {
@@ -700,19 +733,26 @@ mod tests {
                     .all(|pair| pair[0].1.right() <= pair[1].1.x)
             );
             assert_eq!(
-                slots.iter().any(|(field, _)| *field == AgentsField::Lead),
-                width >= 62
+                slots.iter().any(|(field, _)| *field == AgentsField::Model),
+                width >= 70
             );
             for (field, slot) in &slots {
                 if matches!(
                     field,
-                    AgentsField::Tokens | AgentsField::Cron | AgentsField::Lead
+                    AgentsField::Tokens | AgentsField::Cron | AgentsField::Model
                 ) {
                     assert_eq!(slot.width, field.minimum(), "optional fields fit whole");
                 }
             }
         }
         assert_eq!(AgentsField::Cron.caption(Default::default()), "◷");
+        let narrow = layout.slots(Rect::new(0, 0, 69, 1));
+        assert!(!narrow.iter().any(|(field, _)| *field == AgentsField::Model));
+        assert!(
+            narrow
+                .iter()
+                .any(|(field, _)| *field == AgentsField::Tokens)
+        );
     }
 
     #[test]

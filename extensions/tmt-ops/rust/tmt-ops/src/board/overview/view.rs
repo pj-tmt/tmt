@@ -235,11 +235,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             Line::styled(
                 if agents {
                     format!(
-                        " {:<23} {:<11} {:<state$} {:>7}   NOW",
+                        " {:<23} {:<11} {:<state$} {:>7}{}",
                         "AGENT",
                         "SQUAD",
                         "STATE",
                         "TOK 1h",
+                        if model_width(slot.width, state_width(slot.width, widest)).is_some() {
+                            "   MODEL"
+                        } else {
+                            ""
+                        },
                         state = usize::from(state_width(slot.width, widest))
                     )
                 } else {
@@ -286,7 +291,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 return;
             };
             let mut line = if agents {
-                agent_line(app, snapshot, row, look, state_width(slot.width, widest))
+                agent_line(
+                    app,
+                    snapshot,
+                    row,
+                    look,
+                    slot.width,
+                    state_width(slot.width, widest),
+                )
             } else {
                 let Some(squad) = scene.squads.get(at - LIST_HEADER_ROWS) else {
                     return;
@@ -474,12 +486,18 @@ const STATE_MAX: u16 = 32;
 
 /// The agent STATE column is as wide as the widest cell of the list needs, 12
 /// cells at least. It never takes more than the row has after the tokens and
-/// at least 16 cells of the NOW summary, nor more than `STATE_MAX`.
+/// at least 16 cells of the model, nor more than `STATE_MAX`.
 fn state_width(row: u16, widest: usize) -> u16 {
     let room = row
         .saturating_sub(AGENT_STATE_X as u16 + 1 + 7 + 3 + 16)
         .clamp(12, STATE_MAX);
     u16::try_from(widest).unwrap_or(u16::MAX).clamp(12, room)
+}
+
+/// The complete model track yields before the token track at narrow widths.
+fn model_width(row: u16, state: u16) -> Option<u16> {
+    let width = row.saturating_sub(AGENT_STATE_X as u16 + state + 1 + 7 + 3);
+    (width >= 8).then_some(width)
 }
 
 /// An agent's STATE cell within `width`: the same activity words and task
@@ -521,6 +539,7 @@ fn agent_line(
     snapshot: &crate::board::workspace::observe::OpsWorkspaceSnapshot,
     row: &OpsTreeRow,
     look: Look,
+    row_width: u16,
     width: u16,
 ) -> Line<'static> {
     let value = monitor::values(app, snapshot, row);
@@ -534,11 +553,22 @@ fn agent_line(
         |tokens| crate::source::tokens(tokens.round() as u128),
     );
     let pin = crate::board::workspace::render::pin_mark(&row.target, &snapshot.preferences, look);
-    let name_width = 23usize.saturating_sub(pin.width());
+    let name_width = 23usize.saturating_sub(pin.width() + usize::from(row.lead));
+    let model = model_width(row_width, width).map(|width| {
+        let text = crate::board::workspace::columns::model_text(
+            value.runtime.as_deref(),
+            value.model.as_deref(),
+        );
+        Span::styled(
+            format!("   {}", crate::board::view::fit(&text, usize::from(width))),
+            look.role(Role::Muted),
+        )
+    });
     Line::from_iter(
         [
             Span::raw(" "),
             pin,
+            Span::styled(if row.lead { "*" } else { "" }, look.role(Role::Muted)),
             Span::styled(
                 crate::board::view::fit(
                     &crate::board::workspace::render::safe(&row.title),
@@ -558,23 +588,86 @@ fn agent_line(
         .chain([
             Span::raw(" "),
             Span::styled(
-                format!(
-                    "{}   ",
-                    tmt_cli_style::grid::fit(
-                        &tokens,
-                        7,
-                        tmt_cli_style::grid::Align::Right,
-                        tmt_cli_style::grid::Truncate::End
-                    )
+                tmt_cli_style::grid::fit(
+                    &tokens,
+                    7,
+                    tmt_cli_style::grid::Align::Right,
+                    tmt_cli_style::grid::Truncate::End,
                 ),
                 look.role(Role::Muted),
             ),
-            Span::styled(
-                crate::board::workspace::render::safe(&monitor::summary_text(
-                    snapshot.rows.get(&row.target),
-                )),
-                look.role(Role::Muted),
-            ),
-        ]),
+        ])
+        .chain(model),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_model_and_lead_mark_use_acquired_values_without_changing_narrow_token_tracks() {
+        use crate::board::{
+            app::workspace::tests::{MEMBER, board},
+            workspace::OpsTarget,
+        };
+        for running in [false, true] {
+            let mut app = board();
+            app.references.agents.insert(
+                MEMBER.into(),
+                crate::board::inventory::Agent {
+                    runtime: running.then(|| "claude".into()),
+                    model: Some("claude-sonnet-5-5".into()),
+                    ..Default::default()
+                },
+            );
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .roster
+                .squads[0]
+                .lead = Some(MEMBER.into());
+            app.workspace_reconcile();
+            let rows = app.workspace_rows();
+            let row = rows
+                .iter()
+                .find(|row| {
+                    matches!(&row.target,
+                        OpsTarget::Member { identity_id, .. } if identity_id == MEMBER
+                    )
+                })
+                .unwrap();
+            let snapshot = app.workspace_snapshot().unwrap();
+            let line = agent_line(&app, snapshot, row, app.look(), 100, state_width(100, 12));
+            let shown = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            assert!(shown.contains("*worker"));
+            assert_eq!(shown.contains("sonnet-5-5"), running);
+            assert!(!shown.contains("claude-"));
+            assert!(
+                line.spans
+                    .last()
+                    .unwrap()
+                    .content
+                    .trim()
+                    .ends_with(if running { "sonnet-5-5" } else { "—" })
+            );
+            let mark = line.spans.iter().find(|span| span.content == "*").unwrap();
+            assert_eq!(mark.style, app.look().role(Role::Muted));
+            let narrow = agent_line(&app, snapshot, row, app.look(), 60, state_width(60, 12));
+            assert_eq!(
+                narrow.width(),
+                57,
+                "the model yields without clipping the token track"
+            );
+            assert!(model_width(60, state_width(60, 12)).is_none());
+        }
+    }
 }
