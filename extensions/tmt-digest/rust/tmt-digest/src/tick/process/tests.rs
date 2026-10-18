@@ -72,6 +72,12 @@ esac
     fn stats(&self, held: u64, age: u64) {
         self.write("stats.json", json!({"stats":[{"identityId":MEMBER,"heldCount":held,"oldestHeldAgeMs":if held==0 {Value::Null} else {json!(age)},"observedAtMs":super::super::now_ms().unwrap()}]}));
     }
+    /// `held` messages, the oldest of which arrived at `arrived`: the age grows
+    /// with the clock exactly as Core reports it, so the arrival stays the same.
+    fn arrived(&self, held: u64, arrived: u64) {
+        let now = super::super::now_ms().unwrap();
+        self.stats(held, now - arrived);
+    }
     fn settings(&self, mode: &str, setter: Option<&str>) {
         let attribution = setter
             .map(|id| format!("setByIdentityId = '{id}'\n"))
@@ -509,4 +515,73 @@ fn a_settings_change_before_the_opportunity_records_the_rule_it_became() {
         assert_eq!((rows[0].rule, rows[0].outcome), (rule, Some("not_idle")));
         assert_eq!(rows[0].interval_ms, None);
     }
+}
+
+fn rows(fixture: &Fixture) -> Vec<(Rule, Option<&'static str>)> {
+    decisions(fixture)
+        .iter()
+        .map(|row| (row.rule, row.outcome))
+        .collect()
+}
+
+#[test]
+fn a_state_that_lasts_across_ticks_writes_one_row_and_a_new_episode_or_answer_writes_another() {
+    let fixture = Fixture::new();
+    fixture.settings("auto", None);
+    let arrived = super::super::now_ms().unwrap() - 60_000;
+    // Three one-minute ticks: the same busy agent holding the same message.
+    for _ in 0..3 {
+        fixture.arrived(2, arrived);
+        let mut tick = fixture.port();
+        recorded(&fixture, &mut tick);
+        tick.observe().unwrap();
+        tick.observe().unwrap();
+    }
+    assert_eq!(rows(&fixture), [(Rule::AutoIdlePoint, Some("not_idle"))]);
+    // The same rule and answer for a newer oldest message is a new episode.
+    fixture.arrived(1, arrived + 30_000);
+    let mut tick = fixture.port();
+    recorded(&fixture, &mut tick);
+    tick.observe().unwrap();
+    assert_eq!(rows(&fixture).len(), 2);
+    // A different answer for that episode is another decision.
+    fixture.write(
+        "flush-not_idle.json",
+        json!({"identityId":MEMBER,"state":"delivered"}),
+    );
+    fixture.arrived(1, arrived + 30_000);
+    let mut tick = fixture.port();
+    recorded(&fixture, &mut tick);
+    tick.observe().unwrap();
+    assert_eq!(rows(&fixture)[2], (Rule::AutoIdlePoint, Some("delivered")));
+}
+
+#[test]
+fn a_member_waiting_on_its_deadline_across_ticks_writes_one_not_due_row() {
+    let fixture = Fixture::new();
+    fixture.settings("1h", None);
+    let arrived = super::super::now_ms().unwrap() - 1_000;
+    for _ in 0..3 {
+        fixture.arrived(1, arrived);
+        let mut tick = fixture.port();
+        recorded(&fixture, &mut tick);
+        for row in tick.observe().unwrap() {
+            tick.not_due(&row);
+        }
+    }
+    assert_eq!(rows(&fixture), [(Rule::NotDue, None)]);
+    // The deadline passing is the next decision, with the same oldest message.
+    fixture.settings("1s", None);
+    fixture.arrived(1, arrived);
+    let mut tick = fixture.port();
+    recorded(&fixture, &mut tick);
+    let row = tick.observe().unwrap().remove(0);
+    tick.deliver_if_current(&row.identity_id).unwrap();
+    assert_eq!(
+        rows(&fixture),
+        [
+            (Rule::NotDue, None),
+            (Rule::IntervalDeadline, Some("not_idle"))
+        ]
+    );
 }

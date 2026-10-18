@@ -422,10 +422,17 @@ fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(),
         .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
         .map_err(io)?
         * usage::ROW_BYTES;
-    let mut decision_bytes = tx
+    let decisions = tx
         .query_row("SELECT COUNT(*) FROM decisions", [], |r| number(r, 0))
-        .map_err(io)?
-        * decision::ROW_BYTES;
+        .map_err(io)?;
+    if decisions > decision::MAX_ROWS {
+        tx.execute(
+            "DELETE FROM decisions WHERE id NOT IN (SELECT id FROM decisions ORDER BY at_ms DESC,id DESC LIMIT ?1)",
+            [decision::MAX_ROWS as i64],
+        )
+        .map_err(io)?;
+    }
+    let mut decision_bytes = decisions.min(decision::MAX_ROWS) * decision::ROW_BYTES;
     while bytes + usage_bytes + decision_bytes > raw_limit {
         let usage_oldest: Option<(String, u64)> = tx
             .query_row(

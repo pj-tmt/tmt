@@ -320,7 +320,7 @@ minute/collection timestamps, nullable input totals and model provenance.
 Tick maintenance expires raw events 30 days after collection and usage minutes
 after 30 days of event time, including when no members remain. A shared 24 MiB
 raw-input budget accounts for event input bytes, 128 bytes per usage minute and 160 bytes
-per [decision record](digest-tick-v1.md#decision-records);
+per [decision record](digest-tick-v1.md#decision-records), which are also capped at 30,000 rows;
 it evicts oldest evidence with explicit recent-window coverage loss while
 preserving compact lifetime settlement totals. SQLite uses at most 32 MiB, reserving another 32 MiB of the 64 MiB store
 budget for its rollback journal. Compact totals/cursors remain within that bound;

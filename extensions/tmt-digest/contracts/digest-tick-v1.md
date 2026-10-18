@@ -92,9 +92,14 @@ an opportunity postpones what the earlier reading found due. `outcome` is Core's
 means the member was busy); a failed or malformed answer is `error` and an uncertain
 claim `uncertain`. `not_due` has no outcome because no opportunity was offered.
 
-The loop re-reads about once a second, so a record is written only when a member's
-`(rule, outcome)` differs from its last record in the same invocation. A later
-invocation records its first decision again. Retention and the byte budget are the
+A record is written only when a member's `(rule, outcome)` or oldest held message
+differs from its newest stored record, read once per member and invocation. The
+loop re-reads about once a second and ticks run every minute, so a state that lasts
+(waiting on a deadline, a busy agent) is one record that holds until the member's
+next one, and a new holding episode or a different answer is another. Records are
+capped at 30,000 rows (about 4.8 MB, a fifth of the shared raw budget), oldest first,
+besides the 30-day retention, so a flapping member cannot push out settlement
+evidence. Retention and the byte budget are otherwise the
 [history store](digest-v1.md#history)'s. A record that cannot be written is reported
 after the minute like a collection failure and never blocks or retries delivery.
 

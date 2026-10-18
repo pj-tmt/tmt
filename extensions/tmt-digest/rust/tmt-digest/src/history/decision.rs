@@ -75,6 +75,12 @@ impl Decision {
     pub fn mode(&self) -> &'static str {
         self.rule.mode()
     }
+    /// When the oldest held message arrived: stable while that message is held, so
+    /// a new holding episode differs from the one before it.
+    pub fn oldest_held_at_ms(&self) -> Option<u64> {
+        self.oldest_held_age_ms
+            .map(|age| self.at_ms.saturating_sub(age))
+    }
     pub fn validate(&self) -> Result<(), Error> {
         if !crate::settings::canonical_uuid(&self.identity_id)
             || [self.at_ms, self.flush_count, self.held_count]

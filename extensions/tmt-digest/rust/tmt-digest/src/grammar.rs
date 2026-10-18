@@ -65,7 +65,7 @@ const DECISIONS: CommandSpec = CommandSpec {
         note: "List the last 24 hours of recorded decisions as one JSON document",
     }],
     outputs: OutputModes::Json,
-    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_idle_point, off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule or answer changes within a tick. This command does not tick, deliver messages or estimate savings.",
+    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_idle_point, off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule, answer or oldest held message changes, and holds until that member's next row. This command does not tick, deliver messages or estimate savings.",
 };
 
 const USAGE: CommandSpec = CommandSpec {

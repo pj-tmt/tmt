@@ -532,3 +532,47 @@ fn decisions_keep_thirty_days_and_yield_to_a_full_budget_oldest_first() {
         .collect();
     assert_eq!(kept, [20, RETENTION + 6]);
 }
+
+#[test]
+fn the_newest_decision_per_member_is_found_by_time() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    assert_eq!(store.last_decision(ID).unwrap(), None);
+    store
+        .record_decision(&decision(20_000, Rule::FlushCount, Some("delivered")))
+        .unwrap();
+    store
+        .record_decision(&decision(10_000, Rule::NotDue, None))
+        .unwrap();
+    let mut other = decision(30_000, Rule::Off, Some("delivered"));
+    other.identity_id = "10000000-0000-4000-8000-000000000002".into();
+    store.record_decision(&other).unwrap();
+    assert_eq!(store.last_decision(ID).unwrap().unwrap().at_ms, 20_000);
+    assert_eq!(
+        store
+            .last_decision(ID)
+            .unwrap()
+            .unwrap()
+            .oldest_held_at_ms(),
+        Some(15_000)
+    );
+}
+
+#[test]
+fn decisions_never_exceed_their_row_cap_whatever_the_flapping() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    let start = 40 * DAY;
+    {
+        let tx = store.0.transaction().unwrap();
+        for n in 0..decision::MAX_ROWS + 5 {
+            tx.execute("INSERT INTO decisions(at_ms,identity_id,interval_ms,flush_count,rule,held,oldest_age_ms) VALUES(?1,?2,20000,10,'not_due',1,1)", params![(start + n) as i64, ID]).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    store.maintain(start + decision::MAX_ROWS + 5).unwrap();
+    let kept = store.decisions(0, MAX).unwrap();
+    assert_eq!(kept.len() as u64, decision::MAX_ROWS);
+    // The oldest five went.
+    assert_eq!(kept[0].at_ms, start + 5);
+}

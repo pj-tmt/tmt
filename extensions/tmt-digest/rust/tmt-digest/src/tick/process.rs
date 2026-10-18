@@ -21,9 +21,9 @@ pub struct TickProcess {
     settings_path: PathBuf,
     synchronized: BTreeMap<String, Mode>,
     failed: BTreeSet<String>,
-    /// The newest recorded `(rule, outcome)` per member this tick, so the
-    /// once-a-second loop records a change of decision and not each repeat.
-    decided: BTreeMap<String, (Rule, Option<&'static str>)>,
+    /// The newest recorded `(rule, outcome, oldest held arrival)` per member, so
+    /// the once-a-second loop records a change of decision and not each repeat.
+    decided: BTreeMap<String, (Rule, Option<&'static str>, u64)>,
     errors: Vec<String>,
     boundary_ms: u64,
     boundary: Instant,
@@ -118,21 +118,41 @@ impl TickProcess {
             }
         }
     }
-    /// Append one decision record unless it repeats this member's last one. A
-    /// store failure is reported and never blocks or retries delivery.
+    /// Append one decision record unless it repeats the member's newest one: the
+    /// same rule and answer for the same oldest held message. That newest record
+    /// is read from the store once per member and tick, so a state that lasts
+    /// across minutes stays one row. A store failure is reported and never blocks
+    /// or retries delivery.
     fn record(&mut self, row: &TickObservation, rule: Rule, outcome: Option<&'static str>) {
-        let key = (rule, outcome);
-        if self.decided.get(&row.identity_id) == Some(&key) {
+        let Some(oldest) = row.oldest_held_at_ms.filter(|_| row.held_count > 0) else {
+            return;
+        };
+        let key = (rule, outcome, oldest);
+        let id = row.identity_id.as_str();
+        let known = match (self.decided.get(id), &self.history) {
+            (Some(known), _) => Some(*known),
+            (None, Some(store)) => match store.last_decision(id) {
+                Ok(last) => {
+                    last.and_then(|last| Some((last.rule, last.outcome, last.oldest_held_at_ms()?)))
+                }
+                Err(error) => {
+                    self.fail(id, &error);
+                    return;
+                }
+            },
+            (None, None) => None,
+        };
+        self.decided.insert(id.into(), key);
+        if known == Some(key) {
             return;
         }
         let Ok(at_ms) = super::now_ms() else { return };
-        self.decided.insert(row.identity_id.clone(), key);
         let Some(store) = &mut self.history else {
             return;
         };
         let decision = Decision {
             at_ms,
-            identity_id: row.identity_id.clone(),
+            identity_id: id.into(),
             interval_ms: match row.mode {
                 Mode::Interval { milliseconds, .. } => Some(milliseconds),
                 _ => None,
@@ -140,17 +160,17 @@ impl TickProcess {
             flush_count: row.flush_count,
             rule,
             held_count: row.held_count,
-            oldest_held_age_ms: row
-                .oldest_held_at_ms
-                .filter(|_| row.held_count > 0)
-                .map(|oldest| at_ms.saturating_sub(oldest)),
+            oldest_held_age_ms: Some(at_ms.saturating_sub(oldest)),
             outcome,
         };
         if let Err(error) = store.record_decision(&decision) {
-            let message = format!("{}: {} ({})", row.identity_id, error.message, error.code);
-            if !self.errors.contains(&message) {
-                self.errors.push(message);
-            }
+            self.fail(id, &error);
+        }
+    }
+    fn fail(&mut self, id: &str, error: &Error) {
+        let message = format!("{id}: {} ({})", error.message, error.code);
+        if !self.errors.contains(&message) {
+            self.errors.push(message);
         }
     }
     fn flush(&mut self, row: &TickObservation, rule: Rule) -> Result<(), Error> {
