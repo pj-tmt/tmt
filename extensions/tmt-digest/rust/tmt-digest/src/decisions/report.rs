@@ -86,7 +86,7 @@ pub fn document(input: &Input<'_>) -> Value {
             "flushCount": recompute.flush_count, "estimate": true,
             "notes": [
                 "Estimated from arrival times only: Core's readiness wait is not modelled, so a recomputed delay is a lower bound.",
-                "Compare rules with it; do not read it as a prediction."
+                "Use it to compare intervals, not as a prediction."
             ],
         });
     }

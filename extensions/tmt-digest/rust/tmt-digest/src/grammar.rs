@@ -161,10 +161,10 @@ pub fn command() -> Command {
                         .long("recompute")
                         .value_name("INTERVAL")
                         .requires("report")
-                        .help("Also estimate another interval, such as 20m, from the same arrivals")
+                        .help("Also estimate the same arrivals under another interval, such as 20m")
                         .value_parser(|text: &str| match crate::settings::Mode::parse(text) {
                             Ok(crate::settings::Mode::Interval { .. }) => Ok(text.to_owned()),
-                            Ok(_) => Err("auto and off cannot be recomputed; use a duration".to_owned()),
+                            Ok(_) => Err("auto and off cannot be recomputed; give a duration such as 20m".to_owned()),
                             Err(error) => Err(error.message),
                         }),
                 )
