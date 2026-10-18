@@ -14,8 +14,9 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
 - **Tracker (`Epic: <name>`)**: a maintainer-approved product item. Follow the
   owning guide's approval and explicit-go rules; the PM never creates an epic.
 - **Child issue**: one outcome, acceptance criteria and normally one reviewable
-  PR (about 1,500 changed lines or fewer). Leads/PM may open direct native
-  sub-issues below approved trackers.
+  PR, sized by the [team PR size rule](https://github.com/pj-tmt/tmt/issues/606):
+  no line cap; split only by independent deliverable. Leads/PM may open direct
+  native sub-issues below approved trackers.
 - **Split** work whose progress is invisible across PRs, squads or a long open
   period without movement. Propose it to the owning lead; open children after agreement.
 
