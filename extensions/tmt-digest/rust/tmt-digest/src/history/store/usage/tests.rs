@@ -286,7 +286,7 @@ fn schema_one_read_is_unchanged_and_write_migration_preserves_savings() {
     store.checkpoint(ID, 4000, 1, 1).unwrap();
     store
         .0
-        .execute_batch("DROP TABLE usage_state; DROP TABLE usage_minutes; PRAGMA user_version=1;")
+        .execute_batch("DROP TABLE usage_state; DROP TABLE usage_minutes; DROP TABLE decisions; PRAGMA user_version=1;")
         .unwrap();
     drop(store);
     let file = fixture.0.join("digest/history/history.sqlite");
@@ -303,7 +303,7 @@ fn schema_one_read_is_unchanged_and_write_migration_preserves_savings() {
             .0
             .pragma_query_value(None, "user_version", |r| number(r, 0))
             .unwrap(),
-        2
+        3
     );
     assert_eq!(writer.cursor(ID).unwrap(), Some(1));
     assert_eq!(

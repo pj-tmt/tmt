@@ -72,6 +72,37 @@ model used by [valuation](digest-v1.md#valuation). Neither status nor tick reads
 provider files or changes Core usage retention. Collection errors
 are reported without marking the member delivery-failed or retrying delivery.
 
+## Decision records
+
+When the history store is available, the tick records why each member was or was
+not offered delivery, so a day of decisions can be listed (`tmt digest decisions`,
+[contract](digest-v1.md#decision-list)) and later recomputed under another rule. A
+record is content-free: time, member UUID, mode and interval, flush count, `rule`,
+held count, oldest held age and `outcome`. It holds no message text, subject or
+sender, and changes no setting, policy or delivery admission.
+
+The rule is decided by the same reading that decides delivery. A member holding
+nothing has no decision. `auto` and `off` members holding messages are offered
+Core's normal delivery opportunity (`auto_idle_point`, `off`). An interval member
+is `flush_count` when the held count reached `flushCount` (also when the interval
+has passed), `interval_deadline` when only the oldest held message's interval has
+passed, and `not_due` otherwise, including when the fresh reading taken just before
+an opportunity postpones what the earlier reading found due. `outcome` is Core's
+`digest.checklist.flush` state, which carries the readiness reading (`not_idle`
+means the member was busy); a failed or malformed answer is `error` and an uncertain
+claim `uncertain`. `not_due` has no outcome because no opportunity was offered.
+
+A record is written only when a member's `(rule, outcome)` or oldest held message
+differs from its newest stored record, read once per member and invocation. The
+loop re-reads about once a second and ticks run every minute, so a state that lasts
+(waiting on a deadline, a busy agent) is one record that holds until the member's
+next one, and a new holding episode or a different answer is another. Records are
+capped at 30,000 rows (about 4.8 MB, a fifth of the shared raw budget), oldest first,
+besides the 30-day retention, so a flapping member cannot push out settlement
+evidence. Retention and the byte budget are otherwise the
+[history store](digest-v1.md#history)'s. A record that cannot be written is reported
+after the minute like a collection failure and never blocks or retries delivery.
+
 Tick success produces no stdout. Invalid settings, unavailable Core, lock errors
 and incomplete Core responses return a human error and nonzero status. There is
 no long-lived service or board dependency.

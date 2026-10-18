@@ -13,6 +13,7 @@ use std::{
     path::Path,
 };
 
+mod decision;
 mod usage;
 
 // Reserve half the 64 MiB budget for SQLite's rollback journal. Raw payloads leave
@@ -133,7 +134,7 @@ impl Store {
         let version: u64 = connection
             .pragma_query_value(None, "user_version", |row| number(row, 0))
             .map_err(io)?;
-        if version > 2 {
+        if version > 3 {
             return Err(invalid("Unsupported history schema"));
         }
         if version == 0
@@ -158,7 +159,8 @@ impl Store {
                 CREATE TABLE IF NOT EXISTS gaps(identity_id TEXT NOT NULL, from_ms INTEGER NOT NULL, through_ms INTEGER NOT NULL, reason TEXT NOT NULL, PRIMARY KEY(identity_id,reason));
                 ").map_err(io)?;
             tx.execute_batch(usage::SCHEMA).map_err(io)?;
-            tx.pragma_update(None, "user_version", 2).map_err(io)?;
+            tx.execute_batch(decision::SCHEMA).map_err(io)?;
+            tx.pragma_update(None, "user_version", 3).map_err(io)?;
             tx.commit().map_err(io)?;
         }
         if write
@@ -173,7 +175,7 @@ impl Store {
             connection
                 .pragma_query_value(None, "user_version", |row| number(row, 0))
                 .map_err(io)?,
-            1 | 2
+            1..=3
         ) {
             return Err(invalid("Unsupported history schema"));
         }
@@ -404,6 +406,11 @@ fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(),
         [now.saturating_sub(RETENTION) as i64],
     )
     .map_err(io)?;
+    tx.execute(
+        "DELETE FROM decisions WHERE at_ms<?1",
+        [now.saturating_sub(RETENTION) as i64],
+    )
+    .map_err(io)?;
     let mut bytes: u64 = tx
         .query_row(
             "SELECT COALESCE(SUM(length(inputs)),0) FROM events",
@@ -415,7 +422,18 @@ fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(),
         .query_row("SELECT COUNT(*) FROM usage_minutes", [], |r| number(r, 0))
         .map_err(io)?
         * usage::ROW_BYTES;
-    while bytes + usage_bytes > raw_limit {
+    let decisions = tx
+        .query_row("SELECT COUNT(*) FROM decisions", [], |r| number(r, 0))
+        .map_err(io)?;
+    if decisions > decision::MAX_ROWS {
+        tx.execute(
+            "DELETE FROM decisions WHERE id NOT IN (SELECT id FROM decisions ORDER BY at_ms DESC,id DESC LIMIT ?1)",
+            [decision::MAX_ROWS as i64],
+        )
+        .map_err(io)?;
+    }
+    let mut decision_bytes = decisions.min(decision::MAX_ROWS) * decision::ROW_BYTES;
+    while bytes + usage_bytes + decision_bytes > raw_limit {
         let usage_oldest: Option<(String, u64)> = tx
             .query_row(
                 "SELECT identity_id,minute FROM usage_minutes ORDER BY minute LIMIT 1",
@@ -432,6 +450,29 @@ fn prune(tx: &rusqlite::Transaction<'_>, now: u64, raw_limit: u64) -> Result<(),
             )
             .optional()
             .map_err(io)?;
+        let decision_oldest: Option<u64> = tx
+            .query_row(
+                "SELECT at_ms FROM decisions ORDER BY at_ms,id LIMIT 1",
+                [],
+                |r| number(r, 0),
+            )
+            .optional()
+            .map_err(io)?;
+        // Oldest evidence goes first, whichever table holds it.
+        if let Some(at) = decision_oldest
+            && usage_oldest
+                .as_ref()
+                .is_none_or(|(_, minute)| at <= *minute)
+            && event_oldest.is_none_or(|time| at <= time)
+        {
+            tx.execute(
+                "DELETE FROM decisions WHERE id=(SELECT id FROM decisions ORDER BY at_ms,id LIMIT 1)",
+                [],
+            )
+            .map_err(io)?;
+            decision_bytes = decision_bytes.saturating_sub(decision::ROW_BYTES);
+            continue;
+        }
         if let Some((id, minute)) = usage_oldest
             && event_oldest.is_none_or(|time| minute <= time)
         {

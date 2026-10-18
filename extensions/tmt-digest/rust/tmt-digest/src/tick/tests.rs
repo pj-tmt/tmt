@@ -23,8 +23,12 @@ struct Port {
     threshold: bool,
     off_at: Option<u64>,
     delivered: Vec<u64>,
+    postponed: Vec<u64>,
 }
 impl TickPort for Port {
+    fn not_due(&mut self, _: &TickObservation) {
+        self.postponed.push(self.time.get());
+    }
     fn observe(&mut self) -> Result<Vec<TickObservation>, Error> {
         Ok(vec![TickObservation {
             identity_id: "member".into(),
@@ -63,6 +67,7 @@ fn fixture() -> (Clock, Port) {
             threshold: false,
             off_at: None,
             delivered: vec![],
+            postponed: vec![],
         },
     )
 }
@@ -207,4 +212,48 @@ fn rollback_does_not_extend_the_monotonic_budget_and_started_work_may_finish() {
     run_until(&mut clock, &mut port, 120_000, 60_000).unwrap();
     assert_eq!(clock.elapsed, 60_000);
     assert_eq!(clock.time.get(), 60_000);
+}
+
+fn row(mode: &str, held: u64, oldest: Option<u64>) -> TickObservation {
+    TickObservation {
+        identity_id: "member".into(),
+        mode: Mode::parse(mode).unwrap(),
+        flush_count: 10,
+        held_count: held,
+        oldest_held_at_ms: oldest,
+    }
+}
+
+#[test]
+fn each_rule_names_why_a_member_is_or_is_not_offered_delivery() {
+    // Holding nothing is no decision, whatever the mode.
+    for mode in ["auto", "off", "20s"] {
+        assert_eq!(row(mode, 0, None).rule(100_000), None);
+    }
+    assert_eq!(row("auto", 1, Some(0)).rule(1), Some(Rule::AutoIdlePoint));
+    assert_eq!(row("off", 1, Some(0)).rule(1), Some(Rule::Off));
+    // The oldest message waited 20 s only at 80 000.
+    let interval = row("20s", 1, Some(60_000));
+    assert_eq!(interval.rule(79_999), Some(Rule::NotDue));
+    assert_eq!(interval.rule(80_000), Some(Rule::IntervalDeadline));
+    // Reaching the flush count wins at once, and also over a passed deadline.
+    let counted = row("20s", 10, Some(60_000));
+    assert_eq!(counted.rule(60_001), Some(Rule::FlushCount));
+    assert_eq!(counted.rule(90_000), Some(Rule::FlushCount));
+    // Held messages with no known age have no deadline to decide by.
+    assert_eq!(row("20s", 1, None).rule(100_000), None);
+}
+
+#[test]
+fn a_postponed_member_is_reported_until_its_deadline_and_never_after_delivery() {
+    let (mut clock, mut port) = fixture();
+    run(&mut clock, &mut port).unwrap();
+    assert_eq!(port.delivered, [80_000]);
+    assert!(!port.postponed.is_empty());
+    assert!(port.postponed.iter().all(|at| *at < 80_000));
+    // Auto and off never wait, so they are never reported as postponed.
+    let (mut clock, mut port) = fixture();
+    port.off_at = Some(0);
+    run(&mut clock, &mut port).unwrap();
+    assert!(port.postponed.is_empty());
 }

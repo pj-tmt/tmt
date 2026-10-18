@@ -46,7 +46,7 @@ impl Since {
             Self::Month => "30d",
         }
     }
-    fn window_ms(self) -> u64 {
+    pub(crate) fn window_ms(self) -> u64 {
         match self {
             Self::Day => DAY_MS,
             Self::Week => 7 * DAY_MS,

@@ -1,6 +1,6 @@
 //! One bounded minute of scheduling; Core alone admits and settles delivery.
 
-use crate::{core::Error, settings::Mode};
+use crate::{core::Error, history::Rule, settings::Mode};
 use nix::fcntl::{Flock, FlockArg};
 use std::{
     fs::{self, OpenOptions},
@@ -112,9 +112,31 @@ pub trait TickPort {
     fn observe(&mut self) -> Result<Vec<TickObservation>, Error>;
     /// Re-read this member's current setting before adding eligibility or checking.
     fn deliver_if_current(&mut self, identity_id: &str) -> Result<(), Error>;
+    /// An interval member holds messages whose deadline has not been reached.
+    fn not_due(&mut self, _observation: &TickObservation) {}
 }
 
 impl TickObservation {
+    /// The rule that decides this member at `now`; none when it holds nothing.
+    pub fn rule(&self, now: u64) -> Option<Rule> {
+        if self.held_count == 0 {
+            return None;
+        }
+        match self.mode {
+            Mode::Auto => Some(Rule::AutoIdlePoint),
+            Mode::Off => Some(Rule::Off),
+            Mode::Interval { .. } => {
+                let deadline = self.deadline(now)?;
+                Some(if deadline > now {
+                    Rule::NotDue
+                } else if self.held_count >= self.flush_count {
+                    Rule::FlushCount
+                } else {
+                    Rule::IntervalDeadline
+                })
+            }
+        }
+    }
     fn deadline(&self, now: u64) -> Option<u64> {
         let Mode::Interval { milliseconds, .. } = self.mode else {
             return None;
@@ -165,6 +187,7 @@ fn run_until(
                 if deadline <= now {
                     port.deliver_if_current(&row.identity_id)?;
                 } else {
+                    port.not_due(&row);
                     next = next.min(deadline);
                 }
             }

@@ -57,6 +57,17 @@ const STATUS: CommandSpec = CommandSpec {
     details: "Reads Core identities and held-message stats in batches. Unavailable stats stay unknown. Savings estimate context inputs avoided since Digest collection began, never billed tokens. This command does not tick or deliver messages.",
 };
 
+const DECISIONS: CommandSpec = CommandSpec {
+    name: "decisions",
+    summary: "List the delivery decisions each tick recorded",
+    examples: &[Example {
+        command: "tmt digest decisions --json",
+        note: "List the last 24 hours of recorded decisions as one JSON document",
+    }],
+    outputs: OutputModes::Json,
+    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_idle_point, off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule, answer or oldest held message changes, and holds until that member's next row. This command does not tick, deliver messages or estimate savings.",
+};
+
 const USAGE: CommandSpec = CommandSpec {
     name: "usage",
     summary: "Report token usage, account limits and message flow",
@@ -118,6 +129,23 @@ pub fn command() -> Command {
                                 .help("Output one CSV table: usage, credits or exchange"),
                         )
                         .group(ArgGroup::new("format").args(["json", "csv"]).required(true)),
+                ),
+        )
+        .subcommand(
+            tmt_cli_style::command(&DECISIONS)
+                .arg(
+                    Arg::new("since")
+                        .long("since")
+                        .default_value("24h")
+                        .value_parser(["24h", "7d", "30d"])
+                        .help("Window ending now"),
+                )
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .required(true)
+                        .action(ArgAction::SetTrue)
+                        .help("Output one JSON document"),
                 ),
         )
         .subcommand(
