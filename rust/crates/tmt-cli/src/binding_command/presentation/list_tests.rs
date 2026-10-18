@@ -424,6 +424,72 @@ fn running_driver_needs_no_activity_telemetry_or_stored_running_claim() {
     }
 }
 
+/// A live row whose driver stored `usage`, with `resume` projected the way the
+/// list command does it, from the stored state alone.
+fn running_row_with_usage(
+    driver: &str,
+    session: &str,
+    usage: Option<tmt_adapters::runtime::driver_state::Usage>,
+) -> ListedRow {
+    let mut row = running_row(driver, session);
+    row.remembered.as_mut().unwrap().state = usage.and_then(|usage| {
+        tmt_adapters::runtime::driver_state::after_observation(Some(usage), None, None)
+    });
+    row.resume = crate::output::resume_document(
+        &tmt_core::binding::session::SessionPreferences {
+            channel: None,
+            preferred_harness: None,
+            remembered: row.remembered.clone(),
+        },
+        &tmt_adapters::runtime::RuntimeRegistry::first_party(),
+    );
+    row
+}
+
+#[test]
+fn a_live_row_pairs_running_driver_with_its_stored_context_use() {
+    use tmt_adapters::runtime::driver_state::Usage;
+    // Codex reports its window; Claude does not, so the key is absent, never null.
+    let codex = running_row_with_usage(
+        "codex",
+        CODEX,
+        Some(Usage::new(146_577, Some(258_400), 1_000).unwrap()),
+    );
+    let value = running_document(codex, RuntimeState::Running);
+    assert_eq!(value["runningDriver"], "codex");
+    assert_eq!(
+        value["resume"]["usage"],
+        json!({"tokens":146_577,"windowTokens":258_400,"observedAtMs":1_000})
+    );
+    let claude = running_row_with_usage(
+        "claude",
+        CLAUDE,
+        Some(Usage::new(195_664, None, 2_000).unwrap()),
+    );
+    let value = running_document(claude, RuntimeState::Running);
+    assert_eq!(value["runningDriver"], "claude");
+    assert_eq!(
+        value["resume"]["usage"],
+        json!({"tokens":195_664,"observedAtMs":2_000})
+    );
+    // The same stored usage on an ended row has no `runningDriver`: consumers
+    // show a context figure only beside that fence.
+    let ended = running_row_with_usage(
+        "codex",
+        CODEX,
+        Some(Usage::new(146_577, Some(258_400), 1_000).unwrap()),
+    );
+    let value = running_document(ended, RuntimeState::Ended);
+    assert!(value.get("runningDriver").is_none());
+    // A driver that stored nothing has no figure to show, not a zero.
+    let value = running_document(
+        running_row_with_usage("claude", CLAUDE, None),
+        RuntimeState::Running,
+    );
+    assert_eq!(value["runningDriver"], "claude");
+    assert!(value["resume"].get("usage").is_none());
+}
+
 #[test]
 fn ls_and_list_json_select_the_same_collection_projection() {
     let parse =
