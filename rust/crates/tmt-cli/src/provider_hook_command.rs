@@ -672,12 +672,7 @@ fn observe(
         if capture_workspace {
             *workspace = Some(binding.server.clone());
         }
-        crate::pane_badge::refresh(
-            &paths,
-            &Host::for_server_with(&binding.server, SupervisedProbeRunner),
-            binding,
-            deadline,
-        );
+        refresh_pane_badge(&paths, binding, deadline);
         return Ok(String::new());
     }
     // Re-read the bounded projection after acknowledgment. Do not inject a
@@ -714,16 +709,31 @@ fn observe(
     )
     .map_err(|_| ())?;
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
-    crate::pane_badge::refresh(
-        &paths,
-        &Host::for_server_with(&binding.server, SupervisedProbeRunner),
-        binding,
-        deadline,
-    );
+    refresh_pane_badge(&paths, binding, deadline);
     if capture_workspace {
         *workspace = Some(binding.server.clone());
     }
     Ok(encoded)
+}
+
+/// The badge is a tmux state projection. An external pane has only its
+/// marker's name, which bind, rename and `tmt run` keep current, and delivery
+/// repairs when it admits a replacement runtime. A hook renames nothing, so it
+/// starts no driver for it.
+fn refresh_pane_badge(
+    paths: &ConfigPaths,
+    binding: &tmt_core::binding::Binding,
+    deadline: Instant,
+) {
+    if let tmt_core::host::HostKind::External(_) = binding.server.host {
+        return;
+    }
+    crate::pane_badge::refresh(
+        paths,
+        &Host::for_server_with(&binding.server, SupervisedProbeRunner),
+        binding,
+        deadline,
+    );
 }
 
 pub(super) struct SessionCommit<'a> {

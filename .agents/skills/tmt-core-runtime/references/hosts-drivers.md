@@ -94,7 +94,9 @@ channels and the driver protocol. The owner map is in
   failed ownership publication conservatively leaves the format unowned. No shared option or
   configuration file is changed. Only explicit binding/launch callers request the off-border
   enable-command hint; delivery, hooks and automatic refreshes remain silent. The copied
-  inherited format stays fixed until unbind and rebind. External hosts refresh only the marker's name.
+  inherited format stays fixed until unbind and rebind. External hosts refresh only the marker's name:
+  after a bind or rename, when `tmt run` binds, admits or ends its runtime, and when delivery admits a
+  replacement runtime. Provider hooks skip it.
 
 ## External host drivers
 
