@@ -32,7 +32,7 @@ function page(n: number, title: string, labels: string[], changes: Partial<PageS
 }
 
 export async function mountPageList(
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few',
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' = 'few',
   hash = '/',
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -58,6 +58,19 @@ export async function mountPageList(
         : size === 'none'
           ? []
           : [
+              // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
+              ...(size === 'long'
+                ? [
+                    page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
+                      summary: {
+                        comments: 0,
+                        waiting: false,
+                        needsYou: 0,
+                        author: 'W'.repeat(120),
+                      },
+                    }),
+                  ]
+                : []),
               page(1, 'Alpha plan', ['design', 'q4 plan'], {
                 summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
               }),
