@@ -490,8 +490,8 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     .getByRole('button', { name: /^Actions for/ })
     .click();
   await page.getByRole('menuitem', { name: 'Manage page' }).click();
-  const dialog = page.getByRole('dialog');
-  const audience = dialog.getByRole('button', { name: /^Audience/ });
+  const dialog = page.locator('dialog.management-dialog');
+  const audience = dialog.getByRole('button', { name: /^Who can open this page/ });
   await expect(audience).toBeVisible();
   const managementBody = dialog.locator('.management-dialog-body');
   const closeManagement = dialog.getByRole('button', { name: 'Close', exact: true });
@@ -527,39 +527,60 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await page.setViewportSize(originalViewport);
   await expect(dialog.locator('select')).toHaveCount(0);
   await audience.click();
-  const menu = dialog.getByRole('menu', { name: 'Audience' });
+  const menu = dialog.getByRole('menu', { name: 'Who can open this page' });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole('menuitemradio')).toHaveCount(3);
   await captureListbox(page, 'open-list');
   await menu.press('End');
-  await expect(menu.getByRole('menuitemradio', { name: 'Public (loopback only)' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Anyone on this computer' })).toBeFocused();
   await captureListbox(page, 'keyboard-focus');
   await menu.press('ArrowUp');
-  await expect(menu.getByRole('menuitemradio', { name: 'Link' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Anyone with the link' })).toBeFocused();
   await menu.press('Home');
-  await expect(menu.getByRole('menuitemradio', { name: 'Private' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Named members only' })).toBeFocused();
   await menu.press('Escape');
   await expect(menu).toBeHidden();
   await audience.click();
   // The top menu catches a press outside both layers; Manage must remain open.
   await page.mouse.click(1, 1);
   await expect(menu).toBeHidden();
-  const history = dialog.getByRole('button', { name: /^History mode/ });
+  const history = dialog.getByRole('button', { name: /^What people who join later see/ });
   await history.click();
-  await expect(dialog.getByRole('menu', { name: 'History mode' })).toBeVisible();
-  await dialog.getByRole('menu', { name: 'History mode' }).press('Escape');
-  const memberRole = dialog.getByRole('button', { name: /^New member or link role/ });
-  await choose(dialog, 'New member or link role', 'editor');
-  await expect(memberRole).toContainText('editor');
+  await expect(dialog.getByRole('menu', { name: 'What people who join later see' })).toBeVisible();
+  await dialog.getByRole('menu', { name: 'What people who join later see' }).press('Escape');
+  const memberRole = dialog.getByRole('button', { name: /^Permission for this new recipient/ });
+  await choose(dialog, 'Permission for this new recipient', 'Edit');
+  await expect(memberRole).toContainText('Edit');
   await captureListbox(page, 'selected');
-  await choose(dialog, 'New member or link role', 'viewer');
+  await choose(dialog, 'Permission for this new recipient', 'Read');
   await expect(dialog.getByText('Active', { exact: true })).toBeVisible();
   const revision = dialog.getByText('Verified revision 2', { exact: true });
   await expect(revision).toBeHidden();
   await dialog.getByText('Details', { exact: true }).click();
   await expect(revision).toBeVisible();
   await dialog.getByText('Details', { exact: true }).click();
-  await expect(dialog).toContainText('64 most recent epochs');
+  await expect(dialog).toContainText(
+    'New readers also get recent history, including deleted text, snapshots and comments. Very old history is not included. Nothing already shared is taken back.',
+  );
+  const technicalHistory = dialog.getByText(
+    'Later joins receive the current key and up to 63 earlier keys.',
+    { exact: true },
+  );
+  await expect(technicalHistory).toBeHidden();
+  await dialog.getByText('Details', { exact: true }).click();
+  await expect(technicalHistory).toBeVisible();
+  await dialog.getByText('Details', { exact: true }).click();
+  await dialog.getByRole('button', { name: 'Start new history…', exact: true }).click();
+  await expect(
+    dialog.getByRole('heading', { name: "Start the page's history from now?" }),
+  ).toBeVisible();
+  await expect(dialog).toContainText(
+    'Existing links keep working, and anything already shared stays shared.',
+  );
+  await expect(
+    dialog.getByRole('button', { name: 'Start new history', exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toContainText('Editors can change');
   expect(await page.locator('iframe').count()).toBe(0);
   for (const theme of ['light', 'dark']) {
@@ -570,24 +591,24 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   }
   await audience.press('ArrowDown');
   await audience.press('ArrowDown');
-  await expect(menu.getByRole('menuitemradio', { name: 'Link' })).toBeFocused();
-  await expect(menu.getByRole('menuitemradio', { name: 'Link' })).toHaveAttribute(
+  await expect(menu.getByRole('menuitemradio', { name: 'Anyone with the link' })).toBeFocused();
+  await expect(menu.getByRole('menuitemradio', { name: 'Anyone with the link' })).toHaveAttribute(
     'aria-checked',
     'false',
   );
-  await menu.getByRole('menuitemradio', { name: 'Link' }).press('Enter');
-  await dialog.getByRole('button', { name: 'Confirm make link' }).click();
+  await menu.getByRole('menuitemradio', { name: 'Anyone with the link' }).press('Enter');
+  await dialog.getByRole('button', { name: 'Allow access by link' }).click();
   await expect(dialog.getByRole('alert')).toContainText('unavailable');
   await dialog.getByRole('button', { name: 'Refresh and review' }).click();
-  await choose(dialog, 'Audience', 'Link');
-  await dialog.getByRole('button', { name: 'Confirm make link' }).click();
+  await choose(dialog, 'Who can open this page', 'Anyone with the link');
+  await dialog.getByRole('button', { name: 'Allow access by link' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Result unknown');
   await dialog.getByRole('button', { name: 'Retry exact request' }).click();
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await dialog.getByRole('button', { name: 'Create link' }).click();
+  await dialog.getByRole('button', { name: 'Create a sharing link…' }).click();
   await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Confirm create link' }).click();
+  await dialog.getByRole('button', { name: 'Confirm create a sharing link' }).click();
   await expect(dialog.getByLabel('Share link', { exact: true })).toBeVisible();
   const shared = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
   const capability = new URLSearchParams(shared.hash.slice(1));
@@ -600,8 +621,8 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     'Anyone with the link can open this page in a read-only view.',
   );
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await choose(dialog, 'Audience', 'Private');
-  await expect(dialog).toContainText('links are revoked and affected pages rotate');
+  await choose(dialog, 'Who can open this page', 'Named members only');
+  await expect(dialog).toContainText('Existing links stop working on these pages');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: testInfo.outputPath('share-mobile.png') });
@@ -723,7 +744,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     .click();
   const manage = page.getByRole('menuitem', { name: 'Manage page' });
   await manage.click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.locator('dialog.management-dialog');
   await expect(dialog).toContainText('local only');
   await expect(dialog.getByRole('heading', { level: 2 })).toBeFocused();
   await expect(dialog.getByRole('heading', { level: 2 })).toHaveCSS('outline-style', 'none');
@@ -749,27 +770,27 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     .getByRole('button', { name: /^Actions for/ })
     .click();
   await manage.click();
-  await expect(dialog.getByLabel('Retention days')).toBeVisible();
-  await dialog.getByLabel('Retention days').fill('14');
-  await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
-  await expect(dialog).toContainText('14 days after the last page update');
-  await dialog.getByRole('button', { name: 'Confirm set retention' }).click();
+  await expect(dialog.getByLabel('Days after the last change')).toBeVisible();
+  await dialog.getByLabel('Days after the last change').fill('14');
+  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await expect(dialog).toContainText('Access expires after 14 days without a page update');
+  await dialog.getByRole('button', { name: 'Confirm set access expiry' }).click();
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await expect(dialog.getByLabel('Retention days')).toHaveValue('14');
-  await dialog.getByLabel('Keep forever').check();
-  await expect(dialog.getByLabel('Retention days')).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm set retention' }).click();
+  await expect(dialog.getByLabel('Days after the last change')).toHaveValue('14');
+  await dialog.getByLabel('Keep until I delete it').check();
+  await expect(dialog.getByLabel('Days after the last change')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm set access expiry' }).click();
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await expect(dialog.getByLabel('Keep forever')).toBeChecked();
-  await dialog.getByRole('button', { name: 'Archive page', exact: true }).click();
-  await expect(dialog).toContainText('freeze writes');
+  await expect(dialog.getByLabel('Keep until I delete it')).toBeChecked();
+  await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
+  await expect(dialog).toContainText('stop new writes');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(requests).toBe(2);
-  await dialog.getByRole('button', { name: 'Archive page', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Confirm archive page' }).click();
+  await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Confirm archive and stop edits' }).click();
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   expect(contexts.at(-1)).toBe(pageId);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
@@ -789,7 +810,9 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     .getByRole('button', { name: /^Actions for/ })
     .click();
   await page.getByRole('menuitem', { name: 'Manage page' }).click();
-  await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
+  await expect(
+    dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }),
+  ).toBeDisabled();
   for (const theme of ['light', 'dark']) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
@@ -799,12 +822,12 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: testInfo.outputPath('lifecycle-mobile.png') });
   expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
-  await expect(dialog).toContainText('Copies already made cannot be recalled');
+  await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
+  await expect(dialog).toContainText('Copies already made cannot be taken back');
   await expect(dialog).toContainText(pageId);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(requests).toBe(3);
-  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
     'Deletion acknowledged, awaiting verification',
@@ -824,7 +847,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     .getByRole('button', { name: /^Actions for/ })
     .click();
   await page.getByRole('menuitem', { name: 'Manage page' }).click();
-  await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Delete page…', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
   await expect(dialog.getByRole('alert')).toContainText(
     'Deletion acknowledged, awaiting verification',
@@ -916,15 +939,17 @@ test.describe('relative retention evidence', () => {
         await dialog.getByText('Details', { exact: true }).click();
         await expect(dialog).toContainText('Last edit: Thu 09-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
-        await dialog.getByRole('button', { name: /^Audience/ }).click();
-        await expect(dialog.getByRole('menu', { name: 'Audience', exact: true })).toBeVisible();
+        await dialog.getByRole('button', { name: /^Who can open this page/ }).click();
+        await expect(
+          dialog.getByRole('menu', { name: 'Who can open this page', exact: true }),
+        ).toBeVisible();
         await expect(dialog.locator('select')).toHaveCount(0);
         expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
         await page.screenshot({
           path: testInfo.outputPath(`expiry-dialog-${width}-${theme}.png`),
           fullPage: true,
         });
-        await dialog.getByRole('button', { name: /^Audience/ }).press('Escape');
+        await dialog.getByRole('button', { name: /^Who can open this page/ }).press('Escape');
         await dialog.getByRole('button', { name: 'Close', exact: true }).click();
       }
     }
@@ -937,7 +962,9 @@ test.describe('relative retention evidence', () => {
     await expect(row.getByRole('link')).toBeVisible();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();
     await expect(dialog.locator('.retention-hint')).toContainText('not in the cloud');
-    await expect(dialog.getByRole('button', { name: 'Set retention', exact: true })).toBeEnabled();
+    await expect(
+      dialog.getByRole('button', { name: 'Set access expiry', exact: true }),
+    ).toBeEnabled();
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     warning = '';
     now = expires - 10 * 86400000;
