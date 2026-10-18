@@ -144,7 +144,10 @@ owns event cardinality, direction, window rounding, `--bucket` summing
   never derives it from names or text.
 - Schema 47 indexes the originator results view by submission-time keyset. Results use an
   observation snapshot without housekeeping; storage reuses the canonical attempt/response
-  row decoders rather than introducing another request store.
+  row decoders rather than introducing another request store. An optional recipient narrows
+  the same index walk with a per-entry test (no recipient column in the index), so a page
+  may visit every retained final of the originator; add a recipient-leading index before
+  that cost matters.
 - `tmt-adapters::request_text` owns display-control classification shared by label validation
   and preview/notice normalization. Stored request and response bodies remain exact.
 - `tmt-adapters::request_history` admits and encodes the local-owner API without reply proofs

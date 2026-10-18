@@ -269,10 +269,22 @@ fn request_history_plans_seek_the_scope_and_cursor_without_sorting() {
             Some(room),
         ),
         (
-            HistoryScope::OriginatorResults(recipient.into()),
+            HistoryScope::OriginatorResults {
+                originator_id: recipient.into(),
+                recipient_id: None,
+            },
             "request_history_originator_results",
             Some(recipient),
             None,
+        ),
+        (
+            HistoryScope::OriginatorResults {
+                originator_id: recipient.into(),
+                recipient_id: Some(room.into()),
+            },
+            "request_history_originator_results",
+            Some(recipient),
+            Some(room),
         ),
         (
             HistoryScope::Room(room.into()),
@@ -316,7 +328,7 @@ fn request_history_plans_seek_the_scope_and_cursor_without_sorting() {
             if cursor {
                 assert!(
                     plan.iter().any(|line| line.contains(
-                        if matches!(scope, HistoryScope::OriginatorResults(_)) {
+                        if matches!(scope, HistoryScope::OriginatorResults { .. }) {
                             "response_submitted_at_ms"
                         } else {
                             "prepared_at_ms"

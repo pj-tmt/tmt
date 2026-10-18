@@ -778,7 +778,10 @@ fn a_reply_to_an_originator_without_a_live_pane_is_stored_listed_and_readable() 
     );
     let page = service(&mut fixture)
         .request_history(HistoryQuery {
-            scope: HistoryScope::OriginatorResults(originator),
+            scope: HistoryScope::OriginatorResults {
+                originator_id: originator,
+                recipient_id: None,
+            },
             limit: 8,
             before: None,
         })
