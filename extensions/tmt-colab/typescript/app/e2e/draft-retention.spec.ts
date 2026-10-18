@@ -7,7 +7,7 @@ const fixture = '/test/ask-page-browser.tsx';
 const source = '<p id="selected">Exact selected text</p>';
 const storageKey = 'colab-fixture-drafts:00000000-0000-4000-8000-000000000001';
 
-type Mode = 'session' | 'failing';
+type Mode = 'session' | 'failing' | 'split';
 async function mount(page: Page, drafts: Mode) {
   await page.evaluate(async ({ fixture, drafts }) => (await import(fixture)).mount({ drafts }), {
     fixture,
@@ -149,6 +149,31 @@ test('failed device storage says drafts are not saved and keeps the in-tab draft
   await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
   await select(page);
   await expect(input).toHaveText('@Agent 1 Only in this tab.', { useInnerText: true });
+  expect((await call(page, 'proof')).sends).toEqual([]);
+});
+
+test("a late draft write of the page left behind never clears the next page's not-saved notice", async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(page, 'split');
+  await panel(page, 'chat');
+  const first = await annotationInput(page.getByTestId('chat-panel'), 'Agent 1');
+  await first.fill('Draft on the first page.');
+  await page.evaluate(() => {
+    location.hash = '/pages/notes';
+  });
+  // Another page closes the open panel.
+  await expect(page.getByTestId('chat-panel')).toBeHidden();
+  await panel(page, 'chat');
+  const second = await annotationInput(page.getByTestId('chat-panel'), 'Agent 1');
+  await second.fill('Draft on the second page.');
+  const notice = page.getByTestId('chat-panel').getByText(text.draftsNotSaved);
+  await expect(notice).toBeVisible();
+  await call(page, 'releaseDraftWrite');
+  await stored(page, 'Draft on the first page.');
+  await expect(notice).toBeVisible();
+  await expect(second).toHaveText('Draft on the second page.', { useInnerText: true });
   expect((await call(page, 'proof')).sends).toEqual([]);
 });
 
