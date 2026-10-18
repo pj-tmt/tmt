@@ -810,6 +810,7 @@ function Shell() {
   );
 }
 function Page() {
+  const router = useRouter();
   const quickSwitcher = useQuickSwitcher();
   const quickSwitcherOwner = useRef(quickSwitcher);
   quickSwitcherOwner.current = quickSwitcher;

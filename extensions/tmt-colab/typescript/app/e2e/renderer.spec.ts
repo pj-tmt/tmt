@@ -36,7 +36,7 @@ async function mount(page: Page, source: string) {
     async ({ source }) => {
       const path = '/src/renderer.ts';
       const { mountRenderer } = await import(path);
-      // The app behind a probe is the Today home, taller than the viewport: the probe leads.
+      // The app behind a probe is the space home, taller than the viewport: the probe leads.
       const host = document.createElement('div');
       host.id = 'probe';
       document.body.prepend(host);
