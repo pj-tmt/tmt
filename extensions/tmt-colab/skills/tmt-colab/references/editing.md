@@ -32,9 +32,11 @@ Give exactly one form to `tmt colab page patch PAGE ... --json`:
 
 A patch keeps everything `page write` promises: one atomic batch, size limits, the markup
 check (`--strict` refuses findings), `changed:false` when nothing differs. An edit elsewhere on
-the page does not stop it; if the page moves while it commits, the patch is evaluated again
-on the new page. `--expected-revision REVISION` instead refuses any change anywhere
-(`COLAB_STALE_BASE`) and retries nothing; use it only when you need that fence.
+the page does not stop a patch whose anchor still holds; if the page moves while it commits, the
+patch is evaluated again on the new page. A `--lines` anchor is the line numbers themselves
+([line semantics](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#ranged-read-and-anchored-patch-2836)),
+so an edit that shifts those lines conflicts; read the range again.
+`--expected-revision REVISION` instead refuses any change anywhere (`COLAB_STALE_BASE`) and retries nothing; use it only when you need that fence.
 
 ## When it conflicts
 
