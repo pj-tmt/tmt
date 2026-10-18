@@ -55,8 +55,13 @@ announcements and unknown final states are excluded from this projection.
 `requests::bodies` retains the bounded room-final acquisition. The refresh worker
 also requests one bounded originator-results page for HOME, member boards and
 boards configured with a Replies pane. `home_leads::State` fences that projection by sender
-UUID. `row_detail` chooses the newest final for the selected recipient UUID
-across room and global observations; request bodies load off the UI thread.
+UUID. `row_detail` keeps the newest eight finals (`Detail.finals`, oldest first, one per
+request ID, with author, exact text and `submittedAtMs`) for the selected recipient UUID
+across room and global observations; `Detail.reply` is the newest of them. Request bodies
+load off the UI thread, newest first, one selected read at a time. Finals come from storage
+alone (`requests.list` and `requests.show`): the originator notification, which is
+`unavailable` for a person with no live pane, and pane output never supply one. A header
+derives its age from `Reply.at_ms` at paint, so a held reply keeps its true age.
 Unavailable/expired source is not an annotatable response.
 
 `board::conversation` owns one session per sender/recipient UUID and paints the

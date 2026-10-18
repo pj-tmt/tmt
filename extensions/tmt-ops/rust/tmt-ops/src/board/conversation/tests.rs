@@ -52,6 +52,7 @@ fn reply(request: &str, body: &str) -> Reply {
     Reply {
         from: "alpha".into(),
         age: "now".into(),
+        at_ms: None,
         body: body.into(),
         key: Some(MessageKey {
             sender: "owner".into(),
@@ -1482,5 +1483,21 @@ fn grouped_wrap_keeps_the_full_body_and_invalidates_only_layout_not_source() {
         );
         assert!(!session.prepare_grouped(width, Look::default(), &Default::default()));
         assert!(session.prepare(width, Look::default(), &Default::default()));
+    }
+}
+
+/// Whether every session follows new output, for tests that drive an App.
+pub(in crate::board) fn set_follow(app: &App, follow: bool) {
+    for session in app.conversation.borrow_mut().sessions.values_mut() {
+        session.follow = follow;
+    }
+}
+
+/// Overwrites the age string every held reply was built with.
+pub(in crate::board) fn set_built_age(app: &App, age: &str) {
+    for session in app.conversation.borrow_mut().sessions.values_mut() {
+        if let Some(reply) = session.reply.as_mut() {
+            reply.age = age.into();
+        }
     }
 }

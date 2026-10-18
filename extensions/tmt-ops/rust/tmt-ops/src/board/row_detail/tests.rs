@@ -425,3 +425,211 @@ fn reader_reuses_markdown_during_scroll_and_rebuilds_on_width_or_body_change() {
     app.view.as_mut().unwrap().replies[0]["response"] = json!("replacement body");
     assert!(text(&draw(&app, 60, 24)).contains("replacement body"));
 }
+
+const ACTOR: &str = "33333333-3333-4333-8333-333333333333";
+
+fn final_item(request: &str, recipient: &str, at: u64) -> Value {
+    json!({"requestId":request,"kind":"request","sender":{"identityId":ACTOR},"recipientId":recipient,
+        "final":{"status":"retained","submittedAtMs":at},"responsePreview":"preview",
+        "preparedAtMs":at - 10,"recipientAcknowledged":true})
+}
+
+/// Read every body the way the board does: one selected read at a time.
+fn read_all(app: &mut App, body: impl Fn(&str) -> String) -> Vec<String> {
+    let mut order = Vec::new();
+    for _ in 0..32 {
+        draw(app, 148, 51);
+        let Some(key) = app.detail_read() else { break };
+        order.push(key.request.clone());
+        let text = body(&key.request);
+        app.apply_message(&key, Ok(text));
+    }
+    order
+}
+
+#[test]
+fn finals_are_this_agents_settled_replies_by_request_oldest_first_with_exact_text_and_time() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    let mut app = board();
+    let now = crate::status::now_ms();
+    let other = "99999999-9999-4999-8999-999999999999";
+    app.home_leads.test_results(
+        ACTOR,
+        json!({"items":[
+            final_item("c", MEMBER, now - 60_000),
+            final_item("a", MEMBER, now - 3_000_000),
+            final_item("elsewhere", other, now - 30_000),
+            final_item("b", MEMBER, now - 1_800_000),
+            {"requestId":"waiting","kind":"request","sender":{"identityId":ACTOR},"recipientId":MEMBER,
+             "final":{"status":"not_submitted"},"preparedAtMs":now - 10_000},
+        ],"nextBefore":null}),
+    );
+    let order = read_all(&mut app, |request| {
+        format!("body of {request}\nsecond line")
+    });
+    assert_eq!(order, ["c", "b", "a"], "the newest is read first");
+    let detail = app
+        .row_detail(&app.conversation_target().unwrap(), &[])
+        .unwrap();
+    let finals = detail
+        .finals
+        .iter()
+        .map(|reply| {
+            (
+                reply.key.as_ref().unwrap().request.as_str(),
+                reply.from.as_str(),
+                reply.at_ms,
+                reply.body.as_str(),
+                reply.acquired,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        finals,
+        [
+            (
+                "a",
+                "worker",
+                Some(now - 3_000_000),
+                "body of a\nsecond line",
+                true
+            ),
+            (
+                "b",
+                "worker",
+                Some(now - 1_800_000),
+                "body of b\nsecond line",
+                true
+            ),
+            (
+                "c",
+                "worker",
+                Some(now - 60_000),
+                "body of c\nsecond line",
+                true
+            ),
+        ],
+        "oldest first, exact text, another agent's and unsettled requests left out"
+    );
+    assert_eq!(
+        detail.reply.unwrap().key.unwrap().request,
+        "c",
+        "the single reply stays the newest final"
+    );
+}
+
+#[test]
+fn only_the_newest_finals_are_kept_and_each_is_read_once() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    let mut app = board();
+    let now = crate::status::now_ms();
+    let items = (0..FINALS + 3)
+        .map(|index| {
+            final_item(
+                &format!("r{index:02}"),
+                MEMBER,
+                now - 1_000_000 + index as u64 * 1_000,
+            )
+        })
+        .collect::<Vec<_>>();
+    app.home_leads
+        .test_results(ACTOR, json!({"items":items,"nextBefore":null}));
+    let order = read_all(&mut app, |request| request.to_owned());
+    assert_eq!(
+        order.len(),
+        FINALS,
+        "no body outside the kept finals is read"
+    );
+    assert_eq!(order[0], format!("r{:02}", FINALS + 2));
+    let detail = app
+        .row_detail(&app.conversation_target().unwrap(), &[])
+        .unwrap();
+    assert_eq!(detail.finals.len(), FINALS);
+    assert_eq!(detail.finals[0].key.as_ref().unwrap().request, "r03");
+}
+
+#[test]
+fn a_held_reply_shows_its_true_age_instead_of_the_one_it_was_built_with() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    let mut app = board();
+    let now = crate::status::now_ms();
+    app.home_leads.test_results(
+        ACTOR,
+        json!({"items":[final_item("old", MEMBER, now - 1_500_000)],"nextBefore":null}),
+    );
+    read_all(&mut app, |_| "OLD body".into());
+    // The reader scrolled away, then a newer final arrives and is held back.
+    crate::board::conversation::tests::set_follow(&app, false);
+    app.home_leads.test_results(
+        ACTOR,
+        json!({"items":[final_item("new", MEMBER, now - 60_000), final_item("old", MEMBER, now - 1_500_000)],"nextBefore":null}),
+    );
+    app.overview_rows.borrow_mut().clear();
+    draw(&app, 148, 51);
+    // The string the held reply was built with is stale (it once read "1m").
+    crate::board::conversation::tests::set_built_age(&app, "1m");
+    let screen = text(&draw(&app, 148, 51));
+    assert!(screen.contains("OLD body") && screen.contains("new output"));
+    assert!(screen.contains("25m ago"), "the true age of the held text");
+    assert!(!screen.contains("1m ago"));
+}
+
+/// The acquisition path with a Core that answers only the two storage reads.
+/// The originator (`ben`) has no live pane, so no hint ever reaches it; the
+/// final reaches the conversation anyway, from list and show by request ID.
+#[test]
+fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    let now = crate::status::now_ms();
+    let directory =
+        std::env::temp_dir().join(format!("ops-finals-core-{}", crate::id::new_v4().unwrap()));
+    std::fs::create_dir(&directory).unwrap();
+    let list = json!({"items":[final_item("answer", MEMBER, now - 120_000)],"nextBefore":null});
+    let show = json!({"requestId":"answer","sender":{"identityId":ACTOR},"recipientId":MEMBER,
+        "kind":"request","final":{"status":"retained","submittedAtMs":now - 120_000,
+        "response":"First line\n\nSecond paragraph"}});
+    let log = directory.join("operations");
+    crate::test_support::write_ready_executable(
+        &directory.join("tmt"),
+        &format!(
+            "#!/bin/sh\ninput=$(cat)\ncase \"$input\" in\n*requests.list*) echo requests.list >> '{log}'; printf '%s\\n' '{list}' ;;\n*requests.show*) echo requests.show >> '{log}'; printf '%s\\n' '{show}' ;;\n*) echo \"$*\" >> '{log}'; exit 99 ;;\nesac\n",
+            log = log.display(),
+        ),
+    );
+    let core = crate::core::Core::at(directory.join("tmt"));
+    let mut app = board();
+    let read = crate::board::home_leads::Fetch::results(Some(crate::me::Me {
+        id: ACTOR.into(),
+        name: "ben".into(),
+    }))
+    .complete(&core);
+    app.home_leads.set_sender(Some(ACTOR));
+    app.home_leads.replace(read);
+    let mut seen = 0;
+    for _ in 0..4 {
+        draw(&app, 148, 51);
+        let Some(key) = app.detail_read() else { break };
+        seen += 1;
+        let body = key.read(&core).map_err(|error| error.to_string());
+        app.apply_message(&key, body);
+    }
+    assert_eq!(seen, 1);
+    let detail = app
+        .row_detail(&app.conversation_target().unwrap(), &[])
+        .unwrap();
+    let [only] = detail.finals.as_slice() else {
+        panic!("one final");
+    };
+    assert_eq!(only.from, "worker");
+    assert_eq!(only.at_ms, Some(now - 120_000));
+    assert_eq!(only.body, "First line\n\nSecond paragraph");
+    assert_eq!(
+        std::fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        ["requests.list", "requests.show"],
+        "storage reads only: no notification, inbox or pane call"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}

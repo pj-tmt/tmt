@@ -750,6 +750,7 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
     let incoming = Reply {
         from: "auth-fix".into(),
         age: "now".into(),
+        at_ms: None,
         body: "New exact question".into(),
         key: Some(crate::board::home_leads::MessageKey {
             sender: ticket.key.0.clone(),

@@ -171,11 +171,12 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             .as_ref()
             .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
     });
-    let age = session
-        .reply
-        .as_ref()
-        .map_or("—", |reply| reply.age.as_str());
-    let stamp = age_stamp(age);
+    // Derived from the settled time at paint: a held reply keeps its true age.
+    let age = session.reply.as_ref().map_or_else(
+        || "—".to_owned(),
+        |reply| reply.age_at(crate::status::now_ms()),
+    );
+    let stamp = age_stamp(&age);
     let stamp = if surface.is_agents() && session.change != Change::Current {
         format!(
             "{stamp} · {}",

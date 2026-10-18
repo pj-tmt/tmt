@@ -740,3 +740,62 @@ fn notice_context_without_a_final_has_no_reply() {
     assert_eq!(context.prompt.as_deref(), Some("prompt for notify"));
     assert_eq!(context.reply, None);
 }
+
+/// The Ops chat's originator is a saved identity with no live pane. Its reply
+/// hint is unavailable, and that must not matter: the final is stored, listed
+/// on the originator's results page and readable by request ID.
+#[test]
+fn a_reply_to_an_originator_without_a_live_pane_is_stored_listed_and_readable() {
+    use tmt_core::request::{
+        ResponseLookup,
+        attention::FinalState,
+        history::{HistoryQuery, HistoryScope},
+    };
+    let mut fixture = fixture(false, true);
+    let originator = fixture.identity_id.clone();
+    let body = "first line\nsecond line";
+    let (_, hint) = service(&mut fixture)
+        .submit_response_with_hint(
+            SubmitResponse {
+                body: body.into(),
+                ..reply()
+            },
+            None,
+        )
+        .unwrap();
+    let hint = hint.expect("the first final claims the hint");
+    // What the CLI settles when the originator has no live pane to hint.
+    service(&mut fixture)
+        .settle_hint(&hint, WakeState::Unavailable)
+        .unwrap();
+    assert_eq!(
+        service(&mut fixture)
+            .notification("notify")
+            .unwrap()
+            .unwrap()
+            .reply,
+        WakeState::Unavailable
+    );
+    let page = service(&mut fixture)
+        .request_history(HistoryQuery {
+            scope: HistoryScope::OriginatorResults(originator),
+            limit: 8,
+            before: None,
+        })
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].item.request_id, "notify");
+    assert!(matches!(
+        page.items[0].item.final_state,
+        FinalState::Retained {
+            submitted_at_ms: NOW_MS,
+            ..
+        }
+    ));
+    let ResponseLookup::Available(response) = service(&mut fixture).get_response("notify").unwrap()
+    else {
+        panic!("the final is readable by request ID");
+    };
+    assert_eq!(response.body, body, "newlines are kept exactly");
+    assert_eq!(response.submitted_at_ms, NOW_MS);
+}

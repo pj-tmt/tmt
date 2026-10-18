@@ -72,7 +72,10 @@ pub(super) struct Field {
 #[derive(Clone)]
 pub(super) struct Reply {
     pub from: String,
+    /// The age when the detail was built; a header derives it again from `at_ms`.
     pub age: String,
+    /// When the message settled (`submittedAtMs`) or was prepared, if known.
+    pub at_ms: Option<u64>,
     pub body: String,
     pub key: Option<MessageKey>,
     pub acquired: bool,
@@ -84,6 +87,9 @@ pub(super) struct Reply {
 pub(super) struct Detail {
     pub fields: Vec<Field>,
     pub reply: Option<Reply>,
+    /// The newest settled finals to this user's requests, oldest first, read
+    /// from storage by request ID. `reply` is the last of them.
+    pub finals: Vec<Reply>,
     pub show_reply: bool,
 }
 
@@ -109,7 +115,26 @@ pub(super) fn uncut(text: &str, width: usize, flow: tmt_tui::style::TextFlow) ->
     }
 }
 
+impl Reply {
+    /// The age at `now`, from the settled time when it is known: a held or
+    /// cached reply never keeps the age string it had when it was built.
+    pub fn age_at(&self, now: u64) -> String {
+        self.at_ms
+            .filter(|at| *at > 0 && *at <= now)
+            .map_or_else(|| self.age.clone(), |at| crate::requests::age(now, at))
+    }
+}
+
 impl Detail {
+    /// Every message this detail needs a body for: the finals, else the one reply.
+    pub fn messages(&self) -> Vec<&Reply> {
+        if self.finals.is_empty() {
+            self.reply.iter().collect()
+        } else {
+            self.finals.iter().collect()
+        }
+    }
+
     fn add(&mut self, label: &str, text: Option<&str>, role: Role) {
         if let Some(text) = text.filter(|text| !text.is_empty()) {
             self.fields.push(Field {
@@ -132,6 +157,9 @@ impl Detail {
             "show_reply": self.show_reply})
     }
 }
+
+/// How many settled finals a conversation holds per agent.
+pub(super) const FINALS: usize = 8;
 
 fn age(at: Option<u64>, now: u64) -> String {
     at.filter(|at| *at > 0 && *at <= now)
@@ -223,40 +251,75 @@ impl App {
             // A board decision without an observed request is not a transcript.
             return Some(detail.additional(visible));
         }
-        if let Some(reply) = self
+        detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
+        detail.reply = detail.finals.last().cloned();
+        Some(detail.additional(visible))
+    }
+
+    /// The newest settled finals to this user's requests, oldest first. They come
+    /// from the bounded originator and room pages (storage, by request ID), so
+    /// neither the originator notification nor pane output is involved.
+    fn finals(
+        &self,
+        row: &Value,
+        squad: &str,
+        id: &str,
+        sender: Option<&str>,
+        now: u64,
+    ) -> Vec<Reply> {
+        let mut settled: Vec<&Value> = Vec::new();
+        for reply in self
             .home_leads
             .replies
             .iter()
             .chain(self.view.iter().flat_map(|view| &view.replies))
             .filter(|reply| reply["recipientId"] == id)
-            .max_by_key(|reply| (reply["submittedAtMs"].as_u64(), reply["requestId"].as_str()))
         {
-            let key = sender
-                .zip(reply["requestId"].as_str())
-                .map(|(sender, request)| MessageKey {
-                    sender,
-                    lead: id.into(),
-                    squad: squad.to_owned(),
-                    request: request.into(),
-                    kind: Kind::Reply,
-                });
-            let body = reply["response"]
-                .as_str()
-                .or_else(|| key.as_ref().and_then(|key| self.row_details.body(key)));
-            detail.reply = Some(Reply {
-                from: row["name"].as_str().unwrap_or("–").into(),
-                age: age(reply["submittedAtMs"].as_u64(), now),
-                body: body.unwrap_or("(reading reply…)").into(),
-                source: body.is_some()
-                    && (reply["response"].is_string()
-                        || key
-                            .as_ref()
-                            .is_none_or(|key| !self.row_details.body_failed(key))),
-                key,
-                acquired: body.is_some(),
-            });
+            match settled
+                .iter_mut()
+                .find(|held| held["requestId"] == reply["requestId"])
+            {
+                // The room page carries a body when it already read one.
+                Some(held) if held["response"].is_null() && reply["response"].is_string() => {
+                    *held = reply;
+                }
+                Some(_) => {}
+                None => settled.push(reply),
+            }
         }
-        Some(detail.additional(visible))
+        settled.sort_by_key(|reply| (reply["submittedAtMs"].as_u64(), reply["requestId"].as_str()));
+        let skip = settled.len().saturating_sub(FINALS);
+        settled
+            .into_iter()
+            .skip(skip)
+            .map(|reply| {
+                let key = sender
+                    .zip(reply["requestId"].as_str())
+                    .map(|(sender, request)| MessageKey {
+                        sender: sender.into(),
+                        lead: id.into(),
+                        squad: squad.to_owned(),
+                        request: request.into(),
+                        kind: Kind::Reply,
+                    });
+                let body = reply["response"]
+                    .as_str()
+                    .or_else(|| key.as_ref().and_then(|key| self.row_details.body(key)));
+                Reply {
+                    from: row["name"].as_str().unwrap_or("–").into(),
+                    age: age(reply["submittedAtMs"].as_u64(), now),
+                    at_ms: reply["submittedAtMs"].as_u64(),
+                    body: body.unwrap_or("(reading reply…)").into(),
+                    source: body.is_some()
+                        && (reply["response"].is_string()
+                            || key
+                                .as_ref()
+                                .is_none_or(|key| !self.row_details.body_failed(key))),
+                    key,
+                    acquired: body.is_some(),
+                }
+            })
+            .collect()
     }
 
     /// One held request projection for Overview and explicit answers, even if
@@ -288,6 +351,7 @@ impl App {
         Some(Reply {
             from: row["name"].as_str().unwrap_or("unknown agent").into(),
             age: age(question["preparedAtMs"].as_u64(), crate::status::now_ms()),
+            at_ms: question["preparedAtMs"].as_u64(),
             body: body
                 .or_else(|| question["preview"].as_str())
                 .unwrap_or("(question unavailable)")
@@ -371,7 +435,14 @@ impl App {
             .collect::<Vec<_>>();
         let mut keys = alive
             .iter()
-            .filter_map(|target| self.detail(target)?.reply?.key)
+            .filter_map(|target| self.detail(target))
+            .flat_map(|detail| {
+                detail
+                    .messages()
+                    .into_iter()
+                    .filter_map(|reply| reply.key.clone())
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>();
         if let Some(target) = self.input.as_ref().and_then(|input| input.target()) {
             // Keep already acquired question bodies through compact composer
@@ -403,16 +474,28 @@ impl App {
         }
         self.active_detail_targets()
             .iter()
-            .filter_map(|target| self.detail(target)?.reply)
+            .filter_map(|target| self.detail(target))
+            // The newest message first, so the one in view arrives before history.
+            .flat_map(|detail| {
+                detail
+                    .messages()
+                    .into_iter()
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
             .find(|reply| !reply.acquired)
             .and_then(|reply| reply.key)
     }
     pub(super) fn apply_message(&mut self, key: &MessageKey, body: Result<String, String>) {
         if self.loading()
             || !self.active_detail_targets().iter().any(|target| {
-                self.detail(target)
-                    .and_then(|detail| detail.reply)
-                    .is_some_and(|reply| reply.key.as_ref() == Some(key))
+                self.detail(target).is_some_and(|detail| {
+                    detail
+                        .messages()
+                        .iter()
+                        .any(|reply| reply.key.as_ref() == Some(key))
+                })
             })
         {
             return;
