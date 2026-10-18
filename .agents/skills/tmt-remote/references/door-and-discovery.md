@@ -289,73 +289,18 @@ without charging or making provider requests.
 
 ## Firestore deployment
 
-In the Firebase console, open Authentication and choose Get started. Then run
-`tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`
-in a terminal, review the short summary and answer y/N; add `--details` for fingerprints,
-extension resources and indexes. Unknown live state shows the target and still asks; saved
-completion never substitutes for live evidence. Rerun the same command after a partial result.
-The same unfinished approved digest continues without another question; changed unfinished work gets one
-confirmation and retains its earlier outcomes. An earlier known or possibly created unreleased
-website Version stays untouched; unknown web-app/site/config creation still requires observation.
-Agents, CI, `--json` and non-interactive input keep plan-only or explicit-digest authorization.
-Sign-in selection is required, not inferred. Google sign-in
-uses `google.com`. Provider reads require the owner's installed Firebase CLI and own login.
-`--authorize <plan-digest-prefix>` needs at least 12 lowercase hex characters of the whole
-envelope digest, including the fingerprint of any foreign live Rules it destructively replaces.
-Each project keeps its own history on this machine; its region stays fixed after authorization. A changed unfinished plan never blocks preview: explicit `--authorize` supersedes it only without an unconfirmed creation or staged Version (except the existing expired-Version abandonment path), retains its outcomes, and undoes nothing.
-Use `--project` to create or plan a project, or `--remote` to select a catalog name or owned project
-id. Status layers and link also accept `--project`; when both selectors are given they must agree.
-Without explicit selection, the configured
-`default-remote` applies; local selects a sole project and asks when several exist.
-`add <name> <remote-link>`, `ls` and `rm <name>` change only public
-references, not cloud resources or deploy history. Owner-host commands ignore the targeting
-default and refuse explicit non-local administration. See the contract's
-[native selection section](../../../../contracts/remote-channel-v1.md#native-remote-selection).
-An old single-path setup is refused with one command to move it aside; no migration or conversion
-ships.
-Login, pairing and installation never authorize
-deployment. There is no `--yes` flag. An unknown outcome requires read-back and exact-plan resume, not a
-blind repeat of an effect. Composite indexes are created as a batch, then checked with elapsed progress for up to three minutes; a still-building index names its position and asks for the same command again in a minute.
-A preflight HTTP failure names the operation and status (also
-`error.provider` in JSON), so a failed field/index inventory is distinguishable from Rules
-reads. These diagnostics contain no provider body or project identifier and do not imply
-that waiting makes an arbitrary 400/404 retryable; see the contract's deployment error paragraph.
+The [owner runbook](firestore-owner-runbook.md) owns setup, terminal confirmation,
+non-interactive authorization, recovery, completion checks and the stop-and-fix table.
+The [deployment contract](../../../../contracts/remote-channel-v1.md#authorized-deploy)
+owns captured inputs, provider diagnostics, partial outcomes and exact-plan recovery.
+The [native selection contract](../../../../contracts/remote-channel-v1.md#native-remote-selection)
+owns project/catalog/default resolution and legacy-state refusal; catalog commands change
+references, not cloud resources or deployment history.
 
-For an extension declaring Hosting, deployment stages and finalizes its frozen bundle before
-switching Rules and releasing Hosting, with an explicit appId-only association step for an
-unassociated site. App creation observes provisioning within its apply budget; if still pending,
-rerun the same command. Recovery reads the saved original and never duplicates an uncertain
-web-app or Version create. An ambiguous Hosting mutation gets one fresh-budget, read-only
-confirmation in the same run; it never triggers another mutation. If still unknown, inspect the
-fixed cause/phase (and HTTP class when known) shown in human output and each JSON step's
-`cause`, then rerun the same authorized command to observe the original. File mismatches also
-record counts in saved state and JSON: planned, listed, remaining uploads, active, missing and extra.
-The [bounded public-file samples](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
-beneath the cause distinguish an unexpected path from a changed hash; unsafe paths and selected
-identifiers are redacted. Hosting reads
-the union of explicit EXPECTED/ACTIVE inventories; an empty remaining-upload list alone never
-proves missing content. Retain the saved record;
-do not delete it to bypass the no-repeat fence. Existing records remain readable. For a helper-only
-fix use `tmt extension upgrade remote --yes --json` so Colab's captured content and the plan digest
-stay unchanged. Partial/unknown may include
-applied changes and never claims rollback or a usable joint publication. Complete records the
-verified public app config and same-project web.app entry. The public remote link is derived
-from that record; it does not prove browser/provider acceptance. The contract owns the lifecycle and app-selection rules.
-
-`tmt remote link --json` derives the remote link from one lock-free snapshot of a verified
-Complete record; human output is `Remote link: <URL>`. Authorized Complete deploy output derives
-the same link. No link is saved separately and deploy.json stays at version 3. Re-print does not
-deploy or open a browser. The link carries public Firebase configuration, not access; pairing
-still grants access. You can share it again; it is not one-time. Missing, partial/unknown or
-unverified records refuse with `REMOTE_LINK_UNAVAILABLE`: 'No remote link is available yet.
-Run tmt remote deploy firestore to create one.' The contract owns the descriptor; unsafe records
-are never reset, repaired or converted on read.
-
-Declarations come from fixed public commands of enabled installed extensions, including
-Colab's release command. An absent/refusing command has no provider/record effect; fixture
-bytes are never a production fallback. Real-project acceptance still requires separate owner
-authorization. Sharing readiness after a Complete record follows the
-[status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery).
+Implementation checks use fixed public declaration commands of enabled installed extensions;
+missing/refusing declarations never select fixture bytes. Real-project acceptance requires
+separate owner authorization. The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery)
+owns recorded readiness; status is not a provider probe.
 
 The settings page's explicit Firestore read shares `StatusViews.layers`' evidence owner with
 Operations. Its bounded record snapshot happens outside live/Store locks, then the signed
