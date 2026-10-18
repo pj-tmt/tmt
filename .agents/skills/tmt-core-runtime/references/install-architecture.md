@@ -32,7 +32,7 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 
 ## Native installation
 
-`tmt extension install --to <version>` selects and pins the exact release through the
+`tmt extension install <name> --to <version>` selects and pins the exact release through the
 same fixed release-record acquisition as upgrade, without reading a channel pointer.
 It retains install consent, rejects local archive/repair combinations, and uses the
 existing exact-upgrade policy (including downgrade refusal) when already installed.
@@ -254,8 +254,11 @@ the move is a bootstrap reinstall.
   an unavailable channel pointer is an acquisition failure, never confirmation that no release exists,
   and changes nothing. Digest remains unpublished until its release activation.
 - Install, upgrade and uninstall need consent (`--yes` or a prompt) and refuse non-interactive
-  runs without it. `ls` reads local receipts only; `--check` adds one bounded metadata lookup
-  and reports `unknown` on failure.
+  runs without it. `ls` inspects local state only: receipts plus the current activation,
+  payload, command links and PATH shadowing. Only `--check` adds one bounded metadata
+  lookup, and it reports `unknown` on failure. The listing installs and repairs nothing;
+  like any full invocation, it may still record verified caller-session evidence through
+  the generic session observer.
 - Removal validates ownership of every command link, refuses a foreign same-named command and
   deactivates links without deleting releases or data. It is recoverable, not atomic: a missing
   link with a retained activation lists as `partiallyRemoved` with an exact removal command.
