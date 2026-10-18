@@ -203,7 +203,7 @@ jobs:
           key: ${{ steps.browsers.outputs.cache-primary-key }}
 
   colab-app:
-    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/5)
+    name: Colab app component specs (Chromium, shard ${{ matrix.shard }}/4)
     needs: changes
     concurrency:
       group: colab-browser-app-${{ github.event.pull_request.number || github.ref }}-${{ matrix.shard }}
@@ -216,7 +216,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4]
     permissions:
       contents: read
     steps:
@@ -241,7 +241,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 5 component)"
+          shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 4 component)"
           read -r -a files <<< "$shard_files"
           if [ "${#files[@]}" -eq 0 ]; then
             echo 'No component spec files selected for this shard.' >&2

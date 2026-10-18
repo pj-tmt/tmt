@@ -30,7 +30,6 @@
     "browser-ui-primitives.spec.ts": 12,
     "browser-ui-selection.spec.ts": 45,
     "capabilities.spec.ts": 6,
-    "chapter-passages.spec.ts": 58,
     "chat-input.spec.ts": 10,
     "chat-unread.spec.ts": 40,
     "chrome.spec.ts": 1,
@@ -59,7 +58,6 @@
     "mounted.spec.ts": 24,
     "needs-you-parity.spec.ts": 55,
     "needs-you.spec.ts": 27,
-    "open-chapter.spec.ts": 31,
     "page-author.spec.ts": 15,
     "page-index.spec.ts": 21,
     "page-list.spec.ts": 40,
@@ -89,7 +87,6 @@
     "theme.spec.ts": 32,
     "thread-actions.spec.ts": 20,
     "thread-status.spec.ts": 6,
-    "today.spec.ts": 66,
     "ux-details.spec.ts": 1
   }
 }

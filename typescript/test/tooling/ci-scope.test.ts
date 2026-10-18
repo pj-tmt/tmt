@@ -3357,9 +3357,9 @@ describe('required CI gate', () => {
     // Whole-file shards balance the one single-worker suite (#3618): none cancels another, and each keeps
     // its own concurrency group and evidence.
     expect(app).toContain('fail-fast: false');
-    expect(app).toContain('shard: [1, 2, 3, 4, 5]');
+    expect(app).toContain('shard: [1, 2, 3, 4]');
     expect(app).toContain(
-      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 5 component)"'
+      'shard_files="$(node scripts/colab-acceptance-shards.mjs ${{ matrix.shard }} 4 component)"'
     );
     expect(app).not.toContain('--shard=');
     expect(app).toContain('--reporter=dot,json');
