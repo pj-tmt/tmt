@@ -1,6 +1,6 @@
 {
   "contract": "../digest-v1.md#valuation",
-  "description": "Independent quote/ratio results. Official standard base input rates verified 2026-10-14; these are list-price estimates, not bills. The weighted-members case sums (100 avoided,100 observed) and (100 avoided,900 observed), never averages 50% and 10%.",
+  "description": "Independent quote/ratio results. Official standard base input rates verified 2026-10-14; these are list-price estimates, not bills. The weighted-members case sums (100 avoided,100 observed) and (100 avoided,900 observed), never averages 50% and 10%. The mismatched-pricing-versions case is never summed: the total is unavailable and consumers say the prices differ.",
   "quotes": [
     {
       "name": "openai-sol",
@@ -211,6 +211,17 @@
         "fromMs": 60000,
         "throughMs": 120000
       }
+    }
+  ],
+  "costSums": [
+    {
+      "name": "mismatched-pricing-versions",
+      "members": [
+        { "usdMicros": 5400, "pricingVersion": "2026-10-14" },
+        { "usdMicros": 5400, "pricingVersion": "2026-11-01" }
+      ],
+      "expected": null,
+      "pricesDiffer": true
     }
   ]
 }

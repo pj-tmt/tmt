@@ -488,6 +488,44 @@ fn valuation_vectors_parse_to_the_supplied_quotes_and_ratios() {
     }
 }
 
+/// The shared vector's cost sums: members priced under different `pricingVersion`s are never
+/// added, so the total is unavailable and the summary reports that prices differ.
+#[test]
+fn valuation_vector_cost_sums_never_add_quotes_from_different_price_tables() {
+    let vectors = valuation_vectors();
+    let cases = vectors["costSums"].as_array().unwrap();
+    assert!(!cases.is_empty());
+    for case in cases {
+        let members: Vec<_> = case["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|member| {
+                (
+                    1,
+                    quote(
+                        member["pricingVersion"].as_str().unwrap(),
+                        member["usdMicros"].as_u64().unwrap(),
+                    ),
+                    Value::Null,
+                )
+            })
+            .collect();
+        let summary = summarize(&with_valuations("24h", &members), DigestWindow::Day);
+        assert_eq!(case["expected"], Value::Null, "{}", case["name"]);
+        assert_eq!(
+            summary.cost,
+            Valuation {
+                value: None,
+                included: members.len(),
+                conflict: case["pricesDiffer"].as_bool().unwrap(),
+            },
+            "{}",
+            case["name"]
+        );
+    }
+}
+
 #[test]
 fn each_valuation_fails_alone_and_never_removes_the_token_figure() {
     let valid_cost = quote("2026-10-14", 5400);
