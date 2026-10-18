@@ -16,6 +16,9 @@ declare global {
     __failProjectRequest?: number;
     /** Fail the next `project.manage` request once. */
     __failManage?: boolean;
+    /** Hold the next `project.manage` request until `__releaseManage` runs. */
+    __holdManage?: boolean;
+    __releaseManage?: () => void;
   }
 }
 let root: Root | undefined;
@@ -123,6 +126,12 @@ export async function mountPageList(
     },
     manageProject: async (change) => {
       window.__projectManage.push(change);
+      if (window.__holdManage) {
+        window.__holdManage = undefined;
+        await new Promise<void>((resolve) => {
+          window.__releaseManage = resolve;
+        });
+      }
       if (window.__failManage) {
         window.__failManage = undefined;
         throw new ManagementError('UNKNOWN');
