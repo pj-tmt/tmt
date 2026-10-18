@@ -292,6 +292,30 @@ fn actions_resume_only_stopped_agents_and_mark_stale_sessions() {
     );
 }
 
+/// The action is a command the user pastes: the name stays exactly one operand, and a name that
+/// starts with a dash follows `--` so it cannot be read as an option.
+#[test]
+fn the_resume_action_keeps_each_name_as_one_operand() {
+    let resume = |name: &str| {
+        let row = row(
+            name,
+            Lifetime::Saved,
+            None,
+            Some(remembered("claude", CLAUDE, false)),
+        );
+        action(&row.presence, row.remembered.as_ref())
+    };
+    for (name, expected) in [
+        ("sol", "↻ tmt resume sol"),
+        ("my agent", "↻ tmt resume 'my agent'"),
+        ("o'brien", "↻ tmt resume 'o'\\''brien'"),
+        ("-dash", "↻ tmt resume -- -dash"),
+        ("-a b", "↻ tmt resume -- '-a b'"),
+    ] {
+        assert_eq!(resume(name).as_deref(), Some(expected), "{name}");
+    }
+}
+
 #[test]
 fn the_list_through_a_pipe() {
     insta::assert_snapshot!(render(agents(), Terminal::PLAIN, false));

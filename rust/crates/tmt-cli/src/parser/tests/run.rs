@@ -172,6 +172,27 @@ fn both_foreground_commands_choose_one_channel_mode_and_reject_conflicts() {
     }
 }
 
+/// The resume list action prints `tmt resume -- <name>` for a name that starts with a dash,
+/// so the grammar must read everything after `--` as the one name operand.
+#[test]
+fn resume_reads_the_operand_after_an_option_terminator_as_the_name() {
+    for name in ["-dash", "--forget", "-a b", "plain"] {
+        match parsed(&["resume", "--", name]).invocation {
+            Invocation::Resume {
+                name: got,
+                forget,
+                retry,
+                show,
+                ..
+            } => {
+                assert_eq!(got.as_deref(), Some(name));
+                assert!(!forget && !retry && !show, "{name} must stay a name");
+            }
+            other => panic!("unexpected resume: {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn resume_uses_an_optional_name_and_bounded_explicit_overrides() {
     match parsed(&["resume", "--model", "sonnet", "--effort", "high"]).invocation {
