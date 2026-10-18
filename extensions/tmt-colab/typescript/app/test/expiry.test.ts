@@ -32,6 +32,22 @@ it('keeps local-only and forever evidence friendly without fabricating a relativ
     'not in the cloud',
   );
   expect(expiryText({ ...base, retentionDays: null, expiresAtMs: null }, now)).toBe('kept forever');
+  expect(
+    expiryText(
+      { ...base, retentionDays: null, expiresAtMs: null, warnings: ['not-in-cloud'] },
+      now,
+    ),
+  ).toBe('kept forever');
+});
+it('names both facts for a locally forever page with a confirmed cloud copy', () => {
+  const forever = { ...base, retentionDays: null };
+  expect(expiryText(forever, now)).toBe('kept forever here · cloud copy expires in 6 days');
+  expect(expiryText({ ...forever, expiresAtMs: now + 300 * 86400000, warnings: [] }, now)).toBe(
+    'kept forever here · cloud copy expires in 300 days',
+  );
+  expect(expiryText({ ...forever, expiresAtMs: now, warnings: ['not-in-cloud'] }, now)).toBe(
+    'kept forever here · not in the cloud',
+  );
   expect(localTime(null)).toBe('Not recorded yet');
   expect(localTime(Number.MAX_SAFE_INTEGER)).toContain('beyond the supported range');
 });
