@@ -57,6 +57,13 @@ impl Tokens {
         };
         (sum.input <= MAX && sum.output <= MAX && sum.cached <= MAX).then_some(sum)
     }
+    fn sub(self, other: Self) -> Option<Self> {
+        Some(Self {
+            input: self.input.checked_sub(other.input)?,
+            output: self.output.checked_sub(other.output)?,
+            cached: self.cached.checked_sub(other.cached)?,
+        })
+    }
     fn json(self) -> Value {
         json!({"input": self.input, "output": self.output, "cached": self.cached})
     }
@@ -104,7 +111,8 @@ struct Observed {
 pub struct Seat {
     label: Label,
     totals: Tokens,
-    /// None when Core could not attribute the whole total to models.
+    /// None when Core attributed none of the total to models; otherwise rows that
+    /// sum to at most the total, the rest being unattributed.
     by_model: Option<Vec<ModelTotals>>,
     series: Vec<Point>,
     covered_ms: u64,
@@ -115,6 +123,21 @@ pub struct Seat {
     complete: bool,
     gap: bool,
     limits: Option<Observed>,
+}
+
+impl Seat {
+    /// The tokens no model row covers: the whole total when there are no rows.
+    fn unattributed(&self) -> Result<Tokens, Error> {
+        let mut held = Tokens::default();
+        for model in self.by_model.iter().flatten() {
+            held = held
+                .add(model.tokens)
+                .ok_or_else(|| invalid("consumption attribution"))?;
+        }
+        self.totals
+            .sub(held)
+            .ok_or_else(|| invalid("consumption attribution"))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -205,11 +228,11 @@ fn models(bucket: &Value, totals: Tokens) -> Result<Option<Vec<ModelTotals>>, Er
             tokens,
         });
     }
-    // Core attributes the whole bucket or none of it.
-    if sum != totals {
+    // Rows may cover only part of the bucket, never more than it.
+    if totals.sub(sum).is_none() {
         return Err(invalid("consumption attribution"));
     }
-    Ok(Some(parsed))
+    Ok((!parsed.is_empty()).then_some(parsed))
 }
 
 fn credit(value: &Value) -> Result<Option<Credit>, Error> {
@@ -418,14 +441,14 @@ fn lines(seats: &[Seat]) -> Result<BTreeMap<&'static str, Line>, Error> {
             }
             Ok(())
         };
-        match &seat.by_model {
-            Some(models) => {
-                for model in models {
-                    add(line_of(&model.model_id), model.tokens)?;
-                }
+        if let Some(models) = &seat.by_model {
+            for model in models {
+                add(line_of(&model.model_id), model.tokens)?;
             }
-            None if !seat.totals.is_zero() => add(UNATTRIBUTED, seat.totals)?,
-            None => {}
+        }
+        let rest = seat.unattributed()?;
+        if !rest.is_zero() {
+            add(UNATTRIBUTED, rest)?;
         }
     }
     Ok(lines)
@@ -513,20 +536,20 @@ fn limits_unavailable(seats: &[Seat], lines: &BTreeMap<&'static str, Line>) -> V
 
 /// The lines a seat's tokens belong to, as `lines[]` counts them.
 fn seat_lines(seat: &Seat) -> Vec<&'static str> {
-    match &seat.by_model {
-        Some(models) => models
-            .iter()
-            .map(|model| line_of(&model.model_id))
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect(),
-        None if seat.totals.is_zero() => Vec::new(),
-        None => vec![UNATTRIBUTED],
+    let mut lines = seat
+        .by_model
+        .iter()
+        .flatten()
+        .map(|model| line_of(&model.model_id))
+        .collect::<BTreeSet<_>>();
+    if seat.unattributed().is_ok_and(|rest| !rest.is_zero()) {
+        lines.insert(UNATTRIBUTED);
     }
+    lines.into_iter().collect()
 }
 
 fn seat_json(seat: &Seat) -> Value {
-    json!({
+    let mut value = json!({
         "id": seat.label.id, "name": seat.label.name, "retired": seat.label.retired,
         "totals": seat.totals.json(),
         "lines": seat_lines(seat),
@@ -548,7 +571,16 @@ fn seat_json(seat: &Seat) -> Value {
         "coverage": {"coveredMs": seat.covered_ms, "windowMs": seat.window_ms,
                      "startsAtMs": seat.starts_at_ms,
                      "complete": seat.complete, "gap": seat.gap},
-    })
+    });
+    // Only a seat that is partly attributed names its remainder; a seat with no
+    // `byModel` is unattributed as a whole.
+    if seat.by_model.is_some()
+        && let Ok(rest) = seat.unattributed()
+        && !rest.is_zero()
+    {
+        value["unattributed"] = rest.json();
+    }
+    value
 }
 
 fn unavailable_json(row: &Unavailable) -> Value {

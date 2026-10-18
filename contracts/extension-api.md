@@ -389,10 +389,11 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
   [per-bucket](#thirty-day-rollup) values.
 - History buckets optionally add `cacheWriteTokens` and `byModel` with the same
   entry shape, containing **deltas for that bucket**, including all accepted
-  model changes. Attribution is emitted only when it covers the whole counted
-  delta. Unknown portions, skipped sequences or aggregation beyond four models
-  omit `byModel`; they never relabel a mixed bucket with its latest model.
-  Unknown cache-write evidence omits that counter without altering legacy
+  model changes. The rows sum to **at most** the bucket's tokens: an unknown
+  portion or a skipped sequence leaves its share unattributed, and an absent or
+  empty `byModel` attributes nothing. Aggregating beyond four models drops the
+  split built so far, so an aggregate may carry only a partial one. A bucket is
+  never relabelled with its latest model. Unknown cache-write evidence omits that counter without altering legacy
   totals, coverage, gaps or retention. Existing stored rows are not backfilled.
 - History buckets optionally add `byDriver`: `{driver,inputTokens,outputTokens,
 cachedInputTokens}` rows in ascending `driver` order, holding **deltas for that

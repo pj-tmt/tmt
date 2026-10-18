@@ -114,6 +114,15 @@ fn usage(document: &Value) -> Vec<String> {
                     let cells = [&head(line, &model["modelId"])[..], &tail(model)[..]].concat();
                     rows.push(row(&cells));
                 }
+                // What no model row covers is its own row, so the table sums to the total.
+                if seat["unattributed"].is_object() {
+                    let cells = [
+                        &head("unattributed", &Value::Null)[..],
+                        &tail(&seat["unattributed"])[..],
+                    ]
+                    .concat();
+                    rows.push(row(&cells));
+                }
             }
             None => {
                 let line = if seat["byModel"].is_null() {

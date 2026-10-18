@@ -89,7 +89,12 @@ fn feed(storage: &mut Storage, id: &str) -> u64 {
         } else {
             vec![model_row("a", step % 13, step % 5, Some(0))]
         };
-        let mut reading = attributed(input, output, 0, sequence, now, rows);
+        // Some reads carry no attribution: the sum then keeps a partial split.
+        let mut reading = if step % 17 == 0 {
+            latest(input, output, sequence, now)
+        } else {
+            attributed(input, output, 0, sequence, now, rows)
+        };
         if step % 211 == 0 {
             reading.session = "other-session".into();
         }
@@ -148,6 +153,15 @@ fn every_rollup_bucket_equals_the_sum_of_the_fine_buckets_it_covers() {
     );
     assert!(rolled.iter().any(|bucket| bucket.get("byModel").is_some()));
     assert!(rolled.iter().any(|bucket| bucket.get("byDriver").is_some()));
+    // A bucket that mixes attributed and unattributed reads is a partial split.
+    assert!(rolled.iter().any(|bucket| {
+        let attributed = bucket["byModel"].as_array().map_or(0, |rows| {
+            rows.iter()
+                .map(|row| row["inputTokens"].as_u64().unwrap())
+                .sum()
+        });
+        attributed > 0 && attributed < bucket["inputTokens"].as_u64().unwrap()
+    }));
     assert!(fine.iter().any(|bucket| bucket["gap"] == true));
     assert!(fine.iter().any(|bucket| bucket["discontinuous"] == true));
 }

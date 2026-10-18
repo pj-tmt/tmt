@@ -68,16 +68,17 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
    - _Seats and models._ Rank `usage.seats[]` by weighted k tokens, the same for both
      providers because Core's `input` already contains `cached`:
      (input − cached + 0.1·cached + 5·output)/1000. Claude's `input − cached` also
-     holds cache creation, which Core does not split out, so a Claude ranking is
-     approximate. Split by provider through `lines`; a seat on `other` or
+     holds cache creation, which Core records (`cacheWriteTokens`) but the report
+     does not expose, so a Claude ranking is approximate. Split by provider through `lines`; a seat on `other` or
      `unattributed` is listed under that name. A `series[].serviceTier` is the tier in
      force at the bucket's newest token-moving read (absent is unknown, never
      `default`); rank without a tier multiplier. Model share sums `byModel` and prints
      model ids only: say `effort/fast split: unavailable (Core has model ids only)`.
-     A seat whose `byModel` is null sits on the `unattributed` line: its tokens are
-     counted but Core could not attribute every bucket to a model (Codex seats
-     often), so print it as `model not attributed`, never as unknown usage, and leave
-     per-model cost for it empty. Core has no compaction data: print the compaction
+     A seat's `byModel` rows may cover only part of its totals: the rest is its
+     `unattributed` field (the whole total when `byModel` is null) and sits on the
+     `unattributed` line. Those tokens are counted but Core could not attribute them
+     to a model (Codex seats often), so print them as `model not attributed`, never
+     as unknown usage, and leave per-model cost for them empty. Core has no compaction data: print the compaction
      table as `unavailable (no Core source)`.
    - _Sessions outside the seats._ A seat's totals are the tokens Core sampled from the
      seat's own admitted session. Codex subagent sessions and `codex-auto-review` run
