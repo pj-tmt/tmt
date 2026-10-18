@@ -120,14 +120,19 @@ it('discovers the same component spec files as tracked Playwright inputs, withou
   );
 });
 
-it('uses the smallest shard count predicted within twelve minutes including measured job overhead', () => {
+it('uses the smallest shard count predicted within twelve minutes including job overhead and model error', () => {
   const weights = loadComponentWeights();
   const wallSeconds = (count: number) =>
     Math.max(
       ...splitSpecFiles(listComponentFiles(), count, weights).map((shard) => shard.seconds)
-    ) + weights.jobOverheadSeconds;
+    ) +
+    weights.jobOverheadSeconds +
+    weights.modelErrorSeconds;
   expect(wallSeconds(COMPONENT_SHARDS)).toBeLessThanOrEqual(12 * 60);
   for (let count = 1; count < COMPONENT_SHARDS; count++)
     expect(wallSeconds(count)).toBeGreaterThan(12 * 60);
   expect(() => loadComponentWeights('{"defaultSeconds":1,"files":{}}')).toThrow(/overhead/);
+  expect(() =>
+    loadComponentWeights('{"defaultSeconds":1,"jobOverheadSeconds":58,"files":{}}')
+  ).toThrow(/model error/);
 });

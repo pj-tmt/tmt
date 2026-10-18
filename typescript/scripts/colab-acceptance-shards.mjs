@@ -26,7 +26,7 @@ const COMPONENT = {
 
 /** Shards of the real-binary acceptance run. The workflow declares one job per shard, so this is fixed. */
 export const ACCEPTANCE_SHARDS = 2;
-export const COMPONENT_SHARDS = 4;
+export const COMPONENT_SHARDS = 5;
 
 export function loadShardWeights(text = readFileSync(WEIGHTS, 'utf8')) {
   const weights = JSON.parse(text);
@@ -112,6 +112,8 @@ export function loadComponentWeights(text = readFileSync(COMPONENT.weightsFile, 
   const weights = loadShardWeights(text);
   if (!Number.isFinite(weights.jobOverheadSeconds) || weights.jobOverheadSeconds < 0)
     throw new Error('Component job overhead must be a nonnegative number.');
+  if (!Number.isFinite(weights.modelErrorSeconds) || weights.modelErrorSeconds < 0)
+    throw new Error('Component model error must be a nonnegative number.');
   return weights;
 }
 

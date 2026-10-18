@@ -4,9 +4,11 @@
     "Source: run 39061554026, measurement head 8855582de7463c1d4d683e6d44a914847faff0cb, colab-app-results-1 through -4/results.json, 2026-10-17. All 1,399 cases completed with no unexpected or flaky outcomes.",
     "Sum every result duration per file across the four contiguous shards, round up to whole seconds, minimum 1 for wholly skipped files. Keep native-fixture skips unchanged. Default is the upper median of measured file weights greater than one second.",
     "Fit from one complete run, with measured job overhead above summed result durations rounded up to 58 seconds. Independent validation: run 39062994614, head 0dc416a521b2f00f96e9e664dc9b125806b67e72, all 1,399 cases and existing 65 skips preserved; slowest job 626 seconds versus the 591-second prediction.",
+    "Model error: the slowest measured job exceeded its prediction by 35 seconds in run 39062994614 and by 48 seconds in run 39098088280, so the shard-count test adds 50 seconds of margin to the predicted wall.",
     "Observed between-run duration ratios (validation/measurement), for the 76 files taking at least one second in the measurement: 0.59 to 1.29, median 0.93, p90 1.22. Two runs describe observed variation, not a confidence interval. Refit from the existing JSON results artifacts when the suite changes."
   ],
   "jobOverheadSeconds": 58,
+  "modelErrorSeconds": 50,
   "defaultSeconds": 24,
   "files": {
     "agent-status.spec.ts": 21,
