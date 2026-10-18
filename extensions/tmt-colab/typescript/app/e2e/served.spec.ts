@@ -150,6 +150,14 @@ console.log(JSON.stringify({dataRoot: ${JSON.stringify(root)}}));`,
   }
 }
 
+/** Finish status-only reads before the next request. An unread finite response can leave
+ * Node's HTTP parser paused when this one-response socket closes. */
+async function responseStatus(url: string) {
+  const response = await fetch(url);
+  await response.arrayBuffer();
+  return response.status;
+}
+
 async function expectSharedFavicon(page: Page) {
   const canonical = await readFile(
     new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
@@ -214,6 +222,7 @@ for (let run = 1; run <= 2; run++) {
       expect(anonymousRenderer.headers.get('content-security-policy')).toContain(
         'sandbox allow-scripts',
       );
+      await anonymousRenderer.arrayBuffer();
       // The test door does not serve Remote's SDK. Its visible blocking state
       // proves the actual compiled mounted entry ran, rather than a preview.
       await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
@@ -270,8 +279,9 @@ for (let run = 1; run <= 2; run++) {
         server.origin + mount + 'assets/' + files.find((name) => !publicFiles.includes(name)),
       );
       expect(anonymous.status).toBe(403);
-      expect((await fetch(server.origin + mount + 'index.html')).status).toBe(403);
-      expect((await fetch(server.origin + mount + 'reader.html')).status).toBe(403);
+      await anonymous.arrayBuffer();
+      expect(await responseStatus(server.origin + mount + 'index.html')).toBe(403);
+      expect(await responseStatus(server.origin + mount + 'reader.html')).toBe(403);
       const publicRecovery = await fetch(server.origin + mount + 'assets/recovery.js');
       expect(publicRecovery.status).toBe(200);
       expect(Buffer.from(await publicRecovery.arrayBuffer())).toEqual(
@@ -442,10 +452,10 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
         await readFile(app + '/assets/' + name),
       );
     }
-    expect((await fetch(server.origin + mount + 'renderer.html')).status).toBe(200);
+    expect(await responseStatus(server.origin + mount + 'renderer.html')).toBe(200);
     // Nothing else of the owner surface opens without owner context.
     for (const path of ['index.html', 'api/pages', 'api/session', 'THIRD-PARTY-NOTICES.txt'])
-      expect((await fetch(server.origin + mount + path)).status).toBe(403);
+      expect(await responseStatus(server.origin + mount + path)).toBe(403);
 
     const requests: { url: string; body: string | null }[] = [];
     page.on('request', (request) =>
