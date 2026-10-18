@@ -1871,7 +1871,7 @@ test('bare pairing is read only and settings explicitly enables audited sending'
     ),
   ).toBe(0);
   await expect(page.locator('[data-confirmation]')).toContainText(
-    'Settings browser will be able to send to its permitted agents.',
+    'Settings browser will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.',
   );
   await captureState(page, 'settings-enable-confirmation', 'Inline consequence before any effect');
   expect(mutations).toBe(0);
@@ -2383,7 +2383,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     ),
   ).toBe(0);
   await expect(page.locator('[data-confirmation]')).toContainText(
-    'Revoking Renamed browser ends this browser’s access.',
+    'This ends access for Renamed browser, the browser you are using. Press Revoke again to confirm. Pair again to restore access.',
   );
   await expect(name).toHaveValue('Unsent next name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
@@ -2546,7 +2546,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
   const revoke = target.getByRole('button', { name: 'Revoke Reviewed device', exact: true });
   await revoke.click();
   await expect(target.locator('[data-confirmation]')).toContainText(
-    'Revoking Reviewed device ends its access.',
+    'This ends access for Reviewed device. Press Revoke again to confirm. Pair again to restore access.',
   );
   await captureState(
     page,

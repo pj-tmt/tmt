@@ -1465,7 +1465,7 @@ function confirmDevice(button, target, kind) {
 	cancelConfirmation();
 	const panel = rows.get(target.clientId).querySelector("[data-confirmation]");
 	const consequence = panel.querySelector("p");
-	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to allow it. You can disable sending later.` : `Revoking ${target.name} ends ${target.thisBrowser ? "this browser’s" : "its"} access. Press Revoke again to end it. Pair again to restore access.`;
+	consequence.textContent = kind === "talk" ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.` : `This ends access for ${target.name}${target.thisBrowser ? ", the browser you are using" : ""}. Press Revoke again to confirm. Pair again to restore access.`;
 	panel.hidden = false;
 	button.setAttribute("aria-describedby", consequence.id);
 	button.setAttribute("aria-expanded", "true");
