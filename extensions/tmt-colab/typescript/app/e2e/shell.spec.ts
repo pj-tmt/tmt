@@ -165,6 +165,104 @@ test('an anchor item opens its page at that exact element and says when it is no
   await expect(page.getByText(text.anchorMissing, { exact: true })).toBeVisible();
 });
 
+const readingPages = {
+  PLAN,
+  DRAFT: '10000000-0000-4000-8000-0000000000a4',
+  NOTES,
+  OLD: '10000000-0000-4000-8000-0000000000a3',
+};
+
+test('reading items show the unread or read state their page reports, and nothing else', async ({
+  page,
+}) => {
+  await openShell(page, 'readings');
+  const cells = page.locator('.shell-cell');
+  await expect(cells).toHaveCount(6);
+  await expect(cells.nth(0).locator('.shell-cell-kind')).toHaveText('Suggested reading · • Unread');
+  await expect(cells.nth(0).locator('a')).toHaveText('Decide the scope');
+  await expect(cells.nth(0).locator('.shell-cell-source')).toHaveText('In Release plan');
+  await expect(cells.nth(0).locator('.shell-cell-why')).toHaveText('Atlas: Read before the review');
+  await expect(cells.nth(0).locator('.shell-cell-why .agent-chip')).toHaveText('Atlas');
+  await expect(cells.nth(1).locator('.shell-cell-kind')).toHaveText('Suggested reading · ✓ Read');
+  await expect(cells.nth(1).locator('a')).toHaveText('Hosting notes');
+  await expect(cells.nth(1).locator('.shell-cell-why')).toHaveCount(0);
+  // A source title the browser has not cached yet is not guessed.
+  await expect(cells.nth(1).locator('.shell-cell-source')).toHaveCount(0);
+  // Listed by neither: the page no longer lists the reading, so the item says so and still links.
+  await expect(cells.nth(2).locator('.shell-cell-kind')).toHaveText(
+    'Suggested reading · No longer on the page',
+  );
+  await expect(cells.nth(2).locator('a')).toHaveText('Design notes');
+  // A pending page, a vanished page and a plain page item carry no state word.
+  await expect(cells.nth(3).locator('.shell-cell-kind')).toHaveText('Suggested reading · Archived');
+  await expect(cells.nth(4)).toContainText(text.shellPage.unavailable);
+  await expect(cells.nth(5).locator('.shell-cell-state')).toHaveCount(0);
+  await expect(page.locator('.shell-cell-state')).toHaveCount(2);
+  // One read per distinct source page the list shows; the vanished page is never asked about.
+  expect(await page.evaluate(() => window.detailCalls)).toEqual([
+    readingPages.PLAN,
+    readingPages.DRAFT,
+    readingPages.NOTES,
+    readingPages.OLD,
+  ]);
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`reading items look the same at ${width} ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await openShell(page, 'readings');
+      await expect(page.locator('.shell-cell-state')).toHaveCount(2);
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+      await page.screenshot({
+        path: capturePath(`shell-readings-${width}-${theme}.png`),
+        fullPage: true,
+      });
+    });
+
+test("arriving on or opening from a shell marks nothing; coming back shows the page's new state", async ({
+  page,
+}) => {
+  await openShell(page, 'readings');
+  const first = page.locator('.shell-cell').first();
+  await expect(first.locator('.shell-cell-state')).toHaveText('• Unread');
+  await first.locator('a').click();
+  await expect(page).toHaveURL(new RegExp(`#/pages/${PLAN}\\?read=`));
+  // The page's own Mark read is the only way to read; here the fixture plays it.
+  await page.evaluate((id) => {
+    window.readStates[id] = 'read';
+  }, '30000000-0000-4000-8000-0000000000b1');
+  expect(await page.evaluate(() => window.detailCalls)).toHaveLength(4);
+  await page.goBack();
+  await expect(first.locator('.shell-cell-state')).toHaveText('✓ Read');
+  expect(await page.evaluate(() => window.detailCalls)).toHaveLength(8);
+});
+
+test('a failed details read leaves every reading item a plain link with no state', async ({
+  page,
+}) => {
+  await openShell(page, 'readings-failed');
+  const cells = page.locator('.shell-cell');
+  await expect(cells).toHaveCount(6);
+  await expect.poll(() => page.evaluate(() => window.detailCalls.length)).toBe(4);
+  await expect(page.locator('.shell-cell-state')).toHaveCount(0);
+  await expect(cells.nth(0).locator('a')).toHaveText('Release plan');
+  await expect(cells.nth(0).locator('.shell-cell-why')).toHaveCount(0);
+});
+
+test('a shell reads the details of at most twenty source pages', async ({ page }) => {
+  await openShell(page, 'readings-many');
+  await expect(page.locator('.shell-cell')).toHaveCount(25);
+  await expect.poll(() => page.evaluate(() => window.detailCalls.length)).toBe(20);
+  expect(await page.evaluate(() => new Set(window.detailCalls).size)).toBe(20);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.detailCalls.length)).toBe(20);
+});
+
 test('an empty shell, one without a summary and a failed page list stay readable', async ({
   page,
 }) => {

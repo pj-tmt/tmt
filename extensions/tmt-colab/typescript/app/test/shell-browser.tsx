@@ -7,6 +7,7 @@ import * as Y from 'yjs';
 import { createAppRouter } from '../src/router.js';
 import { Fold } from '../src/fold.js';
 import { ReaderApp } from '../src/reader-app.js';
+import type { ReadingDetails } from '../src/reading-details.js';
 import type { Shell } from '../src/shell.js';
 
 const SHELL = '10000000-0000-4000-8000-000000000001';
@@ -14,6 +15,7 @@ const PLAN = '10000000-0000-4000-8000-0000000000a1';
 const NOTES = '10000000-0000-4000-8000-0000000000a2';
 const OLD = '10000000-0000-4000-8000-0000000000a3';
 const GONE = '10000000-0000-4000-8000-0000000000ff';
+export const DRAFT = '10000000-0000-4000-8000-0000000000a4';
 const item = (n: number) => `20000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
 const SUMMARY_AT = Date.UTC(2026, 9, 18, 8, 0, 0);
 
@@ -56,7 +58,66 @@ function fullShell(): Shell {
   };
 }
 
-export type ShellCase = 'full' | 'empty' | 'no-summary' | 'pages-failed' | 'not-admitted';
+export type ShellCase =
+  | 'full'
+  | 'empty'
+  | 'no-summary'
+  | 'pages-failed'
+  | 'not-admitted'
+  | 'readings'
+  | 'readings-failed'
+  | 'readings-many';
+
+export const READING = {
+  unread: '30000000-0000-4000-8000-0000000000b1',
+  read: '30000000-0000-4000-8000-0000000000b2',
+  gone: '30000000-0000-4000-8000-0000000000b3',
+  pending: '30000000-0000-4000-8000-0000000000b4',
+  vanishedPage: '30000000-0000-4000-8000-0000000000b5',
+};
+const manyPage = (n: number) =>
+  `10000000-0000-4000-8000-${(0x1000 + n).toString(16).padStart(12, '0')}`;
+
+/** Reading items on several pages: unread, read, gone from its page, a pending page, a vanished page. */
+function readingsShell(many: boolean): Shell {
+  if (many) {
+    const ids = Array.from({ length: 25 }, (_, n) => item(100 + n));
+    return {
+      version: 1,
+      items: Object.fromEntries(
+        ids.map((id, n) => [
+          id,
+          {
+            kind: 'reading' as const,
+            pageId: manyPage(n),
+            readingId: `30000000-0000-4000-8000-${(0x2000 + n).toString(16).padStart(12, '0')}`,
+          },
+        ]),
+      ),
+      order: ids,
+    };
+  }
+  return {
+    version: 1,
+    items: {
+      [item(1)]: { kind: 'reading', pageId: PLAN, readingId: READING.unread },
+      [item(2)]: { kind: 'reading', pageId: DRAFT, readingId: READING.read, note: 'Second.' },
+      [item(3)]: { kind: 'reading', pageId: NOTES, readingId: READING.gone },
+      [item(4)]: { kind: 'reading', pageId: OLD, readingId: READING.pending },
+      [item(5)]: { kind: 'reading', pageId: GONE, readingId: READING.vanishedPage },
+      [item(6)]: { kind: 'page', pageId: PLAN },
+    },
+    order: [item(1), item(2), item(3), item(4), item(5), item(6)],
+  };
+}
+
+declare global {
+  interface Window {
+    /** Page IDs asked for reading details, in order, and the reading states the fixture serves. */
+    detailCalls: string[];
+    readStates: Record<string, 'unread' | 'read'>;
+  }
+}
 
 export function mount(kind: ShellCase = 'full') {
   const rows = [
@@ -74,6 +135,7 @@ export function mount(kind: ShellCase = 'full') {
       sharing: 'private' as const,
       lastUpdateAtMs: SUMMARY_AT - 60_000,
     },
+    { id: DRAFT, title: '', titleMissing: true, sharing: 'private' as const },
     {
       id: OLD,
       title: 'Last quarter',
@@ -88,11 +150,46 @@ export function mount(kind: ShellCase = 'full') {
       ? { version: 1, items: {}, order: [] }
       : kind === 'no-summary'
         ? { ...full, summary: undefined }
-        : full;
+        : kind === 'readings' || kind === 'readings-failed'
+          ? readingsShell(false)
+          : kind === 'readings-many'
+            ? readingsShell(true)
+            : full;
+  if (kind === 'readings-many')
+    for (let n = 0; n < 25; n++)
+      rows.push({ id: manyPage(n), title: `Page ${n}`, sharing: 'private' as const });
+  window.detailCalls = [];
+  window.readStates = { [READING.unread]: 'unread', [READING.read]: 'read' };
+  const detail = (title: string, id: string) => ({
+    id,
+    title,
+    agent: 'Atlas',
+    why: 'Read before the review',
+    state: window.readStates[id] ?? 'unread',
+  });
+  const readingDetails =
+    kind === 'readings' || kind === 'readings-many' || kind === 'readings-failed'
+      ? async (id: string): Promise<ReadingDetails> => {
+          window.detailCalls.push(id);
+          if (kind === 'readings-failed') throw new Error('offline');
+          const ready = (readings: ReturnType<typeof detail>[]): ReadingDetails => ({
+            pageId: id,
+            state: 'ready',
+            fingerprint: 'a'.repeat(64),
+            summary: { comments: 0, waiting: false, needsYou: 0 },
+            readings,
+          });
+          if (id === PLAN) return ready([detail('Decide the scope', READING.unread)]);
+          if (id === DRAFT) return ready([detail('Hosting notes', READING.read)]);
+          if (id === NOTES) return ready([]);
+          return { pageId: id, state: 'pending' };
+        }
+      : undefined;
   if (kind === 'no-summary') delete shell.summary;
   location.hash = `/pages/${SHELL}`;
   const router = createAppRouter({
     backendName: 'Fixture device',
+    ...(readingDetails ? { readingDetails } : {}),
     async spaceHome() {
       if (kind === 'pages-failed' && location.hash.endsWith(SHELL)) throw new Error('offline');
       return { title: 'Workspace', pages: rows };

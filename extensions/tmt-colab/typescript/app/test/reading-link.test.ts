@@ -4,17 +4,14 @@ import {
   ownerReadingHint,
   ownerReadingHref,
   pageSearch,
-  readingPageUrl,
 } from '../src/reading-link.js';
 const space = '10000000-0000-4000-8000-000000000001';
 const page = '10000000-0000-4000-8000-000000000002';
 const read = '10000000-0000-4000-8000-000000000401';
 const owner = `https://example.test/ext/colab/#space=${space}&path=${encodeURIComponent(`/pages/${page}`)}`;
-it('adds only a bounded cosmetic reading hint to the exact owner page', () => {
-  const link = readingPageUrl(owner, space, page, read)!;
-  expect(link).toBe(`${owner}&read=${read}`);
+it('reads only a bounded cosmetic reading hint from the exact owner page', () => {
+  const link = `${owner}&read=${read}`;
   expect(ownerReadingHint(new URL(link), space, page)).toBe(read);
-  expect(readingPageUrl(link, space, page, read)).toBe(link);
   expect(ownerReadingHint(new URL(link), space, space)).toBeUndefined();
 });
 it('does not absorb capabilities, extra parameters, duplicate keys or invalid targets', () => {
@@ -26,10 +23,7 @@ it('does not absorb capabilities, extra parameters, duplicate keys or invalid ta
     owner.replace('#', '?secret=value#') + `&read=${read}`,
   ]) {
     expect(ownerReadingHint(new URL(link), space, page)).toBeUndefined();
-    expect(readingPageUrl(link, space, page, read)).toBeUndefined();
   }
-  expect(readingPageUrl(owner, space, page, 'x'.repeat(10000))).toBeUndefined();
-  expect(readingPageUrl(owner.replace('https:', 'javascript:'), space, page, read)).toBeUndefined();
 });
 
 it('keeps an admitted cosmetic hint through full and short internal routes without mixing it into the page path', () => {

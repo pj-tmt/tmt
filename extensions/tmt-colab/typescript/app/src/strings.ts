@@ -501,6 +501,10 @@ export const text = {
     kind: { page: 'Page', anchor: 'Passage', reading: 'Suggested reading' },
     audience: (audience: string) => `For ${audience}`,
     needsYou: (count: number) => `Needs you ${count}`,
+    unread: 'Unread',
+    read: 'Read',
+    readingMissing: 'No longer on the page',
+    inPage: (title: string) => `In ${title}`,
     changedSince: (count: number) =>
       `${count} ${count === 1 ? 'page' : 'pages'} changed since this summary`,
     archived: 'Archived',

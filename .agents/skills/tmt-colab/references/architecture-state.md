@@ -653,7 +653,17 @@ the page open at the top with a short notice. Before it leaves for an item the p
 records the item in its own history entry (`shellFocus`), and the shell restores focus to it when
 the browser comes back. The layout is borderless and wide (grid columns, no card or shadow) and
 holds no per-user state; a shell page whose value was not admitted shows one state line instead of
-an empty page. Editing stays with the seven validated actions; the browser has no edit
+an empty page.
+
+Reading items show their source reading's state. `ShellContent` reads the owner chapter details
+(`reading-details.ts`, the optional owner-only transport port `readingDetails`) once per distinct
+source page the space list shows, through `ReadingDetailsQueue`: one read in flight, at most
+`READING_DETAILS_PAGES` pages per opening, aborted when the page is left. `readingView` turns a
+ready result into the item's state (`Unread`/`Read` with the reading's own title and reason) or
+`missing` when the page no longer lists it; pending, unavailable, failed, over-cap and hosted reads
+leave no state. The shell stores and writes none: opening an item never marks it read (only the
+page's own `Mark read` does), and returning to the shell reads again, so the page's new state shows
+without a poll. Editing stays with the seven validated actions; the browser has no edit
 controls, and the shared and hosted readers keep `ShellNotice`.
 
 ## Trusted browser management

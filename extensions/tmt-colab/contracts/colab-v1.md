@@ -2262,7 +2262,9 @@ HTML-only source operations refuse a shell with `COLAB_INPUT_INVALID` rather
 than erase it. Export writes `shell.json` beside the usual metadata, never
 `page.html`. The owner app draws a shell as a wide grid of links to its source
 pages; the shared and hosted readers open it with a neutral notice explaining
-`tmt colab shell read`. List/search use its title and needs-you counts do not
+`tmt colab shell read`. The owner app shows a reading item's `Unread` or `Read` state from the
+source page's owner chapter details (the reading's own person Mark read, never shell data);
+page and anchor items carry no read state. List/search use its title and needs-you counts do not
 treat shell references as authored questions or pending readings. No Today
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
@@ -4471,8 +4473,9 @@ uniqueness and states before rendering any descriptor as inert text. A malformed
 failed or stale result remains unknown, never an empty complete list. Discovery
 keeps its unchanged 1 MiB and 1,000-page bounds.
 
-No browser consumer ships: Today and its chapter reading links are gone, so this route has no
-browser caller until the shell reading list adopts it or removes it.
+The owner app's shell page is the one browser consumer: it reads this route for the source pages
+of a shell's reading items to show each reading as unread or read, without writing anything. The
+route never marks a reading read, and neither does opening an item from a shell.
 
 ## Root-local page creation
 

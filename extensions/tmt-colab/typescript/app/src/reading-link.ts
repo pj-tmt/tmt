@@ -78,26 +78,3 @@ export function ownerReadingHint(url: URL, space: string, page?: string): string
   const hint = ownerPageHint(url, space, page);
   return hint && 'read' in hint ? hint.read : undefined;
 }
-
-/** Build on the exact owner URL only, never on a hosted reader seed or an arbitrary fragment. */
-export function readingPageUrl(
-  url: string,
-  space: string,
-  page: string,
-  read: string,
-): string | undefined {
-  const parsed = new URL(url);
-  const fragment = `#space=${space}&path=${encodeURIComponent(`/pages/${page}`)}`;
-  if (
-    !validReadingId(read) ||
-    parsed.search ||
-    parsed.username ||
-    parsed.password ||
-    !['http:', 'https:'].includes(parsed.protocol) ||
-    parsed.pathname.endsWith('/read') ||
-    (parsed.hash !== fragment && !ownerReadingHint(parsed, space, page))
-  )
-    return;
-  parsed.hash = `${fragment}&read=${read}`;
-  return parsed.href;
-}
