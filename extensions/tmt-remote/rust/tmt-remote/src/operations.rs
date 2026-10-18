@@ -387,6 +387,7 @@ impl Operations {
             match operation {
                 "agents.list" => {
                     let value = self.core.agents(&self.stop)?;
+                    let observed_at_ms = now_ms()?;
                     let rows = value["identities"].as_array().ok_or_else(invalid)?;
                     let mut agents = Vec::new();
                     for row in rows {
@@ -398,6 +399,14 @@ impl Operations {
                             !driver.is_empty() && driver.len() <= crate::limits::RUNNING_DRIVER_BYTES
                                 && driver.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
                         }) { projected["runningDriver"] = json!(driver); }
+                        if let Some(activity) = row.pointer("/session/activity").filter(|activity| {
+                            matches!(activity["state"].as_str(), Some("working" | "idle" | "unknown" | "ended"))
+                                && activity.get("sinceMs").is_some_and(|since| since.is_null()
+                                    || since.as_u64().is_some_and(|value| value <= 9_007_199_254_740_991))
+                        }) {
+                            projected["activity"] = json!({"state":activity["state"],"sinceMs":activity["sinceMs"]});
+                        }
+                        projected["observedAtMs"] = json!(observed_at_ms);
                         agents.push(projected);
                     }
                     Ok(json!({"identities":agents}))

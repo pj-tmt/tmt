@@ -154,6 +154,79 @@ test('agents decode only recognized runningDriver and never remembered driver', 
   );
 });
 
+test('agents decode bounded activity and owner time independently without rejecting the list', async () => {
+  const { door, client } = await ready();
+  const validActivity = ['working', 'idle', 'unknown', 'ended'].flatMap((state) =>
+    [null, 0, Number.MAX_SAFE_INTEGER].map((sinceMs) => ({ state, sinceMs })),
+  );
+  const invalidActivity = [
+    undefined,
+    null,
+    {},
+    [],
+    'working',
+    { state: 'future', sinceMs: 0 },
+    { state: 'working' },
+    ...[-1, 1.5, '1', true, Number.MAX_SAFE_INTEGER + 1].map((sinceMs) => ({
+      state: 'idle',
+      sinceMs,
+    })),
+  ];
+  door.agents = [...validActivity, ...invalidActivity].map((activity) => ({
+    id: crypto.randomUUID(),
+    name: 'Observed',
+    presence: 'active',
+    ...(activity === undefined
+      ? {}
+      : {
+          activity:
+            activity && typeof activity === 'object'
+              ? { ...activity, lastActivityMs: 1, providers: { private: 'omitted' } }
+              : activity,
+        }),
+    observedAtMs: 1234,
+  }));
+  const listed = await client.listAgents();
+  assert.deepEqual(
+    listed,
+    door.agents.map((row, index) => ({
+      id: (row as { id: string }).id,
+      name: 'Observed',
+      presence: 'active',
+      observedAtMs: 1234,
+      ...(index < validActivity.length ? { activity: validActivity[index] } : {}),
+    })),
+  );
+  const times = [
+    0,
+    Number.MAX_SAFE_INTEGER,
+    undefined,
+    null,
+    -1,
+    1.5,
+    '1',
+    true,
+    Number.MAX_SAFE_INTEGER + 1,
+  ];
+  door.agents = times.map((observedAtMs) => ({
+    id: crypto.randomUUID(),
+    name: 'Clock',
+    presence: 'offline',
+    activity: { state: 'unknown', sinceMs: null },
+    ...(observedAtMs === undefined ? {} : { observedAtMs }),
+  }));
+  assert.deepEqual(
+    await client.listAgents(),
+    door.agents.map((row, index) => ({
+      id: (row as { id: string }).id,
+      name: 'Clock',
+      presence: 'offline',
+      activity: { state: 'unknown', sinceMs: null },
+      ...(index < 2 ? { observedAtMs: times[index] } : {}),
+    })),
+  );
+});
+
 for (const code of [
   'REMOTE_SCOPE_DENIED',
   'REMOTE_INPUT_INVALID',

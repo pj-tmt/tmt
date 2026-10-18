@@ -792,7 +792,17 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       ).remoteTest;
       return state.remote.listAgents();
     });
-  expect(await list(app)).toEqual(await list(otherTab));
+  // Separate reads have distinct owner-clock samples; identity/activity must agree.
+  const withoutObservationTime = (rows: import('../src/operations.js').RemoteAgent[]) =>
+    rows.map(({ observedAtMs, ...row }) => {
+      expect(Number.isSafeInteger(observedAtMs)).toBe(true);
+      expect(observedAtMs).toBeGreaterThan(0);
+      expect(observedAtMs).toBeLessThanOrEqual(Date.now());
+      return row;
+    });
+  expect(withoutObservationTime(await list(app))).toEqual(
+    withoutObservationTime(await list(otherTab)),
+  );
   // Last-close keeps the same session usable inside the inactivity grace.
   const closeTransport = async () =>
     app.evaluate(async () => {
@@ -835,7 +845,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     const result = await remote.result(sent.requestId);
     return { agents, input, sent, observed, result };
   });
-  expect(asked.agents).toEqual([
+  expect(withoutObservationTime(asked.agents)).toEqual([
     { id: '00000000-0000-0000-0000-000000000001', name: 'Browser agent', presence: 'active' },
   ]);
   expect(asked.sent).toMatchObject({ state: 'accepted', operationId: asked.input.operationId });
@@ -892,7 +902,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       };
     }, asked.input.operationId);
     expect(continued.differentSession).toBe(true);
-    expect(continued.agents).toEqual(asked.agents);
+    expect(withoutObservationTime(continued.agents)).toEqual(withoutObservationTime(asked.agents));
     expect(continued.original).toEqual(asked.sent);
     expect(continuityOpens).toBe(2);
     const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
@@ -1754,24 +1764,44 @@ test('agents list carries only verified runtime evidence through the served SDK'
       name: 'Claude live',
       presence: 'active',
       runningDriver: 'claude',
+      session: {
+        activity: {
+          state: 'working',
+          sinceMs: 17,
+          lastActivityMs: 99,
+          providers: { private: true },
+        },
+      },
     },
     {
       id: '00000000-0000-4000-8000-000000000002',
       name: 'Codex live',
       presence: 'active',
       runningDriver: 'codex',
+      session: {
+        activity: { state: 'idle', sinceMs: 0, lastActivityMs: 99, providers: { private: true } },
+      },
     },
     {
       id: '00000000-0000-4000-8000-000000000003',
       name: 'Future',
       presence: 'active',
       runningDriver: 'future-driver',
+      session: {
+        activity: {
+          state: 'unknown',
+          sinceMs: null,
+          lastActivityMs: 99,
+          providers: { private: true },
+        },
+      },
     },
     {
       id: '00000000-0000-4000-8000-000000000004',
       name: 'Codex remembered',
       presence: 'offline',
       driver: 'codex',
+      session: { activity: { state: 'ended', sinceMs: 33, lastActivityMs: 99, providers: {} } },
     },
   ];
   await writeFile(join(root, 'agents.json'), JSON.stringify({ identities }));
@@ -1789,17 +1819,24 @@ test('agents list carries only verified runtime evidence through the served SDK'
   expect((await events.next()).reason).toBe('paired');
   await exited(pair);
   await expect(page.locator('#status')).toContainText('This browser is paired.');
+  const before = Date.now();
   const listed = await page.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
     const rows = await sdk.operations(await sdk.reopenSession()).listAgents();
     return { rows, keys: rows.map((row) => Object.hasOwn(row, 'runningDriver')) };
   });
+  const observedAtMs = listed.rows[0]!.observedAtMs;
+  expect(Number.isSafeInteger(observedAtMs)).toBe(true);
+  expect(observedAtMs).toBeGreaterThanOrEqual(before);
+  expect(observedAtMs).toBeLessThanOrEqual(Date.now());
   expect(listed.keys).toEqual([true, true, false, false]);
   expect(listed.rows).toEqual(
     identities.map((row) => ({
       id: row.id,
       name: row.name,
       presence: row.presence,
+      activity: { state: row.session.activity.state, sinceMs: row.session.activity.sinceMs },
+      observedAtMs,
       ...(row.runningDriver === 'claude' || row.runningDriver === 'codex'
         ? { runningDriver: row.runningDriver }
         : {}),

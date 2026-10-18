@@ -31,6 +31,10 @@ export interface RemoteAgent {
   delivery?: unknown;
   /** Current verified runtime evidence; recognizing a new driver needs an additive SDK release. */
   runningDriver?: 'claude' | 'codex';
+  /** Advisory Core activity, not readiness or completion evidence. */
+  activity?: { state: 'working' | 'idle' | 'unknown' | 'ended'; sinceMs: number | null };
+  /** Owner wall clock at the Core read; compare sinceMs with this, not the viewer clock. */
+  observedAtMs?: number;
 }
 export interface RemoteOperations {
   listAgents(): Promise<RemoteAgent[]>;
@@ -185,6 +189,8 @@ function agents(value: unknown): RemoteAgent[] {
         typeof row.name === 'string' &&
         (row.presence === 'active' || row.presence === 'offline' || row.presence === 'unknown'),
     );
+    const activity = row.activity;
+    const observedAtMs = row.observedAtMs;
     return {
       id: row.id as string,
       name: row.name as string,
@@ -192,6 +198,26 @@ function agents(value: unknown): RemoteAgent[] {
       ...(Object.hasOwn(row, 'delivery') ? { delivery: row.delivery } : {}),
       ...(row.runningDriver === 'claude' || row.runningDriver === 'codex'
         ? { runningDriver: row.runningDriver }
+        : {}),
+      ...(activity !== null &&
+      typeof activity === 'object' &&
+      !Array.isArray(activity) &&
+      'state' in activity &&
+      'sinceMs' in activity &&
+      (activity.state === 'working' ||
+        activity.state === 'idle' ||
+        activity.state === 'unknown' ||
+        activity.state === 'ended') &&
+      (activity.sinceMs === null ||
+        (typeof activity.sinceMs === 'number' &&
+          Number.isSafeInteger(activity.sinceMs) &&
+          activity.sinceMs >= 0))
+        ? { activity: { state: activity.state, sinceMs: activity.sinceMs } }
+        : {}),
+      ...(typeof observedAtMs === 'number' &&
+      Number.isSafeInteger(observedAtMs) &&
+      observedAtMs >= 0
+        ? { observedAtMs }
         : {}),
     };
   });

@@ -295,16 +295,39 @@ describe('Remote owner-device operations (#1055)', () => {
           const count = owner
             .coreCalls()
             .filter((call) => call.operation === 'dispatch.create').length;
+          const observedBefore = Date.now();
           const directory = await session.append('agents.list', {});
+          const observedAfter = Date.now();
           expect(directory.identities).toEqual([
             expect.objectContaining({ id: allowed, name: 'remote-read' }),
           ]);
           for (const entry of directory.identities as unknown[]) {
             expect(
               Object.keys(object(entry)).every((key) =>
-                ['id', 'name', 'presence', 'delivery'].includes(key)
+                [
+                  'id',
+                  'name',
+                  'presence',
+                  'delivery',
+                  'runningDriver',
+                  'activity',
+                  'observedAtMs',
+                ].includes(key)
               )
             ).toBe(true);
+            const row = object(entry);
+            expect(Number.isSafeInteger(row.observedAtMs)).toBe(true);
+            expect(row.observedAtMs).toBeGreaterThanOrEqual(observedBefore);
+            expect(row.observedAtMs).toBeLessThanOrEqual(observedAfter);
+            if (row.activity !== undefined) {
+              const activity = object(row.activity);
+              expect(Object.keys(activity).sort()).toEqual(['sinceMs', 'state']);
+              expect(['working', 'idle', 'unknown', 'ended']).toContain(activity.state);
+              if (activity.sinceMs !== null) {
+                expect(Number.isSafeInteger(activity.sinceMs)).toBe(true);
+                expect(activity.sinceMs).toBeGreaterThanOrEqual(0);
+              }
+            }
           }
           expect(
             await session.append('identities.status', {
