@@ -490,8 +490,7 @@ impl Session {
             matches!(kind, AuthoredLine::Outgoing { .. }).then_some(*line)
         });
         for (entry, header) in self.outgoing.iter().zip(headers) {
-            if let Some((boundary, _)) = self.authored_lines.range(header + 1..).next()
-            {
+            if let Some((boundary, _)) = self.authored_lines.range(header + 1..).next() {
                 bodies.push(Body {
                     key: Key::Outgoing(entry.ticket.sequence),
                     sources: header + 2..boundary.saturating_sub(1),
