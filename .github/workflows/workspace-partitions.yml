@@ -30,6 +30,11 @@ jobs:
     timeout-minutes: 20
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      receipt: >-
+        ${{ job.status == 'success' && steps.closure.outcome == 'success' && steps.inventory.outcome == 'success' &&
+            format('{{"proof":{0},"closure":{{"id":"{1}","digest":"{2}"}},"inventory":{{"id":"{3}","digest":"{4}"}}}}',
+              steps.archive.outputs.proof, steps.closure.outputs.artifact-id, steps.closure.outputs.artifact-digest,
+              steps.inventory.outputs.artifact-id, steps.inventory.outputs.artifact-digest) || '' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -72,6 +77,7 @@ jobs:
           grep -q ': test$' "$RUNNER_TEMP/workspace-proof/remote-list.log"
           node ../typescript/scripts/private-world.mjs -- node ../typescript/scripts/workspace-nextest.mjs inventory "$RUNNER_TEMP/workspace-proof" "$K"
       - name: Archive the verified compilation inventory
+        id: archive
         if: inputs.scope == 'full'
         working-directory: rust
         env:
@@ -111,6 +117,7 @@ jobs:
           node ../typescript/scripts/private-world.mjs -- cargo test --locked -p tmt-ops
           cargo test --locked -p tmt-cli --test architecture
       - name: Upload compiled closure
+        id: closure
         if: inputs.scope == 'full'
         uses: actions/upload-artifact@v4
         with:
@@ -120,6 +127,7 @@ jobs:
           retention-days: 1
           if-no-files-found: error
       - name: Preserve independent inventory and phase evidence
+        id: inventory
         if: always() && inputs.scope == 'full'
         uses: actions/upload-artifact@v4
         with:
@@ -151,19 +159,25 @@ jobs:
         run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - uses: ./.github/actions/setup-nextest
       - name: Download producer inventory
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: workspace-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).inventory.id }}
           path: ${{ runner.temp }}/workspace-proof
+          merge-multiple: true
+          digest-mismatch: error
       - name: Download compiled closure
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: workspace-closure-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).closure.id }}
           path: ${{ runner.temp }}/workspace-proof
+          merge-multiple: true
+          digest-mismatch: error
       - name: Admit extract and execute only this slice
         working-directory: rust
         env:
           PARTITION: ${{ matrix.partition }}
+          PRODUCER_RECEIPT: ${{ needs.producer.outputs.receipt }}
+          PRODUCER_RESULT: ${{ needs.producer.result }}
         run: |
           rm "$RUNNER_TEMP/workspace-proof/phases.json"
           node ../typescript/scripts/workspace-nextest.mjs consume "$RUNNER_TEMP/workspace-proof" "$PARTITION"
@@ -171,7 +185,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: workspace-result-${{ matrix.partition }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: workspace-result-${{ matrix.partition }}-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/workspace-proof/result.json
             ${{ runner.temp }}/workspace-proof/phases.json
@@ -186,36 +200,51 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     steps:
+      - uses: actions/checkout@v4
+        if: inputs.scope == 'full' && needs.producer.result == 'success' && needs.consumers.result == 'success'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: inputs.scope == 'full' && needs.producer.result == 'success' && needs.consumers.result == 'success'
+        with:
+          node-version: 22.23.2
       - name: Reject a failed or unexpectedly skipped worker
+        id: selection
         env:
           SCOPE: ${{ inputs.scope }}
           PRODUCER_RESULT: ${{ needs.producer.result }}
           CONSUMERS_RESULT: ${{ needs.consumers.result }}
+          PRODUCER_RECEIPT: ${{ needs.producer.outputs.receipt }}
+          WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           test "$PRODUCER_RESULT" = success
           if [ "$SCOPE" = full ]; then test "$CONSUMERS_RESULT" = success
           elif [ "$SCOPE" = ops ]; then test "$CONSUMERS_RESULT" = skipped
           else exit 1; fi
-      - uses: actions/checkout@v4
-        if: inputs.scope == 'full'
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        if: inputs.scope == 'full'
-        with:
-          node-version: 22.23.2
+          if [ "$SCOPE" = full ]; then
+            cd rust
+            node ../typescript/scripts/workspace-nextest.mjs plan "$RUNNER_TEMP/workspace-proof"
+          fi
       - name: Download producer inventory
         if: inputs.scope == 'full'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: workspace-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).inventory.id }}
           path: ${{ runner.temp }}/workspace-proof
+          merge-multiple: true
+          digest-mismatch: error
       - name: Download exact partition results
         if: inputs.scope == 'full'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          pattern: workspace-result-*-${{ github.run_id }}-${{ github.run_attempt }}
+          artifact-ids: ${{ steps.selection.outputs.artifact-ids }}
+          pattern: workspace-result-*-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}
+          digest-mismatch: error
           path: ${{ runner.temp }}/workspace-proof
           merge-multiple: false
       - name: Prove the independent inventory ran exactly once
@@ -224,12 +253,15 @@ jobs:
         env:
           PRODUCER_RESULT: ${{ needs.producer.result }}
           CONSUMERS_RESULT: ${{ needs.consumers.result }}
+          PRODUCER_RECEIPT: ${{ needs.producer.outputs.receipt }}
         run: node ../typescript/scripts/workspace-nextest.mjs aggregate "$RUNNER_TEMP/workspace-proof"
       - name: Preserve aggregate result
         if: always() && inputs.scope == 'full'
         uses: actions/upload-artifact@v4
         with:
           name: workspace-union-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/workspace-proof/summary.json
+          path: |
+            ${{ runner.temp }}/workspace-proof/summary.json
+            ${{ runner.temp }}/workspace-proof/selection.json
           retention-days: 1
           if-no-files-found: error

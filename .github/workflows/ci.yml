@@ -287,6 +287,10 @@ jobs:
     name: Native Rust workspace tests
     needs: changes
     if: needs.changes.outputs.native == 'true'
+    # Ceiling for the reusable collector; producer/consumers keep contents: read only.
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/workspace-partitions.yml
     with:
       scope: ${{ needs.changes.outputs.native_scope }}

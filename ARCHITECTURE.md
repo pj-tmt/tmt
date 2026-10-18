@@ -472,15 +472,15 @@ prefixes, sockets and processes remain fixture-owned. Adapters' default-off
 Native fixtures isolate ancestry and tmux discovery; Docker owns isolated tmux
 and peers. Host tmux, provider installs and global environment mutation are not evidence.
 
-Cleanup confirms owned child/group absence before deleting fixture state;
-unknown inspection, leaks and false positives fail. Signals target only verified
-owned processes. Runtime tests prove CLI behavior, Docker proves transport and
-lifecycle, and release tooling proves actual archives and public installation;
-one layer's success cannot substitute for another's evidence.
+Cleanup proves owned children/groups absent before removing fixtures; unknown
+inspection, leaks and false positives fail. Signals target verified owned processes.
+Runtime proves CLI, Docker transport/lifecycle, release tools archives/public installs;
+layers cannot substitute. Workspace proof separates producer and execution attempts
+and requires successful identities and artifacts.
 
-Helper ownership, fixture publication and lifecycle details live in the
+Helper ownership, fixture publication and lifecycle are in the
 [E2E references](.agents/skills/tmt-e2e/references/test-boundaries.md); shared
-commands remain in [DEVELOPMENT](DEVELOPMENT.md#native-process-and-shared-tests).
+commands are in [DEVELOPMENT](DEVELOPMENT.md#native-process-and-shared-tests).
 
 ## Release boundary
 

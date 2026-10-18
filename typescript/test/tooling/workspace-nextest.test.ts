@@ -414,6 +414,97 @@ it('keeps the workflow compile-once, VM-isolated and fail-closed under its origi
   expect(setup).toContain('sha256sum --check');
 });
 
+it('keeps recovery within the existing steps and gives only the collector the read token', () => {
+  const read = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8');
+  const workflow = read('.github/workflows/workspace-partitions.yml');
+  const producer = workflow.split('\n  producer:\n')[1].split('\n  consumers:')[0];
+  const consumers = workflow.split('\n  consumers:\n')[1].split('\n  aggregate:')[0];
+  const aggregate = workflow.split('\n  aggregate:\n')[1];
+  expect(producer.match(/\n      - /g)).toHaveLength(18);
+  expect(consumers.match(/\n      - /g)).toHaveLength(8);
+  expect(aggregate.match(/\n      - /g)).toHaveLength(7);
+  expect(workflow.match(/actions: read/g)).toHaveLength(1);
+  expect(workflow.split('\njobs:')[0]).toContain('permissions:\n  contents: read');
+  expect(producer + consumers).not.toContain('GH_TOKEN');
+  expect(producer + consumers).not.toContain('permissions:');
+  expect(aggregate).toContain('permissions:\n      contents: read\n      actions: read');
+  const caller = read('.github/workflows/ci.yml')
+    .split('\n  native-workspace-tests:\n')[1]
+    .split('\n  native-process-tests:')[0];
+  expect(caller).toContain('permissions:\n      contents: read\n      actions: read');
+  expect(aggregate.indexOf('actions/setup-node')).toBeLessThan(aggregate.indexOf('id: selection'));
+  expect(
+    aggregate.match(
+      /if: inputs.scope == 'full' && needs\.producer\.result == 'success' && needs\.consumers\.result == 'success'/g
+    )
+  ).toHaveLength(2);
+  expect(aggregate).toMatch(
+    /if \[ "\$SCOPE" = full \]; then\n            cd rust\n            node .*workspace-nextest\.mjs plan/
+  );
+  expect(aggregate).toContain(
+    'WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}'
+  );
+  expect(aggregate).toContain('artifact-ids: ${{ steps.selection.outputs.artifact-ids }}');
+  expect(aggregate).toContain('merge-multiple: false');
+  expect(aggregate).toContain('/workspace-proof/selection.json');
+  expect(consumers).toContain('PRODUCER_RECEIPT: ${{ needs.producer.outputs.receipt }}');
+  expect(consumers).toContain('PRODUCER_RESULT: ${{ needs.producer.result }}');
+  expect(consumers).toContain(
+    'workspace-result-${{ matrix.partition }}-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}'
+  );
+  const downloads = workflow
+    .split(/\n      - /)
+    .filter((step) => step.includes('uses: actions/download-artifact'));
+  expect(downloads).toHaveLength(4);
+  for (const step of downloads) {
+    expect(step).toContain('uses: actions/download-artifact@v8');
+    expect(step).toContain('digest-mismatch: error');
+  }
+  for (const step of downloads.filter(
+    (step) => !step.includes('Download exact partition results')
+  )) {
+    expect(step).toContain('artifact-ids: ${{ fromJSON(needs.producer.outputs.receipt).');
+    expect(step).toContain('merge-multiple: true');
+  }
+  const uploads = workflow
+    .split(/\n      - /)
+    .filter((step) => step.includes('uses: actions/upload-artifact'));
+  expect(uploads).toHaveLength(4);
+  for (const step of uploads) {
+    expect(step).toContain('uses: actions/upload-artifact@v4');
+    expect(step).not.toMatch(/artifact-ids:|merge-multiple:|digest-mismatch:/);
+  }
+});
+
+it('renders a producer receipt from the proof and original upload outputs only on whole-job success', () => {
+  const workflow = readFileSync(
+    new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
+    'utf8'
+  );
+  const output = workflow.split('      receipt: >-\n')[1].split('    steps:')[0];
+  expect(output).toContain(
+    "job.status == 'success' && steps.closure.outcome == 'success' && steps.inventory.outcome == 'success'"
+  );
+  expect(output).toContain(
+    'steps.archive.outputs.proof, steps.closure.outputs.artifact-id, steps.closure.outputs.artifact-digest'
+  );
+  expect(output).toContain(
+    'steps.inventory.outputs.artifact-id, steps.inventory.outputs.artifact-digest'
+  );
+  const format = /format\('([^']+)'/.exec(output)![1];
+  const proof = { schema: 1, producerIdentity: { attempt: '1' } };
+  const inputs = [JSON.stringify(proof), '101', 'a'.repeat(64), '102', 'b'.repeat(64)];
+  // Interpret GitHub format's escaped braces/placeholders, then admit the actual JSON shape.
+  const rendered = format.replace(/\{\{|\}\}|\{(\d+)\}/g, (match, index) =>
+    match === '{{' ? '{' : match === '}}' ? '}' : inputs[Number(index)]
+  );
+  expect(JSON.parse(rendered)).toEqual({
+    proof,
+    closure: { id: '101', digest: 'a'.repeat(64) },
+    inventory: { id: '102', digest: 'b'.repeat(64) },
+  });
+});
+
 it('keeps Ops on common setup plus Cargo/architecture while full scope owns the partition path', () => {
   const workflow = readFileSync(
     new URL('../../../.github/workflows/workspace-partitions.yml', import.meta.url),
