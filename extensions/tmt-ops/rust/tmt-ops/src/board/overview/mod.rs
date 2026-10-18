@@ -18,6 +18,9 @@ pub(super) mod view;
 pub(in crate::board) mod capture;
 
 #[cfg(test)]
+mod model_capture;
+
+#[cfg(test)]
 mod performance;
 
 mod matrix;

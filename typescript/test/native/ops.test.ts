@@ -5298,9 +5298,9 @@ describe('verified former-board switching', () => {
               () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
                 expect(screen).toMatch(
-                  /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+NOW[ \t]*$/m
+                  /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL[ \t]*$/m
                 );
-                expect(screen).toMatch(/^   Ben[ \t]+product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
+                expect(screen).toMatch(/^   \*Ben[ \t]+product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
                 expect(screen).toMatch(/Agents[ \t]+Squads[ \t]+\/ Search/);
                 expect(screen).not.toContain('Needs you');
               },
@@ -5312,7 +5312,9 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () => {
                 const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
-                expect(screen).toMatch(/^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]*$/m);
+                expect(screen).toMatch(
+                  /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL[ \t]*$/m
+                );
               },
               { timeout: 5000, interval: 50 }
             );
@@ -5321,7 +5323,7 @@ describe('verified former-board switching', () => {
             await vi.waitFor(
               () =>
                 expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
-                  /^[ \t]+└ Ben[ \t]+\?[ \t]+—[ \t]+0[ \t]+lead[ \t]*$/m
+                  /^[ \t]+└ \*Ben[ \t]+\?[ \t]+—[ \t]+0[ \t]+—[ \t]*$/m
                 ),
               { timeout: 5000, interval: 50 }
             );

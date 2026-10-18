@@ -165,8 +165,11 @@ state replaces an unavailable trend without bars or a time axis.
 The primary body contains one switchable Squads/Agents list. Its shared filter
 bar contains mode chips and the idle search field; the section rule below owns
 counts. Squads show lead-first TEAM, existing HOUR-derived TOK 1h and NOW from
-pending questions before tasks. Agents show AGENT, SQUAD, STATE, TOK 1h and NOW,
+pending questions before tasks. Agents show AGENT, SQUAD, STATE, TOK 1h and MODEL,
 waiting first with oldest proven request first; no waiting duration is rendered.
+Model cells use the acquired model only with a running driver, omit a leading
+`claude-`, and show `—` when unknown. They use Muted and yield before token
+columns at narrow widths. A Muted `*` directly before a name marks its lead.
 The footer's effective `v` switches views, and authored bindings take precedence.
 Source refresh/search retains hidden targets without selecting a neighbor. A
 selected squad addresses only its observed lead; an agent retains its exact

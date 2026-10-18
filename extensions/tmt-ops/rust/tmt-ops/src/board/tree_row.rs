@@ -21,6 +21,7 @@ pub(in crate::board) struct Row<'a> {
     pub state: Line<'static>,
     pub state_primary_width: Option<usize>,
     pub tokens: String,
+    pub model: String,
     pub timers: Option<u32>,
     pub selected: bool,
     pub query: &'a str,
@@ -75,11 +76,16 @@ pub(in crate::board) fn paint(
                 } else {
                     "▸ "
                 };
-                let name_width = usize::from(cell.width).saturating_sub(1 + branch.width());
+                let name_width = usize::from(cell.width)
+                    .saturating_sub(1 + branch.width() + usize::from(row.source.lead));
                 // The leading gutter carries the pin without moving name tracks.
                 Line::from(vec![
                     Span::styled(if row.pinned { "▪" } else { " " }, look.role(Role::Muted)),
                     Span::styled(branch, look.role(Role::Text)),
+                    Span::styled(
+                        if row.source.lead { "*" } else { "" },
+                        look.role(Role::Muted),
+                    ),
                     Span::styled(
                         crate::board::view::fit(
                             &crate::board::notes::single_line(&row.source.title),
@@ -135,10 +141,9 @@ pub(in crate::board) fn paint(
                     look.role(Role::Muted),
                 )
             }
-            AgentsField::Lead => Line::styled(
-                if row.source.lead { "lead" } else { "" },
-                look.role(Role::Muted),
-            ),
+            AgentsField::Model => {
+                Line::styled(fit(&row.model, Align::Left), look.role(Role::Muted))
+            }
         };
         line.style = style(look, row.selected, line.style);
         for span in &mut line.spans {
@@ -156,6 +161,64 @@ pub(in crate::board) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lead_mark_uses_the_name_budget_and_model_text_is_muted_and_ellipsized() {
+        use crate::board::workspace::OpsObservation;
+        let source = OpsTreeRow {
+            target: OpsTarget::Member {
+                room_id: None,
+                identity_id: "member".into(),
+            },
+            title: "a-very-long-agent-name".into(),
+            depth: 1,
+            lead: true,
+            state: None,
+            presence: None,
+            usage: None,
+            activity: None,
+            count: None,
+            observation: OpsObservation::Complete,
+        };
+        let look = Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
+            depth: tmt_cli_style::Depth::TrueColor,
+        };
+        let area = Rect::new(0, 0, 34, 1);
+        let slots = [
+            (AgentsField::Agent, Rect::new(0, 0, 25, 1)),
+            (AgentsField::Model, Rect::new(26, 0, 8, 1)),
+        ];
+        for pinned in [false, true] {
+            let mut buffer = Buffer::empty(area);
+            paint(
+                &mut buffer,
+                area,
+                &slots,
+                &Row {
+                    source: &source,
+                    expanded: false,
+                    last: false,
+                    pinned,
+                    state: Line::default(),
+                    state_primary_width: None,
+                    tokens: "—".into(),
+                    model: "gpt-6.1-sol".into(),
+                    timers: None,
+                    selected: false,
+                    query: "",
+                },
+                look,
+            );
+            assert_eq!(buffer[(5, 0)].symbol(), "*");
+            assert_eq!(buffer[(5, 0)].fg, look.role(Role::Muted).fg.unwrap());
+            assert_eq!(buffer[(24, 0)].symbol(), "…");
+            assert_eq!(buffer[(25, 0)].symbol(), " ");
+            assert_eq!(buffer[(33, 0)].symbol(), "…");
+            assert_eq!(buffer[(26, 0)].fg, look.role(Role::Muted).fg.unwrap());
+        }
+    }
+
     #[test]
     fn pins_do_not_move_fields_and_selected_rows_fill_every_cell_without_bold_words() {
         let app = crate::board::app::workspace::tests::board();
@@ -197,6 +260,7 @@ mod tests {
                     .unwrap(),
                     state_primary_width: Some(10),
                     tokens: "12.3K".into(),
+                    model: "gpt-6.1-sol".into(),
                     timers: Some(0),
                     selected: true,
                     query: "",

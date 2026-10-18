@@ -96,7 +96,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       await fixture.waitForCapture(
         (screen) =>
           screen.includes('OPS / UI') &&
-          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+NOW\b/m.test(screen) &&
+          /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL\b/m.test(screen) &&
           /^   Ben[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
           /^   worker[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
           /Agents[ \t]+Squads[ \t]+\/ Search/.test(screen),
@@ -112,7 +112,9 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         return (
           header !== undefined &&
           rule !== undefined &&
-          /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]*$/.test(header.slice(0, 75)) &&
+          /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL[ \t]*$/.test(
+            header.slice(0, 75)
+          ) &&
           rule.slice(76).startsWith('── Common pool ') &&
           /^[ \t]+├ Ben[ \t]+\?[ \t]/m.test(screen) &&
           /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
