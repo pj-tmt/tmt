@@ -45,8 +45,7 @@
   padding: 22px 0;
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
-.settings-heading,
-.settings-page #remote-heading {
+.settings-heading {
   margin: 0 0 12px;
   font: 600 16px/1.5 var(--tmt-ui-font-body);
 }

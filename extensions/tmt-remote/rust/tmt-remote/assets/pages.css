@@ -191,6 +191,10 @@ input {
   padding-top: 24px;
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+.remote-registry h2 {
+  margin: 0 0 12px;
+  font: 600 16px/1.5 var(--tmt-ui-font-body);
+}
 .remote-list {
   list-style: none;
   padding: 0;
