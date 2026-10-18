@@ -9,3 +9,4 @@ export type {
   E2EFixtureOptions,
 } from './harness/types.js';
 export { readCompleteJsonLines } from './harness/readiness.js';
+export { processState } from './harness/cleanup.js';

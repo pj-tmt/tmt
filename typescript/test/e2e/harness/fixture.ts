@@ -27,11 +27,10 @@ import {
 } from './readiness.js';
 import {
   killAndWait,
-  processGroupIsRunning,
+  processState,
   requestObserverPids,
   replyWorkerPids,
   stopAttachedClients,
-  processIsRunning,
   serverIsRunning,
   waitForCliResults,
   activeReplyPids,
@@ -437,28 +436,14 @@ exit ${'$'}status
       });
     });
     if (child.pid) this.cliProcessResults.set(child.pid, result as Promise<CliResult<unknown>>);
-    void result.then(
-      () => {
-        if (child.pid) {
-          try {
-            if (!processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
-          } catch {
-            // Leave the group tracked so fixture cleanup reports the failure.
-          }
-          this.cliProcessResults.delete(child.pid);
-        }
-      },
-      () => {
-        if (child.pid) {
-          try {
-            if (!processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
-          } catch {
-            // Leave the group tracked so fixture cleanup reports the failure.
-          }
-          this.cliProcessResults.delete(child.pid);
-        }
-      }
-    );
+    const settle = (): void => {
+      if (!child.pid) return;
+      // Only a group proven absent is untracked; an unknown one stays for fixture cleanup to report.
+      if (processState(child.pid, { group: true }) === 'absent')
+        this.cliProcessPids.delete(child.pid);
+      this.cliProcessResults.delete(child.pid);
+    };
+    void result.then(settle, settle);
     return {
       pid: child.pid ?? 0,
       result,
@@ -581,7 +566,7 @@ exit ${'$'}status
     this.serverStarted = false;
 
     await this.waitFor(
-      () => !processIsRunning(previousServerPid),
+      () => !this.processRuns(previousServerPid),
       2_000,
       'private tmux server to exit before restart'
     );
@@ -719,21 +704,31 @@ exit ${'$'}status
     this.env.TMT_E2E_METADATA_BARRIER_OPERATION = options.operation ?? 'publish';
   }
 
+  /**
+   * Remove everything this fixture owns, then throw one error that aggregates every
+   * cleanup failure (a survivor, a timeout or an unknown process state). Files are
+   * deleted even when cleanup failed; callers that already have a primary failure
+   * must not let this error replace it (see `withE2EFixture`).
+   */
   async stop(): Promise<void> {
     const cliPids = [...this.cliProcessPids];
-    let cleanupError: Error | undefined;
+    const failures: Error[] = [];
     const recordCleanupError = (error: Error): void => {
-      cleanupError ??= error;
+      failures.push(error);
     };
     const survivors = await killAndWait(cliPids, 'CLI', recordCleanupError);
     if (survivors.length > 0) {
-      cleanupError = new Error(`E2E CLI process groups survived cleanup: ${survivors.join(', ')}`);
+      recordCleanupError(
+        new Error(`E2E CLI process groups survived cleanup: ${survivors.join(', ')}`)
+      );
     }
     this.cliProcessPids.clear();
     await waitForCliResults(this.cliProcessResults.values());
     if (this.cliProcessResults.size > 0) {
-      cleanupError = new Error(
-        `E2E CLI processes did not report termination: ${[...this.cliProcessResults.keys()].join(', ')}`
+      recordCleanupError(
+        new Error(
+          `E2E CLI processes did not report termination: ${[...this.cliProcessResults.keys()].join(', ')}`
+        )
       );
     }
     this.cliProcessResults.clear();
@@ -744,15 +739,17 @@ exit ${'$'}status
       const owned = requestObserverPids(observers);
       const survivors = await killAndWait(owned, 'request observer', recordCleanupError);
       if (survivors.length > 0)
-        cleanupError ??= new Error(`Request observers survived cleanup: ${survivors.join(', ')}`);
+        recordCleanupError(
+          new Error(`Request observers survived cleanup: ${survivors.join(', ')}`)
+        );
     }
     const replyWorkers = path.join(this.globalDir, 'reply-notice-workers');
     if (fs.existsSync(replyWorkers)) {
       const owned = replyWorkerPids(replyWorkers);
       const survivors = await killAndWait(owned, 'reply notice worker', recordCleanupError);
       if (survivors.length > 0)
-        cleanupError ??= new Error(
-          `Reply notice workers survived cleanup: ${survivors.join(', ')}`
+        recordCleanupError(
+          new Error(`Reply notice workers survived cleanup: ${survivors.join(', ')}`)
         );
     }
     const attachedClients = this.attachedClients.splice(0);
@@ -766,19 +763,34 @@ exit ${'$'}status
     }
     this.serverStarted = false;
     this.started = false;
-    await waitForProcessExit(this.panePids, (pid) => this.mockProcessIsRunning(pid));
+    const paneExit = await waitForProcessExit(this.panePids, processState);
+    if (paneExit.outcome === 'timed-out') {
+      recordCleanupError(
+        new Error(`E2E mock pane processes did not exit: ${paneExit.running.join(', ')}`)
+      );
+    }
+    if (paneExit.outcome !== 'exited' && paneExit.unknown.length > 0) {
+      recordCleanupError(
+        new Error(`E2E mock pane process state is unknown: ${paneExit.unknown.join(', ')}`)
+      );
+    }
 
     const replyPids = activeReplyPids(this.events());
     const replySurvivors = await killAndWait(replyPids, 'reply', recordCleanupError);
     if (replySurvivors.length > 0) {
-      cleanupError ??= new Error(
-        `E2E reply process groups survived cleanup: ${replySurvivors.join(', ')}`
+      recordCleanupError(
+        new Error(`E2E reply process groups survived cleanup: ${replySurvivors.join(', ')}`)
       );
     }
     this.registerPeerSocket(false);
     fs.rmSync(this.root, { recursive: true, force: true });
     fs.rmSync(this.socketRoot, { recursive: true, force: true });
-    if (cleanupError) throw cleanupError;
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `E2E fixture cleanup failed: ${failures.map((failure) => failure.message).join(' ')}`
+      );
+    }
   }
 
   serverIsRunning(): boolean {
@@ -786,11 +798,23 @@ exit ${'$'}status
   }
 
   serverProcessIsRunning(): boolean {
-    return processIsRunning(this.serverPid);
+    return this.processRuns(this.serverPid);
   }
 
   mockProcessIsRunning(pid = this.panePid): boolean {
-    return processIsRunning(pid);
+    return this.processRuns(pid);
+  }
+
+  /**
+   * Whether a recorded process runs. Pid 0 is the fixture's value before a process was
+   * recorded, so there is nothing to probe; any other unknown state throws instead of
+   * reading as absent.
+   */
+  private processRuns(pid: number): boolean {
+    if (pid === 0) return false;
+    const state = processState(pid);
+    if (state === 'unknown') throw new Error(`The state of E2E process ${pid} is unknown.`);
+    return state === 'running';
   }
 
   sendMockInput(lines: string[], pane = this.pane): void {
@@ -820,10 +844,20 @@ export async function withE2EFixture<T>(
   options: E2EFixtureOptions = {}
 ): Promise<T> {
   const fixture = new E2EFixture(options);
+  let result: T;
   try {
     await fixture.start(options);
-    return await callback(fixture);
-  } finally {
-    await fixture.stop();
+    result = await callback(fixture);
+  } catch (primary) {
+    // The scenario's own failure is the diagnosis; a cleanup failure is reported
+    // beside it and never replaces it.
+    try {
+      await fixture.stop();
+    } catch (cleanup) {
+      console.error(cleanup);
+    }
+    throw primary;
   }
+  await fixture.stop();
+  return result;
 }
