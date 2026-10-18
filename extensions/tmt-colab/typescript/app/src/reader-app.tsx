@@ -1,3 +1,4 @@
+import { ShellNotice } from './shell-notice.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
@@ -15,7 +16,7 @@ import './reader-app.css';
 
 export type ReaderState =
   | { kind: 'opening' }
-  | { kind: 'ready'; view: PageView }
+  | { kind: 'ready'; view: PageView; pageId?: string }
   | { kind: 'ended' }
   | { kind: 'invalid' }
   | { kind: 'older' }
@@ -177,7 +178,7 @@ export function ReaderApp({
       <main>
         {notice}
         {state.kind === 'ready' && shell ? (
-          <p role="status">{text.shellPageNotice}</p>
+          <ShellNotice pageId={state.pageId} />
         ) : state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">

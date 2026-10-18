@@ -1,3 +1,4 @@
+import { ShellNotice } from './shell-notice.js';
 import { usePageLayers } from './page-layers.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
@@ -1424,7 +1425,14 @@ function Page() {
       controller.abort();
       renderer.current = null;
     };
-  }, [view.source, view.pageType, endedError, inlineSlots.onSlots, onQuestionAnchors, onReadingAnchors]);
+  }, [
+    view.source,
+    view.pageType,
+    endedError,
+    inlineSlots.onSlots,
+    onQuestionAnchors,
+    onReadingAnchors,
+  ]);
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
@@ -2082,7 +2090,7 @@ function Page() {
                 remote={{ deviceName: transport.backendName }}
               />
               <main className="canvas">
-                <p role="status">{text.shellPageNotice}</p>
+                <ShellNotice pageId={snapshot.id} canCopy />
                 {endedError && <EndedBody error={endedError} action={endedAction} />}
               </main>
             </section>
