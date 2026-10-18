@@ -81,6 +81,32 @@ fn long_outgoing_app() -> App {
 }
 
 #[test]
+fn ordinary_reader_navigation_does_not_acquire_fold_focus() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = long_outgoing_app();
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.focus = 1;
+    draw(&app, 103, 48);
+    assert!(!app.conversation.borrow().fold_hits.is_empty());
+    for code in [KeyCode::Down, KeyCode::Up, KeyCode::Char('j')] {
+        assert_eq!(
+            app.conversation_body_key(KeyEvent::new(code, KeyModifiers::NONE)),
+            None,
+            "a visible fold control does not own ordinary reader navigation"
+        );
+    }
+    assert_eq!(
+        app.conversation_body_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+        Some(app::Effect::None)
+    );
+    assert_eq!(
+        app.conversation_body_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+        Some(app::Effect::None),
+        "Down moves between controls only after explicit fold focus"
+    );
+}
+
+#[test]
 fn fold_controls_toggle_by_keyboard_and_never_submit_another_message() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = long_outgoing_app();

@@ -11,6 +11,27 @@ impl App {
     }
 
     pub(in crate::board) fn conversation_body_key(&mut self, event: KeyEvent) -> Option<Effect> {
+        // Only Tab enters fold focus. Ordinary reader navigation must reach
+        // its owner without resolving the workspace's scoped binding context.
+        let entering = matches!(event.code, KeyCode::Tab | KeyCode::BackTab);
+        if !entering
+            && !matches!(
+                event.code,
+                KeyCode::Up | KeyCode::Down | KeyCode::Enter | KeyCode::Esc
+            )
+        {
+            return None;
+        }
+        {
+            let state = self.conversation.borrow();
+            let focused = state
+                .active
+                .as_ref()
+                .and_then(|active| state.sessions.get(active)?.folds.focused.as_ref());
+            if focused.is_none() && (!entering || state.fold_hits.is_empty()) {
+                return None;
+            }
+        }
         if self.input.is_some()
             || self.searching
             || self.modal_open()
