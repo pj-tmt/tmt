@@ -248,7 +248,11 @@ delivery. They install and launch nothing.
 - `run_command/run.rs` ticks the foreground wait every five seconds into
   `consumption_sample_command`, one supervised two-second worker that revalidates the full
   binding, session, process incarnations, pane evidence and owned Stop hook, closes SQLite before
-  reading and commits against the captured snapshot. It never infers activity.
+  reading and commits against the captured snapshot. It never infers activity. It reads the pane
+  on the binding's recorded server, through the approved driver on an external host. An
+  unapproved driver, or a recorded server incarnation that is missing or replaced, gives no
+  consumption observation. The worker leads its own process group, so its failure abort ends
+  only the worker and its supervised probes, never the foreground.
 - `storage::consumption_history` keeps five-second buckets for two hours (at most 1,440 closed
   plus one open per identity), stores no transcript content or absolute path, and commits cursor,
   counter and history in one transaction. The same transaction folds every accepted read into
