@@ -148,9 +148,13 @@ fn missing_corrupt_changed_oversized_and_nonregular_cache_are_misses() {
     exact.push(b' ');
     fs::write(&cache.path, exact).unwrap();
     assert_eq!(cache.lookup(&key, 100), None);
+    // A version 1 document, from before external caller keys, is a miss
+    // even for the key it held.
+    let version_1 = br#"{"version":1,"entries":[{"key":{"harness":"claude","session":"thread","runtime_pid":30,"binding":"binding","pane":"%1","pane_pid":20,"pane_incarnation":"pane-start","host":"tmux","server":"server","socket":"/tmp/test.sock","server_pid":10,"server_incarnation":"server-start"},"refused_at_ms":100,"layer":"binding"}]}"#.to_vec();
     for bytes in [
         b"broken".to_vec(),
-        br#"{"version":2,"entries":[]}"#.to_vec(),
+        version_1,
+        br#"{"version":3,"entries":[]}"#.to_vec(),
         vec![b' '; BYTES as usize + 1],
     ] {
         fs::write(&cache.path, bytes).unwrap();
@@ -169,4 +173,202 @@ fn missing_corrupt_changed_oversized_and_nonregular_cache_are_misses() {
     )
     .unwrap();
     assert_eq!(cache.lookup(&key, 100), None, "FIFO lookup is nonblocking");
+}
+
+/// An approved external host declaring `FAKE_PANE_ID` and `FAKE_SOCKET`.
+fn host(directory: &TestDirectory) -> DriverRecord {
+    let path = directory.path.join("driver");
+    fs::write(&path, b"driver").unwrap();
+    DriverRecord {
+        name: "fake".into(),
+        path: path.clone(),
+        digest: "digest".into(),
+        fingerprint: crate::executable_trust::Fingerprint::of(&fs::metadata(&path).unwrap()),
+        protocol: 1,
+        locations: None,
+        capabilities: serde_json::from_value(serde_json::json!({"protocols":[1],"kind":"host",
+            "name":"fake","version":"0.0.0-test","ops":["caller"],"paneId":{"prefix":"fake-"},
+            "target":"f{n}","callerEnv":["FAKE_SOCKET","FAKE_PANE_ID"]}))
+        .unwrap(),
+        approved_at_ms: 1,
+        source: crate::driver_protocol::registry::DriverSource::Path,
+    }
+}
+
+fn caller(variables: &[(&str, std::ffi::OsString)]) -> CallerEnvironment {
+    CallerEnvironment {
+        tmux: None,
+        pane: None,
+        process_id: 1,
+        driver_env: variables
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), value.clone()))
+            .collect(),
+    }
+}
+
+#[test]
+fn an_external_caller_key_follows_its_variables_and_its_hosts_bindings() {
+    use std::os::unix::ffi::OsStringExt;
+    let directory = TestDirectory::new();
+    let cache = Refusals::in_directory(&directory.path);
+    let host = host(&directory);
+    let harness = HarnessId::new("claude").unwrap();
+    let coordinates = CallerSession {
+        session: ProviderSessionId::new("thread").unwrap(),
+        runtime_pid: Some(30),
+    };
+    let ids = ["b".to_owned(), "a".to_owned()];
+    let set = caller(&[("FAKE_PANE_ID", "f1".into()), ("FAKE_SOCKET", "/s".into())]);
+    let key = Key::caller(&harness, &coordinates, &host, &set, &ids);
+    cache.remember(key.clone(), "native-admission", 100);
+    assert_eq!(cache.lookup(&key, 101).as_deref(), Some("native-admission"));
+    assert_eq!(cache.lookup(&key, 100 + TTL_MS), None);
+    // No raw variable value is kept.
+    let stored = fs::read_to_string(&cache.path).unwrap();
+    assert!(!stored.contains("f1") && !stored.contains("/s"), "{stored}");
+    // The binding IDs are a set: their order does not matter.
+    let reordered = ["a".to_owned(), "b".to_owned()];
+    assert_eq!(
+        Key::caller(&harness, &coordinates, &host, &set, &reordered),
+        key
+    );
+    // A binding key never matches a caller key.
+    assert_ne!(Key::new(&harness, &coordinates, &binding()), key);
+    let not_text = std::ffi::OsString::from_vec(vec![b'f', 0xff]);
+    let lossy = std::ffi::OsString::from(not_text.to_string_lossy().into_owned());
+    let changes: [(&str, Key); 8] = [
+        (
+            "a variable's value",
+            Key::caller(
+                &harness,
+                &coordinates,
+                &host,
+                &caller(&[("FAKE_PANE_ID", "f2".into()), ("FAKE_SOCKET", "/s".into())]),
+                &ids,
+            ),
+        ),
+        (
+            "an unset variable",
+            Key::caller(
+                &harness,
+                &coordinates,
+                &host,
+                &caller(&[("FAKE_PANE_ID", "f1".into())]),
+                &ids,
+            ),
+        ),
+        (
+            "an empty variable instead of an unset one",
+            Key::caller(
+                &harness,
+                &coordinates,
+                &host,
+                &caller(&[("FAKE_PANE_ID", "f1".into()), ("FAKE_SOCKET", "".into())]),
+                &ids,
+            ),
+        ),
+        (
+            "a bound pane more",
+            Key::caller(
+                &harness,
+                &coordinates,
+                &host,
+                &set,
+                &["a".into(), "b".into(), "c".into()],
+            ),
+        ),
+        (
+            "a rebound pane",
+            Key::caller(
+                &harness,
+                &coordinates,
+                &host,
+                &set,
+                &["a".into(), "d".into()],
+            ),
+        ),
+        (
+            "the session",
+            Key::caller(
+                &harness,
+                &CallerSession {
+                    session: ProviderSessionId::new("different").unwrap(),
+                    ..coordinates.clone()
+                },
+                &host,
+                &set,
+                &ids,
+            ),
+        ),
+        (
+            "the provider pid",
+            Key::caller(
+                &harness,
+                &CallerSession {
+                    runtime_pid: Some(31),
+                    ..coordinates.clone()
+                },
+                &host,
+                &set,
+                &ids,
+            ),
+        ),
+        (
+            "the harness",
+            Key::caller(
+                &HarnessId::new("codex").unwrap(),
+                &coordinates,
+                &host,
+                &set,
+                &ids,
+            ),
+        ),
+    ];
+    for (change, changed) in changes {
+        assert_eq!(
+            cache.lookup(&changed, 101),
+            None,
+            "{change} must re-run admission"
+        );
+    }
+    // Raw bytes, not their lossy text, so two values cannot meet.
+    assert_ne!(
+        Key::caller(
+            &harness,
+            &coordinates,
+            &host,
+            &caller(&[("FAKE_PANE_ID", not_text)]),
+            &ids
+        ),
+        Key::caller(
+            &harness,
+            &coordinates,
+            &host,
+            &caller(&[("FAKE_PANE_ID", lossy)]),
+            &ids
+        ),
+    );
+}
+
+/// The digest has a fixed size, so a very large variable cannot push the
+/// document over its limit and stop every later hint.
+#[test]
+fn a_large_caller_variable_still_fits_the_cache() {
+    let directory = TestDirectory::new();
+    let cache = Refusals::in_directory(&directory.path);
+    let host = host(&directory);
+    let large = caller(&[("FAKE_PANE_ID", "f".repeat(BYTES as usize).into())]);
+    let key = Key::caller(
+        &HarnessId::new("claude").unwrap(),
+        &CallerSession {
+            session: ProviderSessionId::new("thread").unwrap(),
+            runtime_pid: Some(30),
+        },
+        &host,
+        &large,
+        &[],
+    );
+    cache.remember(key.clone(), "budget", 100);
+    assert_eq!(cache.lookup(&key, 101).as_deref(), Some("budget"));
 }

@@ -1,12 +1,15 @@
 //! Private, expiring suppression hints. A cache hit authorizes no effect.
 
 use super::lifecycle::CallerSession;
+use crate::{driver_protocol::registry::DriverRecord, host::CallerEnvironment};
 use std::path::{Path, PathBuf};
 use tmt_core::binding::{Binding, session::HarnessId};
 
 pub const TTL_MS: u64 = 10 * 60 * 1_000;
 const ENTRIES: usize = 32;
 const BYTES: u64 = 64 * 1024;
+/// Version 2 added external caller keys; an older document is a miss.
+const VERSION: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14,15 +17,31 @@ pub struct Key {
     harness: String,
     session: String,
     runtime_pid: Option<u32>,
-    binding: String,
-    pane: String,
-    pane_pid: u64,
-    pane_incarnation: Option<String>,
-    host: String,
-    server: String,
-    socket: String,
-    server_pid: u64,
-    server_incarnation: String,
+    target: Target,
+}
+
+/// What the refused attempt was scheduled for: a binding the caller's pane
+/// locator selected, or an external caller that has no such locator.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+enum Target {
+    Binding {
+        binding: String,
+        pane: String,
+        pane_pid: u64,
+        pane_incarnation: Option<String>,
+        host: String,
+        server: String,
+        socket: String,
+        server_pid: u64,
+        server_incarnation: String,
+    },
+    Caller {
+        host: String,
+        /// SHA-256 of the caller's coordinates (`caller_digest`); no raw
+        /// environment value is kept.
+        coordinates: String,
+    },
 }
 
 impl Key {
@@ -31,17 +50,87 @@ impl Key {
             harness: harness.as_str().into(),
             session: coordinates.session.as_str().into(),
             runtime_pid: coordinates.runtime_pid,
-            binding: binding.id.clone(),
-            pane: binding.pane_id.clone(),
-            pane_pid: binding.pane_pid,
-            pane_incarnation: binding.pane_incarnation.clone(),
-            host: binding.server.host.as_str().into(),
-            server: binding.server.server_id.clone(),
-            socket: binding.server.socket_path.clone(),
-            server_pid: binding.server.server_pid,
-            server_incarnation: binding.server.server_start_time.clone(),
+            target: Target::Binding {
+                binding: binding.id.clone(),
+                pane: binding.pane_id.clone(),
+                pane_pid: binding.pane_pid,
+                pane_incarnation: binding.pane_incarnation.clone(),
+                host: binding.server.host.as_str().into(),
+                server: binding.server.server_id.clone(),
+                socket: binding.server.socket_path.clone(),
+                server_pid: binding.server.server_pid,
+                server_incarnation: binding.server.server_start_time.clone(),
+            },
         }
     }
+
+    /// An external caller with no pane locator: its host's declared caller
+    /// variables and the host's binding IDs stand in for the binding, so a
+    /// changed variable or a changed set of bindings runs admission again.
+    pub fn caller(
+        harness: &HarnessId,
+        coordinates: &CallerSession,
+        host: &DriverRecord,
+        environment: &CallerEnvironment,
+        binding_ids: &[String],
+    ) -> Self {
+        Self {
+            harness: harness.as_str().into(),
+            session: coordinates.session.as_str().into(),
+            runtime_pid: coordinates.runtime_pid,
+            target: Target::Caller {
+                host: host.name.clone(),
+                coordinates: caller_digest(host, environment, binding_ids),
+            },
+        }
+    }
+}
+
+/// A fixed-size digest over a length-prefixed encoding: the host's name,
+/// each declared caller variable in sorted order with whether it is set and
+/// its raw bytes (lossless when not text), then the sorted binding IDs.
+fn caller_digest(
+    host: &DriverRecord,
+    environment: &CallerEnvironment,
+    binding_ids: &[String],
+) -> String {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::ffi::OsStrExt;
+    fn field(hash: &mut Sha256, bytes: &[u8]) {
+        hash.update((bytes.len() as u64).to_be_bytes());
+        hash.update(bytes);
+    }
+    let mut hash = Sha256::new();
+    field(&mut hash, b"tmt-caller-coordinates-1");
+    field(&mut hash, host.name.as_bytes());
+    let mut names: Vec<&String> = host
+        .capabilities
+        .host()
+        .map(|host| host.caller_env.iter().collect())
+        .unwrap_or_default();
+    names.sort();
+    names.dedup();
+    field(&mut hash, &(names.len() as u64).to_be_bytes());
+    for name in names {
+        field(&mut hash, name.as_bytes());
+        match environment.driver_env.get(name) {
+            Some(value) => {
+                field(&mut hash, &[1]);
+                field(&mut hash, value.as_bytes());
+            }
+            None => field(&mut hash, &[0]),
+        }
+    }
+    let mut ids: Vec<&String> = binding_ids.iter().collect();
+    ids.sort();
+    field(&mut hash, &(ids.len() as u64).to_be_bytes());
+    for id in ids {
+        field(&mut hash, id.as_bytes());
+    }
+    hash.finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -98,7 +187,7 @@ impl Refusals {
             entries.drain(..entries.len() - ENTRIES);
         }
         if let Ok(bytes) = serde_json::to_vec(&Document {
-            version: 1,
+            version: VERSION,
             entries,
         }) && bytes.len() as u64 <= BYTES
         {
@@ -109,7 +198,7 @@ impl Refusals {
     fn read(&self) -> Option<Document> {
         let bytes = crate::bounded_file::read_no_follow(&self.path, BYTES as usize).ok()?;
         let document: Document = serde_json::from_slice(&bytes).ok()?;
-        (document.version == 1 && document.entries.len() <= ENTRIES).then_some(document)
+        (document.version == VERSION && document.entries.len() <= ENTRIES).then_some(document)
     }
 }
 
