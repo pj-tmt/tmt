@@ -164,7 +164,15 @@ test('recommended reading records one person read and notification, survives rel
         .toBe(unread);
     };
     await ownerReadings(2);
-    await first.getByRole('link', { name: 'Space home', exact: true }).click();
+    // Chapters with their reading links are Today's; the space home is the page list.
+    const openToday = async () => {
+      await first.getByRole('link', { name: 'Space home', exact: true }).click();
+      await first
+        .getByRole('navigation', { name: 'Home views' })
+        .getByRole('link', { name: 'Today' })
+        .click();
+    };
+    await openToday();
     const chapter = first.locator(`[data-page-id="${created.pageId}"]`);
     await expect(chapter.locator('.needs-you-bar')).toContainText('Needs you 2');
     await expect(chapter.locator('.today-readings li')).toHaveCount(2);
@@ -207,7 +215,7 @@ test('recommended reading records one person read and notification, survives rel
     expect(read.comments).toHaveLength(1);
     expect(read.comments[0].body).toContain(`Reading: ${id}`);
     await ownerReadings(1);
-    await first.getByRole('link', { name: 'Space home', exact: true }).click();
+    await openToday();
     await expect(chapter.locator('.needs-you-bar')).toContainText('Needs you 1');
     await expect(chapter.locator('.today-readings li')).toHaveCount(1);
     await expect(chapter.getByRole('link', { name: 'First decision', exact: true })).toHaveCount(0);

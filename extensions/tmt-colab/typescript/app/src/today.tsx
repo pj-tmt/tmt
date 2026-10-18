@@ -22,7 +22,7 @@ import type { PageSummary, SpaceHome } from './transport.js';
 import './today.css';
 
 const t = text.today;
-const todayRoute = getRouteApi('/');
+const todayRoute = getRouteApi('/today');
 const rootRoute = getRouteApi('__root__');
 
 type Jump = 'waiting' | 'updated-today';
@@ -43,7 +43,7 @@ export function HomeNav({ current, waiting }: { current: 'today' | 'all'; waitin
   return (
     <nav className="home-nav" aria-label={t.navLabel}>
       <Link
-        to="/"
+        to="/today"
         className="today-control"
         activeOptions={{ exact: true }}
         data-current={current === 'today' || undefined}
@@ -59,13 +59,13 @@ export function HomeNav({ current, waiting }: { current: 'today' | 'all'; waitin
           if (!event.isTrusted) return;
           if (current === 'today') return jumpTo('waiting');
           pendingJump = 'waiting';
-          void router.navigate({ to: '/' });
+          void router.navigate({ to: '/today' });
         }}
       >
         {t.nav.waiting}
       </button>
       <Link
-        to="/all"
+        to="/"
         className="today-control"
         data-current={current === 'all' || undefined}
         aria-current={current === 'all' ? 'page' : undefined}
@@ -320,7 +320,7 @@ export function TodayView({
               </button>
             </li>
             <li>
-              <Link to="/all" className="today-control">
+              <Link to="/" className="today-control">
                 <strong className="today-numeral">{counts.pages}</strong>
                 <span>{t.metrics.pages}</span>
               </Link>

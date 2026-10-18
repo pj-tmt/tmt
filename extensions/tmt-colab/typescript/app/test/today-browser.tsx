@@ -133,7 +133,7 @@ function pagesFor(kind: TodayKind): PageSummary[] {
   ];
 }
 
-export async function mountToday(kind: TodayKind = 'few', hash = '/') {
+export async function mountToday(kind: TodayKind = 'few', hash = '/today') {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('today-fixture');
   if (!host) {

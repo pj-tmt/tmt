@@ -65,7 +65,6 @@ test('native page titles fill missing visible home labels without opening the pa
     expect(sent).toContain('hello');
     expect(sent).not.toContain('subscribe');
     await row().getByRole('link').click();
-    // At 1440 the chapter opens beside Today, whose own headings repeat the title.
     await expect(
       page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
     ).toBeVisible();

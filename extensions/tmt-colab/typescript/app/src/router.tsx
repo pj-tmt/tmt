@@ -612,21 +612,25 @@ async function loadSpaceHome({
 const home = createRoute({
   getParentRoute: () => root,
   path: '/',
-  // An old link or history entry that still carries list search belongs to the list.
   validateSearch: validateHomeSearch,
-  beforeLoad: ({ search }) => {
-    if (Object.values(search).some((value) => value !== undefined))
-      throw redirect({ to: '/all', search, replace: true });
-  },
+  loader: loadSpaceHome,
+  component: Home,
+});
+// Until the shell page replaces it, Today is opened from the list's navigation.
+const today = createRoute({
+  getParentRoute: () => root,
+  path: '/today',
   loader: loadSpaceHome,
   component: Today,
 });
+// The list was `/all` before it became the home; an old link or history entry still lands on it.
 const allPages = createRoute({
   getParentRoute: () => root,
   path: '/all',
   validateSearch: validateHomeSearch,
-  loader: loadSpaceHome,
-  component: Home,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: '/', search, replace: true });
+  },
 });
 const page = createRoute({
   getParentRoute: () => root,
@@ -777,7 +781,7 @@ function Shell() {
   const router = useRouter();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
-  const isHome = pathname === '/' || pathname === '/all';
+  const isHome = pathname === '/' || pathname === '/today';
   // The chapter chrome follows the page the outlet shows (see `useOpenChapter`).
   const open = useOpenChapter();
   const opened = open?.chapter;
@@ -805,9 +809,9 @@ function Shell() {
               pathname.startsWith('/short/')
                 ? 'Open a page'
                 : pathname === '/'
-                  ? text.today.title
-                  : pathname === '/all'
-                    ? text.pages
+                  ? text.pages
+                  : pathname === '/today'
+                    ? text.today.title
                     : text.error
             }
           />
@@ -2096,7 +2100,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
-          if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
+          if (!/^\/(?:all|today|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
             path = '/blocked';
           const read = ownerReadingHint(new URL(location.href), space);
           const search = read ? `?read=${read}` : '';
@@ -2112,7 +2116,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
       })
     : createHashHistory();
   const router = createRouter({
-    routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
+    routeTree: root.addChildren([home, today, allPages, page, shortPage, blocked]),
     history,
     context: { transport, space },
   });

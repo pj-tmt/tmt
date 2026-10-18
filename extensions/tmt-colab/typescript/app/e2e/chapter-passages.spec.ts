@@ -113,7 +113,7 @@ test('a chapter review draft follows its shared page owner into the foreground a
   const full = page.locator('#ask-page-fixture [data-inline-review]').first();
   await expect(full.getByRole('textbox')).toHaveValue('Retain this unsent chapter note.');
   await page.evaluate(() => {
-    location.hash = '/';
+    location.hash = '/today';
   });
   await expect(passage.locator('[data-inline-review]').first().getByRole('textbox')).toHaveValue(
     'Retain this unsent chapter note.',
@@ -144,7 +144,7 @@ for (const returnToToday of [false, true])
     await expect(passage.locator('iframe')).toHaveCount(0);
     if (returnToToday) {
       await page.evaluate(() => {
-        location.hash = '/';
+        location.hash = '/today';
       });
       await expect(passage).toBeVisible();
     }

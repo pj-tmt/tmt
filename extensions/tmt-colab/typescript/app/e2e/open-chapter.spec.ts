@@ -3,7 +3,7 @@ import { capturePath } from './captures.js';
 
 test.use({ timezoneId: 'UTC' });
 
-async function mount(page: Page, kind = 'many', hash = '/') {
+async function mount(page: Page, kind = 'many', hash = '/today') {
   await page.goto('/');
   await page.clock.setFixedTime(new Date('2026-10-17T09:30:00Z'));
   await page.evaluate(
@@ -53,7 +53,7 @@ async function openFromScrolledToday(page: Page, title = 'Page 05') {
 async function expectBackAtToday(page: Page, offset: number, title: string) {
   await expect(held(page)).toHaveCount(0);
   await expect(app(page).locator('.today h1')).toBeVisible();
-  expect(hash(page)).toBe('#/');
+  expect(hash(page)).toBe('#/today');
   await expect(link(page, title)).toBeFocused();
   expect(Math.abs((await scrollY(page)) - offset)).toBeLessThanOrEqual(1);
 }
@@ -219,7 +219,7 @@ test('a reload on the panel URL shows the panel over Today again', async ({ page
   await expect(held(page).locator('.today-chapters')).toBeVisible();
   await bar(page).getByRole('button', { name: 'Close' }).click();
   await expect(app(page).locator('.today h1')).toBeVisible();
-  expect(hash(page)).toBe('#/');
+  expect(hash(page)).toBe('#/today');
 });
 
 test('a modified click keeps the link: no panel is opened', async ({ page }) => {
@@ -230,7 +230,7 @@ test('a modified click keeps the link: no panel is opened', async ({ page }) => 
     link(page, 'Budget review').click({ modifiers: ['ControlOrMeta'] }),
   ]);
   await popup.close();
-  expect(hash(page)).toBe('#/');
+  expect(hash(page)).toBe('#/today');
   await expect(app(page).locator('main[data-chapter]')).toHaveCount(0);
 });
 

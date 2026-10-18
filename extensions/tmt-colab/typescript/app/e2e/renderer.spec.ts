@@ -1,4 +1,4 @@
-import { todayHeading } from '../test/all-pages.js';
+import { homeList } from '../test/all-pages.js';
 import { pageAction } from '../test/page-actions.js';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
@@ -118,7 +118,7 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
   page,
 }) => {
   await page.goto('/');
-  await expect(todayHeading(page)).toBeVisible();
+  await expect(homeList(page)).toBeVisible();
   await page.screenshot({ path: '/tmp/1187-home.png', fullPage: true });
   await page.getByRole('link', { name: /A shared page/ }).click();
   await expect(page.locator('.status').filter({ hasText: 'Live' })).toBeVisible();
@@ -217,7 +217,7 @@ test('opaque frame cannot read app storage, cookies, native keys or bridge; no n
   });
   expect(requests).toEqual(['/positive-control']);
   await expect(page).not.toHaveTitle('dispatched');
-  await expect(todayHeading(page)).toBeVisible();
+  await expect(homeList(page)).toBeVisible();
 });
 
 test('self-navigation can leak one request, then tears down the frame and never resumes it', async ({
@@ -235,7 +235,7 @@ test('self-navigation can leak one request, then tears down the frame and never 
   expect(requests).toEqual(['/self-navigation']);
   expect(referrers).toEqual([undefined]);
   // no-referrer also applies to the navigation that the sandbox cannot prevent.
-  await expect(todayHeading(page)).toBeVisible();
+  await expect(homeList(page)).toBeVisible();
 });
 
 test('handshake binds window source and renderId; captured digest and cleanup survive replacement', async ({

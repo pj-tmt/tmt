@@ -4,7 +4,7 @@ import { capturePath } from './captures.js';
 
 test.use({ timezoneId: 'UTC' });
 
-async function mount(page: Page, kind = 'few', hash = '/') {
+async function mount(page: Page, kind = 'few', hash = '/today') {
   await page.goto('/');
   await page.clock.setFixedTime(new Date('2026-10-17T09:30:00Z'));
   await page.evaluate(
@@ -84,7 +84,7 @@ test('the hero reads the clock and the counts; a metric jumps to its first chapt
   await expect(app(page).locator('[data-today-waiting] a')).toBeFocused();
   await expect(app(page).locator('[data-today-waiting] a')).toBeInViewport();
   // The location hash holds the mounted route: a jump never writes to it.
-  expect(new URL(page.url()).hash).toBe('#/');
+  expect(new URL(page.url()).hash).toBe('#/today');
 });
 
 test('the greeting follows the viewer clock', async ({ page }) => {
@@ -137,36 +137,49 @@ test('the nav moves between Today and All pages; Waiting from All pages jumps on
     'page',
   );
   await openAllPages(page, app(page));
-  expect(new URL(page.url()).hash).toBe('#/all');
+  expect(new URL(page.url()).hash).toBe('#/');
   await expect(app(page).locator('.pages > li')).toHaveCount(5);
   await expect(nav(page).getByRole('link', { name: 'All pages' })).toHaveAttribute(
     'aria-current',
     'page',
   );
   await nav(page).getByRole('button', { name: 'Waiting' }).click();
-  expect(new URL(page.url()).hash).toBe('#/');
+  expect(new URL(page.url()).hash).toBe('#/today');
   await expect(app(page).locator('[data-today-waiting] a')).toBeFocused();
   await nav(page).getByRole('link', { name: 'All pages' }).click();
   await nav(page).getByRole('link', { name: 'Today' }).click();
   await expect(greeting(page)).toHaveText('Good morning');
   // The All pages metric is the same destination.
   await metric(page, 'All pages').getByRole('link').click();
-  expect(new URL(page.url()).hash).toBe('#/all');
+  expect(new URL(page.url()).hash).toBe('#/');
 });
 
-test('a home location that still carries list search opens All pages with it', async ({ page }) => {
-  await mount(page, 'few', `/?label=${encodeURIComponent(JSON.stringify(['design']))}`);
+test('an old /all link opens the home list with its search', async ({ page }) => {
+  await mount(page, 'few', `/all?label=${encodeURIComponent(JSON.stringify(['design']))}`);
   await expect(app(page).locator('.pages > li')).toHaveText([/Research log/]);
   const hash = new URL(page.url()).hash;
-  expect(hash).toMatch(/^#\/all\?/);
+  expect(hash).toMatch(/^#\/\?/);
   expect(hash).toContain('label');
   await expect(app(page).locator('.home h1')).toBeVisible();
 });
 
-test('a home location whose list search cannot be read stays on Today', async ({ page }) => {
-  await mount(page, 'few', '/?label=design&q=123');
-  await expect(greeting(page)).toHaveText('Good morning');
+test('an old /all link whose search cannot be read opens the plain home list', async ({ page }) => {
+  await mount(page, 'few', '/all?label=design&q=123');
+  await expect(app(page).locator('.home h1')).toBeVisible();
+  await expect(app(page).locator('.pages > li')).toHaveCount(5);
   expect(new URL(page.url()).hash).toBe('#/');
+});
+
+test('the home route is the page list: no Today greeting, and Today is one link away', async ({
+  page,
+}) => {
+  await mount(page, 'few', '/');
+  await expect(app(page).locator('.home h1')).toBeVisible();
+  await expect(app(page).locator('.today')).toHaveCount(0);
+  await expect(greeting(page)).toHaveCount(0);
+  await nav(page).getByRole('link', { name: 'Today' }).click();
+  await expect(greeting(page)).toHaveText('Good morning');
+  expect(new URL(page.url()).hash).toBe('#/today');
 });
 
 test('a chapter title opens its page; the search control works from Today', async ({ page }) => {

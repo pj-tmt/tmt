@@ -33,7 +33,7 @@ function page(n: number, title: string, labels: string[], changes: Partial<PageS
 
 export async function mountPageList(
   size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few',
-  hash = '/all',
+  hash = '/',
 ) {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('list-fixture');

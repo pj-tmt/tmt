@@ -33,7 +33,7 @@ import './page-list.css';
 
 const t = text.pageList;
 const rootRoute = getRouteApi('__root__');
-const homeRoute = getRouteApi('/all');
+const homeRoute = getRouteApi('/');
 /** The query that may filter and order the list (and a copied URL), bounded and validated. */
 export interface HomeSearch {
   q?: string;

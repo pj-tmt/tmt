@@ -541,7 +541,8 @@ is added.
 
 ## Today and the page list
 
-The home route `/` is Today (`today.tsx`; `today-model.ts` is pure: waiting pages first, then the
+The home route `/` is the page list (below). Today is the `/today` route, reached from `HomeNav`
+until the shell page replaces it (`today.tsx`; `today-model.ts` is pure: waiting pages first, then the
 ten most recently updated, the older rest folded into one-line rows, counts over active pages
 and the viewer-clock greeting). Both views read the loader's `spaceHome()` pages through
 `useHomeSpace` (`home-space.ts`), which fills a missing title by the bounded hint read, and share
@@ -553,8 +554,8 @@ IDs (proposals first, readings, answer groups, reviews) from the admitted owner 
 trusting device labels. The shared needs-you vectors pin native/browser parity. Today sums
 `needsYou` items and shows chapter counts; missing summaries make the total a lower bound or
 `Checking pages…`, never a false zero. Returning through the existing Home loader or reloading
-reads again; no new polling loop. Per-item details remain #3578. A `/` location that still carries list
-search redirects to `/all` with it (`beforeLoad`).
+reads again; no new polling loop. Per-item details remain #3578. `/all`, the list's former route,
+redirects to `/` with its search (`beforeLoad`), so an old link or history entry still lands on it.
 
 A chapter opened from Today (`chapter.ts`, `chapter-layer.tsx`, `chapter.css`) keeps the URL
 `/pages/<id>`; how it is presented is history state, `{chapter: {scroll, full?}}` (read through
@@ -587,7 +588,7 @@ action owners report lifetime separately from stale-outcome presentation fences.
 The [live-passage contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#live-chapter-passages-3540)
 owns selection, bounds and publication behavior.
 
-The list is the `/all` route ("All pages"). `home.tsx` renders it from the same pages;
+The list is the home route `/` ("All pages" in `HomeNav`). `home.tsx` renders it from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
 (`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in

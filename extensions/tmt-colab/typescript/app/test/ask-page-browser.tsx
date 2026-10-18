@@ -182,7 +182,7 @@ export async function mount(
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  location.hash = options.todayPassages ? '/' : '/pages/welcome';
+  location.hash = options.todayPassages ? '/today' : '/pages/welcome';
   const host = document.createElement('div');
   host.id = 'ask-page-fixture';
   document.body.append(host);

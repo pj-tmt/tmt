@@ -1,11 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-async function mount(
-  page: Page,
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few',
-  hash = '/all',
-) {
+async function mount(page: Page, size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few', hash = '/') {
   await page.goto('/');
   await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
   await page.evaluate(
@@ -52,7 +48,7 @@ for (const query of [
   test(`a hand-written list link (${query}) drops what it cannot read and shows the list`, async ({
     page,
   }) => {
-    await mount(page, 'few', `/all?${query}`);
+    await mount(page, 'few', `/?${query}`);
     await expect(titles(page)).toHaveCount(query.startsWith('label=%5B') ? 2 : 4);
     await expect(app(page).getByText('Something went wrong')).toHaveCount(0);
   });
@@ -196,7 +192,7 @@ test('a multi-word creator keeps its space in the token and the address, and an 
   const hash = new URL(page.url()).hash;
   expect(new URLSearchParams(hash.slice(hash.indexOf('?') + 1)).get('by')).toBe('["Studio agent"]');
   await page.evaluate((hash) => {
-    location.hash = '/';
+    location.hash = '/today';
     location.hash = hash;
   }, hash);
   await expect(app(page).locator('[data-by-filter="Studio agent"]')).toBeVisible();
@@ -233,7 +229,7 @@ test('the list keeps its filter in the address and restores it on reload', async
   await expect(titles(page)).toHaveCount(2);
   const hash = new URL(page.url()).hash;
   await page.evaluate((hash) => {
-    location.hash = '/';
+    location.hash = '/today';
     location.hash = hash;
   }, hash);
   await expect(titles(page)).toHaveCount(2);

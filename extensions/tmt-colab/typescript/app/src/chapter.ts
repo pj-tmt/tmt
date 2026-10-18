@@ -132,7 +132,7 @@ export function prepareToday(router: AnyRouter, section: HTMLElement): void {
 export function finishReturn(router: AnyRouter): void {
   const state = trip(router);
   const { left, today } = state;
-  if (!left || !today?.isConnected || router.state.location.pathname !== '/') return;
+  if (!left || !today?.isConnected || router.state.location.pathname !== '/today') return;
   state.left = undefined;
   window.scrollTo(0, left.scroll);
   today.querySelector<HTMLElement>(`[data-page-id="${left.id}"] a`)?.focus({ preventScroll: true });
@@ -177,7 +177,7 @@ export function closeChapter(router: AnyRouter, pageId: string, scroll: number):
   if (state.opened) {
     state.opened = false;
     router.history.back();
-  } else void router.navigate({ to: '/', viewTransition: animated() });
+  } else void router.navigate({ to: '/today', viewTransition: animated() });
 }
 /** Escape with nothing left to escape inside the page: an open panel closes, the full page stays. */
 export function escapeChapter(router: AnyRouter): void {
