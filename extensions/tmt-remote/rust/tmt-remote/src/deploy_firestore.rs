@@ -93,7 +93,7 @@ impl fmt::Display for DeploySetupError {
 impl std::error::Error for DeploySetupError {}
 
 /// Preflight has no effects; its HTTP evidence is separate from persisted step outcomes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeployPreflightError {
     pub reason: DeployProviderError,
     pub provider: Option<DeployProviderDiagnostic>,
@@ -785,7 +785,7 @@ mod tests {
                 &stop,
                 |deadline| {
                     assert_eq!(deadline, ceiling);
-                    Err(error)
+                    Err(error.clone())
                 },
             );
             assert_eq!(
@@ -796,7 +796,7 @@ mod tests {
             assert_eq!(
                 composite_observation(start, ceiling, &stop, |deadline| {
                     assert_eq!(deadline, start + limits::DEPLOY_PROVIDER_CALL);
-                    Err(error)
+                    Err(error.clone())
                 }),
                 Err(error),
                 "a failure before the clipped final round stays a failure"
@@ -1047,6 +1047,29 @@ mod cause_tests {
             encoded.replace("\"extra\":0", "\"extra\":0,\"message\":\"SECRET\""),
         ] {
             assert!(parse_reply(invalid.as_bytes()).unwrap_err().cause.is_none());
+        }
+    }
+
+    #[test]
+    fn file_samples_cross_the_helper_boundary_only_when_bounded_and_public() {
+        let mut reply = serde_json::json!({"version":1,"error":"unknown","cause":{"code":"files-mismatch","phase":"list","fileSamples":[{"path":"/404.html","status":"ACTIVE","hashPrefix":"abcdef01","relation":"path-missing"}]}});
+        let admitted = parse_reply(&serde_json::to_vec(&reply).unwrap())
+            .unwrap_err()
+            .cause
+            .unwrap();
+        assert_eq!(admitted.file_samples.unwrap()[0].path, "/404.html");
+        for path in [
+            "https://private.invalid/file",
+            "/sites/private/versions/private",
+            "/index.html?secret=x",
+        ] {
+            reply["cause"]["fileSamples"][0]["path"] = path.into();
+            assert!(
+                parse_reply(&serde_json::to_vec(&reply).unwrap())
+                    .unwrap_err()
+                    .cause
+                    .is_none()
+            );
         }
     }
 

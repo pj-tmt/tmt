@@ -329,7 +329,10 @@ web-app or Version create. An ambiguous Hosting mutation gets one fresh-budget, 
 confirmation in the same run; it never triggers another mutation. If still unknown, inspect the
 fixed cause/phase (and HTTP class when known) shown in human output and each JSON step's
 `cause`, then rerun the same authorized command to observe the original. File mismatches also
-record counts in saved state and JSON: planned, listed, remaining uploads, active, missing and extra. Hosting reads
+record counts in saved state and JSON: planned, listed, remaining uploads, active, missing and extra.
+The [bounded public-file samples](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
+beneath the cause distinguish an unexpected path from a changed hash; unsafe paths and selected
+identifiers are redacted. Hosting reads
 the union of explicit EXPECTED/ACTIVE inventories; an empty remaining-upload list alone never
 proves missing content. Retain the saved record;
 do not delete it to bypass the no-repeat fence. Existing records remain readable. For a helper-only

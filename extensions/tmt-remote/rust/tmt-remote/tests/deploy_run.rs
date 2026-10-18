@@ -577,7 +577,7 @@ fn running_a_finished_plan_again_keeps_the_binding_until_rules_are_touched() {
         let done = go(&plan, &mut fake, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
         let binding = done.binding.clone().unwrap();
         // The check itself fails on the first read: the Rules were never touched again.
-        fake.observe_faults.insert("database".into(), error);
+        fake.observe_faults.insert("database".into(), error.clone());
         let again = go(&plan, &mut fake, &mut sink, done).unwrap();
         let run = again.run.as_ref().unwrap();
         assert_eq!(run.state, RunState::Partial, "{error:?}");
@@ -1175,7 +1175,7 @@ impl tmt_remote::deploy_run::DeployPort for HostedFake {
         s: &tmt_remote::deploy_run::DeployStep,
     ) -> Result<tmt_remote::deploy_run::DeployApplied, DeployProviderError> {
         if s.id == "hosting:stage:create"
-            && let Some(cause) = self.cause
+            && let Some(cause) = self.cause.clone()
         {
             self.cause_calls += 1;
             return Err(DeployProviderError::Unconfirmed(cause));
@@ -1798,7 +1798,7 @@ fn composite_check_cancellation_or_refusal_is_saved_without_publishing() {
     ] {
         let mut fake = Fake::new(ACCOUNT);
         fake.building.extend(ids.clone());
-        fake.composite_rounds.push_back(Err(error));
+        fake.composite_rounds.push_back(Err(error.clone()));
         let record = go(
             &plan,
             &mut fake,
@@ -1994,9 +1994,10 @@ fn unknown_hosting_persists_the_adapter_cause_and_keeps_the_create_fence() {
         phase: CausePhase::Body,
         http_status_class: Some(HttpStatusClass::Success),
         files: None,
+        file_samples: None,
     };
     let mut fake = HostedFake::new();
-    fake.cause = Some(cause);
+    fake.cause = Some(cause.clone());
     let mut sink = Mem::default();
     let record = run(
         &plan,
@@ -2320,11 +2321,12 @@ fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
     assert_eq!(serde_json::to_value(old_cause).unwrap(), old);
     let mut detail = old;
     detail["files"] = serde_json::json!({"planned":15,"expected":10,"active":4,"listed":14,"missing":1,"extra":0});
+    detail["fileSamples"] = serde_json::json!([{ "path":"/404.html", "status":"ACTIVE", "hashPrefix":"abcdef01", "relation":"path-missing" }]);
     let cause: StepCause = serde_json::from_value(detail.clone()).unwrap();
     let plan = hosted_plan();
     let original_digest = plan.digest().to_owned();
     let mut fake = HostedFake::new();
-    fake.cause = Some(cause);
+    fake.cause = Some(cause.clone());
     let record = run(
         &plan,
         &authorized(&plan),
@@ -2346,7 +2348,10 @@ fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
         .iter()
         .find(|s| s.id == "hosting:stage:create")
         .unwrap();
-    assert_eq!(serde_json::to_value(step.cause.unwrap()).unwrap(), detail);
+    assert_eq!(
+        serde_json::to_value(step.cause.as_ref().unwrap()).unwrap(),
+        detail
+    );
     assert_eq!(plan.digest(), original_digest);
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
@@ -2376,6 +2381,21 @@ fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
             "REMOTE_STATE_UNSAFE"
         );
     }
+    for private_path in [format!("/{PROJECT}.html"), format!("/{ACCOUNT}.html")] {
+        let mut invalid = document.clone();
+        let step = invalid["record"]["run"]["steps"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|s| s["id"] == "hosting:stage:create")
+            .unwrap();
+        step["cause"]["fileSamples"][0]["path"] = private_path.into();
+        fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert_eq!(
+            writer.load_or_draft().unwrap_err().code,
+            "REMOTE_STATE_UNSAFE"
+        );
+    }
     fs::write(&path, original).unwrap();
     fake.cause = None;
     fake.inner.present.insert("hosting:stage:create".into());
@@ -2398,4 +2418,36 @@ fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
             .iter()
             .all(|s| s.cause.is_none())
     );
+}
+
+#[test]
+fn hosting_file_samples_are_additive_bounded_and_closed() {
+    use tmt_remote::deploy_run::StepCause;
+    let old = serde_json::json!({"code":"files-mismatch","phase":"list"});
+    let old_cause: StepCause = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(serde_json::to_value(old_cause).unwrap(), old);
+    let mut value = old;
+    value["fileSamples"] = serde_json::json!([
+        {"path":"/404.html","status":"ACTIVE","hashPrefix":"aaaaaaaa","relation":"path-missing"},
+        {"path":"<redacted>","status":"EXPECTED","hashPrefix":"bbbbbbbb","relation":"hash-different"}
+    ]);
+    let cause: StepCause = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(serde_json::to_value(cause).unwrap(), value);
+    let first = value["fileSamples"][0].clone();
+    for (key, invalid) in [
+        ("path", serde_json::json!("https://example.test/private")),
+        ("path", serde_json::json!("/sites/private/versions/private")),
+        ("path", serde_json::json!("/file?token=secret")),
+        ("path", serde_json::json!(format!("/{}", "x".repeat(129)))),
+        ("status", serde_json::json!("OTHER")),
+        ("hashPrefix", serde_json::json!("a".repeat(64))),
+        ("relation", serde_json::json!("OTHER")),
+        ("body", serde_json::json!("SECRET")),
+    ] {
+        let mut bad = value.clone();
+        bad["fileSamples"][0][key] = invalid;
+        assert!(serde_json::from_value::<StepCause>(bad).is_err(), "{key}");
+    }
+    value["fileSamples"] = serde_json::Value::Array(vec![first; 5]);
+    assert!(serde_json::from_value::<StepCause>(value).is_err());
 }

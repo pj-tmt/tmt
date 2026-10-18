@@ -101,6 +101,33 @@ fn valid(record: &DeployRecord) -> bool {
             else {
                 return false;
             };
+            let identifiers = [
+                view.project.as_str(),
+                view.account.as_str(),
+                record.deployment_id.as_str(),
+                view.hosting.as_ref().map_or("", |h| h.site.as_str()),
+                hosting.app_id.as_deref().unwrap_or(""),
+                hosting.version.as_deref().unwrap_or(""),
+                hosting
+                    .version
+                    .as_deref()
+                    .and_then(|v| v.rsplit('/').next())
+                    .unwrap_or(""),
+            ];
+            if run
+                .steps
+                .iter()
+                .flat_map(|s| s.cause.iter())
+                .flat_map(|c| c.file_samples.iter().flatten())
+                .any(|sample| {
+                    sample.path != "<redacted>"
+                        && identifiers
+                            .iter()
+                            .any(|id| !id.is_empty() && sample.path.contains(id))
+                })
+            {
+                return false;
+            }
             if serde_json::to_value(&view).expect("view serializes") != hosting.envelope
                 || crate::deploy_plan::sha256_hex(
                     &serde_json::to_vec(&view).expect("view serializes"),

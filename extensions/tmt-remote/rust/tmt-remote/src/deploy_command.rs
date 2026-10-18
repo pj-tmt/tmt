@@ -377,7 +377,7 @@ fn readable_bytes(bytes: u64) -> String {
         format!("{:.2} {unit}", bytes as f64 / divisor as f64)
     }
 }
-fn describe_cause(text: &mut String, cause: Option<deploy_run::StepCause>, label: &str) {
+fn describe_cause(text: &mut String, cause: Option<&deploy_run::StepCause>, label: &str) {
     if let Some(cause) = cause {
         let value = serde_json::to_value(cause).expect("fixed step cause serializes");
         write!(
@@ -391,6 +391,18 @@ fn describe_cause(text: &mut String, cause: Option<deploy_run::StepCause>, label
             write!(text, "; HTTP {class}").expect("String write");
         }
         text.push_str(").\n");
+        for sample in cause.file_samples.iter().flatten() {
+            let row = serde_json::to_value(sample).expect("bounded sample serializes");
+            writeln!(
+                text,
+                "  File: {}; {}; hash {}; {}.",
+                sample.path,
+                row["status"].as_str().expect("sample status"),
+                sample.hash_prefix,
+                row["relation"].as_str().expect("sample relation")
+            )
+            .expect("String write");
+        }
     }
 }
 fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::path::Path) {
@@ -426,11 +438,11 @@ fn describe_record(text: &mut String, record: &DeployRecord, record_path: &std::
                     state
                 })
                 .or_insert(0usize) += 1;
-            describe_cause(text, step.cause, "Hosting upload cause");
+            describe_cause(text, step.cause.as_ref(), "Hosting upload cause");
             continue;
         }
         writeln!(text, "{}: {}", step.id, state).expect("String write");
-        describe_cause(text, step.cause, "Cause");
+        describe_cause(text, step.cause.as_ref(), "Cause");
         if step.id == "web-app:create" && step.state == deploy_run::StepState::Building {
             text.push_str(
                 "Firebase is still creating the web app. Rerun the same command to check it.\n",
@@ -525,8 +537,19 @@ mod tests {
     fn human_cause_line_stays_unchanged_with_file_counts() {
         let cause = serde_json::from_str(r#"{"code":"files-mismatch","phase":"list","httpStatusClass":"2xx","files":{"planned":15,"expected":10,"active":4,"listed":14,"missing":1,"extra":0}}"#).unwrap();
         let mut text = String::new();
-        describe_cause(&mut text, Some(cause), "Cause");
+        describe_cause(&mut text, Some(&cause), "Cause");
         assert_eq!(text, "Cause: files-mismatch (phase list; HTTP 2xx).\n");
+    }
+
+    #[test]
+    fn human_file_samples_use_only_the_closed_public_diagnostic() {
+        let cause = serde_json::from_str(r#"{"code":"files-mismatch","phase":"list","httpStatusClass":"2xx","fileSamples":[{"path":"/404.html","status":"ACTIVE","hashPrefix":"abcdef01","relation":"path-missing"},{"path":"<redacted>","status":"EXPECTED","hashPrefix":"01234567","relation":"hash-different"}]}"#).unwrap();
+        let mut text = String::new();
+        describe_cause(&mut text, Some(&cause), "Cause");
+        assert_eq!(
+            text,
+            "Cause: files-mismatch (phase list; HTTP 2xx).\n  File: /404.html; ACTIVE; hash abcdef01; path-missing.\n  File: <redacted>; EXPECTED; hash 01234567; hash-different.\n"
+        );
     }
 
     #[test]
@@ -551,6 +574,7 @@ mod tests {
                         phase: deploy_run::CausePhase::Body,
                         http_status_class: Some(deploy_run::HttpStatusClass::Success),
                         files: None,
+                        file_samples: None,
                     }),
                     id: "hosting:stage:create".into(),
                     state: StepState::Unknown,
