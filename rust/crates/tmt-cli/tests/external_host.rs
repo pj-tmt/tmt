@@ -6,6 +6,8 @@
 //! binding stays unknown and is never retired.
 #![cfg(unix)]
 // This fixture uses only the shared private command environment.
+#[path = "external_host/sampling.rs"]
+mod sampling;
 #[allow(dead_code)]
 mod support;
 
@@ -91,6 +93,22 @@ case "$3" in
       *) printf '{"ok":{"paneId":null}}' ;;
     esac ;;
   snapshot)
+    # A sampling fixture logs each snapshot with its caller and requested
+    # panes. While `gate` exists, a consumption sampler other than the one
+    # pid it names, or a caller `ps` cannot classify, is refused.
+    if [ -f "$d/sampling" ]; then
+      p=$(printf '%s' "$input" | sed -n 's/.*"panes":\(\[[^]]*\]\).*/\1/p')
+      c=$(ps -o command= -p "$PPID" 2>/dev/null)
+      case "$c" in
+        *__consumption-sample*) r=sampler ;;
+        '') r=unknown ;;
+        *) r=other ;;
+      esac
+      v=answered
+      if [ -f "$d/gate" ] && [ "$r" != other ] && [ "$PPID" != "$(cat "$d/gate")" ]; then v=denied; fi
+      echo "pid=$$ ppid=$PPID caller=$r $v panes=${p:-null}" >> "$d/snapshots"
+      if [ "$v" = denied ]; then printf '{"error":{"code":"failed","message":"gated"}}'; exit 0; fi
+    fi
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; fi
     printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}]}}' "$(cat "$d/pid")" "$m" "$a" ;;
