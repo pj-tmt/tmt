@@ -1,4 +1,5 @@
 import { isHostedOrigin } from './hosted-location.js';
+import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
@@ -18,6 +19,9 @@ export const MAX_RENDER_HEIGHT = 1_000_000;
 const HEIGHT_UPDATE_MS = 100;
 /** How long a reveal waits for the frame's answer before reporting that nothing was found. */
 const REVEAL_MS = 3000;
+/** A reveal whose target lies below the height the frame has so far finishes its scroll only when
+ * the frame grows within this time, and never after the reader has scrolled. */
+const PENDING_SCROLL_MS = 2000;
 const GROWTH_REPORT_LIMIT = 5;
 /** Shared inline geometry budget; reading bands use only slots left by existing controls. */
 export const INLINE_SLOT_LIMIT = 250;
@@ -203,7 +207,7 @@ export async function mountRenderer(
   let imageRequestId = '';
   let pendingReveal: { requestId: string; settle(found: boolean | undefined): void } | undefined;
   const readyWaiters: (() => void)[] = [];
-  let pendingScrollTop: number | undefined;
+  let pendingScroll: { top: number; until: number; scrollY: number } | undefined;
   let imageResolver: DocumentImages | undefined;
   const images = (input: DocumentImageInput) => {
     imageInput = input;
@@ -315,18 +319,25 @@ export async function mountRenderer(
     lastHeight = next;
     updatedAt = now;
     frame.style.height = `${next}px`;
-    if (pendingScrollTop !== undefined) {
-      const top = pendingScrollTop;
-      pendingScrollTop = undefined;
-      window.scrollTo({
-        top: Math.max(0, Math.min(document.documentElement.scrollHeight - window.innerHeight, top)),
-        behavior: 'instant',
-      });
+    if (pendingScroll) {
+      const { top, until, scrollY } = pendingScroll;
+      pendingScroll = undefined;
+      // Any scroll by the reader (wheel, touch, keys, bar) moves the page off the reveal's own
+      // position, and a late growth (images, slots) no longer pulls them back.
+      if (now <= until && Math.abs(window.scrollY - scrollY) < 1)
+        window.scrollTo({
+          top: Math.max(
+            0,
+            Math.min(document.documentElement.scrollHeight - window.innerHeight, top),
+          ),
+          behavior: 'instant',
+        });
     }
   };
   const release = () => {
     if (stopped) return;
     pendingReveal?.settle(undefined);
+    pendingScroll = undefined;
     readyWaiters.splice(0).forEach((resume) => resume());
     imageResolver?.close();
     if (ready)
@@ -397,7 +408,10 @@ export async function mountRenderer(
         const limit = document.documentElement.scrollHeight - window.innerHeight;
         window.scrollTo({ top: Math.max(0, Math.min(limit, top)), behavior: 'instant' });
         // The frame may not have its full height yet: finish the scroll once it grows.
-        pendingScrollTop = top > limit ? top : undefined;
+        pendingScroll =
+          top > limit
+            ? { top, until: now + PENDING_SCROLL_MS, scrollY: window.scrollY }
+            : undefined;
         return;
       }
     }
@@ -1079,7 +1093,7 @@ export async function mountRenderer(
     reveal: (id: string) =>
       new Promise<boolean | undefined>((resolve) => {
         if (stopped) return resolve(undefined);
-        if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(id)) return resolve(false);
+        if (!validShellAnchor(id)) return resolve(false);
         const send = () => {
           if (stopped || !ready) return resolve(undefined);
           pendingReveal?.settle(undefined);

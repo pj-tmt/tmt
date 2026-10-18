@@ -497,10 +497,10 @@ export const text = {
     empty: 'Nothing is here yet.',
     items: 'Items',
     unavailable: 'Unavailable',
+    notShown: 'This shell page has no content that can be shown.',
     kind: { page: 'Page', anchor: 'Passage', reading: 'Suggested reading' },
     audience: (audience: string) => `For ${audience}`,
     needsYou: (count: number) => `Needs you ${count}`,
-    summaryBy: (who: string | undefined, when: string) => (who ? `${who} · ${when}` : when),
     changedSince: (count: number) =>
       `${count} ${count === 1 ? 'page' : 'pages'} changed since this summary`,
     archived: 'Archived',

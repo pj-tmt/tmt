@@ -2115,7 +2115,7 @@ function Page() {
                 remote={{ deviceName: transport.backendName }}
               />
               <main className="canvas">
-                {view.shell && <ShellPage shell={view.shell} />}
+                {(view.shell || !endedError) && <ShellPage shell={view.shell} />}
                 {endedError && <EndedBody error={endedError} action={endedAction} />}
               </main>
             </section>

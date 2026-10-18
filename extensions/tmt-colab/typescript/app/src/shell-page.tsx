@@ -1,5 +1,6 @@
 import { getRouteApi, Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
+import { AgentChip } from './components/agent-chip.js';
 import { compactRelativeTime } from './display-time.js';
 import { HomeTitleLink } from './home-titles.js';
 import { useHomeSpace } from './home-space.js';
@@ -15,8 +16,21 @@ const rootRoute = getRouteApi('__root__');
 const t = text.shellPage;
 
 /** The shell page: the app owns the whole look, the document only supplies the data. Items are
- * links to their source pages and carry no content of their own. */
-export function ShellPage({ shell }: { shell: Shell }) {
+ * links to their source pages and carry no content of their own. A page with no admitted value
+ * says so instead of drawing nothing. */
+export function ShellPage({ shell }: { shell: Shell | undefined }) {
+  return shell ? (
+    <ShellContent shell={shell} />
+  ) : (
+    <div className="shell-page">
+      <p className="shell-state" role="status">
+        {t.notShown}
+      </p>
+    </div>
+  );
+}
+
+function ShellContent({ shell }: { shell: Shell }) {
   const { transport } = rootRoute.useRouteContext();
   const [home, setHome] = useState<SpaceHome | 'failed' | undefined>();
   useEffect(() => {
@@ -64,8 +78,13 @@ function ShellSummary({ shell, home }: { shell: Shell; home: SpaceHome | undefin
       <h2 className="shell-summary-line1">{summary.line1}</h2>
       <p className="shell-summary-line2">{summary.line2}</p>
       <p className="shell-summary-meta">
+        {byline.who && (
+          <>
+            <AgentChip name={byline.who} /> ·{' '}
+          </>
+        )}
         <time dateTime={new Date(byline.timeMs).toISOString()}>
-          {t.summaryBy(byline.who, compactRelativeTime(byline.timeMs, now))}
+          {compactRelativeTime(byline.timeMs, now)}
         </time>
         {changed > 0 && <span className="shell-changed"> · {t.changedSince(changed)}</span>}
       </p>

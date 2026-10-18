@@ -57,7 +57,8 @@ for (const width of [1440, 1024, 390])
       await expect(page.locator('.shell-summary-line2')).toHaveText(
         'Two reviews still need a decision before Friday.',
       );
-      await expect(page.locator('.shell-summary-meta')).toContainText('Atlas');
+      await expect(page.locator('.shell-summary-meta .agent-chip')).toHaveText('Atlas');
+      await expect(page.locator('.shell-summary-meta')).toContainText('Atlas ·');
       await expect(page.locator('.shell-changed')).toHaveText(
         ' · 1 page changed since this summary',
       );
@@ -168,6 +169,10 @@ test('an empty shell, one without a summary and a failed page list stay readable
   await openShell(page, 'no-summary');
   await expect(page.locator('.shell-summary')).toHaveCount(0);
   await expect(page.locator('.shell-cell')).toHaveCount(6);
+  await page.unroute('**/src/main.tsx');
+  await openShell(page, 'not-admitted');
+  await expect(page.getByText(text.shellPage.notShown, { exact: true })).toBeVisible();
+  await expect(page.locator('.shell-cell')).toHaveCount(0);
   await page.unroute('**/src/main.tsx');
   await openShell(page, 'pages-failed');
   await expect(page.getByText(text.shellPage.pagesUnavailable, { exact: true })).toBeVisible();

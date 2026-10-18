@@ -637,8 +637,9 @@ of the HTML frame; the app owns every pixel and the document supplies only data.
 is the plain per-item view: `shellCells` matches each item, in `order`, to its source page in the
 space list (title, archived, last edit, Needs you count); a page the list does not show is
 `unavailable`, listed but never linked, and a reference grants no access. `shellByline` names the
-summary writer only by the Core-resolved display agent, never by identity, and `pagesChangedSince`
-counts the distinct source pages edited after the summary (unknown times never count).
+summary writer only by the Core-resolved display agent, never by identity (the page draws it as one
+inline `AgentChip`), and `pagesChangedSince` counts the distinct source pages edited after the summary
+(unknown times never count).
 
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
 filled by the same bounded hint read as the list); a failed read keeps every item as a link with
@@ -646,11 +647,13 @@ an "unavailable" notice. Cells are real `Link`s (`pageLinkKey` keeps the modifie
 behaviour); a reading item adds the page route's `read` hint, and an anchor item adds the `anchor`
 search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer to
 `reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
-reports its top so the host scrolls there once the frame has its full height; anything else leaves
+reports its top so the host scrolls there, finishing the scroll if the frame grows within two
+seconds and the reader has not moved (a later growth never pulls them back); anything else leaves
 the page open at the top with a short notice. Before it leaves for an item the page
 records the item in its own history entry (`shellFocus`), and the shell restores focus to it when
 the browser comes back. The layout is borderless and wide (grid columns, no card or shadow) and
-holds no per-user state. Editing stays with the seven validated actions; the browser has no edit
+holds no per-user state; a shell page whose value was not admitted shows one state line instead of
+an empty page. Editing stays with the seven validated actions; the browser has no edit
 controls, and the shared and hosted readers keep `ShellNotice`.
 
 ## Trusted browser management

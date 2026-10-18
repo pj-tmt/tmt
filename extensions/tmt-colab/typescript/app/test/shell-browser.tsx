@@ -56,7 +56,7 @@ function fullShell(): Shell {
   };
 }
 
-export type ShellCase = 'full' | 'empty' | 'no-summary' | 'pages-failed';
+export type ShellCase = 'full' | 'empty' | 'no-summary' | 'pages-failed' | 'not-admitted';
 
 export function mount(kind: ShellCase = 'full') {
   const rows = [
@@ -100,7 +100,7 @@ export function mount(kind: ShellCase = 'full') {
     async page(id: string) {
       const row = rows.find((candidate) => candidate.id === id) ?? rows[0];
       return id === SHELL
-        ? { ...row, source: '', pageType: 'shell', shell }
+        ? { ...row, source: '', pageType: 'shell', ...(kind === 'not-admitted' ? {} : { shell }) }
         : {
             ...row,
             source: `<h1>${row.title}</h1><div style="height:2400px">Spacer</div><section id="decisions"><h2>Decisions</h2></section><div style="height:2400px">End</div>`,
