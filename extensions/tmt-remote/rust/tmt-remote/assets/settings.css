@@ -18,8 +18,25 @@
   padding: 12px 0;
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
+.settings-page #access-notice:has(#read-only[hidden]) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.settings-page #access-notice:has(#read-only[hidden]) .eyebrow,
 .settings-page #access-notice:has(#read-only[hidden]) .settings-cli {
   display: none;
+}
+.settings-page #access-notice:has(#read-only[hidden]) .tmt-ui-notice-mark {
+  margin: 0;
+}
+.settings-page #access-notice:has(#read-only[hidden]) #refresh {
+  margin-left: auto;
+}
+.settings-page #access-notice #controls-reason,
+.settings-page #access-notice #warning {
+  flex-basis: 100%;
 }
 .settings-page .tmt-ui-notice-mark p {
   margin: 0;
@@ -28,7 +45,8 @@
   padding: 22px 0;
   border-bottom: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
-.settings-heading {
+.settings-heading,
+.settings-page #remote-heading {
   margin: 0 0 12px;
   font: 600 16px/1.5 var(--tmt-ui-font-body);
 }
@@ -78,6 +96,11 @@
 .settings-page .settings-choice:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
+}
+.settings-page #remotes {
+  margin-top: 0;
+  padding-top: 22px;
+  border-top: 0;
 }
 .settings-fields > .tmt-ui-field {
   margin-top: 12px;
@@ -131,6 +154,9 @@
 @media (max-width: 650px) {
   .settings-title {
     font-size: 22px;
+  }
+  .settings-page #access-notice:has(#read-only[hidden]) #refresh {
+    margin-left: 0;
   }
   .settings-section-body:has(> .settings-fields) {
     grid-template-columns: 1fr;
