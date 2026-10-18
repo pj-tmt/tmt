@@ -1,11 +1,13 @@
 //! Digest-owned evidence: a tick collects; status reads; neither grants delivery.
 
 mod collect;
+mod decision;
 mod model;
 mod store;
 mod usage;
 
 pub use collect::collect;
+pub use decision::{Decision, Rule};
 pub use model::Window;
 pub use store::Store;
 pub use usage::collect as collect_usage;

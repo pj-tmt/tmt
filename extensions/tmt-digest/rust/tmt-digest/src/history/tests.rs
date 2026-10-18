@@ -2,7 +2,7 @@
 
 use super::test_support::{Fixture, ID, event};
 use super::*;
-use crate::history::{collect, model};
+use crate::history::{Decision, Rule, collect, model};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -206,7 +206,7 @@ fn clock_rollback_and_store_admission_never_create_zero_evidence() {
         store.status(ID, Window::Lifetime, 1001, Some(1)).unwrap()["gap"],
         "clock_discontinuity"
     );
-    store.0.pragma_update(None, "user_version", 3).unwrap();
+    store.0.pragma_update(None, "user_version", 4).unwrap();
     drop(store);
     assert!(Store::open(&fixture.0, true).is_err());
     let before = fs::read(fixture.0.join("digest/history/history.sqlite")).unwrap();
@@ -383,4 +383,152 @@ fn interrupted_reconciliation_exposes_no_total_beyond_its_coverage_watermark() {
         resumed.status(ID, Window::Lifetime, 1200, Some(1)).unwrap()["estimatedInputTokensAvoided"],
         200
     );
+}
+
+fn decision(at_ms: u64, rule: Rule, outcome: Option<&'static str>) -> Decision {
+    let interval = !matches!(rule, Rule::AutoIdlePoint | Rule::Off);
+    Decision {
+        at_ms,
+        identity_id: ID.into(),
+        interval_ms: interval.then_some(20_000),
+        flush_count: 10,
+        rule,
+        held_count: 3,
+        oldest_held_age_ms: Some(5_000),
+        outcome,
+    }
+}
+
+#[test]
+fn decisions_round_trip_in_time_order_inside_an_open_closed_window() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    let rows = [
+        decision(30, Rule::FlushCount, Some("delivered")),
+        decision(10, Rule::NotDue, None),
+        decision(20, Rule::IntervalDeadline, Some("not_idle")),
+        decision(40, Rule::AutoIdlePoint, Some("uncertain")),
+        decision(50, Rule::Off, Some("nothing_due")),
+    ];
+    for row in &rows {
+        store.record_decision(row).unwrap();
+    }
+    let at = |from, through| -> Vec<u64> {
+        store
+            .decisions(from, through)
+            .unwrap()
+            .iter()
+            .map(|row| row.at_ms)
+            .collect()
+    };
+    assert_eq!(at(0, 100), [10, 20, 30, 40, 50]);
+    assert_eq!(at(10, 40), [20, 30, 40], "the window is (from, through]");
+    assert_eq!(store.decisions(0, 100).unwrap()[0], rows[1]);
+    // A read-only open sees the same rows.
+    drop(store);
+    let reader = Store::open(&fixture.0, false).unwrap().unwrap();
+    assert_eq!(reader.decisions(0, 100).unwrap().len(), 5);
+    assert!(reader.decisions(100, 0).is_err());
+}
+
+#[test]
+fn a_store_from_before_decision_records_lists_none_and_never_gains_them_on_read() {
+    let fixture = Fixture::new();
+    drop(fixture.store());
+    let path = fixture.0.join("digest/history/history.sqlite");
+    let old = Connection::open(&path).unwrap();
+    old.execute_batch("DROP TABLE decisions; PRAGMA user_version=2;")
+        .unwrap();
+    drop(old);
+    let reader = Store::open(&fixture.0, false).unwrap().unwrap();
+    assert!(reader.decisions(0, 100).unwrap().is_empty());
+    drop(reader);
+    // The next tick adds the table and the new schema version.
+    let mut store = fixture.store();
+    store
+        .record_decision(&decision(5, Rule::NotDue, None))
+        .unwrap();
+    assert_eq!(store.decisions(0, 100).unwrap().len(), 1);
+}
+
+#[test]
+fn an_inconsistent_decision_is_refused_and_a_corrupt_row_fails_the_read() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let refused = |row: Decision| {
+        let mut other = Store::open(&fixture.0, true).unwrap().unwrap();
+        other.record_decision(&row).is_err()
+    };
+    // A delivery rule needs Core's answer; not_due has none.
+    assert!(refused(decision(1, Rule::IntervalDeadline, None)));
+    assert!(refused(decision(1, Rule::NotDue, Some("delivered"))));
+    assert!(refused(decision(1, Rule::Off, Some("maybe"))));
+    // The mode follows the rule: an interval only with an interval rule.
+    let mut auto = decision(1, Rule::AutoIdlePoint, Some("delivered"));
+    auto.interval_ms = Some(1);
+    assert!(refused(auto));
+    let mut interval = decision(1, Rule::FlushCount, Some("delivered"));
+    interval.interval_ms = None;
+    assert!(refused(interval));
+    // An age exists exactly when something is held.
+    let mut empty = decision(1, Rule::Off, Some("delivered"));
+    empty.held_count = 0;
+    assert!(refused(empty));
+    let mut unsafe_time = decision(1, Rule::Off, Some("delivered"));
+    unsafe_time.at_ms = MAX + 1;
+    assert!(refused(unsafe_time));
+    let mut stranger = decision(1, Rule::Off, Some("delivered"));
+    stranger.identity_id = "worker".into();
+    assert!(refused(stranger));
+    assert!(store.decisions(0, 100).unwrap().is_empty());
+    store
+        .0
+        .execute("INSERT INTO decisions(at_ms,identity_id,flush_count,rule,held,oldest_age_ms,outcome) VALUES(5,?1,10,'sometimes',1,1,'delivered')", [ID])
+        .unwrap();
+    assert!(store.decisions(0, 100).is_err());
+}
+
+#[test]
+fn decisions_keep_thirty_days_and_yield_to_a_full_budget_oldest_first() {
+    let fixture = Fixture::new();
+    let mut store = fixture.store();
+    let start = 40 * DAY;
+    for (offset, rule, outcome) in [
+        (0, Rule::NotDue, None),
+        (10, Rule::IntervalDeadline, Some("delivered")),
+        (20, Rule::FlushCount, Some("delivered")),
+    ] {
+        store
+            .record_decision(&decision(start + offset, rule, outcome))
+            .unwrap();
+    }
+    // Older than the retention goes on the next maintenance.
+    store.maintain(start + RETENTION + 5).unwrap();
+    let kept: Vec<u64> = store
+        .decisions(0, MAX)
+        .unwrap()
+        .iter()
+        .map(|row| row.at_ms - start)
+        .collect();
+    assert_eq!(kept, [10, 20]);
+    // A budget that fits two rows drops only the older of three rows.
+    store
+        .record_decision(&decision(
+            start + RETENTION + 6,
+            Rule::Off,
+            Some("delivered"),
+        ))
+        .unwrap();
+    {
+        let tx = store.0.transaction().unwrap();
+        prune(&tx, start + RETENTION + 7, 2 * decision::ROW_BYTES).unwrap();
+        tx.commit().unwrap();
+    }
+    let kept: Vec<u64> = store
+        .decisions(0, MAX)
+        .unwrap()
+        .iter()
+        .map(|row| row.at_ms - start)
+        .collect();
+    assert_eq!(kept, [20, RETENTION + 6]);
 }

@@ -98,6 +98,28 @@ command leaves its presentation unavailable and never blocks a frame or tab.
 Unknown additive JSON fields may be ignored; unsupported versions or malformed
 required fields are unavailable, not guessed defaults.
 
+## Decision list
+
+`tmt digest decisions --json [--since 24h|7d|30d]` (default 24h) lists the
+[decision records](digest-tick-v1.md#decision-records) the tick wrote in the
+window ending now, oldest first, as one document and keeps no state of its own:
+
+```json
+{"version":1,"since":"24h","fromMs":0,"throughMs":0,"decisions":[
+  {"atMs":0,"identityId":"<uuid>","name":"worker","mode":"interval","intervalMs":20000,
+   "flushCount":10,"rule":"interval_deadline","heldCount":3,"oldestHeldAgeMs":21000,
+   "outcome":"delivered"}]}
+```
+
+`mode` is `auto`, `off` or `interval`; `intervalMs` is null unless `interval`. `rule`
+is one of `interval_deadline`, `flush_count`, `auto_idle_point`, `off` or `not_due`;
+`outcome` is Core's answer to the delivery opportunity (`delivered`, `not_idle`,
+`nothing_due`, `unavailable`, `uncertain` or `error`) and is null exactly for
+`not_due`. `name` is null when the roster cannot name the member (retired or Core
+unreadable). A store without records, or no store, lists an empty array. An
+error prints `{"version":1,"error":{"code","message"}}` and exits 1. Consumers ignore
+unknown additive fields.
+
 ## Usage report
 
 `tmt digest usage report` joins Core's consumption, account limits and exchange
@@ -275,9 +297,10 @@ Interrupted reads/writes resume from the durable cursor. Collection failure
 never offers delivery or changes Core's uncertainty/admission rules.
 
 Private evidence lives at `<dataRoot>/digest/history/history.sqlite` (public
-`storage.root` discovery), schema version 2. Read-only status accepts schema 1 with null valuations and
-never migrates it; the next writer atomically adds usage tables and advances the
-version while preserving settlement cursors and lifetime totals. Directories are 0700, files 0600;
+`storage.root` discovery), schema version 3. Read-only status accepts schemas 1 and 2 (usage
+valuations are null before 2, decision records absent before 3) and never migrates
+them; the next writer atomically adds the missing tables and advances the version
+while preserving settlement cursors and lifetime totals. Directories are 0700, files 0600;
 nonprivate paths, symlinks and unsupported schema versions are refused. Events
 retain content-free IDs, settlement/claim/collection timestamps, original arrival
 inputs, outcome/opportunity, formula version, nullable estimate and nullable
@@ -296,7 +319,8 @@ minute/collection timestamps, nullable input totals and model provenance.
 
 Tick maintenance expires raw events 30 days after collection and usage minutes
 after 30 days of event time, including when no members remain. A shared 24 MiB
-raw-input budget accounts for event input bytes and 128 bytes per usage minute;
+raw-input budget accounts for event input bytes, 128 bytes per usage minute and 160 bytes
+per [decision record](digest-tick-v1.md#decision-records);
 it evicts oldest evidence with explicit recent-window coverage loss while
 preserving compact lifetime settlement totals. SQLite uses at most 32 MiB, reserving another 32 MiB of the 64 MiB store
 budget for its rollback journal. Compact totals/cursors remain within that bound;

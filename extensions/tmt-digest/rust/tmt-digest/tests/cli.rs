@@ -210,3 +210,26 @@ esac
     assert_eq!(result.status.code(), Some(1));
     assert_eq!(fs::read(&path).unwrap(), before);
 }
+
+#[test]
+fn decisions_needs_json_and_a_missing_core_is_a_json_error_without_state() {
+    let sandbox = Sandbox::new();
+    let help = sandbox.run(&["decisions", "--help"]);
+    assert!(help.status.success());
+    assert!(help.stderr.is_empty());
+    let text = String::from_utf8(help.stdout).unwrap();
+    assert!(text.contains("never message text"));
+    assert!(text.contains("--since"));
+    let plain = sandbox.run(&["decisions"]);
+    assert_eq!(plain.status.code(), Some(2));
+    assert!(plain.stdout.is_empty());
+    let bad = sandbox.run(&["decisions", "--json", "--since", "1h"]);
+    assert_eq!(bad.status.code(), Some(2));
+    sandbox.assert_untouched();
+    let result = sandbox.run(&["decisions", "--json"]);
+    assert_eq!(result.status.code(), Some(1));
+    let document: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(document["version"], 1);
+    assert_eq!(document["error"]["code"], "CORE_UNAVAILABLE");
+    sandbox.assert_untouched();
+}

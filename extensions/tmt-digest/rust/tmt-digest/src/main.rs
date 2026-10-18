@@ -1,6 +1,7 @@
 //! Digest member settings through the public Core boundary.
 
 mod core;
+mod decisions;
 mod grammar;
 mod history;
 mod pricing;
@@ -42,6 +43,32 @@ fn main() -> ExitCode {
                 )
                 .expect("admitted window");
                 let result = status::execute(window);
+                let successful = result.is_ok();
+                let document = match result {
+                    Ok(document) => document,
+                    Err(error) => {
+                        serde_json::json!({"version":1,"error":{"code":error.code,"message":error.message}})
+                    }
+                };
+                let mut output = tmt_cli_style::stream::stdout(true);
+                return match serde_json::to_writer(&mut output, &document)
+                    .map_err(std::io::Error::other)
+                    .and_then(|()| output.write_all(b"\n"))
+                    .and_then(|()| output.flush())
+                {
+                    Ok(()) if successful => ExitCode::SUCCESS,
+                    _ => ExitCode::FAILURE,
+                };
+            }
+            if matches.subcommand_name() == Some("decisions") {
+                let selected = matches
+                    .subcommand_matches("decisions")
+                    .expect("decisions matches");
+                let since = usage::Since::parse(
+                    selected.get_one::<String>("since").expect("default since"),
+                )
+                .expect("admitted since");
+                let result = decisions::execute(since);
                 let successful = result.is_ok();
                 let document = match result {
                     Ok(document) => document,
