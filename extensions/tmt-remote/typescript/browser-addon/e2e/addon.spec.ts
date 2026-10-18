@@ -215,3 +215,71 @@ test('restored credentialed menu capture never enters preview or frozen intent',
   await expect(popup.locator('#send')).toBeDisabled();
   expect(await accessJournal(popup, { kind: 'get', key: INTENT_KEY })).toBeUndefined();
 });
+
+test('startup restoration settles before capture becomes actionable', async () => {
+  await popup.close();
+  popup = await context.newPage();
+  await popup.addInitScript(() => {
+    const held = new WeakSet<IDBTransaction>();
+    const get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function (key) {
+      if (key === 'capture') held.add(this.transaction);
+      return get.call(this, key);
+    };
+    const complete = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, 'oncomplete')!;
+    Object.defineProperty(IDBTransaction.prototype, 'oncomplete', {
+      ...complete,
+      set(listener) {
+        complete.set!.call(this, function (this: IDBTransaction, event: Event) {
+          if (held.has(this)) {
+            (window as unknown as { releaseCaptureRead: () => void }).releaseCaptureRead = () =>
+              listener.call(this, event);
+          } else listener.call(this, event);
+        });
+      },
+    });
+  });
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await expect
+    .poll(() =>
+      popup.evaluate(
+        () => typeof (window as unknown as { releaseCaptureRead?: unknown }).releaseCaptureRead,
+      ),
+    )
+    .toBe('function');
+  await expect(popup.locator('#capture')).toBeDisabled();
+  await expect(popup.locator('#agent')).toBeDisabled();
+  await expect(popup.locator('#note')).toBeDisabled();
+  await expect(popup.locator('#send')).toBeDisabled();
+  await popup.screenshot({ path: test.info().outputPath('startup-pending.png'), fullPage: true });
+  await popup.evaluate(() =>
+    (window as unknown as { releaseCaptureRead: () => void }).releaseCaptureRead(),
+  );
+  await expect(popup.locator('#capture')).toBeEnabled();
+  await grantThroughBrowserAction();
+  await popup.locator('#capture').click();
+  await popup.locator('#note').fill('A retained note');
+  await expect(popup.locator('#preview')).toContainText('exact <script>');
+  await expect(popup.locator('#preview')).toContainText('A retained note');
+  await expect(popup.locator('#send')).toBeEnabled();
+  await popup.screenshot({ path: test.info().outputPath('startup-ready.png'), fullPage: true });
+});
+
+test('failed startup leaves capture and sending unavailable', async () => {
+  await popup.close();
+  popup = await context.newPage();
+  await popup.addInitScript(() => {
+    indexedDB.open = () => {
+      throw new DOMException('Fixture storage denied', 'SecurityError');
+    };
+  });
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await expect(popup.locator('#status')).toContainText('unavailable');
+  for (const selector of ['#capture', '#agent', '#note', '#send', '#recover'])
+    await expect(popup.locator(selector)).toBeDisabled();
+  await expect(popup.locator('#preview')).toHaveText('Capture a selection to begin.');
+  await popup.screenshot({
+    path: test.info().outputPath('startup-unavailable.png'),
+    fullPage: true,
+  });
+});

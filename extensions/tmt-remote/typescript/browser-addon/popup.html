@@ -13,13 +13,14 @@
         <p>Review a selection before sharing it.</p>
       </header>
       <p class="notice">Demo only. No connection, keys or messages to TMT.</p>
-      <button id="capture" type="button">Capture current selection</button>
+      <button id="capture" type="button" disabled>Capture current selection</button>
       <form id="composer">
         <label for="agent">Agent</label
-        ><select id="agent" required></select>
+        ><select id="agent" required disabled></select>
         <label for="note">Optional note</label
         ><textarea
           id="note"
+          disabled
           rows="2"
           maxlength="4096"
           placeholder="What should the agent do with this?"
@@ -39,7 +40,7 @@
       </form>
       <section aria-labelledby="status-heading">
         <h2 id="status-heading">Status &amp; reply</h2>
-        <p id="status" role="status">Ready</p>
+        <p id="status" role="status">Loading saved draft…</p>
         <pre id="reply"></pre>
         <button id="recover" type="button" disabled>Check status</button
         ><button id="retry" type="button" hidden>Retry same message</button
