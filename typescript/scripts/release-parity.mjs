@@ -9,7 +9,7 @@ const ROOTS = ['native-release.yml', 'release.yml', 'release-index-bootstrap.yml
 // caught it and either a pre-merge counterpart or a concrete release-only reason.
 const INCIDENTS = [
   1534, 1541, 1542, 1550, 1593, 1604, 1616, 1643, 1646, 1661, 1680, 1745, 1806, 2076, 2197, 2241,
-  2261, 3036, 3106,
+  2261, 3036, 3106, 3293,
 ];
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const digest = (text) => createHash('sha256').update(text).digest('hex');

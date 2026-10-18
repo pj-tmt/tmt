@@ -250,6 +250,24 @@ describe('release gate parity inventory', () => {
     expect(JSON.stringify(value)).not.toContain('followUp');
   });
 
+  it('maps cancelled push cadence admission to pre-merge tooling controls', () => {
+    expect(manifest().incidents['3293']).toEqual({
+      release: { workflow: 'release.yml', job: 'cut', step: 'id:mode' },
+      preMerge: [
+        {
+          workflow: 'ci.yml',
+          job: 'unit-tests',
+          selection: { kind: 'ci-scope', output: 'native_scope', value: 'full' },
+          coverage: 'policy',
+          tests: ['typescript/test/tooling/release-mode.test.ts'],
+        },
+      ],
+    });
+    const missing = manifest();
+    delete missing.incidents['3293'];
+    expect(() => checkReleaseParity(missing, { read })).toThrow('release incidents');
+  });
+
   it('rejects an open follow-up, and an always-run counterpart that is selected by path or has no such step', () => {
     const open = manifest();
     open.workflows['release.yml'].cut.followUp = 1581;
