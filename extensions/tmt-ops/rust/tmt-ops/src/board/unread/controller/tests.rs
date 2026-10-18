@@ -311,9 +311,14 @@ fn unread_projections_require_a_nonempty_page_for_the_current_actor() {
         assert_eq!(app.unread_target(target), Count::default());
     }
     assert!(app.unread_jump(MEMBER).is_none());
+    let shown = draw(&app);
     assert!(
-        !draw(&app).contains(" unread"),
-        "empty results restore the source states"
+        shown.contains("● 0 unread"),
+        "the stable info line reports known zero"
+    );
+    assert!(
+        !shown.contains("1 unread"),
+        "empty results clear the painted count"
     );
 }
 

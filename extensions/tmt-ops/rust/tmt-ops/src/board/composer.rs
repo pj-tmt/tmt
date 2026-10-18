@@ -74,35 +74,48 @@ impl State {
     }
 }
 impl App {
-    /// Describe the placement that this frame actually painted, without
-    /// choosing another layout or reserving another editor row.
-    pub(in crate::board) fn composer_layout_reason(&self) -> Option<&'static str> {
-        use crate::{board::shell::OpsTab, config::OpsLayout};
-        if self.shell.tab != OpsTab::Agents {
-            return None;
-        }
-        let preference = self.workspace_snapshot()?.preferences.layout;
-        let state = self.conversation.borrow();
-        if state.area.width == 0 {
-            return None;
-        }
-        let side = state.pane.is_some_and(|pane| pane.x > state.area.x);
-        let stack = state.pane.is_some_and(|pane| pane.y > state.area.y);
-        if !side && !stack {
-            Some(if state.area.width < 80 {
-                "narrow window"
-            } else {
-                "low window"
-            })
-        } else if preference == OpsLayout::Side && stack {
-            Some("side layout does not fit")
-        } else if preference == OpsLayout::Stack && side {
-            Some("stack layout does not fit")
-        } else {
-            None
+    pub(in crate::board) fn composer_rows(&self) -> u16 {
+        self.composer_projection().map_or(0, |projection| {
+            super::input_field::ROWS + u16::from(!projection.quotes.is_empty())
+        })
+    }
+    pub(in crate::board) fn composer_info<'a>(
+        &'a self,
+        projection: &Projection<'a>,
+    ) -> super::input_field::Info<'a> {
+        let identity = projection.key.as_ref().map(|(_, id)| id.as_str());
+        let row = identity.and_then(|identity| {
+            // The usual recipient is the painted conversation target; use its
+            // held row directly instead of walking the roster on every frame.
+            self.conversation_target()
+                .and_then(|target| self.target_row(&target))
+                .filter(|row| row["id"].as_str() == Some(identity))
+                .or_else(|| {
+                    self.workspace_snapshot().and_then(|snapshot| {
+                        snapshot
+                            .rows
+                            .values()
+                            .find(|row| row["id"].as_str() == Some(identity))
+                    })
+                })
+                .or_else(|| {
+                    self.rows()
+                        .into_iter()
+                        .map(|(_, row)| row)
+                        .find(|row| row["id"].as_str() == Some(identity))
+                })
+        });
+        super::input_field::Info {
+            name: projection.recipient,
+            unread: identity.map_or_else(Default::default, |id| self.unread_count(id)),
+            open: row
+                .and_then(|row| row["waitingOnYou"].as_array())
+                .map(Vec::len),
+            context: identity
+                .and_then(|id| self.references.agents.get(id))
+                .and_then(|agent| agent.context),
         }
     }
-
     pub(in crate::board) fn quote_caption(
         &self,
         quote: &super::response::Quote,

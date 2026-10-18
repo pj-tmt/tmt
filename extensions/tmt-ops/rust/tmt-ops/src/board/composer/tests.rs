@@ -2,6 +2,9 @@ use super::*;
 use crate::board::app::tests::crew;
 use serde_json::json;
 
+mod input;
+mod input_packet;
+
 fn app() -> App {
     let mut app = crew(Default::default());
     app.view.as_mut().unwrap().me = Some("Ben".into());

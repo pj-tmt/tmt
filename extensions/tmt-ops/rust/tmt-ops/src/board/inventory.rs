@@ -16,11 +16,37 @@ pub(super) struct Inventory {
 pub(super) struct Agent {
     pub runtime: Option<String>,
     pub model: Option<String>,
+    pub context: Option<ContextUsage>,
     /// Core's `driverSupport` is `basic`: the driver reports no activity, model or
     /// runtime, so their absence is not idleness and the board says so.
     pub basic: bool,
     pub name: String,
     pub canonical: String,
+}
+
+/// A public, worker-acquired usage observation; no model-window inference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ContextUsage {
+    pub used_tokens: u64,
+    pub window_tokens: Option<u64>,
+    pub observed_at_ms: u64,
+}
+impl ContextUsage {
+    fn from_row(row: &serde_json::Value) -> Option<Self> {
+        row["runningDriver"]
+            .as_str()
+            .filter(|driver| !driver.is_empty())?;
+        let usage = &row["resume"]["usage"];
+        let window_tokens = match usage.get("windowTokens") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => Some(value.as_u64().filter(|window| *window > 0)?),
+        };
+        Some(Self {
+            used_tokens: usage["tokens"].as_u64()?,
+            window_tokens,
+            observed_at_ms: usage["observedAtMs"].as_u64()?,
+        })
+    }
 }
 
 impl Inventory {
@@ -60,6 +86,7 @@ impl Inventory {
                         canonical: row["canonicalName"].as_str().unwrap_or("").into(),
                         runtime: text(&row["runningDriver"]),
                         model: super::rate::resume_model(&row["resume"]).map(str::to_owned),
+                        context: ContextUsage::from_row(row),
                         basic: row["driverSupport"] == "basic",
                     },
                 );
@@ -126,5 +153,36 @@ mod tests {
         // The marker adds no runtime or model: those stay absent, never invented.
         assert_eq!(inventory.agents["a"].runtime, None);
         assert_eq!(inventory.agents["a"].model, None);
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn context_is_a_running_driver_observation_not_a_model_guess() {
+        let mut row =
+            json!({"runningDriver":"codex","resume":{"usage":{"tokens":0,"observedAtMs":123}}});
+        assert_eq!(
+            ContextUsage::from_row(&row),
+            Some(ContextUsage {
+                used_tokens: 0,
+                window_tokens: None,
+                observed_at_ms: 123
+            })
+        );
+        row["resume"]["usage"]["windowTokens"] = json!(258000);
+        assert_eq!(
+            ContextUsage::from_row(&row).unwrap().window_tokens,
+            Some(258000)
+        );
+        row["runningDriver"] = serde_json::Value::Null;
+        assert!(ContextUsage::from_row(&row).is_none());
+        row["runningDriver"] = json!("claude");
+        row["resume"]["usage"]["windowTokens"] = serde_json::Value::Null;
+        assert_eq!(ContextUsage::from_row(&row).unwrap().window_tokens, None);
+        row["resume"]["usage"]["observedAtMs"] = serde_json::Value::Null;
+        assert!(ContextUsage::from_row(&row).is_none());
     }
 }

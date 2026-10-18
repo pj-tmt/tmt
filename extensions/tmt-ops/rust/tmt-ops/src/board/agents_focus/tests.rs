@@ -53,7 +53,7 @@ fn observed(body: &str) -> App {
 }
 
 #[test]
-fn sparse_exchange_grows_down_and_overflow_alone_pins_the_same_input() {
+fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
     let mut app = observed("One short observed response.");
     let target = app.workspace.selected.clone().unwrap();
     app.view
@@ -81,14 +81,16 @@ fn sparse_exchange_grows_down_and_overflow_alone_pins_the_same_input() {
     }
     assert!(!text.contains("all parties") && !text.contains("since "));
     let input = app.input_band.get().expect("admitted idle input");
-    assert_eq!(input.height, 3);
-    assert!(
-        input.bottom() < app.conversation.borrow().pane.unwrap().bottom() - 5,
-        "sparse input follows content"
+    assert_eq!(input.height, 4);
+    assert_eq!(
+        input.bottom(),
+        app.conversation.borrow().pane.unwrap().bottom()
     );
     assert_eq!(input.x, 72);
     let fill = crate::board::input_field::style(app.look(), false);
-    for y in input.y..input.bottom() {
+    let editor = app.input_viewport.get().unwrap().0;
+    assert_eq!(editor.height, 1, "empty read mode paints only one box row");
+    for y in editor.y..editor.bottom() {
         for x in input.x..input.right() {
             assert_eq!(sparse[(x, y)].bg, fill.bg.unwrap());
         }
@@ -269,7 +271,7 @@ fn responsive_and_short_focus_keep_an_admitted_editor_and_its_uuid() {
                 .input_band
                 .get()
                 .expect("usable conversation retains its input");
-            assert_eq!(input.height, 3);
+            assert_eq!(input.height, 4);
             assert_eq!(input.intersection(pane), input);
         }
         assert_eq!(app.workspace.selected, selected);

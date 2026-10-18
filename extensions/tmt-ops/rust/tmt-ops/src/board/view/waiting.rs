@@ -124,14 +124,8 @@ pub(in crate::board) fn input_lines(
     app: &crate::board::app::App,
     area: ratatui::layout::Rect,
 ) -> usize {
-    if let Some(projection) = app.composer_projection() {
-        return projection.text.map_or(1, |text| {
-            text.layout(area.width.saturating_sub(15).max(1))
-                .lines
-                .len()
-                .clamp(1, 6)
-        }) + 3
-            + usize::from(!projection.quotes.is_empty());
+    if app.composer_projection().is_some() {
+        return usize::from(app.composer_rows());
     }
     let Some(input) = &app.input else { return 0 };
     let demand = match input.compose {
@@ -164,241 +158,11 @@ pub(in crate::board) fn inline_prompt(
     use tmt_cli_style::Role;
     use tmt_tui::components::{Modal, Placement};
     app.composer.invalidate();
-    if (app.shell.tab == crate::board::shell::OpsTab::Agents
-        || app.shell.tab == crate::board::shell::OpsTab::Overview && frame.area().width >= 140)
-        && app.composer_projection().is_some()
-    {
+    if app.composer_projection().is_some() {
         final_input(frame, app, body);
         return;
     }
 
-    if let Some(projection) = app.composer_projection()
-        && let Some(band) = app.input_band.get().map(|band| band.intersection(body))
-    {
-        if band.is_empty() {
-            return;
-        }
-        let look = app.look();
-        let blank = " ".repeat(usize::from(band.width));
-        for y in band.y..band.bottom() {
-            strip::paint_left(
-                frame.buffer_mut(),
-                Rect::new(band.x, y, band.width, 1),
-                Line::styled(blank.as_str(), look.role(Role::Text)),
-            );
-        }
-        // A blocking owner masks the passive band without reflowing the base.
-        if projection.focused || !app.modal_open() {
-            let border_role = if projection.focused {
-                Role::Accent
-            } else {
-                Role::Dim
-            };
-            let content = if band.height >= 3 && band.width >= 3 {
-                let reason = app
-                    .composer_layout_reason()
-                    .map_or_else(String::new, |reason| format!(" · {reason}"));
-                let caption = composer_caption(app, &projection)
-                    .heading(usize::from(band.width).saturating_sub(
-                        4 + unicode_width::UnicodeWidthStr::width(reason.as_str()),
-                    ));
-                let outline = tmt_tui::components::Outline {
-                    title: Line::from(format!(" {caption}{reason} ")),
-                    border: look.role(border_role),
-                    title_style: look.role(border_role),
-                };
-                outline.paint(band, frame.buffer_mut());
-                outline.inner(band)
-            } else if band.width >= 3 {
-                // Preserve one usable input row before reserving decorative chrome.
-                for y in band.y..band.bottom() {
-                    for x in [band.x, band.right() - 1] {
-                        strip::paint_left(
-                            frame.buffer_mut(),
-                            Rect::new(x, y, 1, 1),
-                            Line::styled("│", look.role(border_role)),
-                        );
-                    }
-                }
-                Rect::new(band.x + 1, band.y, band.width - 2, band.height)
-            } else {
-                band
-            };
-            let content = if content.width >= 5 {
-                Rect::new(content.x + 1, content.y, content.width - 2, content.height)
-            } else {
-                content
-            };
-            let hint_rows = u16::from(content.height > 1 && band.height >= 4);
-            let quote_rows =
-                u16::from(!projection.quotes.is_empty() && content.height > hint_rows + 1);
-            if quote_rows > 0 {
-                let quote = projection.quotes.last().unwrap();
-                let remove = if content.width >= 5 {
-                    crate::board::buttons::paint(
-                        app,
-                        frame.buffer_mut(),
-                        Rect::new(content.x + 2, content.y, content.width - 2, 1),
-                        &[crate::board::buttons::Button::secondary("✕")
-                            .enabled(projection.key.is_some())],
-                        tmt_cli_style::grid::Align::Right,
-                        None,
-                    )[0]
-                } else {
-                    None
-                };
-                let label_width = remove.map_or(content.width, |remove| {
-                    remove.x.saturating_sub(content.x).saturating_sub(1)
-                });
-                let label = app.quote_caption(quote, usize::from(label_width));
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect::new(content.x, content.y, label_width, 1),
-                    Line::styled(
-                        super::fit(&label, usize::from(label_width)),
-                        look.role(Role::Muted),
-                    ),
-                );
-                if let (Some(remove), Some(key)) = (remove, projection.key.clone()) {
-                    *app.composer.quote_hit.borrow_mut() = Some(crate::board::composer::QuoteHit {
-                        area: remove,
-                        key,
-                        source: quote.key.clone(),
-                        range: quote.range.clone(),
-                    });
-                }
-            }
-            let prefix = u16::from(content.width >= 3) * 2;
-            // Reserve three editor cells and a gap before fitting the whole Send chip.
-            let reserved = prefix + 4;
-            let button = if content.width > reserved {
-                crate::board::buttons::paint(
-                    app,
-                    frame.buffer_mut(),
-                    Rect::new(
-                        content.x + reserved,
-                        content.y + quote_rows,
-                        content.width - reserved,
-                        1,
-                    ),
-                    &[crate::board::buttons::Button::primary("Send")
-                        .focused(projection.focused)
-                        .enabled(app.in_flight == 0 && projection.key.is_some())],
-                    tmt_cli_style::grid::Align::Right,
-                    None,
-                )[0]
-            } else {
-                None
-            };
-            let editor_width = button.map_or(content.width.saturating_sub(prefix), |button| {
-                button
-                    .x
-                    .saturating_sub(content.x + prefix)
-                    .saturating_sub(1)
-            });
-            let editor_area = Rect::new(
-                content.x + prefix,
-                content.y + quote_rows,
-                editor_width.max(1).min(content.width),
-                content.height - hint_rows - quote_rows,
-            );
-            if prefix > 0 {
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect::new(content.x, editor_area.y, prefix, 1),
-                    Line::styled("› ", look.role(border_role)),
-                );
-            }
-            if projection.focused {
-                editor(frame, app, editor_area);
-            } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
-                if super::super::member_links::paint_preview(
-                    frame,
-                    app,
-                    editor_area,
-                    text.as_str(),
-                    Role::Link,
-                ) {
-                    // Display names have different widths from the exact raw editor.
-                    // Clicking the preview focuses editing without fabricating a caret.
-                    app.input_viewport.set(None);
-                } else {
-                    let layout = text.layout(editor_area.width);
-                    let skip = layout.reveal(0, editor_area.height);
-                    layout.paint(
-                        frame.buffer_mut(),
-                        editor_area,
-                        skip,
-                        0..0,
-                        look.role(Role::Text),
-                        look.role(Role::Text),
-                    );
-                    app.input_viewport.set(Some((editor_area, skip)));
-                }
-            } else {
-                app.input_viewport.set(Some((editor_area, 0)));
-            }
-            if projection.text.is_none_or(|text| text.is_empty()) {
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect::new(editor_area.x, editor_area.y, editor_area.width, 1),
-                    Line::styled("Write a message…", look.role(Role::Dim)),
-                );
-            }
-            if let Some(button) = button
-                && app.in_flight == 0
-                && let Some(key) = projection.key
-            {
-                *app.composer.send_hit.borrow_mut() =
-                    Some(crate::board::composer::SendHit { area: button, key });
-            }
-            if hint_rows > 0 {
-                let mut hint = if projection.focused {
-                    format!("Enter send · {} · Esc list", app.newline_hint())
-                } else {
-                    app.composer_focus_hint()
-                };
-                if !projection.quotes.is_empty() {
-                    hint.push_str(" · Alt-⌫ remove");
-                    if projection.focused
-                        && unicode_width::UnicodeWidthStr::width(hint.as_str())
-                            > usize::from(content.width)
-                    {
-                        hint = format!(
-                            "Enter send · Esc list · Alt-⌫ remove · {}",
-                            app.newline_hint()
-                        );
-                    }
-                }
-                // Keep each hint phrase whole; never paint half of a key name.
-                let mut fitted = String::new();
-                for phrase in hint.split(" · ") {
-                    let next = if fitted.is_empty() {
-                        phrase.to_owned()
-                    } else {
-                        format!("{fitted} · {phrase}")
-                    };
-                    if unicode_width::UnicodeWidthStr::width(next.as_str())
-                        > usize::from(content.width)
-                    {
-                        break;
-                    }
-                    fitted = next;
-                }
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect::new(content.x, content.bottom() - 1, content.width, 1),
-                    Line::styled(fitted, look.role(Role::Muted)),
-                );
-            }
-        }
-        app.hits.borrow_mut().retain(|hit| {
-            Rect::new(hit.x, hit.y, hit.width, 1)
-                .intersection(band)
-                .is_empty()
-        });
-        return;
-    }
     let (Some(input), Some(reserved)) = (&app.input, app.input_band.get()) else {
         return;
     };
@@ -555,11 +319,11 @@ fn composer_caption<'a>(
 ) -> crate::board::input_field::Caption<'a> {
     if projection.focused
         && let Some(crate::board::app::Input {
-            compose: crate::board::app::Compose::Annotate { to, row },
+            compose: crate::board::app::Compose::Annotate { to, .. },
             ..
         }) = app.input.as_ref()
     {
-        crate::board::input_field::Caption::Note { to, row }
+        crate::board::input_field::Caption::Note { to }
     } else {
         crate::board::input_field::Caption::Message(projection.recipient)
     }
@@ -596,14 +360,25 @@ fn final_input(
     let key = start
         .as_ref()
         .map_or("click", |(key, _)| super::footer::key_label(key));
-    let editor_area = field::paint(
+    let quote_rows = u16::from(!projection.quotes.is_empty() && band.height > field::ROWS);
+    let field_band = Rect::new(
+        band.x,
+        band.y + quote_rows,
+        band.width,
+        band.height - quote_rows,
+    );
+    let content_area = field::paint(
         frame.buffer_mut(),
-        band,
+        field_band,
         composer_caption(app, &projection),
         key,
         projection.focused,
+        projection.text.is_some_and(|text| !text.is_empty()),
         look,
     );
+    let (editor_area, overflow) = projection.text.map_or((content_area, None), |text| {
+        field::viewport(content_area, text)
+    });
     if projection.focused {
         editor_with_style(frame, app, editor_area, base);
     } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
@@ -629,47 +404,37 @@ fn final_input(
     } else {
         app.input_viewport.set(Some((editor_area, 0)));
     }
-    if projection.focused
-        && editor_area.width > 0
-        && projection.text.is_none_or(|text| text.is_empty())
-    {
-        strip::paint_left(
-            frame.buffer_mut(),
-            editor_area,
-            Line::styled(
-                format!(
-                    "⏎ to message {}",
-                    crate::board::notes::sanitize(projection.recipient)
-                ),
-                base.patch(look.role(Role::Dim)),
-            ),
-        );
-    }
+    let send = app
+        .composer_info(&projection)
+        .paint(frame.buffer_mut(), field_band, look);
     if projection.focused
         && app.in_flight == 0
-        && let Some(hint) = field::send_hint(band)
-        && let Some(key) = projection.key.clone()
+        && let (Some(area), Some(key)) = (send, projection.key.clone())
     {
-        *app.composer.send_hit.borrow_mut() = Some(crate::board::composer::SendHit {
-            area: Rect { width: 6, ..hint },
-            key,
-        });
+        *app.composer.send_hit.borrow_mut() = Some(crate::board::composer::SendHit { area, key });
+    }
+    if let Some((area, label)) = overflow {
+        strip::paint_right(
+            frame.buffer_mut(),
+            area,
+            Line::styled(label, field::muted_style(look, projection.focused)),
+        );
     }
     if let Some(quote) = projection
         .quotes
         .last()
-        .filter(|_| band.height >= 3 && editor_area.width >= 2)
+        .filter(|_| quote_rows > 0 && content_area.width >= 2)
     {
-        let row = Rect::new(editor_area.x, band.bottom() - 1, editor_area.width - 2, 1);
+        let row = Rect::new(content_area.x, band.y, content_area.width - 2, 1);
         strip::paint_left(
             frame.buffer_mut(),
             row,
             Line::styled(
                 app.quote_caption(quote, usize::from(row.width)),
-                base.patch(look.role(Role::Muted)),
+                field::muted_style(look, projection.focused),
             ),
         );
-        let remove = Rect::new(editor_area.right() - 1, band.bottom() - 1, 1, 1);
+        let remove = Rect::new(content_area.right() - 1, band.y, 1, 1);
         strip::paint_left(frame.buffer_mut(), remove, Line::styled("✕", base));
         if let Some(key) = projection.key {
             *app.composer.quote_hit.borrow_mut() = Some(QuoteHit {

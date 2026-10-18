@@ -1027,7 +1027,12 @@ correlated to its request. Single line breaks remain visible in replies and pane
 output. Pane output stays in a separate labelled block, even when it repeats a
 reply's text; reading older messages holds position while later replies arrive.
 
-The boxed composer stays at the conversation bottom when an agent is shown.
+The composer stays at the conversation bottom when an agent is shown: one row
+when empty and unfocused, three rows when focused or holding a draft, growing
+upward without moving its info line. Focus changes only the fill. The line below
+shows the recipient, acquired unread/open-request counts, optional running-session
+context usage and `⏎ send  Alt+⏎ new line  @ mention`; narrow widths shorten the
+words before dropping keys. Unknown context is omitted, not estimated.
 Default Enter or a click focuses it; list actions remain available while idle.
 At eight terminal rows, the Agents composer fills the body and member rows are
 hidden. Esc leaves typing with the draft kept; ↑/↓ still change the selected target.
@@ -1038,8 +1043,8 @@ Talk, reply and annotation use a multiline editor. Left/Right and Home/End move 
 caret; Shift with movement selects; Backspace/Delete remove selected text or a
 grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
 a newline when enhanced keyboard reporting is active; Alt+Enter and Ctrl+J work
-without it, and Ctrl+N remains available. The composer shows `Shift+Enter new line` only after
-the terminal confirms support; otherwise it shows `Alt+Enter new line`. For Shift+Enter through
+without it, and Ctrl+N remains available. The stable info line names Alt+Enter,
+which works in both modes. For Shift+Enter through
 tmux, enable `set -g extended-keys on`; tmux 3.5 or later also supports
 `set -g extended-keys-format csi-u`. Ops does not change tmux settings.
 Esc leaves input without sending. Direct-message drafts and their quote/paste

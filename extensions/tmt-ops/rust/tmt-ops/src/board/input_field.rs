@@ -1,66 +1,35 @@
-//! InputField: a three-row neutral filled block; the host retains the editor.
+//! A fixed composer envelope: a one/three-row box above one stable info line.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style},
-    text::{Line, Span},
+    text::Line,
 };
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
-use unicode_width::UnicodeWidthStr;
 
-pub(in crate::board) const ROWS: u16 = 3;
+mod info;
+pub(in crate::board) use info::Info;
+
+/// Reserve the maximum box height even while its empty idle paint is one row.
+pub(in crate::board) const ROWS: u16 = 4;
 pub(in crate::board) const GUTTER: u16 = 1;
 pub(in crate::board) const TEXT_INSET: u16 = 2;
-pub(in crate::board) const HINT_INSET: u16 = 1;
-const SEND_HINT: &str = "⏎ send · Esc cancel";
 
 #[derive(Clone, Copy)]
 pub(in crate::board) enum Caption<'a> {
     Message(&'a str),
-    Note { to: &'a str, row: &'a str },
+    Note { to: &'a str },
 }
-
 impl Caption<'_> {
     fn recipient(self) -> String {
         super::notes::single_line(match self {
             Self::Message(to) | Self::Note { to, .. } => to,
         })
     }
-    fn note(self, width: usize) -> Option<String> {
-        let Self::Note { to, row } = self else {
-            return None;
-        };
-        let to = super::notes::single_line(to);
-        let row = super::notes::single_line(row);
-        let room = width.saturating_sub("Note to  · about ".width());
-        let to_room = room.saturating_sub(row.width().min(room / 2));
-        let row_room = room.saturating_sub(to.width().min(to_room));
-        Some(format!(
-            "Note to {} · about {}",
-            super::view::fit(&to, to_room).trim_end(),
-            super::view::fit(&row, row_room).trim_end()
-        ))
-    }
-    pub(in crate::board) fn heading(self, width: usize) -> String {
-        self.note(width).unwrap_or_else(|| {
-            super::view::fit(&format!("Message → {}", self.recipient()), width)
-                .trim_end()
-                .to_owned()
-        })
-    }
-    fn active(self, width: usize) -> String {
-        self.note(width)
-            .unwrap_or_else(|| format!("› {} as you…", self.recipient()))
-    }
 }
 
-pub(in crate::board) fn send_hint(area: Rect) -> Option<Rect> {
-    let available = area.width.saturating_sub(TEXT_INSET + HINT_INSET);
-    let width = SEND_HINT.width() as u16;
-    (available >= width + 5).then(|| Rect::new(area.right() - HINT_INSET - width, area.y, width, 1))
-}
 pub(in crate::board) fn style(look: Look, focused: bool) -> Style {
     let fill = look.role(if focused {
         Role::Selection
@@ -73,131 +42,264 @@ pub(in crate::board) fn style(look: Look, focused: bool) -> Style {
         look.role(Role::Text).add_modifier(Modifier::REVERSED)
     }
 }
+
+/// Foreground roles still describe text when the terminal fill uses inversion.
+pub(in crate::board) fn muted_style(look: Look, focused: bool) -> Style {
+    let base = style(look, focused);
+    if base.add_modifier.contains(Modifier::REVERSED) {
+        // A palette's muted color may match the inverted fill. Keep the
+        // contrast-bearing Text ink and dim it without replacing either color.
+        base.add_modifier(Modifier::DIM)
+    } else {
+        base.patch(look.role(Role::Muted))
+    }
+}
+
 pub(in crate::board) fn paint(
     buffer: &mut Buffer,
     area: Rect,
     caption: Caption<'_>,
     start: &str,
     focused: bool,
+    has_draft: bool,
     look: Look,
 ) -> Rect {
+    let info_rows = u16::from(area.height >= 2);
+    let available = area.height.saturating_sub(info_rows);
+    let rows = available.min(if focused || has_draft { 3 } else { 1 });
+    let bottom = area.bottom().saturating_sub(info_rows);
+    let box_area = Rect::new(area.x, bottom.saturating_sub(rows), area.width, rows);
     let base = style(look, focused);
-    for y in area.y..area.bottom() {
+    for y in box_area.y..box_area.bottom() {
         strip::paint_left(
             buffer,
-            Rect::new(area.x, y, area.width, 1),
-            Line::styled(" ".repeat(usize::from(area.width)), base),
+            Rect::new(box_area.x, y, box_area.width, 1),
+            Line::styled(" ".repeat(usize::from(box_area.width)), base),
         );
     }
-    if area.is_empty() {
-        return area;
-    }
-    let y = area.y + u16::from(area.height > 1);
-    let inner = Rect::new(
-        area.x
-            + if area.width > TEXT_INSET * 2 {
-                TEXT_INSET
-            } else {
-                0
+    let inset = if area.width > TEXT_INSET * 2 {
+        TEXT_INSET
+    } else {
+        0
+    };
+    let editor = Rect::new(
+        box_area.x + inset,
+        box_area.y,
+        box_area.width.saturating_sub(inset * 2),
+        box_area.height,
+    );
+    if !has_draft && !editor.is_empty() {
+        let placeholder = match caption {
+            Caption::Message(_) => format!("{start} to message {}", caption.recipient()),
+            Caption::Note { .. } => format!("{start} note to {}", caption.recipient()),
+        };
+        strip::paint_left(
+            buffer,
+            Rect {
+                height: 1,
+                ..editor
             },
-        y,
-        if area.width > TEXT_INSET * 2 {
-            area.width - TEXT_INSET * 2
-        } else {
-            area.width
-        },
-        1,
-    );
-    if !focused {
-        let words = format!(" to message {}", caption.recipient());
-        strip::paint_left(
-            buffer,
-            inner,
-            Line::from(vec![
-                Span::styled(start.to_owned(), base),
-                Span::styled(words, base.patch(look.role(Role::Muted))),
-            ]),
-        );
-        return Rect::new(inner.x, inner.y, inner.width, 1);
-    }
-    let header = Rect::new(
-        inner.x,
-        area.y,
-        area.width.saturating_sub(TEXT_INSET + HINT_INSET),
-        1,
-    );
-    let hint = send_hint(area);
-    let hint_width = hint.map_or(0, |hint| hint.width);
-    let left = Rect::new(
-        header.x,
-        header.y,
-        header
-            .width
-            .saturating_sub(hint_width + u16::from(hint_width > 0)),
-        1,
-    );
-    strip::paint_left(
-        buffer,
-        left,
-        Line::styled(
-            caption.active(usize::from(left.width)),
-            base.patch(look.role(Role::Muted)),
-        ),
-    );
-    if let Some(hint) = hint {
-        strip::paint_right(
-            buffer,
-            hint,
-            Line::styled(SEND_HINT, base.patch(look.role(Role::Muted))),
+            Line::styled(placeholder, muted_style(look, focused)),
         );
     }
-    inner
+    editor
+}
+
+/// Reserve the overflow label outside the editable/pointer rectangle. Narrowing
+/// can increase the line count, so converge while the editor width only shrinks.
+pub(in crate::board) fn viewport(
+    area: Rect,
+    text: &tmt_tui::components::Editor,
+) -> (Rect, Option<(Rect, String)>) {
+    use unicode_width::UnicodeWidthStr;
+    if area.is_empty() {
+        return (area, None);
+    }
+    let mut width = area.width;
+    loop {
+        let count = text.layout(width).lines.len();
+        if count <= usize::from(area.height) {
+            return (area, None);
+        }
+        let label = format!("↑ {} more", count - usize::from(area.height));
+        let reserved = (label.width() + 1).min(usize::from(area.width.saturating_sub(1))) as u16;
+        let next = area.width - reserved;
+        if next >= width {
+            let editor = Rect { width, ..area };
+            let hint = Rect::new(
+                editor.right().saturating_add(1).min(area.right()),
+                area.bottom() - 1,
+                area.right()
+                    .saturating_sub(editor.right().saturating_add(1)),
+                1,
+            );
+            return (editor, (!hint.is_empty()).then_some((hint, label)));
+        }
+        width = next;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn idle_and_active_fields_have_no_rule_or_frame_and_keep_right_hint_only_active() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 59, 3));
-        let area = buffer.area;
-        paint(
-            &mut buffer,
+    fn placeholder_keeps_the_same_background_as_its_padding_in_every_look() {
+        use tmt_cli_style::{Base, Depth, Theme};
+        let background = |cell: &ratatui::buffer::Cell| {
+            if cell.modifier.contains(Modifier::REVERSED) {
+                cell.fg
+            } else {
+                cell.bg
+            }
+        };
+        for (base, depth) in [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Tmt, Depth::None),
+        ] {
+            for focused in [false, true] {
+                let look = Look {
+                    theme: Theme::new(base),
+                    depth,
+                };
+                let area = Rect::new(0, 0, 60, ROWS);
+                let mut buffer = Buffer::empty(area);
+                let editor = paint(
+                    &mut buffer,
+                    area,
+                    Caption::Message("worker"),
+                    "⏎",
+                    focused,
+                    false,
+                    look,
+                );
+                assert_eq!(
+                    background(&buffer[(editor.x, editor.y)]),
+                    background(&buffer[(area.right() - 1, editor.y)]),
+                    "{base:?}/{depth:?}, focused={focused}: a muted placeholder must not change the box fill"
+                );
+                let placeholder = &buffer[(editor.x, editor.y)];
+                let padding = &buffer[(area.right() - 1, editor.y)];
+                if padding.modifier.contains(Modifier::REVERSED) {
+                    assert_eq!(placeholder.bg, padding.bg, "keep the inverted text ink");
+                    assert!(placeholder.modifier.contains(Modifier::DIM));
+                }
+            }
+        }
+    }
+    #[test]
+    fn empty_idle_box_grows_upward_without_moving_info_or_footer() {
+        let look = Look::default();
+        let area = Rect::new(0, 0, 80, ROWS);
+        let mut idle = Buffer::empty(area);
+        let empty = paint(
+            &mut idle,
             area,
-            Caption::Message("night-2"),
+            Caption::Message("worker"),
             "⏎",
             false,
-            Look::default(),
+            false,
+            look,
         );
-        let text = buffer
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>();
-        assert!(text.contains("⏎ to message night-2"));
-        assert!(!text.contains("send"));
-        assert!(!text.contains('─'));
-        assert_eq!(buffer[(2, 1)].symbol(), "⏎");
+        assert_eq!(empty.height, 1);
+        assert_eq!(empty.bottom(), area.bottom() - 1);
+        assert!(
+            idle.content
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .contains("⏎ to message worker")
+        );
+        for focused in [false, true] {
+            let mut buffer = Buffer::empty(area);
+            let editor = paint(
+                &mut buffer,
+                area,
+                Caption::Message("worker"),
+                "⏎",
+                focused,
+                true,
+                look,
+            );
+            assert_eq!(editor.height, 3);
+            assert_eq!(editor.bottom(), empty.bottom());
+            assert_eq!(
+                buffer[(0, 3)].bg,
+                ratatui::style::Color::Reset,
+                "info is outside the box fill"
+            );
+            let text = buffer
+                .content
+                .iter()
+                .map(|c| c.symbol())
+                .collect::<String>();
+            assert!(!text.contains("as you") && !text.contains("Esc cancel"));
+        }
+    }
+    #[test]
+    fn focused_empty_and_note_placeholder_use_the_same_three_row_editor() {
+        let area = Rect::new(0, 0, 59, ROWS);
+        let mut buffer = Buffer::empty(area);
         let editor = paint(
             &mut buffer,
             area,
-            Caption::Message("night-2"),
+            Caption::Note { to: "lead" },
             "⏎",
             true,
+            false,
             Look::default(),
         );
+        assert_eq!(editor.height, 3);
         let text = buffer
             .content
             .iter()
-            .map(|cell| cell.symbol())
+            .map(|c| c.symbol())
             .collect::<String>();
-        assert!(text.contains("⏎ send · Esc cancel"));
-        assert!(editor.width > 0);
-        assert_eq!(editor, Rect::new(2, 1, 55, 1));
-        let hint = send_hint(area).unwrap();
-        assert_eq!(hint.right(), area.right() - 1);
-        assert_eq!(buffer[(hint.x, 0)].symbol(), "⏎");
-        assert_eq!(buffer[(area.right() - 1, 0)].symbol(), " ");
-        assert!(send_hint(Rect::new(0, 0, 10, 3)).is_none());
+        assert!(text.contains("⏎ note to lead"));
+        assert!(!text.contains("about worker"));
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    #[test]
+    fn overflow_never_overwrites_typed_text_or_fabricates_a_pointer_cell() {
+        let text: tmt_tui::components::Editor = "first\nsecond\nthird\nfourth\nfifth".into();
+        let area = Rect::new(2, 5, 40, 3);
+        let (editor, hint) = viewport(area, &text);
+        let (hint, label) = hint.unwrap();
+        assert_eq!(editor.height, 3);
+        assert!(editor.right() < hint.x);
+        assert!(editor.intersection(hint).is_empty());
+        assert!(label.starts_with("↑ ") && label.ends_with(" more"));
+        assert_eq!(text.as_str(), "first\nsecond\nthird\nfourth\nfifth");
+    }
+    #[test]
+    fn every_small_field_keeps_its_editor_within_the_available_envelope() {
+        for width in 0..=160 {
+            for height in 0..=7 {
+                let area = Rect::new(3, 4, width, height);
+                for (focused, draft) in [(false, false), (true, false), (false, true), (true, true)]
+                {
+                    let mut buffer = Buffer::empty(area);
+                    let editor = paint(
+                        &mut buffer,
+                        area,
+                        Caption::Message("worker"),
+                        "⏎",
+                        focused,
+                        draft,
+                        Look::default(),
+                    );
+                    assert!(editor.x >= area.x && editor.y >= area.y);
+                    assert!(editor.right() <= area.right() && editor.bottom() <= area.bottom());
+                    if width > 0 && height > 0 {
+                        assert!(editor.height > 0);
+                    }
+                }
+            }
+        }
     }
 }

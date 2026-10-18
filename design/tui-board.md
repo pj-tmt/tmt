@@ -250,6 +250,14 @@ the newest reply starts expanded. Folding changes presentation only and preserve
 source/reading anchors; the owning implementation reference is
 [Board notebooks](../.agents/skills/tmt-ops-dev/references/board-notebooks.md).
 
+The conversation input is one row when empty and unfocused, and three rows when
+focused or holding a draft. It grows upward inside one reserved envelope; focus
+changes its fill, not its frame. The stable line below it shows the recipient,
+acquired unread/open-request counts, optional running-session context usage and
+the send/newline/mention keys. Unknown context is omitted; a known zero remains
+visible, and an unknown window is never inferred. Overflow stays inside the box
+with a separate `↑ N more` indicator. Quotes remain above the box.
+
 Refresh preserves exact selection and retained drafts. Loading, unavailable and
 stale values differ from a successful empty result. The existing worker owns
 reads and refresh; display labels never replace sender/recipient/source authority.
