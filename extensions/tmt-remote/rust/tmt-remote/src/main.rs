@@ -611,30 +611,52 @@ fn deploy_firestore_command(matches: &clap::ArgMatches) -> Result<(), RemoteErro
         confirm_deploy(&mut std::io::stdin(), &mut output, &stop)
             .map_err(|e| deploy_cli::DeployCliError::Local(e.into()))
     };
-    let confirmation = deploy_cli::may_prompt(
-        Interaction::detect(args.json),
-        std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty()),
-        std::env::var_os("CI").is_some(),
-    )
-    .then_some(&mut confirm as &mut deploy_cli::PlanConfirmation<'_>);
-    let result = deploy_cli::execute_with_confirmation(&args, &mut declarations, &enabled,
+    let interaction = Interaction::detect(args.json);
+    let agent = std::env::var_os("TMT_AGENT").is_some_and(|value| !value.is_empty());
+    let ci = std::env::var_os("CI").is_some();
+    let live = deploy_cli::progress::enabled(interaction, agent, ci);
+    let progress = deploy_cli::progress::Progress::stderr(live, stop.clone());
+    let reporter = progress.reporter();
+    let confirmation = deploy_cli::may_prompt(interaction, agent, ci)
+        .then_some(&mut confirm as &mut deploy_cli::PlanConfirmation<'_>);
+    let result = deploy_cli::execute_with_confirmation(
+        &args,
+        &mut declarations,
+        &enabled,
         || {
             let search = std::env::var_os("PATH").unwrap_or_default();
-            let tools = deploy_tools::discover(&search).map_err(deploy_cli::DeployCliError::Tool)?;
+            let tools =
+                deploy_tools::discover(&search).map_err(deploy_cli::DeployCliError::Tool)?;
             deploy_firestore::DeployFirestore::at(tools.node, tools.package, &stop)
-                .map(|provider| provider.with_composite_progress(|elapsed, ceiling| {
-                    let mut output = tmt_cli_style::stream::stderr();
-                    let _ = writeln!(output, "{}", deploy_cli::composite_progress(elapsed, ceiling));
-                }))
+                .map(|provider| {
+                    if live {
+                        provider.with_progress(move |plan, event| reporter.notify(plan, event))
+                    } else {
+                        // Preserve the pre-existing plain/JSON index-round output.
+                        provider.with_composite_progress(|elapsed, ceiling| {
+                            let mut output = tmt_cli_style::stream::stderr();
+                            let _ = writeln!(
+                                output,
+                                "{}",
+                                deploy_cli::composite_progress(elapsed, ceiling)
+                            );
+                        })
+                    }
+                })
                 .map_err(deploy_cli::DeployCliError::Setup)
         },
         || {
-            let root = CoreClient::discover().and_then(|core| core.storage_root(&stop)).map_err(deploy_cli::DeployCliError::Local)?;
+            let root = CoreClient::discover()
+                .and_then(|core| core.storage_root(&stop))
+                .map_err(deploy_cli::DeployCliError::Local)?;
             Layout::open(&root).map_err(deploy_cli::DeployCliError::Local)
         },
         || tmt_remote::pairing::now_ms().map_err(deploy_cli::DeployCliError::Local),
         confirmation,
-    ).map_err(|error| match error {
+    );
+    // Stop, join and clear before either the final result or any propagated error.
+    drop(progress);
+    let result = result.map_err(|error| match error {
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::FirebaseMissing) => RemoteError::new("REMOTE_DEPLOY_TOOL_MISSING", "Firebase CLI is not installed. Install it with: npm install -g firebase-tools@15.29.0"),
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::NodeMissing) => RemoteError::new("REMOTE_DEPLOY_NODE_MISSING", "Node.js could not be found for the installed Firebase CLI. Install Node.js, then try again."),
         deploy_cli::DeployCliError::Tool(deploy_tools::ToolDiscoveryError::Unsupported) => RemoteError::new("REMOTE_DEPLOY_TOOL_UNSUPPORTED", &deploy_firestore::DeploySetupError::UnsupportedTool.to_string()),

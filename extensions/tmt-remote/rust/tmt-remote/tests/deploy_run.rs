@@ -2557,3 +2557,185 @@ fn hosting_file_samples_are_additive_bounded_and_closed() {
     value["fileSamples"] = serde_json::Value::Array(vec![first; 5]);
     assert!(serde_json::from_value::<StepCause>(value).is_err());
 }
+
+#[test]
+fn progress_starts_each_step_without_changing_the_saved_run() {
+    use tmt_remote::deploy_run::DeployProgress;
+    let plan = fresh();
+    let mut port = Fake::new(ACCOUNT);
+    let mut sink = Mem::default();
+    let result = go(&plan, &mut port, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+    assert_eq!(result.run.as_ref().unwrap().state, RunState::Complete);
+    assert_eq!(
+        port.progress,
+        (0..plan.steps().len())
+            .map(DeployProgress::Step)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(sink.saved.last().unwrap(), &result);
+    for (index, call) in port.progress_call_counts.iter().enumerate() {
+        assert_eq!(
+            port.calls[*call],
+            format!("observe:{}", plan.steps()[index].id),
+            "visible before each potentially blocking call"
+        );
+    }
+}
+
+#[test]
+fn progress_does_not_change_record_or_sink_bytes_on_any_outcome() {
+    for outcome in 0..5 {
+        let plan = fresh();
+        let mut records = Vec::new();
+        for ignore_progress in [true, false] {
+            let mut port = Fake::new(ACCOUNT);
+            port.ignore_progress = ignore_progress;
+            let first = plan.steps()[0].id.clone();
+            match outcome {
+                1 => {
+                    port.faults.insert(first, When::AfterEffectUnknown);
+                }
+                2 => {
+                    port.faults.insert(first, When::BeforeEffect);
+                }
+                3 => {
+                    port.adopted.insert(first);
+                }
+                4 => {
+                    port.owner_pending
+                        .insert(first, DeployOwnerAction::InitializeAuth);
+                }
+                _ => {}
+            }
+            let mut sink = Mem::default();
+            let result = go(&plan, &mut port, &mut sink, DeployRecord::new(DEPLOYMENT)).unwrap();
+            records.push((
+                serde_json::to_vec(&result).unwrap(),
+                serde_json::to_vec(&sink.saved).unwrap(),
+                port.calls,
+                port.effects,
+            ));
+        }
+        assert_eq!(records[0], records[1], "outcome {outcome}");
+    }
+}
+
+#[test]
+fn failed_initial_save_never_announces_a_provider_step() {
+    let plan = fresh();
+    let mut port = Fake::new(ACCOUNT);
+    let mut sink = Mem {
+        fail_from: Some(0),
+        ..Mem::default()
+    };
+    assert_eq!(
+        go(&plan, &mut port, &mut sink, DeployRecord::new(DEPLOYMENT)),
+        Err(DeployError::Interrupted)
+    );
+    assert!(port.progress.is_empty());
+    assert!(port.calls.is_empty());
+}
+
+#[test]
+fn composite_wait_is_announced_once_without_resetting_the_elapsed_clock() {
+    use tmt_remote::deploy_run::DeployProgress;
+    let plan = four_composites();
+    let ids = composite_ids(&plan);
+    let mut port = Fake::new(ACCOUNT);
+    port.building.extend(ids.clone());
+    port.composite_rounds.extend([Ok(vec![]), Ok(ids)]);
+    let result = go(
+        &plan,
+        &mut port,
+        &mut Mem::default(),
+        DeployRecord::new(DEPLOYMENT),
+    )
+    .unwrap();
+    assert_eq!(result.run.unwrap().state, RunState::Complete);
+    assert_eq!(port.check_calls, [0, 1]);
+    let waits: Vec<_> = port
+        .progress
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| **event == DeployProgress::WaitingForIndexes)
+        .collect();
+    assert_eq!(waits.len(), 1);
+    let call = port.progress_call_counts[waits[0].0];
+    assert!(port.calls[call].starts_with("check:"));
+}
+
+#[test]
+fn notification_reaches_the_display_before_a_provider_read_blocks() {
+    use std::{sync::mpsc, thread, time::Duration};
+    use tmt_remote::deploy_run::{
+        DeployApplied, DeployObserved, DeployPort, DeployProgress, DeployStep,
+    };
+    struct Gated {
+        inner: Fake,
+        entered: mpsc::Sender<&'static str>,
+        release: mpsc::Receiver<()>,
+        first: bool,
+    }
+    impl DeployPort for Gated {
+        fn progress(&mut self, _: &DeployPlan, _: DeployProgress) {
+            if self.first {
+                self.entered.send("progress").unwrap();
+            }
+        }
+        fn account(&mut self) -> Result<String, DeployProviderError> {
+            self.inner.account()
+        }
+        fn observe(
+            &mut self,
+            plan: &DeployPlan,
+            step: &DeployStep,
+        ) -> Result<DeployObserved, DeployProviderError> {
+            if self.first {
+                self.first = false;
+                self.entered.send("blocked read").unwrap();
+                self.release.recv_timeout(Duration::from_secs(2)).unwrap();
+            }
+            self.inner.observe(plan, step)
+        }
+        fn apply(
+            &mut self,
+            plan: &DeployPlan,
+            step: &DeployStep,
+        ) -> Result<DeployApplied, DeployProviderError> {
+            self.inner.apply(plan, step)
+        }
+    }
+    let (entered, observed) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let plan = fresh();
+        let mut port = Gated {
+            inner: Fake::new(ACCOUNT),
+            entered,
+            release: gate,
+            first: true,
+        };
+        run(
+            &plan,
+            &authorized(&plan),
+            DeployRecord::new(DEPLOYMENT),
+            &mut port,
+            &mut Mem::default(),
+            1000,
+        )
+        .unwrap()
+    });
+    assert_eq!(
+        observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+        "progress"
+    );
+    assert_eq!(
+        observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+        "blocked read"
+    );
+    release.send(()).unwrap();
+    assert_eq!(
+        worker.join().unwrap().run.unwrap().state,
+        RunState::Complete
+    );
+}

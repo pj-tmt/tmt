@@ -16,6 +16,9 @@ pub enum When {
 }
 #[derive(Default)]
 pub struct Fake {
+    pub progress: Vec<tmt_remote::deploy_run::DeployProgress>,
+    pub progress_call_counts: Vec<usize>,
+    pub ignore_progress: bool,
     pub account: String,
     /// Objects present on the project, by step id.
     pub present: BTreeSet<String>,
@@ -63,6 +66,12 @@ impl Fake {
     }
 }
 impl DeployPort for Fake {
+    fn progress(&mut self, _plan: &DeployPlan, event: tmt_remote::deploy_run::DeployProgress) {
+        if !self.ignore_progress {
+            self.progress.push(event);
+            self.progress_call_counts.push(self.calls.len());
+        }
+    }
     fn account(&mut self) -> Result<String, DeployProviderError> {
         Ok(self.account.clone())
     }

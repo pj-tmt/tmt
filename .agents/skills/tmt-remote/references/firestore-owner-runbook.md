@@ -83,7 +83,9 @@ stricter supersession fences; follow the printed instruction if replacement is r
 
 ## 4. Check the recorded result
 
-Final verification can take a few minutes without printing output.
+In an interactive terminal, one live status line shows the current work, upload count and
+elapsed time after five seconds. It clears before the final result. Final verification can
+take a few minutes; JSON and non-interactive output do not add this live line.
 
 Look for `Run: complete; usable binding: true` and the emitted `Remote link:`. Complete
 requires the deployment's joint read-back; pending or unknown work is not success. The link

@@ -178,7 +178,10 @@ Real account/project provisioning remains separately authorized acceptance, not 
 
 Automation previews and saves one draft identity without provider effects; a terminal may
 confirm one captured plan, or continue its unfinished saved digest without another question. `deploy_cli`
-owns the short preview (`--details` shows the full plan) and existing inventory observations;
+owns the short preview (`--details` shows the full plan), existing inventory observations,
+and `progress`'s terminal-only live line/elapsed clock. Local `DeployPort` notifications name
+steps without changing effects or persistence; its heartbeat is joined and the line cleared
+before final output or errors. Non-interactive/JSON output is unchanged;
 `deploy_command` retains the inputs/record across consent, and `deploy_run` keeps
 the creation/release fences. Only a new terminal confirmation may abandon a known or unknown
 unreleased Version only while its release is pending; it never supersedes unknown web-app/site/config creation. Preview keeps a changed unfinished intent visible without refusing it;

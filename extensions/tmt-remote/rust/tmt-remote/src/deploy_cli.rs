@@ -1,5 +1,7 @@
 //! Deployment argv and composition through the installed adapter seam;
 //! fixtures inject declaration/provider ports, never an alternate deploy algorithm.
+pub mod progress;
+
 use crate::{
     deploy_command::{self, DeployCommandInput, DeployCommandOutput},
     deploy_discovery::{self, DeclarationSource, DiscoveryRefusal},
