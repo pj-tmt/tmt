@@ -413,10 +413,11 @@ track; leftover cells pad the right. Narrowing
 changes only the spark track and never manufactures finer buckets.
 
 Provider shares divide by all observed tokens, including unknown provenance.
-Live continuous increments use their verified counter driver. History attributes
-only the complete gap-free, non-discontinuous suffix linked to its included latest
-driver watermark. Earlier or unproven evidence remains unknown; current model or
-identity metadata never relabels history. A mixed receipt slot keeps its proven
+Live continuous increments use their verified counter driver. History uses the
+drivers Core recorded per bucket (`byDriver`); a bucket without that split is
+attributed only through the complete gap-free, non-discontinuous suffix linked to
+its included latest driver watermark. Earlier or unproven evidence remains unknown;
+current model or identity metadata never relabels history. A mixed receipt slot keeps its proven
 portions beside that slot in the same bounded ring owner, removed on replacement.
 Driver IDs come from admitted counters, not a built-in name list. Compact local
 IDs keep each ring cell at 64 bytes; a driver name can be recycled only after its

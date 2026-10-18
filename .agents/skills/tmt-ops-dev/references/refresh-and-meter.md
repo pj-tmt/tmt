@@ -264,7 +264,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   48 intervals per UUID) share one Rate owner; a chart selects one resolution and
   never adds overlapping fine/coarse totals. Long seeding does not resize the
   recent ring, alter configured meter windows or change the live counter baseline.
-  Provider attribution requires a matching fine watermark and a complete fine
+  A slice with Core's `byDriver` is attributed by it, so older history keeps its
+  driver across restarts and gaps; one driver covering the slice is that driver, any
+  other split keeps only its proven portions (retained views hold their own). Only a
+  slice with no split (an older Core, or rows stored before the field) follows the
+  newest counter's driver: that needs a matching fine watermark and a complete fine
   bridge from the closed retained boundary, then only the connected complete
   non-discontinuous suffix; unproven portions remain unknown. UUIDs contribute once,
   including when several squads hold the same identity. Input plus output counts

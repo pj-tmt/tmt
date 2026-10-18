@@ -27,6 +27,7 @@ fn retained_seed(request: rollup::Request, through: u64) -> rollup::Seed {
                 complete: true,
                 gap: false,
                 discontinuous: false,
+                by_driver: Vec::new(),
             })
             .collect(),
     }
@@ -266,6 +267,7 @@ fn history_seed(zero: bool, partial: bool) -> history::Seed {
                 complete: !partial,
                 gap: partial,
                 discontinuous: false,
+                by_driver: Vec::new(),
             })
             .collect(),
     }
@@ -621,4 +623,103 @@ fn arbitrary_driver_ids_keep_three_same_slot_parts_and_recycle_only_expired_name
     let shown = project([&rate], Grid::new(300_000, 300_000, HOUR + 15_000).unwrap());
     assert_eq!(shown.buckets[0].providers.get("driver-new"), Some(&150));
     assert!(!shown.drivers.contains("driver-first"));
+}
+
+/// Core's recorded split for slices `range`: the whole slice under one driver.
+fn recorded(seed: &mut history::Seed, range: std::ops::Range<usize>, driver: &str) {
+    for slice in &mut seed.buckets[range] {
+        slice.by_driver = vec![(driver.into(), slice.input_tokens + slice.output_tokens)];
+    }
+}
+
+fn provider_total(series: &Series, driver: &str) -> u128 {
+    series
+        .buckets
+        .iter()
+        .map(|bucket| bucket.providers.get(driver).copied().unwrap_or(0))
+        .sum()
+}
+
+fn slice_tokens(seed: &history::Seed, range: std::ops::Range<usize>) -> u128 {
+    seed.buckets[range]
+        .iter()
+        .map(|slice| u128::from(slice.input_tokens + slice.output_tokens))
+        .sum()
+}
+
+#[test]
+fn recorded_drivers_keep_older_history_under_their_driver_across_a_restart_gap() {
+    let grid = Grid::new(300_000, HOUR, HOUR).unwrap();
+    let mut seed = history_seed(false, false);
+    // The seat ran codex, restarted (a gap), then ran claude: the newest watermark.
+    seed.buckets[60].gap = true;
+    seed.buckets[60].complete = false;
+    recorded(&mut seed, 0..60, "codex");
+    recorded(&mut seed, 61..120, "claude");
+    let (codex, claude) = (slice_tokens(&seed, 0..60), slice_tokens(&seed, 61..120));
+    let mut rate = Rate::default();
+    rate.seed(
+        &input(100),
+        &[("a".into(), Some(seed.clone()))].into(),
+        HOUR,
+    );
+    let series = project([&rate], grid);
+    assert_eq!(provider_total(&series, "codex"), codex);
+    assert_eq!(provider_total(&series, "claude"), claude);
+    // The restart interval has no recorded split and no link to the newest counter.
+    let total: u128 = series
+        .buckets
+        .iter()
+        .filter_map(|bucket| bucket.tokens)
+        .sum();
+    assert_eq!(total, slice_tokens(&seed, 0..120));
+    assert_eq!(total - codex - claude, slice_tokens(&seed, 60..61));
+}
+
+#[test]
+fn a_slice_without_a_recorded_split_still_follows_the_linked_newest_driver() {
+    let grid = Grid::new(300_000, HOUR, HOUR).unwrap();
+    let mut seed = history_seed(false, false);
+    // Rows stored before drivers were recorded (or an older Core) carry no split.
+    recorded(&mut seed, 60..120, "codex");
+    let (legacy, codex) = (slice_tokens(&seed, 0..60), slice_tokens(&seed, 60..120));
+    let mut rate = Rate::default();
+    rate.seed(&input(100), &[("a".into(), Some(seed))].into(), HOUR);
+    let series = project([&rate], grid);
+    assert_eq!(provider_total(&series, "claude"), legacy);
+    assert_eq!(provider_total(&series, "codex"), codex);
+}
+
+#[test]
+fn a_mixed_slice_keeps_only_its_proven_portions_and_every_new_driver_stays_distinct() {
+    let grid = Grid::new(300_000, HOUR, HOUR).unwrap();
+    let mut seed = history_seed(false, false);
+    seed.sampled = None; // nothing links to the newest counter: only recorded splits count
+    // Slice 10 holds 12 tokens: three drivers, none of them the current one, 5 unattributed.
+    seed.buckets[10].by_driver = vec![("alpha".into(), 3), ("beta".into(), 2), ("gamma".into(), 2)];
+    let mut rate = Rate::default();
+    rate.seed(&input(100), &[("a".into(), Some(seed))].into(), HOUR);
+    let series = project([&rate], grid);
+    for (driver, tokens) in [("alpha", 3), ("beta", 2), ("gamma", 2)] {
+        assert_eq!(provider_total(&series, driver), tokens, "{driver}");
+    }
+    assert_eq!(provider_total(&series, "claude"), 0);
+}
+
+#[test]
+fn retained_mixed_slices_read_their_own_split_not_the_recent_rings() {
+    let through = 31 * 86_400_000;
+    let request = rollup::Request::new(21_600_000, 604_800_000).unwrap();
+    let mut rate = recent_at(through, false);
+    let mut seed = retained_seed(request, through);
+    // Bucket 5 holds 7 tokens: claude 3 and codex 2 are proven, 2 stay unknown.
+    seed.buckets[5].by_driver = vec![("claude".into(), 3), ("codex".into(), 2)];
+    rate.seed_retained(&input(100), &[("a".into(), Some(seed))].into(), through);
+    let series = project(
+        [&rate],
+        Grid::new(request.each_ms(), request.range_ms(), through).unwrap(),
+    );
+    assert_eq!(series.buckets[5].providers.get("claude"), Some(&3));
+    assert_eq!(series.buckets[5].providers.get("codex"), Some(&2));
+    assert_eq!(series.buckets[5].tokens, Some(7));
 }

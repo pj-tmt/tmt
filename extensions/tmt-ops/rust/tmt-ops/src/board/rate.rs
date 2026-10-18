@@ -156,6 +156,24 @@ struct Retained {
     request: history::rollup::Request,
     through: u64,
     buckets: Vec<Bucket>,
+    /// The proven provider portions of this view's mixed buckets, keyed by their slot.
+    splits: BTreeMap<u64, BTreeMap<u16, u128>>,
+}
+
+/// A history slice's counted provenance: one provider, or `Mixed` with only the
+/// portions Core proved (the rest of the slice stays unknown).
+struct Attribution {
+    provider: Provider,
+    parts: BTreeMap<u16, u128>,
+}
+
+impl From<Provider> for Attribution {
+    fn from(provider: Provider) -> Self {
+        Self {
+            provider,
+            parts: BTreeMap::new(),
+        }
+    }
 }
 
 /// Verified counted provenance belongs to each ring cell. Mixed cells retain
@@ -225,6 +243,11 @@ impl Member {
             });
     }
     fn driver(&mut self, driver: &str) -> Provider {
+        self.holding(driver, &[])
+    }
+    /// `held` are ids a seed has handed out but no bucket references yet; a later
+    /// name in that seed must not take them over.
+    fn holding(&mut self, driver: &str, held: &[u16]) -> Provider {
         if crate::board::limits::Provider::from_driver(driver).is_none() {
             return Provider::Unknown;
         }
@@ -235,6 +258,7 @@ impl Member {
         let reusable = (0..self.drivers.len()).find(|index| {
             let id = *index as u16;
             self.current_driver != Some(id)
+                && !held.contains(&id)
                 && !self
                     .buckets
                     .iter()
@@ -243,6 +267,7 @@ impl Member {
                 && !self
                     .provider_splits
                     .values()
+                    .chain(self.retained.iter().flat_map(|view| view.splits.values()))
                     .any(|parts| parts.contains_key(&id))
         });
         if let Some(index) = reusable {
@@ -255,20 +280,58 @@ impl Member {
             Provider::Unknown
         }
     }
+    /// Each slice is attributed by the drivers Core recorded in it. Only a slice with
+    /// no recorded split falls back to the newest counter's driver, and only through
+    /// the complete, gap-free, continuous suffix linked to it (an older Core, or rows
+    /// stored before drivers were recorded).
     fn history_providers(
         &mut self,
         slices: &[history::Slice],
         latest: Option<&Counter>,
         mut linked: bool,
-    ) -> Vec<Provider> {
-        let mut providers = vec![Provider::Unknown; slices.len()];
+    ) -> Vec<Attribution> {
+        let mut held = Vec::new();
+        let mut providers: Vec<Attribution> =
+            slices.iter().map(|_| Provider::Unknown.into()).collect();
         for (index, slice) in slices.iter().enumerate().rev() {
             linked &= slice.complete && !slice.gap && !slice.discontinuous;
-            if linked && let Some(latest) = latest {
-                providers[index] = self.driver(&latest.key.0);
+            if !slice.by_driver.is_empty() {
+                providers[index] = self.recorded(slice, &mut held);
+            } else if linked && let Some(latest) = latest {
+                providers[index] = self.named(&latest.key.0, &mut held).into();
             }
         }
         providers
+    }
+
+    fn named(&mut self, driver: &str, held: &mut Vec<u16>) -> Provider {
+        let provider = self.holding(driver, held);
+        if let Provider::Driver(id) = provider {
+            held.push(id);
+        }
+        provider
+    }
+
+    /// One driver owning every counted token is that driver; any other split keeps
+    /// only the drivers this roster can name, and the remainder stays unknown.
+    fn recorded(&mut self, slice: &history::Slice, held: &mut Vec<u16>) -> Attribution {
+        let mut parts = BTreeMap::new();
+        for (name, tokens) in &slice.by_driver {
+            if let Provider::Driver(id) = self.named(name, held) {
+                *parts.entry(id).or_insert(0u128) += u128::from(*tokens);
+            }
+        }
+        let counted = u128::from(slice.input_tokens) + u128::from(slice.output_tokens);
+        match (parts.len(), parts.values().sum::<u128>()) {
+            (0, _) => Provider::Unknown.into(),
+            (1, total) if total == counted => {
+                Provider::Driver(*parts.keys().next().expect("one part")).into()
+            }
+            _ => Attribution {
+                provider: Provider::Mixed,
+                parts,
+            },
+        }
     }
 
     /// A complete fine interval may witness continuity across a boundary;
@@ -306,13 +369,17 @@ impl Member {
         }
         cursor >= through
     }
-    fn provider_tokens<'a>(&'a self, bucket: &Bucket) -> impl Iterator<Item = (u16, u128)> + 'a {
+    /// `splits` is the map that owns `bucket`: the recent ring's or its retained view's.
+    fn provider_tokens<'a>(
+        bucket: &Bucket,
+        splits: &'a BTreeMap<u64, BTreeMap<u16, u128>>,
+    ) -> impl Iterator<Item = (u16, u128)> + 'a {
         let single = match bucket.provider {
             Provider::Driver(index) => Some((index, bucket.tokens)),
             _ => None,
         };
         let mixed = if bucket.provider == Provider::Mixed {
-            bucket.slot.and_then(|slot| self.provider_splits.get(&slot))
+            bucket.slot.and_then(|slot| splits.get(&slot))
         } else {
             None
         };
@@ -371,7 +438,8 @@ impl Member {
             };
         }
         let prior = self.buckets[index];
-        let mut portions: BTreeMap<_, _> = self.provider_tokens(&prior).collect();
+        let mut portions: BTreeMap<_, _> =
+            Self::provider_tokens(&prior, &self.provider_splits).collect();
         let bucket = &mut self.buckets[index];
         bucket.evidence |= evidence;
         bucket.gap |= gap;
@@ -481,7 +549,7 @@ impl Rate {
             let linked =
                 latest.as_ref().is_some_and(|counter| counter.usable) && seed.sampled.is_some();
             let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
-            for (slice, provider) in seed.buckets.iter().zip(providers) {
+            for (slice, attribution) in seed.buckets.iter().zip(providers) {
                 let first = slice.from_ms / SLOT_MS;
                 let last = (slice.to_ms - 1) / SLOT_MS;
                 for slot in first..=last {
@@ -501,12 +569,15 @@ impl Rate {
                 }
                 let bucket = &mut state.buckets[(last % self.slots as u64) as usize];
                 bucket.tokens = u128::from(slice.input_tokens) + u128::from(slice.output_tokens);
-                bucket.provider = provider;
+                bucket.provider = attribution.provider;
                 bucket.source_from = Some(slice.from_ms);
                 bucket.origin = BucketOrigin::History {
                     covered_ms: u32::try_from(slice.covered_ms).ok(),
                 };
                 bucket.evidence |= slice.covered_ms > 0;
+                if attribution.provider == Provider::Mixed {
+                    state.provider_splits.insert(last, attribution.parts);
+                }
             }
             state.previous = Counter::read(&seed.latest);
             state.blocked = state
@@ -538,26 +609,34 @@ impl Rate {
                 && seed.sampled.is_some()
                 && state.source_bridge(seed.through, seed.fine_through);
             let providers = state.history_providers(&seed.buckets, latest.as_ref(), linked);
+            let mut splits = BTreeMap::new();
             let buckets = seed
                 .buckets
                 .iter()
                 .zip(providers)
-                .map(|(slice, provider)| Bucket {
-                    slot: Some((slice.to_ms - 1) / SLOT_MS),
-                    tokens: u128::from(slice.input_tokens) + u128::from(slice.output_tokens),
-                    provider,
-                    evidence: slice.complete || slice.covered_ms > 0,
-                    gap: !slice.complete || slice.gap || slice.discontinuous,
-                    source_from: Some(slice.from_ms),
-                    origin: BucketOrigin::History {
-                        covered_ms: u32::try_from(slice.covered_ms).ok(),
-                    },
+                .map(|(slice, attribution)| {
+                    let slot = (slice.to_ms - 1) / SLOT_MS;
+                    if attribution.provider == Provider::Mixed {
+                        splits.insert(slot, attribution.parts);
+                    }
+                    Bucket {
+                        slot: Some(slot),
+                        tokens: u128::from(slice.input_tokens) + u128::from(slice.output_tokens),
+                        provider: attribution.provider,
+                        evidence: slice.complete || slice.covered_ms > 0,
+                        gap: !slice.complete || slice.gap || slice.discontinuous,
+                        source_from: Some(slice.from_ms),
+                        origin: BucketOrigin::History {
+                            covered_ms: u32::try_from(slice.covered_ms).ok(),
+                        },
+                    }
                 })
                 .collect();
             state.retained = Some(Retained {
                 request: seed.request,
                 through: seed.through,
                 buckets,
+                splits,
             });
         }
     }

@@ -19,6 +19,9 @@ pub struct Slice {
     pub complete: bool,
     pub gap: bool,
     pub discontinuous: bool,
+    /// Core's optional `byDriver` as `(driver, input + output tokens)`. Empty means
+    /// no split was recorded (unknown), never that a driver owns nothing.
+    pub by_driver: Vec<(String, u64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +79,52 @@ impl Seed {
     }
 }
 
+/// The most drivers Core records in one bucket.
+const MAX_DRIVERS: usize = 4;
+
+/// Core's optional per-driver split of one bucket. It is attribution, not totals, so a
+/// split that is not a plausible subset of the bucket reads as none (unknown) instead
+/// of rejecting the window.
+fn by_driver(bucket: &Value) -> Vec<(String, u64)> {
+    let plausible = |rows: &Vec<Value>| {
+        let (mut input, mut output) = (0u64, 0u64);
+        let mut named: Vec<&str> = Vec::new();
+        for row in rows {
+            let (i, o, c) = (
+                row["inputTokens"].as_u64()?,
+                row["outputTokens"].as_u64()?,
+                row["cachedInputTokens"].as_u64()?,
+            );
+            let driver = row["driver"]
+                .as_str()
+                .filter(|d| (1..=64).contains(&d.len()))?;
+            if c > i || named.contains(&driver) {
+                return None;
+            }
+            named.push(driver);
+            input = input.checked_add(i)?;
+            output = output.checked_add(o)?;
+        }
+        (input <= bucket["inputTokens"].as_u64()? && output <= bucket["outputTokens"].as_u64()?)
+            .then_some(())
+    };
+    let Some(rows) = bucket["byDriver"]
+        .as_array()
+        .filter(|rows| (1..=MAX_DRIVERS).contains(&rows.len()))
+    else {
+        return Vec::new();
+    };
+    if plausible(rows).is_none() {
+        return Vec::new();
+    }
+    rows.iter()
+        .filter_map(|row| {
+            let tokens = row["inputTokens"].as_u64()? + row["outputTokens"].as_u64()?;
+            Some((row["driver"].as_str()?.to_owned(), tokens))
+        })
+        .collect()
+}
+
 /// Fine and retained windows validate the same normalized deltas and coverage.
 fn read_slices(
     reading: &Value,
@@ -98,6 +147,7 @@ fn read_slices(
                 complete: v["complete"].as_bool()?,
                 gap: v["gap"].as_bool()?,
                 discontinuous: v["discontinuous"].as_bool()?,
+                by_driver: by_driver(v),
             })
         })
         .collect::<Option<_>>()?;

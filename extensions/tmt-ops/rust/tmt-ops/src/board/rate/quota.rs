@@ -33,7 +33,7 @@ impl Rate {
                 .limits
                 .iter()
                 .filter_map(|(index, report)| {
-                    let Provider::Driver(driver) = *providers.get(*index)? else {
+                    let Provider::Driver(driver) = providers.get(*index)?.provider else {
                         return None;
                     };
                     Some((
@@ -96,6 +96,7 @@ mod tests {
                 complete: true,
                 gap: false,
                 discontinuous: false,
+                by_driver: Vec::new(),
             }],
         };
         let mut rate = Rate::default();
@@ -114,6 +115,7 @@ mod tests {
                     complete: true,
                     gap: false,
                     discontinuous: false,
+                    by_driver: Vec::new(),
                 }
             })
             .collect();

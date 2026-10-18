@@ -398,10 +398,12 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
 cachedInputTokens}` rows in ascending `driver` order, holding **deltas for that
   bucket** counted between two reads of that driver. Core records the driver of the
   read, so a bucket keeps each share under its own driver across a restart, a gap or a
-  driver switch; a consumer never infers it from `latest.driver`. The rows sum to **at
+  driver switch, so a consumer need not infer it from `latest.driver`. The rows sum to **at
   most** the bucket's tokens, and the remainder (a row stored before this field, an
   uncovered interval) is unknown. A missing `byDriver` means unknown, never one driver.
-  Aggregating beyond four drivers omits it. Existing stored rows are not backfilled.
+  Aggregating beyond four drivers drops the split built so far, so an aggregate may
+  carry only a partial one; the at-most rule always holds. Existing stored rows are
+  not backfilled.
 
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
 one open bucket per identity; the [rollup](#thirty-day-rollup) keeps coarser sums for 30 days. Expired history is excluded immediately on reads;

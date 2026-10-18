@@ -82,6 +82,7 @@ fn seed(values: [u64; 12], resume: serde_json::Value) -> Seed {
                     complete: !unknown && !partial,
                     gap: unknown || partial,
                     discontinuous: false,
+                    by_driver: Vec::new(),
                 }
             })
             .collect(),
@@ -272,6 +273,7 @@ pub(super) fn retained(app: &App, selection: Selection) -> crate::board::refresh
                                 complete: !missing && !partial,
                                 gap: missing || partial,
                                 discontinuous: false,
+                                by_driver: Vec::new(),
                             }
                         })
                         .collect(),
