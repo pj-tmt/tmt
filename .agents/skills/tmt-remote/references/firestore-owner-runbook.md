@@ -83,6 +83,8 @@ stricter supersession fences; follow the printed instruction if replacement is r
 
 ## 4. Check the recorded result
 
+Final verification can take a few minutes without printing output.
+
 Look for `Run: complete; usable binding: true` and the emitted `Remote link:`. Complete
 requires the deployment's joint read-back; pending or unknown work is not success. The link
 contains public connection configuration, not an access grant. To print it again:
