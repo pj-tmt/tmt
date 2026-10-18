@@ -1180,7 +1180,10 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           });
           expect(look).toMatchObject({
             paper: tokenRgb('surface', 'paper', colorScheme),
-            sheet: tokenRgb('surface', 'sheet', colorScheme),
+            sheet:
+              state === 'pairing' || state === 'confirmation'
+                ? 'rgba(0, 0, 0, 0)'
+                : tokenRgb('surface', 'sheet', colorScheme),
             text: tokenRgb('color', 'text', colorScheme),
             markAboveEyebrow: true,
             radius: '0px',
@@ -1266,6 +1269,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
           body: getComputedStyle(document.body).color,
           mark: getComputedStyle(document.getElementById('mark')!).color,
           wordsSize: parseFloat(getComputedStyle(document.getElementById('words')!).fontSize),
+          outerOutline: getComputedStyle(document.getElementById('comparison')!).outlineStyle,
+          wordsBorder: getComputedStyle(document.getElementById('words')!).borderTopWidth,
+          wordsOutline: getComputedStyle(document.getElementById('words')!).outlineStyle,
           labelInside: document
             .getElementById('words')!
             .contains(document.querySelector('.words-label')),
@@ -1274,7 +1280,32 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         expect(confirmation.mark).toBe(tokenRgb('color', 'waiting', colorScheme));
         expect(confirmation.wordsSize).toBeGreaterThanOrEqual(24);
         expect(confirmation.labelInside).toBe(false);
+        expect(confirmation.outerOutline).toBe('none');
+        expect(confirmation.wordsBorder).toBe('1px');
+        expect(confirmation.wordsOutline).toBe('solid');
         await inspect('confirmation');
+        await page.locator('#heading').click();
+        const pointerComparison = await page.locator('#words').evaluate((words) => {
+          const style = getComputedStyle(words);
+          const label = document.querySelector('.words-label')!;
+          return {
+            border: style.borderTopColor,
+            outline: style.outlineStyle,
+            labelAbove: label.getBoundingClientRect().bottom <= words.getBoundingClientRect().top,
+          };
+        });
+        expect(pointerComparison).toEqual({
+          border: tokenRgb('surface', 'rule', colorScheme),
+          outline: 'none',
+          labelAbove: true,
+        });
+        await captureState(
+          page,
+          'pair-comparison-pointer',
+          'One light words frame; label outside and no keyboard focus ring',
+          [width],
+          [colorScheme],
+        );
         pair.stdin.write('refuse\n');
         expect((await events.next()).reason).toBe('refused');
         await exited(pair);

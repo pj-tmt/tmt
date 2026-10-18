@@ -87,8 +87,12 @@ input {
   width: 100%;
   margin: 6px 0 12px;
 }
+[data-tmt-page='pair'] .tmt-ui-notice {
+  background: transparent;
+}
 #comparison {
   margin-top: 16px;
+  outline: none;
 }
 .words-label {
   margin-bottom: 8px;
@@ -171,7 +175,12 @@ input {
 }
 
 /* Programmatic ceremony focus shares the host's existing focus tokens. */
-#comparison:focus-visible,
+#comparison:focus-visible #words {
+  border-color: var(--tmt-ui-color-focus);
+  outline: calc(var(--tmt-ui-focus-width) - var(--tmt-ui-rule-width)) solid
+    var(--tmt-ui-color-focus);
+  outline-offset: calc(-1 * var(--tmt-ui-focus-width));
+}
 #status:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: var(--tmt-ui-host-focus-offset);
