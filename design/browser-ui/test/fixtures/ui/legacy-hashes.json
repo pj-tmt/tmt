@@ -37,7 +37,7 @@
     "src/tabs.css": "fcb0048f0508337799c8d98d1e7b3e2766a75946997be2560522506446268c20",
     "src/tabs.tsx": "9d4b33bee5ed3652d786b5338dde2f191e335e3dbab2345d278244083e492a24",
     "src/toggle.css": "a37695c236bf4ccdc9d5dc24941b79bc4c3d78f6dfe0f6be4eefcac482cb7aa5",
-    "src/toggle.tsx": "2753a663deada32247ed60a75c06bdbf87cb583bef5dbc8208966cacd36db61c"
+    "src/toggle.tsx": "edbed0378bcc502fca5c666665cd9bb64b594715336ea6f225b6d8001c90aac3"
   },
   "tokenProjection": {
     "font": {

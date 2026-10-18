@@ -135,6 +135,8 @@ field label spacing retains its existing host metrics.
 
 Toggle is controlled: fixed label, `aria-pressed`, independent visible checked
 indicator and original activation event. It never changes its own pressed value.
+The label is text or a host node; an optional `ariaLabel` is the accessible name when the
+visible label is a node or abbreviates a longer name.
 The leaf owns the symmetric 8px toggle inset through `toggle-gap`; hosts only
 supply the focus offset. Disabled styling cannot inherit hover/selected styling. Static hosts perform the
 same native semantics and ID associations themselves; CSS owns no effects.
