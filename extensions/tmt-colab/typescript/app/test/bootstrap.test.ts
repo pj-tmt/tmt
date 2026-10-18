@@ -14,9 +14,10 @@ const metadata = {
   lastUpdateAtMs: Number.MAX_SAFE_INTEGER,
   expiresAtMs: null,
   warnings: ['not-in-cloud'],
-  labels: [] as string[],
+  projects: [] as string[],
 };
-async function response(pages: unknown[]) {
+/** The reply's `projects` default to the names the pages carry; a project with no page needs `extra`. */
+async function response(pages: unknown[], extra: unknown[] = []) {
   const owner = new Uint8Array(32).fill(9),
     space = await deriveSpaceId(owner);
   vi.stubGlobal('location', { hash: `#space=${space}` });
@@ -24,6 +25,12 @@ async function response(pages: unknown[]) {
     spaceId: space,
     ownerKey: encodeBinary(owner),
     revision: '1',
+    projects: [
+      ...new Set([
+        ...pages.flatMap((page) => (page as { projects?: string[] }).projects ?? []),
+        ...extra,
+      ]),
+    ].sort(),
     pages,
     pageIds: pages.map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false })),
   });
@@ -45,23 +52,24 @@ it('accepts 1000 worst-sized valid expiry rows within the existing bounded respo
   expect(boot.pages[999].lastUpdateAtMs).toBe(Number.MAX_SAFE_INTEGER);
   expect(boot.pages[0].warnings).toEqual(['not-in-cloud']);
 });
-it('keeps the worst-sized labels of a full space inside the bounded response', async () => {
+it('keeps the worst-sized projects of a full space inside the bounded response', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },
   });
-  // The space limit is 1,000 label assignments: 125 pages of 8 names, each the longest allowed.
+  // The space limit is 1,000 project assignments: 125 pages of 8 names, each the longest allowed.
   const rockets = '\u{1F680}'.repeat(31);
   const pages = Array.from({ length: 1000 }, (_, index) => ({
     ...metadata,
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
     // 32 code points each (a digit and 31 four-byte characters), unique within the page.
-    labels: index < 125 ? Array.from({ length: 8 }, (_, n) => `${n}${rockets}`) : [],
+    projects: index < 125 ? Array.from({ length: 8 }, (_, n) => `${n}${rockets}`) : [],
   }));
   const body = await response(pages);
   expect(new TextEncoder().encode(body).length).toBeLessThan(DISCOVERY_BYTES);
   const boot = await discover(mount);
-  expect(boot.pages[0].labels).toHaveLength(8);
-  expect(boot.pages[999].labels).toEqual([]);
+  expect(boot.pages[0].projects).toHaveLength(8);
+  expect(boot.pages[999].projects).toEqual([]);
+  expect(boot.projects).toHaveLength(8);
 });
 it('keeps 1000 worst-sized summaries inside the bounded response', async () => {
   vi.stubGlobal('navigator', {
@@ -69,16 +77,19 @@ it('keeps 1000 worst-sized summaries inside the bounded response', async () => {
   });
   // Quotes escape to two bytes each in JSON, so 128 of them is the longest allowed author on the wire.
   const author = '"'.repeat(AUTHOR_BYTES);
-  const rockets = '\u{1F680}'.repeat(31);
+  // The space lists every name once and each page names its own: 1,000 distinct names of 32 code
+  // points (a space migrated from labels can hold that many), the largest reply the owner serves.
+  const rockets = '\u{1F680}'.repeat(29);
   const pages = Array.from({ length: 1000 }, (_, index) => ({
     ...metadata,
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-    labels: index < 125 ? Array.from({ length: 8 }, (_, n) => `${n}${rockets}`) : [],
+    projects: [`${String(index).padStart(3, '0')}${rockets}`],
     summary: { comments: 4_294_967_295, waiting: true, needsYou: 350, author },
   }));
   const body = await response(pages);
   expect(new TextEncoder().encode(body).length).toBeLessThan(DISCOVERY_BYTES);
   const boot = await discover(mount);
+  expect(boot.projects).toHaveLength(1000);
   expect(boot.pages[999].summary).toEqual({
     comments: 4_294_967_295,
     waiting: true,
@@ -152,13 +163,16 @@ it('refuses summaries outside the bounds the owner derives', async () => {
   ]);
   expect((await discover(mount)).pages[0].summary?.author).toHaveLength(AUTHOR_BYTES);
 });
-it('accepts sorted display-only labels and refuses what the owner store never writes', async () => {
+it('accepts sorted display-only projects and refuses what the owner store never writes', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, run: () => unknown) => run() },
   });
-  await response([{ ...metadata, labels: ['a b', 'q4 plan', '日本語'] }]);
-  expect((await discover(mount)).pages[0].labels).toEqual(['a b', 'q4 plan', '日本語']);
-  for (const labels of [
+  await response([{ ...metadata, projects: ['a b', 'q4 plan', '日本語'] }], ['empty']);
+  const boot = await discover(mount);
+  expect(boot.pages[0].projects).toEqual(['a b', 'q4 plan', '日本語']);
+  // A project with no page is listed for the space and in no entry.
+  expect(boot.projects).toEqual(['a b', 'empty', 'q4 plan', '日本語']);
+  for (const projects of [
     'urgent',
     [1],
     [''],
@@ -168,12 +182,53 @@ it('accepts sorted display-only labels and refuses what the owner store never wr
     Array.from({ length: 9 }, (_, n) => `l${n}`),
     null,
   ]) {
-    await response([{ ...metadata, labels }]);
+    await response([{ ...metadata, projects }]);
     await expect(discover(mount)).rejects.toThrow();
   }
   // A page without the key is not the shape the owner serves.
-  const { labels: _omitted, ...bare } = metadata;
+  const { projects: _omitted, ...bare } = metadata;
   await response([bare]);
+  await expect(discover(mount)).rejects.toThrow();
+});
+it('refuses a malformed space project list or an entry naming a project the space lacks', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const owner = new Uint8Array(32).fill(9),
+    space = await deriveSpaceId(owner);
+  vi.stubGlobal('location', { hash: `#space=${space}` });
+  const reply = (projects: unknown, pages: unknown[] = []) => {
+    const body = JSON.stringify({
+      spaceId: space,
+      ownerKey: encodeBinary(owner),
+      revision: '1',
+      ...(projects === undefined ? {} : { projects }),
+      pages,
+      pageIds: pages.map((page) => ({
+        pageId: (page as { pageId: string }).pageId,
+        deleted: false,
+      })),
+    });
+    vi.stubGlobal('fetch', async () => new Response(body));
+  };
+  reply([]);
+  await expect(discover(mount)).resolves.toMatchObject({ projects: [] });
+  for (const projects of [
+    undefined,
+    null,
+    'a',
+    [1],
+    [''],
+    ['a', 'a'],
+    ['x'.repeat(33)],
+    ['tab\there'],
+    Array.from({ length: 1001 }, (_, n) => `p${n}`),
+  ]) {
+    reply(projects);
+    await expect(discover(mount)).rejects.toThrow();
+  }
+  // The page names a project the space does not list.
+  reply(['a'], [{ ...metadata, projects: ['b'] }]);
   await expect(discover(mount)).rejects.toThrow();
 });
 it('rejects unsafe or ill-typed expiry hints before accepting discovery', async () => {

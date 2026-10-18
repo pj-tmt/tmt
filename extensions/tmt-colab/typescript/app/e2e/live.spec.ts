@@ -164,6 +164,7 @@ async function wire(
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
         revision: String(head.head.revision),
+        projects: [],
         pageIds: [{ pageId: v.page, deleted: false }],
         pages: [
           {
@@ -176,7 +177,7 @@ async function wire(
             lastUpdateAtMs: null,
             expiresAtMs: null,
             warnings: [],
-            labels: [],
+            projects: [],
           },
         ],
       },

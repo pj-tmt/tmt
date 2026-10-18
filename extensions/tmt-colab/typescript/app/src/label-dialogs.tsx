@@ -222,7 +222,7 @@ export function ManageLabelsDialog({
       failed: true,
     });
   }
-  const carrying = (name: string) => pages.filter((page) => page.labels?.includes(name));
+  const carrying = (name: string) => pages.filter((page) => page.projects?.includes(name));
   return (
     <BrowserDrawer open={open} keepMounted={false} title={t.manageLabels} onDismiss={close}>
       {step.kind === 'list' && (

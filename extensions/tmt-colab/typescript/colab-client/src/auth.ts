@@ -87,7 +87,9 @@ export function operation(value: string): void {
   requireValue(OPERATIONS.includes(value));
 }
 /** Display-only operations change owner-store state without a log statement; only management requests name them. */
-const DISPLAY_ONLY_OPERATIONS = ['page.labels'];
+const DISPLAY_ONLY_OPERATIONS = ['page.projects', 'project.manage'];
+/** The page a space-level request names: the frame binds one page and a project change has none. Only `project.manage` may name it. */
+export const SPACE_SCOPE_PAGE = '00000000-0000-4000-8000-000000000000';
 export function managementOperation(value: string): void {
   requireValue(OPERATIONS.includes(value) || DISPLAY_ONLY_OPERATIONS.includes(value));
 }
@@ -113,6 +115,7 @@ export async function managementInput(v: Management): Promise<Bytes> {
   for (const id of [v.page, v.operationId, v.senderDevice]) generatedId(id);
   managementOperation(v.operation);
   managementRevision(v.operation, v.expectedRevision);
+  requireValue((v.operation === 'project.manage') === (v.page === SPACE_SCOPE_PAGE));
   time(v.issuedAt);
   time(v.expiresAt);
   requireValue(

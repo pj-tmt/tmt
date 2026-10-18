@@ -104,6 +104,19 @@ const MIGRATIONS: &[&str] = &[
         operation TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('applied','conflict','refused')),
         PRIMARY KEY(page,epoch,writer,operation), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 13: projects replace page labels. A project exists on its own (a new one may hold no
+    // page) and a page can be in several; every label becomes a project of the same name and keeps
+    // its pages. Display-only like labels: not signed, not in the owner log; a deleted page's rows
+    // are removed with its data.
+    r#"
+    CREATE TABLE projects(name TEXT PRIMARY KEY) WITHOUT ROWID;
+    INSERT INTO projects(name) SELECT DISTINCT label FROM page_labels;
+    CREATE TABLE page_projects(page TEXT NOT NULL, project TEXT NOT NULL,
+        PRIMARY KEY(page,project), FOREIGN KEY(page) REFERENCES pages(page),
+        FOREIGN KEY(project) REFERENCES projects(name)) WITHOUT ROWID;
+    INSERT INTO page_projects(page,project) SELECT page,label FROM page_labels;
+    DROP TABLE page_labels;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

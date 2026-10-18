@@ -181,7 +181,7 @@ export function QuickSwitcherHost({
                   <span className="quick-switcher-title">{pageTitle(row)}</span>
                   <span className="quick-switcher-meta">
                     {row.summary?.author && <span>{row.summary.author}</span>}
-                    {(row.labels ?? []).map((label) => (
+                    {(row.projects ?? []).map((label) => (
                       <span key={label}>{label}</span>
                     ))}
                     {row.summary?.waiting && (

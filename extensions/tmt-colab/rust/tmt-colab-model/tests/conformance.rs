@@ -107,20 +107,38 @@ fn signin_and_management_match_independent_inputs_and_proofs() {
     );
     request.operation = "page.scripts";
     assert!(auth::management_input(&request).is_err());
-    // Display-only labels are a management request, never a log statement.
-    request.operation = "page.labels";
+    // Display-only project changes are management requests, never log statements.
+    request.operation = "page.projects";
     assert!(
         auth::management_input(&request).is_err(),
-        "labels carry no revision"
+        "projects carry no revision"
     );
     request.expected_revision = "";
     assert!(auth::management_input(&request).is_ok());
+    // A space-level change names the space scope page, and no other request may.
+    request.operation = "project.manage";
+    assert!(
+        auth::management_input(&request).is_err(),
+        "needs the space scope page"
+    );
+    let page = request.page;
+    request.page = auth::SPACE_SCOPE_PAGE;
+    assert!(auth::management_input(&request).is_ok());
+    request.operation = "page.projects";
+    assert!(
+        auth::management_input(&request).is_err(),
+        "a page request names a page"
+    );
+    request.page = page;
     request.expected_revision = "1";
-    assert!(auth::operation("page.labels").is_err());
-    assert!(auth::management_operation("page.labels").is_ok());
+    for display_only in ["page.projects", "project.manage"] {
+        assert!(auth::operation(display_only).is_err());
+        assert!(auth::management_operation(display_only).is_ok());
+        assert!(tmt_colab_model::payload::decode(display_only, b"{}").is_err());
+    }
+    assert!(auth::management_operation("page.labels").is_err());
     assert!(auth::management_operation("page.history").is_ok());
     assert!(auth::management_operation("page.scripts").is_err());
-    assert!(tmt_colab_model::payload::decode("page.labels", b"{}").is_err());
     request.operation = "page.history";
     request.expires_at += 1;
     assert!(auth::management_input(&request).is_err());

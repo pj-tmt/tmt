@@ -54,7 +54,7 @@ export function rankPages(
   const ranked: { result: SwitcherResult; strength: number; waiting: boolean; at: number }[] = [];
   for (const page of pages) {
     if (page.archived || page.id === exclude) continue;
-    const labels = page.labels ?? [];
+    const labels = page.projects ?? [];
     const author = page.summary?.author;
     if (!query.labels.every((name) => labels.includes(name))) continue;
     if (query.authors.length && (!author || !query.authors.includes(author))) continue;

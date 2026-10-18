@@ -30,8 +30,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly titleMissing?: boolean;
   readonly sharing: 'private' | 'link' | 'public';
   readonly archived?: boolean;
-  /** Display-only labels from the owner store; absent where a source has none (fixtures, a reader). */
-  readonly labels?: readonly string[];
+  /** Display-only projects from the owner store; absent where a source has none (fixtures, a reader). */
+  readonly projects?: readonly string[];
   /** The owner's display-only summary (comment count, pending-item count, the creator); absent until derived. */
   readonly summary?: PageActivity;
 }

@@ -357,18 +357,34 @@ it('signs display-only label requests with an empty revision and log operations 
     expiresAt: Number(c.decodeText(parts[10])),
   };
   expect(await c.managementInput(management)).toEqual(hex(fixture.management));
-  const labels = {
+  const projects = {
     ...management,
     expectedRevision: '',
-    operation: 'page.labels',
-    payload: hex(fixture.labelsPayload),
+    operation: 'page.projects',
+    payload: hex(fixture.projectsPayload),
   };
-  expect(await c.managementInput(labels)).toEqual(hex(fixture.managementLabels));
-  // A label request never names a head, and a log operation always does.
-  await expect(c.managementInput({ ...labels, expectedRevision: '1' })).rejects.toThrow();
-  await expect(c.managementInput({ ...labels, expectedRevision: '0' })).rejects.toThrow();
+  expect(await c.managementInput(projects)).toEqual(hex(fixture.managementProjects));
+  const manage = {
+    ...management,
+    page: c.SPACE_SCOPE_PAGE,
+    expectedRevision: '',
+    operation: 'project.manage',
+    payload: hex(fixture.projectManagePayload),
+  };
+  expect(await c.managementInput(manage)).toEqual(hex(fixture.managementProjectManage));
+  // A project request never names a head, and a log operation always does.
+  for (const request of [projects, manage]) {
+    await expect(c.managementInput({ ...request, expectedRevision: '1' })).rejects.toThrow();
+    await expect(c.managementInput({ ...request, expectedRevision: '0' })).rejects.toThrow();
+  }
   await expect(c.managementInput({ ...management, expectedRevision: '' })).rejects.toThrow();
-  // The label operation is a management request, never a statement operation.
-  expect(() => c.managementOperation('page.labels')).not.toThrow();
-  expect(() => c.operation('page.labels')).toThrow();
+  // Only a space-level change names the space scope page, and it must.
+  await expect(c.managementInput({ ...manage, page: management.page })).rejects.toThrow();
+  await expect(c.managementInput({ ...projects, page: c.SPACE_SCOPE_PAGE })).rejects.toThrow();
+  // The project operations are management requests, never statement operations.
+  for (const name of ['page.projects', 'project.manage']) {
+    expect(() => c.managementOperation(name)).not.toThrow();
+    expect(() => c.operation(name)).toThrow();
+  }
+  expect(() => c.managementOperation('page.labels')).toThrow();
 });

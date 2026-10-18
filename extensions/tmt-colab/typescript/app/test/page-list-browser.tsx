@@ -26,7 +26,7 @@ function page(n: number, title: string, labels: string[], changes: Partial<PageS
     retentionDays: 30,
     expiresAtMs: null,
     warnings: [],
-    labels,
+    projects: labels,
     ...changes,
   };
 }
@@ -109,7 +109,7 @@ export async function mountPageList(
       }
       state.pages = state.pages.map((p) => {
         const change = changes.find((c) => c.pageId === p.id);
-        return change ? { ...p, labels: [...change.labels] } : p;
+        return change ? { ...p, projects: [...change.labels] } : p;
       });
     },
   };

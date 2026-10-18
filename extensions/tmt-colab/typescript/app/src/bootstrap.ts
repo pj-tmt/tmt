@@ -14,9 +14,11 @@ import { jsonResponse } from './registration.js';
 
 import type { ExpiryInfo } from './expiry.js';
 
-/** Page label limits; `limits.rs` and the contract's Page labels section hold the same numbers. */
+/** Project limits; `limits.rs` and the contract's Projects section hold the same numbers. */
 export const LABEL_POINTS = 32;
 export const LABELS_PER_PAGE = 8;
+/** Most names one space lists: creation stops at 256, and a space migrated from labels may hold up to its 1,000 assignments. */
+const PROJECTS_PER_SPACE = 1000;
 
 /** Page summary limits; the contract's Page summary section holds the same numbers. */
 export const AUTHOR_BYTES = 128;
@@ -25,6 +27,20 @@ export const NEEDS_YOU_MAX = 350;
 const COMMENTS_MAX = 4_294_967_295;
 /** The complete `/api/pages` reply: 1,000 pages with the longest labels and summaries (about 780 KB) fit. */
 export const DISCOVERY_BYTES = 1024 * 1024;
+
+/** Project names are display-only text: unique, 1 to 32 code points, no control character. The owner enforces the full grammar; the browser refuses what it could not render safely. */
+function projectNames(names: readonly unknown[]): boolean {
+  return (
+    new Set(names).size === names.length &&
+    names.every(
+      (name) =>
+        typeof name === 'string' &&
+        [...name].length >= 1 &&
+        [...name].length <= LABEL_POINTS &&
+        !/\p{Cc}/u.test(name),
+    )
+  );
+}
 
 /** What the owner derives for the list: comment count, a proposal awaiting the owner, the creator. */
 export interface PageActivity {
@@ -42,8 +58,8 @@ export interface PageInfo extends ExpiryInfo {
   sharing: 'private' | 'link' | 'public';
   history: 'shared' | 'current';
   archived: boolean;
-  /** Display-only names the owner organizes pages with; sorted by the owner store, at most 8. */
-  labels: readonly string[];
+  /** Display-only projects the page is in; sorted by the owner store, at most 8. */
+  projects: readonly string[];
   /** Display-only and unsigned; absent until the owner has derived it for the page's current state. */
   summary?: PageActivity;
 }
@@ -55,6 +71,8 @@ export interface Bootstrap {
   space: string;
   owner: Uint8Array;
   revision: string;
+  /** Every project of the space, including those with no page; sorted by the owner store. */
+  projects: readonly string[];
   pages: PageInfo[];
   pageIds: PageId[];
 }
@@ -106,13 +124,19 @@ export async function discover(
     }),
     DISCOVERY_BYTES,
   );
-  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'pages', 'pageIds']);
+  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'projects', 'pages', 'pageIds']);
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
   spaceId(value.spaceId);
   decimal(value.revision);
   const owner = binary(value.ownerKey, 32, 32);
   requireValue((await deriveSpaceId(owner)) === value.spaceId);
   requireValue(Array.isArray(value.pages) && value.pages.length <= 1000);
+  requireValue(
+    Array.isArray(value.projects) &&
+      value.projects.length <= PROJECTS_PER_SPACE &&
+      projectNames(value.projects),
+  );
+  const known = new Set<unknown>(value.projects);
   let previous = '';
   for (const page of value.pages) {
     exactKeys(page, [
@@ -125,7 +149,7 @@ export async function discover(
       'lastUpdateAtMs',
       'expiresAtMs',
       'warnings',
-      'labels',
+      'projects',
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
     ]);
     if ('summary' in page) activity(page.summary);
@@ -144,19 +168,13 @@ export async function discover(
           (w) => typeof w === 'string' && ['expires-soon', 'not-in-cloud'].includes(w),
         ),
     );
-    // Labels are display-only text from the owner store; the owner enforces the full grammar, the
+    // Projects are display-only text from the owner store; the owner enforces the full grammar, the
     // browser only refuses what it could not render safely or what the store never writes.
     requireValue(
-      Array.isArray(page.labels) &&
-        page.labels.length <= LABELS_PER_PAGE &&
-        new Set(page.labels).size === page.labels.length &&
-        page.labels.every(
-          (label) =>
-            typeof label === 'string' &&
-            [...label].length >= 1 &&
-            [...label].length <= LABEL_POINTS &&
-            !/\p{Cc}/u.test(label),
-        ),
+      Array.isArray(page.projects) &&
+        page.projects.length <= LABELS_PER_PAGE &&
+        projectNames(page.projects) &&
+        page.projects.every((name: unknown) => known.has(name)),
     );
     requireValue(typeof page.pageId === 'string' && typeof page.epoch === 'string');
     generatedId(page.pageId);
@@ -211,6 +229,7 @@ export async function discover(
     space: value.spaceId,
     owner,
     revision: value.revision,
+    projects: value.projects as unknown as readonly string[],
     pages: value.pages as unknown as PageInfo[],
     pageIds: value.pageIds as unknown as PageId[],
   };

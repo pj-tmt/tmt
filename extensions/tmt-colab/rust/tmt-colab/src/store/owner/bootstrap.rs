@@ -245,15 +245,15 @@ impl OwnerTransaction<'_> {
             pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated}));
         }
         let known_ids: Vec<String> = pages.keys().cloned().collect();
-        // Labels are display-only owner-store state (never a log statement): the rows of the pages
+        // Projects are display-only owner-store state (never a log statement): the rows of the pages
         // that exist, sorted; a deleted page's rows are removed with its data.
-        let mut labels: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        let mut projects: std::collections::BTreeMap<String, Vec<String>> = Default::default();
         let mut stored = self
             .tx
-            .prepare("SELECT page,label FROM page_labels ORDER BY page,label")?;
+            .prepare("SELECT page,project FROM page_projects ORDER BY page,project")?;
         for row in stored.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
-            let (page, label) = row?;
-            labels.entry(page).or_default().push(label);
+            let (page, project) = row?;
+            projects.entry(page).or_default().push(project);
         }
         // Existence/epoch are the local creation projection; presentation policy
         // comes only from owner-signed statements. Never expose encrypted titles.
@@ -354,14 +354,14 @@ impl OwnerTransaction<'_> {
             page["warnings"] = serde_json::json!(warning.into_iter().collect::<Vec<_>>());
         }
         for (id, page) in pages.iter_mut() {
-            page["labels"] = serde_json::json!(labels.remove(id).unwrap_or_default());
+            page["projects"] = serde_json::json!(projects.remove(id).unwrap_or_default());
         }
         let page_ids: Vec<_> = known_ids
             .iter()
             .map(|id| serde_json::json!({"pageId":id,"deleted":!pages.contains_key(id)}))
             .collect();
         Ok(
-            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"pages":pages.into_values().collect::<Vec<_>>()}),
+            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"projects":self.projects()?,"pages":pages.into_values().collect::<Vec<_>>()}),
         )
     }
 }

@@ -2,7 +2,7 @@ import { LABEL_POINTS, LABELS_PER_PAGE } from './bootstrap.js';
 import { orderPages, pageTitle } from './page-index.js';
 import type { PageSummary } from './transport.js';
 
-/** Pages one `page.labels` request may name; `limits.rs` and the contract's Page labels hold it too. */
+/** Pages one `page.projects` request may name; `limits.rs` and the contract's Projects section hold it too. */
 export const LABEL_REQUEST_PAGES = 64;
 
 export type PageSort = 'updated' | 'title';
@@ -26,7 +26,7 @@ export type LabelNameError = 'empty' | 'long' | 'form';
 
 /**
  * The owner store's grammar: single interior spaces, no control character and no other Unicode
- * `White_Space` (not `\s`, which also takes U+FEFF); `label-name-v1.json` pins both sides.
+ * `White_Space` (not `\s`, which also takes U+FEFF); `project-name-v1.json` pins both sides.
  */
 export function labelNameError(name: string): LabelNameError | undefined {
   const points = [...name].length;
@@ -68,7 +68,7 @@ export function authorCounts(pages: readonly PageSummary[]): { name: string; cou
 export function labelCounts(pages: readonly PageSummary[]): { name: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const page of pages)
-    for (const name of page.labels ?? []) counts.set(name, (counts.get(name) ?? 0) + 1);
+    for (const name of page.projects ?? []) counts.set(name, (counts.get(name) ?? 0) + 1);
   return [...counts]
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => compareLabels(a.name, b.name));
@@ -87,7 +87,7 @@ export function filterPages(
   const words = filter.text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const kept = pages.filter((page) => {
     if (filter.needsYou && !page.summary?.waiting) return false;
-    const labels = page.labels ?? [];
+    const labels = page.projects ?? [];
     if (!filter.labels.every((name) => labels.includes(name))) return false;
     const author = page.summary?.author;
     if (filter.authors.length && (!author || !filter.authors.includes(author))) return false;
@@ -109,7 +109,7 @@ export function withLabel(
   name: string,
   present: boolean,
 ): LabelChange | 'capacity' {
-  const rest = (page.labels ?? []).filter((label) => label !== name);
+  const rest = (page.projects ?? []).filter((label) => label !== name);
   const labels = present ? [...rest, name] : rest;
   if (labels.length > LABELS_PER_PAGE) return 'capacity';
   return { pageId: page.id, labels: labels.sort(compareLabels) };
@@ -123,9 +123,9 @@ export function withLabel(
 export function relabel(pages: readonly PageSummary[], from: string, to?: string): LabelChange[] {
   if (from === to) return [];
   return pages
-    .filter((page) => page.labels?.includes(from))
+    .filter((page) => page.projects?.includes(from))
     .map((page) => {
-      const rest = page.labels!.filter((label) => label !== from && label !== to);
+      const rest = page.projects!.filter((label) => label !== from && label !== to);
       return {
         pageId: page.id,
         labels: (to === undefined ? rest : [...rest, to]).sort(compareLabels),

@@ -939,10 +939,25 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return Ok(());
     }
     if command == "ls" {
+        let project = args.get_one::<String>("project");
+        if let Some(project) = project
+            && !catalog["projects"]
+                .as_array()
+                .is_some_and(|all| all.iter().any(|name| name == project.as_str()))
+        {
+            return Err(crate::cli_projects::not_found(project));
+        }
         let pages = catalog["pages"]
             .as_array_mut()
             .ok_or_else(|| input("Invalid local page catalog."))?;
         pages.retain(|p| args.get_flag("archived") || p["archived"] != true);
+        if let Some(project) = project {
+            pages.retain(|p| {
+                p["projects"]
+                    .as_array()
+                    .is_some_and(|held| held.iter().any(|name| name == project.as_str()))
+            });
+        }
         for page in pages {
             title_or_error(&store, &key, page)?;
         }

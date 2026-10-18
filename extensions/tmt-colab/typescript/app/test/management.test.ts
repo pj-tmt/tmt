@@ -36,7 +36,7 @@ const page: PageInfo = {
   lastUpdateAtMs: null,
   expiresAtMs: null,
   warnings: [],
-  labels: [],
+  projects: [],
 };
 async function fixture() {
   const signer = await crypto.subtle.importKey(
@@ -101,6 +101,7 @@ async function fixture() {
     space: v.space,
     owner: hex(v.public),
     revision: '2',
+    projects: [],
     pages: [page],
     pageIds: [{ pageId: page.pageId, deleted: false }],
   };
@@ -347,6 +348,7 @@ function serve(f: Awaited<ReturnType<typeof fixture>>) {
           spaceId: f.boot.space,
           ownerKey: c.encodeBinary(f.boot.owner),
           revision: String(f.log.at(-1)!.head.revision),
+          projects: f.boot.projects,
           pages: f.boot.pages,
           pageIds: [...knownIds].sort().map((pageId) => ({
             pageId,

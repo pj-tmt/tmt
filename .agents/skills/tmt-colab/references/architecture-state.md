@@ -400,9 +400,9 @@ is added.
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
-  publication scope on `owner_operations`, 7 page labels, 8 bounded confirmed-publication metadata, 9 `link_admissions` (a live
+  publication scope on `owner_operations`, 7 page labels (replaced in 13), 8 bounded confirmed-publication metadata, 9 `link_admissions` (a live
   link's cloud admission token, dropped with the link), and 10 `link_publications` (links whose cloud
-  row may exist, until their removal completes). Migration leaves legacy times null and legacy
+  row may exist, until their removal completes). 11 and 12 cache cloud rows and edit decisions; 13 `projects` and `page_projects`, which replace `page_labels`. Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
@@ -489,13 +489,17 @@ is added.
 - `registration::Registration` owns the store/keyring pair. It verifies both
   remote-owned extension-key certificates against the full forwarded owner context before
   signing. Remote owns pairing, cookies and grants.
-- Page labels (`labels.rs`, `page_labels` in schema 7) are display-only owner-store state: the
-  one write `page.labels` is a management request that bypasses the engine's statement path
-  (`Engine::set_labels` -> `Store::label_transaction`, no head change, no receipt, last writer
-  wins, all-or-none per request) and `page_list()` serves them as `labels` in `/api/pages` and
-  the CLI catalog. They are never a log statement, so a label change never contends with
-  sharing or member changes. `delete_page_data` removes a page's rows; an open page is one
-  that still has its epoch secrets.
+- Projects (`projects.rs`, `projects` and `page_projects` in schema 13) are display-only owner-store
+  state; a project exists on its own, so one may hold no page. Schema 13 turned every earlier page
+  label into a project of the same name. The two writes, `page.projects` (whole-set replacements for
+  up to 64 pages) and `project.manage` (create, rename, delete; the signed frame names the space scope
+  page `SPACE_SCOPE_PAGE`), are management requests that bypass the engine's statement path
+  (`Engine::set_projects` / `manage_project` -> `Store::project_transaction`, no head change, no
+  receipt, last writer wins, all-or-none per request), and `page_list()` serves them as `projects`
+  per entry and at the top level of `/api/pages` and the CLI catalog. They are never a log
+  statement, so a project change never contends with sharing or member changes. `delete_page_data`
+  removes a page's assignments (the project stays); an open page is one that still has its epoch
+  secrets.
 - Page summaries (`summary.rs`: comment count, pending-item count, the creator) are
   display-only values for the owner list that only the owner fold can read, so the serve keeps
   them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
@@ -540,7 +544,7 @@ is added.
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
   `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive`, `delete` and
-  `label` (`cli_labels.rs`).
+  `project` (`cli_projects.rs`); `ls --project` filters in `cli_management.rs`.
 
 ## The page list (space home)
 
@@ -577,10 +581,11 @@ included, whatever the list shows. `applyLabelChanges` sends `LABEL_REQUEST_PAGE
 (64) pages per request in ascending order, sequentially: each request is atomic on the owner,
 the batch is not, and a failed batch reports "Updated N of M" so a retry (which re-reads the
 space and plans only what remains) converges. `ManagementClient.setLabels` signs a
-`page.labels` request with an empty `expectedRevision` (no view, head or verification: labels
-are display-only and the reply is only checked for shape). Management controls (the page
+`page.projects` request with an empty `expectedRevision` (no view, head or verification: projects
+are display-only and the reply is only checked for shape); the app's label vocabulary becomes
+project vocabulary in the follow-up browser slice of #3747. Management controls (the page
 menu, list options, label dialogs) render only when the transport has `management`; a reader
-keeps search, sort and filters because `labels` arrive in `/api/pages`. The list-options gear is
+keeps search, sort and filters because `projects` arrive in `/api/pages`. The list-options gear is
 icon-only, so the shown set names itself in the `page-list-status` line ("Archived pages");
 the label chips count the pages shown, while the manage dialog counts every page carrying the
 name and says how many of them are archived.

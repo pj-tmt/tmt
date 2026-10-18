@@ -1586,11 +1586,13 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
         ));
         serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap()
     };
-    let page = |labels: Value| {
+    let page = |projects: Value| {
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
-        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"labels":labels}]})
+        "projects":projects,
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":[],"projects":projects}]})
     };
-    // Every entry carries its labels (display-only, from the owner store, sorted), empty by default.
+    // The reply names the space's projects and every entry the projects it is in (display-only,
+    // from the owner store, sorted), empty by default.
     assert_eq!(listed(&server), page(json!([])));
     // This fixture creates the page without its epoch secret, which page creation always commits
     // and deletion removes; an open page is one that still has it.
@@ -1602,12 +1604,21 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
         )
         .unwrap();
     store
-        .label_transaction(&server.space, &key.owner_public(), |tx| {
-            tx.set_labels(&[(PAGE.to_owned(), vec!["b".to_owned(), "a b".to_owned()])])
+        .project_transaction(&server.space, &key.owner_public(), |tx| {
+            tx.set_projects(&[(PAGE.to_owned(), vec!["b".to_owned(), "a b".to_owned()])])
         })
         .unwrap();
     assert_eq!(listed(&server), page(json!(["a b", "b"])));
-    // Labels are not log statements: the membership revision did not move.
+    // A project with no page is still listed, in the space's names and in no entry.
+    store
+        .project_transaction(&server.space, &key.owner_public(), |tx| {
+            tx.manage_project(&tmt_colab::projects::Change::Create("empty".to_owned()))
+        })
+        .unwrap();
+    let with_empty = listed(&server);
+    assert_eq!(with_empty["projects"], json!(["a b", "b", "empty"]));
+    assert_eq!(with_empty["pages"][0]["projects"], json!(["a b", "b"]));
+    // Projects are not log statements: the membership revision did not move.
     assert_eq!(listed(&server)["revision"], "130");
     let mut peer = server.peer(DEVICE);
     send(

@@ -201,15 +201,16 @@ HTML grants no authority. Resolve never notifies agents; Reopen keeps the decisi
 Trusted Approve/Decline saves the final decision, then sends one Ask; failure
 keeps it. Reload never sends. `--after` is deferred.
 
-## Labels
+## Projects
 
-Labels organize the owner's page list; they carry no authority and are not signed.
-`tmt colab label add PAGE NAME... --json`, `label remove PAGE NAME...`, `label ls`,
-`label rename NAME NEW` and `label delete NAME` (rename and delete reach every page,
-archived included; no page is deleted). A name is 1 to 32 characters with no control
-characters and no leading, trailing or doubled spaces; a page holds at most 8 labels. A
-write replaces the page's whole set (last writer wins); `changed:false` means nothing
-differed. `ls` and `show --json` list each page's `labels`.
+Projects organize the owner's page list (a page can be in several); they are display-only and
+unsigned. `tmt colab project add PAGE NAME...`, `project remove PAGE NAME...`,
+`project create NAME`, `project ls`, `project rename NAME NEW` and `project delete NAME`
+(rename merges onto an existing project; rename and delete reach archived pages and
+never delete one). A name is 1 to 32 characters (no control characters, no edge or
+doubled spaces); a page is in at most 8. `add` and `remove` replace the page's set (last
+writer wins); `changed:false` means no change. `ls` and `show --json` list each page's
+`projects`; `ls --project NAME` shows that project's pages.
 
 After page create/update, add reading anchors for passages the reader must not miss.
 Markup: [questions](references/questions.md) (`tmt colab skill questions`),
