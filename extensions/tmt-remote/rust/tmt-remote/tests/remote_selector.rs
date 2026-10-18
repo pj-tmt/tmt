@@ -69,7 +69,8 @@ fn ordinary_client_imports_public_config_without_deployment_or_owner_authority()
 fn ordinary_client_never_falls_back_from_explicit_or_broken_default_selection() {
     let root = Root::new();
     let layout = root.layout();
-    let mut writer = DeployRecordStore::open(&layout, "demo-local-project").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-local-project", "retry deploy fixture").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     drop(writer);
     assert!(
@@ -139,7 +140,7 @@ fn explicit_project_default_and_sole_fallback_never_choose_an_arbitrary_project(
     let layout = root.layout();
     assert_eq!(selector::owned(&layout, None, None).unwrap(), None);
     for project in ["demo-project-a", "demo-project-b"] {
-        let mut writer = DeployRecordStore::open(&layout, project).unwrap();
+        let mut writer = DeployRecordStore::open(&layout, project, "retry deploy fixture").unwrap();
         writer.persist(&DeployRecord::new(ID)).unwrap();
         drop(writer);
         if project == "demo-project-a" {
@@ -241,7 +242,8 @@ fn imported_public_link_is_not_ownership_and_names_cannot_shadow_projects() {
             .as_deref(),
         Some("demo-remote-1")
     );
-    let mut writer = DeployRecordStore::open(&layout, "demo-project-a").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-project-a", "retry deploy fixture").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     drop(writer);
     assert!(
@@ -278,20 +280,30 @@ fn malformed_default_does_not_change_owner_browser_or_session_preferences() {
 fn copied_bound_target_names_both_paths_and_never_opens_an_effect_owner() {
     let root = Root::new();
     let layout = root.layout();
-    let mut writer =
-        DeployRecordStore::open_for_target(&layout, "demo-project-a", "asia-east1").unwrap();
+    let mut writer = DeployRecordStore::open_for_target(
+        &layout,
+        "demo-project-a",
+        "asia-east1",
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target("demo-project-a", "asia-east1").unwrap();
     writer.persist(&DeployRecord::new(ID)).unwrap();
     drop(writer);
-    drop(DeployRecordStore::open(&layout, "demo-project-b").unwrap());
+    drop(DeployRecordStore::open(&layout, "demo-project-b", "retry deploy fixture").unwrap());
     let source = root.remote().join("deployments/demo-project-a/deploy.json");
     let destination = root.remote().join("deployments/demo-project-b/deploy.json");
     use std::os::unix::fs::PermissionsExt;
     std::fs::copy(&source, &destination).unwrap();
     std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let error = DeployRecordStore::open_for_target(&layout, "demo-project-b", "asia-east1")
-        .err()
-        .unwrap();
+    let error = DeployRecordStore::open_for_target(
+        &layout,
+        "demo-project-b",
+        "asia-east1",
+        "retry deploy fixture",
+    )
+    .err()
+    .unwrap();
     assert_eq!(error.code, "REMOTE_SELECTOR_CONFLICT");
     assert!(error.message.contains(&source.display().to_string()));
     assert!(error.message.contains(&destination.display().to_string()));
@@ -312,4 +324,97 @@ fn project_inventory_admits_the_parent_before_listing_an_empty_foreign_directory
         matches!(tmt_remote::deploy_record::projects(&layout), Err(e) if e.code == "REMOTE_STATE_UNSAFE")
     );
     assert!(std::fs::read_dir(&foreign).unwrap().next().is_none());
+}
+
+#[test]
+fn catalog_updates_join_the_document_writer_and_read_its_current_bytes_once() {
+    use std::{sync::mpsc, time::Duration};
+    use tmt_extension_state::Document;
+    let root = Root::new();
+    let layout = root.layout();
+    let path = root.remote().join("remotes.json");
+    tmt_remote::remote_catalog::add(&layout, "seed", "https://example.test/r/seed/").unwrap();
+    tmt_remote::remote_catalog::remove(&layout, "seed").unwrap();
+    let document = Document::new(
+        &layout.directory,
+        &path,
+        tmt_remote::limits::REMOTE_CATALOG_BYTES as u64,
+        "retry catalog test",
+    )
+    .unwrap();
+    let (entered, held) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let (finished, completion) = mpsc::channel();
+    let (early, first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(move || document.update::<std::io::Error>(|current| {
+            let mut value: serde_json::Value = serde_json::from_slice(current.unwrap()).unwrap();
+            value["entries"].as_array_mut().unwrap().push(serde_json::json!({
+                "name":"first", "kind":"local", "url":"https://example.test/r/first/", "project":null
+            }));
+            entered.send(()).unwrap();
+            released.recv_timeout(Duration::from_secs(3)).unwrap();
+            Ok(serde_json::to_vec(&value).unwrap())
+        }));
+        held.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert!(
+            tmt_remote::remote_catalog::read(&layout)
+                .unwrap()
+                .is_empty()
+        );
+        let second = scope.spawn(|| {
+            let result = tmt_remote::remote_catalog::add(
+                &layout,
+                "second",
+                "https://example.test/r/second/",
+            );
+            finished.send(()).unwrap();
+            result
+        });
+        // A real held writer is the readiness signal. Completion before release is a defect.
+        let early = completion.recv_timeout(Duration::from_millis(100));
+        release.send(()).unwrap();
+        (early, first.join().unwrap(), second.join().unwrap())
+    });
+    first.unwrap();
+    second.unwrap();
+    assert!(
+        matches!(early, Err(mpsc::RecvTimeoutError::Timeout)),
+        "catalog bypassed the document writer"
+    );
+    let entries = tmt_remote::remote_catalog::read(&layout).unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "second"]
+    );
+}
+
+#[test]
+fn catalog_document_recovery_preserves_private_mode_and_refuses_loose_input() {
+    use std::{fs, os::unix::fs::PermissionsExt};
+    let root = Root::new();
+    let layout = root.layout();
+    let path = root.remote().join("remotes.json");
+    let staging = root.remote().join(".remotes.json.tmt-staging");
+    fs::write(&staging, b"abandoned publication").unwrap();
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o600)).unwrap();
+    tmt_remote::remote_catalog::add(&layout, "first", "https://example.test/r/first/").unwrap();
+    assert!(!staging.exists());
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    let bytes = fs::read(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        tmt_remote::remote_catalog::add(&layout, "second", "https://example.test/r/second/")
+            .is_err()
+    );
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
 }

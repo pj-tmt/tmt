@@ -66,6 +66,28 @@ pub(crate) fn state_error(error: StateError) -> RemoteError {
         StateError::Busy => io(nix::errno::Errno::EWOULDBLOCK),
     }
 }
+/// Quote one literal command argument without interpreting shell syntax.
+pub(crate) fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+/// Shared entries keep their typed uncertainty/timeout cause and caller's retry guidance.
+pub(crate) fn document_error(error: tmt_extension_state::StateError) -> RemoteError {
+    let code = match &error {
+        tmt_extension_state::StateError::Unsafe { .. }
+        | tmt_extension_state::StateError::Invalid { .. } => "REMOTE_STATE_UNSAFE",
+        _ => "REMOTE_STATE_UNAVAILABLE",
+    };
+    RemoteError::new(code, &error.to_string())
+}
+pub(crate) fn document_result(
+    outcome: Result<(), tmt_extension_state::UpdateError<RemoteError>>,
+) -> Result<(), RemoteError> {
+    match outcome {
+        Ok(()) => Ok(()),
+        Err(tmt_extension_state::UpdateError::Change(error)) => Err(error),
+        Err(tmt_extension_state::UpdateError::State(error)) => Err(document_error(error)),
+    }
+}
 fn lock_error(error: StateError, code: &str, message: &str) -> RemoteError {
     match error {
         StateError::Busy => RemoteError::new(code, message),
@@ -294,5 +316,15 @@ mod lease_tests {
         drop(child_copy);
         drop(layout.serve_lock().unwrap());
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod document_retry_tests {
+    #[test]
+    fn shell_quote_keeps_spaces_and_single_quotes_in_one_literal_argument() {
+        assert_eq!(super::shell_quote("two words"), "'two words'");
+        assert_eq!(super::shell_quote("not'a command"), "'not'\\''a command'");
+        assert_eq!(super::shell_quote(""), "''");
     }
 }

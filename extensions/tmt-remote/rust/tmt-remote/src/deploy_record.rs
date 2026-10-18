@@ -6,14 +6,14 @@ use crate::{
     error::RemoteError,
     limits,
     readiness::{self, FirestoreEvidence, FirestoreEvidenceSource},
-    state::Layout,
+    state::{Layout, document_error, document_result},
     store::uuid_v4,
     wire,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Read,
     os::unix::fs::OpenOptionsExt,
     path::PathBuf,
 };
@@ -292,10 +292,13 @@ fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError>
     file.take((limits::DEPLOY_RECORD_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|_| unavailable())?;
+    decode_document(&bytes).map(Some)
+}
+fn decode_document(bytes: &[u8]) -> Result<DeployDocument, RemoteError> {
     if bytes.len() > limits::DEPLOY_RECORD_BYTES {
         return Err(invalid());
     }
-    let value = wire::strict_json(&bytes).ok_or_else(invalid)?;
+    let value = wire::strict_json(bytes).ok_or_else(invalid)?;
     let document: DeployDocument = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
     // Nested engine records accept ordinary serde defaults; require their full exact
     // schema here so unknown fields or missing optional fields are not silently lost.
@@ -317,7 +320,7 @@ fn read_document(layout: &Layout) -> Result<Option<DeployDocument>, RemoteError>
     {
         return Err(invalid());
     }
-    Ok(Some(document))
+    Ok(document)
 }
 
 /// Derive the public carrier from one lock-free snapshot; never save or repair.
@@ -355,38 +358,48 @@ impl FirestoreEvidenceSource for DeployRecordEvidence {
 pub struct DeployRecordStore {
     layout: Layout,
     project: String,
-    _lock: File,
+    _lock: tmt_extension_state::Guard,
     target: Option<DeployTarget>,
+    retry: String,
 }
 impl DeployRecordStore {
     pub(crate) fn record_path(&self) -> PathBuf {
         self.layout.directory.join(FILE)
     }
-    pub fn open(layout: &Layout, project: &str) -> Result<Self, RemoteError> {
-        Self::open_checked(layout, project, None)
+    pub fn open(layout: &Layout, project: &str, retry: &str) -> Result<Self, RemoteError> {
+        Self::open_checked(layout, project, None, retry)
     }
     /// Check a retained target under the writer lock, before cleanup or provider setup.
     pub fn open_for_target(
         layout: &Layout,
         project: &str,
         region: &str,
+        retry: &str,
     ) -> Result<Self, RemoteError> {
-        Self::open_checked(layout, project, Some((project, region)))
+        Self::open_checked(layout, project, Some((project, region)), retry)
     }
     fn open_checked(
         layout: &Layout,
         project: &str,
         requested: Option<(&str, &str)>,
+        retry: &str,
     ) -> Result<Self, RemoteError> {
+        if retry.is_empty() {
+            return Err(invalid());
+        }
         refuse_legacy(layout)?;
-        let lock = layout.file("deploy.lock")?;
-        lock.try_lock().map_err(|error| match error {
-            std::fs::TryLockError::WouldBlock => RemoteError::new(
-                "REMOTE_DEPLOY_BUSY",
-                "Another deployment owns the writer lock.",
-            ),
-            std::fs::TryLockError::Error(_) => unavailable(),
-        })?;
+        let lock =
+            tmt_extension_state::Guard::acquire(&layout.directory.join("deploy.lock"), retry)
+                .map_err(|error| {
+                    if matches!(&error, tmt_extension_state::StateError::GuardBusy { .. }) {
+                        RemoteError::new(
+                            "REMOTE_DEPLOY_BUSY",
+                            &format!("Another deployment owns the writer lock. {error}"),
+                        )
+                    } else {
+                        document_error(error)
+                    }
+                })?;
         let home = layout;
         let layout = layout
             .project(project, true)?
@@ -398,6 +411,7 @@ impl DeployRecordStore {
             project: project.into(),
             _lock: lock,
             target,
+            retry: retry.into(),
         };
         if let Some(target) = owner
             .target
@@ -492,35 +506,26 @@ impl DeployRecordStore {
         if bytes.len() > limits::DEPLOY_RECORD_BYTES {
             return Err(invalid());
         }
-        // Validate the destination through the admitted no-follow reader before replacing.
-        if read_document(&self.layout)?
-            .map(|document| document.record)
-            .is_some_and(|old| old.deployment_id != record.deployment_id)
-        {
-            return Err(invalid());
-        }
-        let path = self
-            .layout
-            .directory
-            .join(format!("{PREFIX}{}", uuid_v4()?));
-        let mut staged = DeployStaged {
-            path,
-            published: false,
-        };
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
-            .open(&staged.path)
-            .map_err(|_| unavailable())?;
-        file.write_all(&bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(|_| unavailable())?;
-        fs::rename(&staged.path, self.layout.directory.join(FILE)).map_err(|_| unavailable())?;
-        staged.published = true;
-        // A failure here stops effects but does not claim the visible file rolled back.
-        self.layout.sync().map_err(|_| unavailable())
+        let document = tmt_extension_state::Document::new(
+            &self.layout.directory,
+            &self.layout.directory.join(FILE),
+            limits::DEPLOY_RECORD_BYTES as u64,
+            &self.retry,
+        )
+        .map_err(document_error)?;
+        document_result(document.update(|current| {
+            if self.layout.read_file(FILE)?.is_some() != current.is_some() {
+                return Err(invalid());
+            }
+            if current
+                .map(decode_document)
+                .transpose()?
+                .is_some_and(|old| old.record.deployment_id != record.deployment_id)
+            {
+                return Err(invalid());
+            }
+            Ok(bytes)
+        }))
     }
 }
 impl DeploySink for DeployRecordStore {
@@ -539,15 +544,4 @@ fn admit_stage(file: &File) -> Result<(), RemoteError> {
         return Err(invalid());
     }
     Ok(())
-}
-struct DeployStaged {
-    path: PathBuf,
-    published: bool,
-}
-impl Drop for DeployStaged {
-    fn drop(&mut self) {
-        if !self.published {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
 }

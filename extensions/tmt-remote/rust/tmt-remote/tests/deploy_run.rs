@@ -1002,7 +1002,8 @@ fn emulator_artifact_is_the_exact_verified_deployment_output() {
     .unwrap();
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut sink = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut sink =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let mut fake = Fake::new(ACCOUNT);
     let record = run(
         &plan,
@@ -1255,7 +1256,7 @@ fn hosting_release_names_round_trip_as_received_without_changing_the_frozen_reco
     assert_eq!(record.run.as_ref().unwrap().state, RunState::Complete);
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut writer = DeployRecordStore::open(&layout, PROJECT).unwrap();
+    let mut writer = DeployRecordStore::open(&layout, PROJECT, "retry deploy fixture").unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     let path = root
         .remote()
@@ -1469,8 +1470,12 @@ fn old_partial_populate_record_retains_its_unfiltered_foreign_fingerprint_and_di
     populate.cause = Some(cause);
     let before = serde_json::to_vec(&record).unwrap();
     let root = deploy_fixture_root::Root::new();
-    let mut writer =
-        tmt_remote::deploy_record::DeployRecordStore::open(&root.layout(), PROJECT).unwrap();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &root.layout(),
+        PROJECT,
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     writer.persist(&record).unwrap();
     let path = root
@@ -2009,7 +2014,12 @@ fn pre_cause_hosting_record_reads_unchanged_and_resumes_the_original_digest() {
     // A pre-change record has only id/state step members, including the ambiguous create.
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout, PROJECT).unwrap();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &layout,
+        PROJECT,
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     writer.persist(&original).unwrap();
     let path = root
@@ -2190,7 +2200,12 @@ fn safe_supersession_keeps_the_old_outcomes_and_adopts_existing_creations() {
     assert_eq!(fake.inner.effects_of("hosting-site:create"), 1);
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout, PROJECT).unwrap();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &layout,
+        PROJECT,
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     writer.persist(&complete).unwrap();
     assert_eq!(writer.load_or_draft().unwrap(), complete);
@@ -2441,7 +2456,12 @@ fn hosting_file_count_detail_is_additive_outside_the_original_plan_digest() {
     assert_eq!(plan.digest(), original_digest);
     let root = deploy_fixture_root::Root::new();
     let layout = root.layout();
-    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(&layout, PROJECT).unwrap();
+    let mut writer = tmt_remote::deploy_record::DeployRecordStore::open(
+        &layout,
+        PROJECT,
+        "retry deploy fixture",
+    )
+    .unwrap();
     writer.bind_target(PROJECT, LOCATION).unwrap();
     writer.persist(&record).unwrap();
     assert_eq!(writer.load_or_draft().unwrap(), record);

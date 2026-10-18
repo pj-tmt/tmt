@@ -3395,7 +3395,7 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
     }))
     .unwrap();
     // Seed valid private bytes before the copied-holder scenario.
-    drop(DeployRecordStore::open(&layout, "demo-remote-1").unwrap());
+    drop(DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap());
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -3427,7 +3427,7 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
             drop(copy);
         });
         let result = wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            let result = DeployRecordStore::open(&layout, "demo-remote-1");
+            let result = DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture");
             if matches!(&result, Err(error) if error.code == "REMOTE_DEPLOY_BUSY")
                 && let Some(release) = release.take()
             {
@@ -3446,17 +3446,17 @@ fn deploy_writer_wait_observes_a_gated_copied_lock_release_without_changing_the_
 fn deploy_writer_wait_still_refuses_a_held_writer_at_its_absolute_deadline() {
     let root = deploy_fixture::Root::new();
     let layout = root.layout();
-    let writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let writer = DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let deadline = Instant::now() + DEPLOY_WRITER_RELEASE_POLL * 2;
     let result = wait_for_deploy_writer(deadline, || {
-        DeployRecordStore::open(&layout, "demo-remote-1")
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture")
     });
     assert!(matches!(result, Err(error) if error.code == "REMOTE_DEPLOY_BUSY"));
     assert!(Instant::now() >= deadline);
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            DeployRecordStore::open(&layout, "demo-remote-1")
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture")
         })
         .expect("released writer was not available"),
     );
@@ -3483,7 +3483,8 @@ fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer
     use tmt_remote::{deploy_record::DeployRecordStore, deploy_run::DeployRecord, state::Layout};
     let mut pilot = Pilot::new();
     let layout = Layout::open(&pilot.root.join("state")).unwrap();
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     writer
         .persist(&DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11"))
         .unwrap();
@@ -3502,7 +3503,7 @@ fn status_stop_and_serve_diagnostics_preserve_the_deploy_record_while_its_writer
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            DeployRecordStore::open(&layout, "demo-remote-1")
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture")
         })
         .expect("deploy writer leaked its lock"),
     );
@@ -3517,7 +3518,8 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     };
     let mut pilot = Pilot::new();
     let layout = Layout::open(&pilot.root.join("state")).unwrap();
-    let mut writer = DeployRecordStore::open(&layout, "demo-remote-1").unwrap();
+    let mut writer =
+        DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture").unwrap();
     let mut record = DeployRecord::new("3f2b8c1e-5d4a-4e7b-9c1d-2a6f8e0b4c11");
     writer.persist(&record).unwrap();
     start_door(&mut pilot, &[], false);
@@ -3640,7 +3642,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     drop(writer);
     drop(
         wait_for_deploy_writer(Instant::now() + DEPLOY_WRITER_RELEASE_WAIT, || {
-            DeployRecordStore::open(&layout, "demo-remote-1")
+            DeployRecordStore::open(&layout, "demo-remote-1", "retry deploy fixture")
         })
         .expect("deploy writer leaked its lock"),
     );
