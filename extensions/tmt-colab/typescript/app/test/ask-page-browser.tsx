@@ -77,6 +77,20 @@ export function finishStatusNotice() {
 export function failStatusOnce() {
   failNextStatus = true;
 }
+let holdNextStatus = false;
+let heldStatus: { release(fail: boolean): void; settled: Promise<void> } | undefined;
+/** The next status change waits for `releaseStatus`. */
+export function holdStatusOnce() {
+  holdNextStatus = true;
+}
+/** Settles the held status change, then waits until the page has rendered its outcome. */
+export async function releaseStatus(options: { fail?: boolean } = {}) {
+  const held = heldStatus!;
+  heldStatus = undefined;
+  held.release(!!options.fail);
+  await held.settled;
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}
 let releaseQuestionDirectory: (() => void) | undefined;
 export function finishQuestionDirectory() {
   releaseQuestionDirectory?.();
@@ -489,6 +503,17 @@ export async function mount(
   const discussion: ThreadBinding = {
     attachments,
     async setStatus(ref, _previous, resolved, recipients) {
+      if (holdNextStatus) {
+        holdNextStatus = false;
+        let settle!: () => void;
+        const settled = new Promise<void>((resolve) => (settle = resolve));
+        const fail = await new Promise<boolean>((release) => {
+          heldStatus = { release, settled };
+        });
+        // The caller's own continuation runs before the page renders its outcome.
+        queueMicrotask(settle);
+        if (fail) throw new Error('Fixture status publication was not confirmed');
+      }
       if (failNextStatus) {
         failNextStatus = false;
         throw new Error('Fixture status publication was not confirmed');
@@ -755,6 +780,7 @@ export async function mount(
         releaseDraftRead = resolve;
       })
     : undefined;
+  const secondPage = '<p id="review-b-page">Second page</p>';
   const transport: PageTransport = {
     management: options.management,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
@@ -765,6 +791,23 @@ export async function mount(
       };
     },
     async page(pageId) {
+      // The same review source on a different page, with its own discussion binding.
+      if (pageId === 'review-b' || pageId === id(3))
+        return {
+          id: id(3),
+          sharing: 'private',
+          ...current,
+          source: `${current.source}${secondPage}`,
+          binding: {
+            ...binding,
+            discussion: { ...discussion },
+            subscribe: (next, failed) =>
+              binding.subscribe(
+                (view) => next({ ...view, source: `${view.source}${secondPage}` }),
+                failed,
+              ),
+          },
+        };
       if (pageId === 'notes')
         return {
           id: id(2),

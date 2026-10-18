@@ -528,6 +528,26 @@ test('a Reopen that did not land says so, keeps the section closed and can be re
   await expect(card.getByRole('alert')).toHaveCount(0);
 });
 
+test('a Reopen result that arrives after the page changed never reaches the next page', async ({
+  page,
+}) => {
+  const card = await mount(page);
+  await card.getByRole('button', { name: 'Confirm and close', exact: true }).click();
+  await expect(card).toHaveAttribute('data-review-state', 'closed');
+  await run(page, 'holdStatusOnce');
+  await card.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await page.evaluate(() => (location.hash = '/pages/review-b'));
+  await expect(frame(page).locator('#review-b-page')).toBeVisible();
+  const next = page.locator('.review-card').first();
+  await expect(next).toHaveAttribute('data-review-state', 'closed');
+  await run(page, 'releaseStatus', { fail: true });
+  // The durable coordinator stays the authority; the old page's failure is not shown here.
+  await expect(next.getByRole('alert')).toHaveCount(0);
+  await expect(next).toHaveAttribute('data-review-state', 'closed');
+  await next.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await expect(next).toHaveAttribute('data-review-state', 'waiting');
+});
+
 test('a page with no Ask facade lets a reader confirm with the comment staying on the page', async ({
   page,
 }) => {
