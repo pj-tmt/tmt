@@ -645,6 +645,8 @@ test('composer records plain annotations and replies without a recipient, then s
     );
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
     const question = `@${agent.name} Explain this exact quote.\n  Keep these spaces and this line.  `;
+    // Sent text draws the mention as the chip, whose icon takes the place of the typed @.
+    const shown = question.replace(`@${agent.name}`, agent.name);
     await reply.fill(question);
     await inputFor(thread, agent.name);
     await expect.poll(() => composerText(reply)).toBe(question);
@@ -689,7 +691,7 @@ test('composer records plain annotations and replies without a recipient, then s
       .getByTestId('comment-entry')
       .filter({ hasText: 'Explain this exact quote.' });
     const askMessageId = (await askComment.getAttribute('data-message-id'))!;
-    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(question);
+    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(shown);
     expect(agent.received()[0].message).toContain('Frozen original quote.');
     expect(agent.received()[0].message).toContain(`@${agent.name}`);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
@@ -725,7 +727,7 @@ test('composer records plain annotations and replies without a recipient, then s
       .poll(() =>
         restored.locator(`[data-message-id="${askMessageId}"] .comment-body`).textContent(),
       )
-      .toBe(question);
+      .toBe(shown);
     await expect
       .poll(() => restored.locator('.thread-state').first().getAttribute('title'))
       .toBe('Frozen original quote.');
