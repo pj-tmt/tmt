@@ -13,9 +13,10 @@ Selecting an agent never queues `notes.read`; selected worker jobs are typed
 Status previews, exact Message sources and bounded recent pane-output observations. The old notebook event, eight-entry
 cache, per-squad cursor/link maps and painters are removed. Notebook storage,
 public source APIs and saved-identity behavior retain their independent owners.
-`observe` and `refresh::lead_notes` retain the bounded acquired-data conversion,
-including missing, no-lead, temporary-identity and failed-read distinctions;
-none creates a notebook. Incompatible notebook rendering/handler settings get
+`board::refresh` calls `observe::observe`, which reads the lead's notes only when
+the board shows them or observation is active, and retains the bounded
+acquired-data conversion, including missing, no-lead, temporary-identity and
+failed-read distinctions; it creates no notebook. Incompatible notebook rendering/handler settings get
 located migration notices without rewriting authored values.
 
 `board::notes::sanitize` removes escapes, controls and hidden bidi/format
