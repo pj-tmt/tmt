@@ -7,6 +7,7 @@ use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
 use unicode_width::UnicodeWidthStr;
 
+mod finals;
 pub(in crate::board) mod performance;
 mod recent_output_packet;
 
@@ -228,7 +229,7 @@ fn new_output_does_not_replace_a_paused_request_and_end_reads_latest() {
         json!({"recipientId":"a","requestId":"next","response":"new final"});
     let paused = draw(&app, 80, 18);
     assert!(paused.contains("new output"));
-    assert!(paused.contains("alpha line 000"));
+    assert!(paused.contains("alpha line 000"), "{paused}");
     assert!(!paused.contains("new final"));
     app.scroll_pane(Pane::Replies, Step::Bottom);
     let followed = draw(&app, 80, 18);
@@ -1119,6 +1120,7 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         times: vec![1000],
         exchanges_observed: true,
         output_ages: vec!["now".into()],
+        ..Default::default()
     };
     session.pane_output = Observation::Observed(vec![Item {
         text: "untrusted **pane**\r\nlast line\n".into(),
@@ -1140,15 +1142,18 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
             .collect();
         let header = labels
             .iter()
-            .position(|line| line.contains("pane output"))
+            .position(|line| line.starts_with(" alpha · pane "))
             .unwrap();
+        if width >= 21 {
+            assert!(labels[header].contains("pane output"));
+        }
         assert!(
             labels[0].contains("real exchange"),
             "exchange wins equal-time tie"
         );
         assert!(header > 0);
         for (index, source) in rendered.mapped.sources.iter().enumerate() {
-            if index >= header {
+            if index >= header || labels[index].trim().is_empty() {
                 assert!(
                     session.response_key_at(*source).is_none(),
                     "pane line {index} has no request authority"
@@ -1203,6 +1208,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
             times: vec![],
             exchanges_observed: true,
             output_ages: vec![],
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -1450,7 +1456,7 @@ fn pane_output_uses_the_exchange_header_time_format() {
                 .lines
                 .iter()
                 .any(|line| line.width() == 60
-                    && line.to_string().trim_end() == "alpha · pane output · 6h ago")
+                    && line.to_string().trim_end() == " alpha · pane output · 6h ago")
         );
     });
 }

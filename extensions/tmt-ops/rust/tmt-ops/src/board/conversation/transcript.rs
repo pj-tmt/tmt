@@ -9,6 +9,8 @@ pub(super) struct Context {
     pub times: Vec<u64>,
     pub exchanges_observed: bool,
     pub output_ages: Vec<String>,
+    pub final_ages: Vec<String>,
+    pub reader: String,
 }
 
 impl State {
@@ -125,6 +127,35 @@ impl Session {
             name,
             times,
             output_ages,
+            final_ages: self
+                .finals
+                .iter()
+                .map(|reply| {
+                    let stamp = super::exchange::age_stamp(&reply.age_at(crate::status::now_ms()));
+                    if self.change != Change::Current
+                        && self
+                            .reply
+                            .as_ref()
+                            .is_some_and(|held| same_source(held, reply))
+                    {
+                        format!(
+                            "{stamp} · {}",
+                            if self.change == Change::NewOutput {
+                                "new output"
+                            } else {
+                                "unavailable"
+                            }
+                        )
+                    } else {
+                        stamp
+                    }
+                })
+                .collect(),
+            reader: app
+                .view
+                .as_ref()
+                .and_then(|view| view.me.clone())
+                .unwrap_or_else(|| "you".into()),
             exchanges_observed: app
                 .home_leads
                 .results_observed(app.view.as_ref().and_then(|view| view.me_id.as_deref())),
@@ -140,6 +171,7 @@ impl Session {
         mapped: Mapped,
         width: usize,
         look: Look,
+        inventory: &super::super::inventory::Inventory,
     ) -> RenderedTranscript {
         let Context {
             enabled,
@@ -147,16 +179,20 @@ impl Session {
             times,
             exchanges_observed,
             output_ages,
+            final_ages,
+            reader,
         } = &self.transcript_context;
-        if !enabled
-            || (matches!(&self.pane_output, Observation::Pending)
-                || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
-                && (*exchanges_observed || self.reply.is_some() || !self.outgoing.is_empty())
+        if self.finals.is_empty()
+            && (!enabled
+                || (matches!(&self.pane_output, Observation::Pending)
+                    || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
+                    && (*exchanges_observed || self.reply.is_some() || !self.outgoing.is_empty()))
         {
             return RenderedTranscript {
                 mapped,
                 anchor_text: self.text.clone(),
                 response_sources: None,
+                final_spans: Vec::new(),
             };
         }
         let mut starts = vec![0];
@@ -186,11 +222,41 @@ impl Session {
                 blocks[block].push(index);
             }
         }
-        let times: Vec<_> = (0..blocks.len())
-            .map(|index| times.get(index).copied().unwrap_or(0))
-            .collect();
+        let mut messages = Vec::new();
+        let mut represented = std::collections::BTreeSet::new();
+        let mut previous_time = 0;
+        for (index, block) in blocks.iter().enumerate() {
+            let time = times.get(index).copied().unwrap_or(0);
+            if let Some(final_index) = self.block_final(block, &mapped) {
+                if represented.insert(final_index) {
+                    messages.push((
+                        self.finals[final_index].at_ms.unwrap_or(previous_time),
+                        super::history::Block::Final(final_index),
+                    ));
+                }
+            } else {
+                messages.push((time, super::history::Block::Existing(index)));
+            }
+            if time > 0 {
+                previous_time = time;
+            }
+        }
+        messages.extend(
+            self.finals
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !represented.contains(index))
+                .map(|(index, reply)| {
+                    (
+                        reply.at_ms.unwrap_or(0),
+                        super::history::Block::Final(index),
+                    )
+                }),
+        );
+        messages.sort_by_key(|(time, _)| *time);
+        let times: Vec<_> = messages.iter().map(|(time, _)| *time).collect();
         let items = match &self.pane_output {
-            Observation::Observed(items) => items.as_slice(),
+            Observation::Observed(items) if *enabled => items.as_slice(),
             _ => &[],
         };
         let mut lines = Vec::new();
@@ -198,6 +264,15 @@ impl Session {
         let mut mentions = Vec::new();
         let mut original = Vec::new();
         let mut anchor_text = String::new();
+        let mut final_spans = Vec::new();
+        let mut header_anchors = std::collections::BTreeMap::new();
+        let mut next_mention = mapped
+            .mentions
+            .iter()
+            .flatten()
+            .map(|link| link.occurrence + 1)
+            .max()
+            .unwrap_or(0);
         let mut append = |line: Line<'static>, links, source: Option<usize>| {
             let index = lines.len();
             if index > 0 {
@@ -208,11 +283,76 @@ impl Session {
             mentions.push(links);
             original.push(source);
             lines.push(line);
+            index
         };
+        let mut first = true;
         for source in crate::board::recent_responses::merge(&times, items) {
+            if !first {
+                append(Line::default(), vec![], None);
+            }
+            first = false;
             match source {
                 Source::Exchange(block) => {
-                    for &index in &blocks[block] {
+                    if let super::history::Block::Final(index) = messages[block].1 {
+                        let reply = &self.finals[index];
+                        let header = append(
+                            super::super::exchange_view::header(
+                                &reply.from,
+                                reader,
+                                final_ages.get(index).map_or("—", String::as_str),
+                                false,
+                                width,
+                                look,
+                            ),
+                            vec![],
+                            None,
+                        );
+                        // A changing age/cue must not make a held header match
+                        // a different message from the same author.
+                        header_anchors.insert(
+                            header,
+                            reply.key.as_ref().map_or_else(
+                                || format!("final {:?} {index}", reply.at_ms),
+                                |key| format!("final request {}", key.request),
+                            ),
+                        );
+                        let mut body = markdown::render_conversation_with_members(
+                            &sanitize(&reply.body),
+                            width.saturating_sub(3).max(1),
+                            look,
+                            Some(inventory),
+                        );
+                        let count = body
+                            .mentions
+                            .iter()
+                            .flatten()
+                            .map(|link| link.occurrence + 1)
+                            .max()
+                            .unwrap_or(0);
+                        for link in body.mentions.iter_mut().flatten() {
+                            link.occurrence += next_mention;
+                        }
+                        next_mention += count;
+                        let mut end = header + 1;
+                        for (line, links) in body.lines.into_iter().zip(body.mentions) {
+                            end = append(line, links, None) + 1;
+                        }
+                        final_spans.push((header + 1..end, index));
+                        continue;
+                    }
+                    let super::history::Block::Existing(block) = messages[block].1 else {
+                        unreachable!()
+                    };
+                    let rows = &blocks[block];
+                    let first = rows
+                        .iter()
+                        .position(|index| mapped.lines[*index].width() > 0)
+                        .unwrap_or(rows.len());
+                    let end = rows
+                        .iter()
+                        .rposition(|index| mapped.lines[*index].width() > 0)
+                        .map_or(first, |index| index + 1);
+                    for &index in &rows[first..end] {
                         append(
                             mapped.lines[index].clone(),
                             mapped.mentions[index].clone(),
@@ -226,7 +366,7 @@ impl Session {
                     append(
                         Line::styled(
                             super::super::view::fit(
-                                &format!("{name} · pane output · {stamp}"),
+                                &format!(" {name} · pane output · {stamp}"),
                                 width,
                             ),
                             look.role(Role::Muted),
@@ -235,12 +375,13 @@ impl Session {
                         None,
                     );
                     // Pane text is untrusted display data; no request source or member-action hits.
-                    let body = markdown::render(
+                    let body = markdown::render_conversation_with_members(
                         &sanitize(&item.text),
                         width.saturating_sub(3).max(1),
                         look,
+                        None,
                     );
-                    for line in body {
+                    for line in body.lines {
                         append(super::super::exchange_view::body(line, look), vec![], None);
                     }
                     if item.truncated {
@@ -267,6 +408,12 @@ impl Session {
                 None,
             );
         }
+        let anchor_text = anchor_text
+            .split('\n')
+            .enumerate()
+            .map(|(index, line)| header_anchors.get(&index).map_or(line, String::as_str))
+            .collect::<Vec<_>>()
+            .join("\n");
         RenderedTranscript {
             mapped: Mapped {
                 lines,
@@ -275,6 +422,7 @@ impl Session {
             },
             anchor_text,
             response_sources: Some(original),
+            final_spans,
         }
     }
 }
@@ -283,4 +431,5 @@ pub(super) struct RenderedTranscript {
     pub mapped: Mapped,
     pub anchor_text: String,
     pub response_sources: Option<Vec<Option<usize>>>,
+    pub final_spans: Vec<(std::ops::Range<usize>, usize)>,
 }

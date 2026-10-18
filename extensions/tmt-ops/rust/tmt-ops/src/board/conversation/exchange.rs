@@ -72,8 +72,9 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
                 .as_ref()
                 .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
         });
-    (usize::from(session.reply.is_some() || !session.outgoing.is_empty())
-        + session.rendered.as_ref().unwrap().mapped.lines.len()
+    (usize::from(
+        session.finals.is_empty() && (session.reply.is_some() || !session.outgoing.is_empty()),
+    ) + session.rendered.as_ref().unwrap().mapped.lines.len()
         + usize::from(waiting)
         + usize::from(has_link))
     .min(usize::from(u16::MAX)) as u16
@@ -194,7 +195,9 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     let read_only = read_only || session.change != Change::Current;
     let header = Rect {
         height: area.height.min(u16::from(
-            session.reply.is_some() || !session.outgoing.is_empty(),
+            session.exact_source.is_some()
+                || (session.finals.is_empty()
+                    && (session.reply.is_some() || !session.outgoing.is_empty())),
         )),
         ..area
     };
@@ -270,7 +273,18 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                     sources.get(mapped.sources[index]).copied().flatten()
                 });
             let Some(source) = source else {
-                return line.clone();
+                return if session
+                    .rendered
+                    .as_ref()
+                    .unwrap()
+                    .final_spans
+                    .iter()
+                    .any(|(range, _)| range.contains(&mapped.sources[index]))
+                {
+                    exchange::body(line.clone(), look)
+                } else {
+                    line.clone()
+                };
             };
             match session.authored_lines.get(&source) {
                 Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
@@ -330,9 +344,11 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             });
         }
     }
-    session
-        .anchor
-        .select_visual(&session.text, &mapped.sources, offset);
+    session.anchor.select_visual(
+        &session.rendered.as_ref().unwrap().anchor_text,
+        &mapped.sources,
+        offset,
+    );
     let mut y = body.bottom();
     if question && session.outgoing.is_empty() && footer_rows > 0 {
         strip::paint_left(

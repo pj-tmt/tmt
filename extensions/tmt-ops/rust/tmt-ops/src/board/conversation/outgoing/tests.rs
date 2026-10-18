@@ -350,12 +350,40 @@ fn only_exact_request_and_originator_bodies_attach_even_when_another_reply_is_la
     app.view.as_mut().unwrap().replies = vec![
         json!({"recipientId":"auth-fix", "requestId":"wrong", "response":"unrelated body", "submittedAtMs":200}),
     ];
-    assert!(!draw(&app).contains("unrelated body"));
+    assert!(draw(&app).contains("unrelated body"));
+    assert!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .outgoing[0]
+            .reply
+            .is_none(),
+        "another request's final is visible history, never attached to this local turn"
+    );
     app.view.as_mut().unwrap().replies.push(json!({"recipientId":"auth-fix", "requestId":"accepted", "response":"correlated answer", "submittedAtMs":100}));
     let painted = draw(&app);
-    assert!(painted.contains("auth-fix · now") && painted.contains("correlated answer"));
-    assert!(!painted.contains("unrelated body"));
+    assert!(painted.contains("auth-fix") && painted.contains("correlated answer"));
+    assert!(painted.contains("unrelated body"));
+    assert_eq!(
+        app.conversation
+            .borrow()
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .outgoing[0]
+            .reply
+            .as_ref()
+            .unwrap()
+            .body,
+        "correlated answer"
+    );
     app.view.as_mut().unwrap().me_id = Some("different-sender".into());
+    // A new actor's snapshot has its own originator results page.
+    app.view.as_mut().unwrap().replies.clear();
     assert!(!draw(&app).contains("correlated answer"));
 }
 
@@ -402,19 +430,31 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let lines = &rendered.mapped.lines;
     let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
     assert_eq!(
-        text,
+        &text[..4],
         [
             "You · now",
             "[product · auth-fix] literal auth-fix · now",
             "✓ delivered · ● auth-fix working",
-            "",
-            "auth-fix · now",
-            "answer body"
+            ""
         ]
     );
+    assert!(
+        text[4].contains("auth-fix")
+            && text[4].contains("→")
+            && text[4].contains("Ben")
+            && text[4].contains('—'),
+        "unknown settled time is not invented: {text:?}"
+    );
+    assert_eq!(text[5], "answer body");
     assert_eq!(lines[0].style, app.look().role(Role::Muted));
     assert_eq!(lines[2].style, app.look().role(Role::Muted));
-    assert_eq!(lines[4].style, app.look().role(Role::Accent));
+    assert!(
+        lines[4]
+            .spans
+            .iter()
+            .any(|span| span.content.contains("auth-fix")
+                && span.style.fg == app.look().role(Role::Text).fg)
+    );
     assert_ne!(
         lines[1].style,
         app.look().role(Role::Accent),
@@ -460,9 +500,12 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
             assert!(lines[message + 1].starts_with("✓ delivered"), "{lines:?}");
             let reply = lines
                 .iter()
-                .position(|line| line == &format!("reply {index}"))
+                .position(|line| line.trim().trim_start_matches("│ ") == format!("reply {index}"))
                 .unwrap();
-            assert_eq!(lines[reply - 1], "auth-fix · now", "{lines:?}");
+            assert!(
+                lines[reply - 1].contains("auth-fix") && lines[reply - 1].contains('→'),
+                "{lines:?}"
+            );
             if index < 2 {
                 assert_eq!(
                     &lines[reply + 1..reply + 3],

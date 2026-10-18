@@ -20,6 +20,7 @@ use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) mod exchange;
+mod history;
 pub(super) mod layout;
 pub(super) mod outgoing;
 mod source;
@@ -65,6 +66,7 @@ struct Rendered {
     mapped: Mapped,
     anchor_text: String,
     response_sources: Option<Vec<Option<usize>>>,
+    final_spans: Vec<(std::ops::Range<usize>, usize)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -91,6 +93,7 @@ impl AuthoredLine {
 
 struct Session {
     reply: Option<Reply>,
+    finals: Vec<Reply>,
     text: String,
     rendered: Option<Rendered>,
     anchor: NotesCursor,
@@ -116,6 +119,7 @@ impl Default for Session {
     fn default() -> Self {
         Self {
             reply: None,
+            finals: Vec::new(),
             text: "(no response in loaded history)".into(),
             rendered: None,
             anchor: Default::default(),
@@ -221,10 +225,9 @@ impl Session {
         target: &RowTarget,
         row: &serde_json::Value,
     ) -> String {
-        self.update(
-            app.detail(&Target::Row(target.clone()))
-                .and_then(|detail| detail.reply),
-        );
+        let detail = app.detail(&Target::Row(target.clone())).unwrap_or_default();
+        self.observe_finals(detail.finals);
+        self.update(detail.reply);
         let projected = match target {
             RowTarget::Workspace(target) => app
                 .workspace_snapshot()
@@ -300,7 +303,7 @@ impl Session {
                 }
         });
         if changed {
-            let mut mapped = markdown::render_with_members(
+            let mut mapped = markdown::render_conversation_with_members(
                 &self.text,
                 width.saturating_sub(gutter).max(1),
                 look,
@@ -334,7 +337,7 @@ impl Session {
                 sources,
                 mentions,
             };
-            let transcript = self.merge_pane_output(mapped, width, look);
+            let transcript = self.merge_pane_output(mapped, width, look, inventory);
             self.anchor.reconcile(&transcript.anchor_text);
             self.rendered = Some(Rendered {
                 width,
@@ -344,6 +347,7 @@ impl Session {
                 mapped: transcript.mapped,
                 anchor_text: transcript.anchor_text,
                 response_sources: transcript.response_sources,
+                final_spans: transcript.final_spans,
             });
         }
         changed

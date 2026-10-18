@@ -40,6 +40,7 @@ impl Part {
 }
 
 struct Renderer<'a> {
+    preserve_breaks: bool,
     inventory: Option<&'a super::inventory::Inventory>,
     next_mention: usize,
     source: &'a str,
@@ -252,7 +253,11 @@ impl Renderer<'_> {
                     self.look.role(Role::Accent)
                 },
             ),
-            Event::SoftBreak => self.push(" ", self.style()),
+            Event::SoftBreak if !self.preserve_breaks => self.push(" ", self.style()),
+            Event::SoftBreak => {
+                let indent = self.current.as_ref().map_or(0, |block| block.indent);
+                self.start(" ".repeat(indent), indent);
+            }
             Event::HardBreak => {
                 let indent = self.current.as_ref().map_or(0, |block| block.indent);
                 self.start(" ".repeat(indent), indent);
@@ -304,7 +309,16 @@ pub(super) fn render_with_members<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
 ) -> Mapped {
-    project(text, width, look, inventory, false)
+    project(text, width, look, inventory, false, false)
+}
+/// Conversation messages keep authored single newlines without rewriting source bytes.
+pub(super) fn render_conversation_with_members<'a>(
+    text: &'a str,
+    width: usize,
+    look: crate::look::Look,
+    inventory: Option<&'a super::inventory::Inventory>,
+) -> Mapped {
+    project(text, width, look, inventory, false, true)
 }
 pub(super) fn render_plain_with_members<'a>(
     text: &'a str,
@@ -312,7 +326,7 @@ pub(super) fn render_plain_with_members<'a>(
     look: crate::look::Look,
     inventory: &'a super::inventory::Inventory,
 ) -> Mapped {
-    project(text, width, look, Some(inventory), true)
+    project(text, width, look, Some(inventory), true, true)
 }
 fn project<'a>(
     text: &'a str,
@@ -320,11 +334,13 @@ fn project<'a>(
     look: crate::look::Look,
     inventory: Option<&'a super::inventory::Inventory>,
     plain: bool,
+    preserve_breaks: bool,
 ) -> Mapped {
     let starts = std::iter::once(0)
         .chain(text.match_indices('\n').map(|(at, _)| at + 1))
         .collect();
     let mut renderer = Renderer {
+        preserve_breaks,
         inventory,
         next_mention: 0,
         source: text,

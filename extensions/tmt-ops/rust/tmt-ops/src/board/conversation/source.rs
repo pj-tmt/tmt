@@ -101,6 +101,20 @@ impl State {
 
 impl Session {
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {
+        if let Some((_, index)) = self.rendered.as_ref().and_then(|rendered| {
+            rendered
+                .final_spans
+                .iter()
+                .find(|(range, _)| range.contains(&line))
+        }) {
+            return self
+                .finals
+                .get(*index)
+                .filter(|reply| reply.acquired && reply.source)?
+                .key
+                .as_ref()
+                .map(|key| (key, None));
+        }
         let line = if let Some(sources) = self
             .rendered
             .as_ref()
