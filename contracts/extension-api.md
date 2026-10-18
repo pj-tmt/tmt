@@ -968,9 +968,11 @@ optional extension summaries and role data are trimmed before it. This changes
 core context only; extension Compacted observations retain their existing contract.
 
 Provider prompt submission also requests this context for an already verified
-current session. The provider receives only extension summaries in
-`UserPromptSubmit.additionalContext`; startup identity context remains at
-SessionStart. Installing the prompt hook requires a consented `tmt setup` run.
+current session. `UserPromptSubmit.additionalContext` carries a nonzero count of
+incoming unacknowledged X items with the `tmt inbox` command that pulls them
+(omitted at zero; it is attention, not unanswered or unsent work, and the hook
+neither retrieves nor acknowledges anything), then optional extension summaries,
+which truncation removes first; startup identity context remains at SessionStart. Installing the prompt hook requires a consented `tmt setup` run.
 Both paths share the aggregate 300 ms callback deadline inside the provider
 hook's existing supervised deadline. Unknown, stale or unbound sessions receive
 no extension context. Stop does not request context. Truncated prompt context
