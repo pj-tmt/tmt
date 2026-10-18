@@ -2463,6 +2463,11 @@ Needs you. Archived pages retain cosmetic navigation without publication control
 count uses the same definition over its verified static-source fold (see [Page summary](#page-summary-2588)); collection per-item details are separate.
 
 The header menu groups targets in proposal, reading, answer and review order, omitting empty groups.
+Search results and in-app page links expose real hrefs. Modified clicks retain native browser
+activation; Ctrl/Cmd+Enter opens the selected result in a new tab and Shift+Enter in a new
+window, leaving the search open in the current tab. Plain click/Enter retain existing navigation.
+Header target links open the full page, with the existing reading hint for reading targets;
+ordinary header selection retains the local scroll/focus behavior below.
 Picking a target only scrolls and focuses its first available action (or its retained content
 when read-only); a compact question group opens on its first unanswered question. It never
 marks read, answers, confirms or sends. At zero the header shows neutral `✓ Nothing waits`,

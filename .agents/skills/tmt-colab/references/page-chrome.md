@@ -72,6 +72,14 @@ handlers and disabled states. A single media-query observation selects those men
 items; CSS owns fitting. Header, body and update-notice offsets use shared heights,
 including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 
+Header search results and page-list titles are real links with router-generated URLs.
+Plain click/Enter keep the existing same-tab navigation and focus behavior. Modified clicks
+retain the browser's native tab/window and context-menu actions; Ctrl/Cmd+Enter opens the
+highlighted search result in another tab, and Shift+Enter in another window, leaving the
+current search open. Filter suggestions remain choices rather than navigation links.
+Reading links retain their existing reading hint; Needs-you links open the full page (and
+retain that hint for readings), while plain menu selection still jumps to its local target.
+
 `needs-you-header.tsx` uses the existing page status slot for one `◆ Needs you N ▾` entry.
 Only the diamond takes the attention colour. Through 640px the visible label is `◆ N ▾`,
 with `Needs you: N` as its accessible name. At zero, neutral `✓ Nothing waits` is plain

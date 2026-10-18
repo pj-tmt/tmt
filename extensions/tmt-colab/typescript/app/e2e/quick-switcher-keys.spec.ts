@@ -2,13 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 
 async function mount(page: Page) {
   await page.route('**/src/main.tsx', (route) =>
-    route.fulfill({ contentType: 'text/javascript', body: '' }),
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: "import { mount } from '/test/quick-switcher-browser.tsx'; void mount();",
+    }),
   );
   await page.goto('/');
-  await page.evaluate(async () => {
-    const fixture = '/test/quick-switcher-browser.tsx';
-    await (await import(/* @vite-ignore */ fixture)).mount();
-  });
   await expect(page.locator('.pages > li')).toHaveCount(3);
   await page.getByRole('button', { name: 'Search pages', exact: true }).click();
 }
@@ -144,4 +143,82 @@ test('Escape closes suggestions first, then the dialog, and empty matches cannot
   await page.keyboard.press('Enter');
   await expect(dialog(page)).toBeVisible();
   expect((await reads(page)).pageReads).toEqual([]);
+});
+
+test('search results are real page links and preserve modified clicks', async ({
+  page,
+  context,
+}) => {
+  await mount(page);
+  const result = list(page).getByRole('option', { name: /Beta review/ });
+  await expect(result).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+  await result.evaluate((node) => (node as HTMLAnchorElement).click());
+  await expect(dialog(page)).toBeVisible();
+  expect((await reads(page)).pageReads).toEqual([]);
+  expect(context.pages()).toHaveLength(1);
+  for (const options of [
+    { modifiers: ['ControlOrMeta'] },
+    { modifiers: ['Shift'] },
+    { button: 'middle' as const },
+  ] satisfies NonNullable<Parameters<typeof result.click>[0]>[]) {
+    const opened = context.waitForEvent('page');
+    await result.click(options);
+    const destination = await opened;
+    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    await expect(dialog(page)).toBeVisible();
+    expect((await reads(page)).pageReads).toEqual([]);
+    await destination.close();
+    await page.bringToFront();
+  }
+});
+
+for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter']) {
+  test(`search result ${key} opens another browser page and keeps the search`, async ({
+    page,
+    context,
+  }) => {
+    await mount(page);
+    await expectActive(page, 'Beta review');
+    const opened = context.waitForEvent('page');
+    await input(page).press(key);
+    const destination = await opened;
+    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    await expect(dialog(page)).toBeVisible();
+    expect((await reads(page)).pageReads).toEqual([]);
+    await destination.close();
+  });
+}
+
+test('page-list links preserve native modified activation without changing this page', async ({
+  page,
+  context,
+}) => {
+  await mount(page);
+  await input(page).press('Escape');
+  const link = page.locator('.pages').getByRole('link', { name: 'Beta review', exact: true });
+  await expect(link).toHaveAttribute('href', /#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+  for (const key of ['Control+Enter', 'Meta+Enter', 'Shift+Enter']) {
+    const opened = context.waitForEvent('page');
+    await link.press(key);
+    const destination = await opened;
+    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    expect((await reads(page)).pageReads).toEqual([]);
+    await destination.close();
+    await page.bringToFront();
+  }
+  for (const options of [
+    { modifiers: ['ControlOrMeta'] },
+    { modifiers: ['Shift'] },
+    { button: 'middle' as const },
+  ] satisfies NonNullable<Parameters<typeof link.click>[0]>[]) {
+    const opened = context.waitForEvent('page');
+    await link.click(options);
+    const destination = await opened;
+    await expect(destination).toHaveURL(/#\/pages\/c0000002-1111-4111-8111-000000000001$/);
+    expect((await reads(page)).pageReads).toEqual([]);
+    await destination.close();
+    await page.bringToFront();
+  }
+  await link.press('Enter');
+  await expect(page.locator('.tmt-ui-header h1')).toHaveText('Beta review');
 });

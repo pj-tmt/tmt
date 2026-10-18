@@ -1,3 +1,4 @@
+import { pageLinkKey } from './page-link.js';
 import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, type MouseEvent } from 'react';
 import { pageTitle } from './page-index.js';
@@ -96,6 +97,7 @@ export function HomeTitleLink({
       params={{ pageId: page.id }}
       title={title}
       onClick={onClick}
+      onKeyDown={pageLinkKey}
     >
       {title}
     </Link>

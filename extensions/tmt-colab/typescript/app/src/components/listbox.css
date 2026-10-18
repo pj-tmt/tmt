@@ -33,6 +33,7 @@
   color: var(--c-text);
   box-shadow: none;
   text-align: left;
+  text-decoration: none;
 }
 .tmt-listbox-option:last-child {
   border-bottom: 0;
