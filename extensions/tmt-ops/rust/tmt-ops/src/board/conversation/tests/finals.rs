@@ -49,6 +49,7 @@ fn settled_final_after_older_pane_text_is_its_own_message_with_exact_lines_and_a
         );
         assert!(lines[older - 1].contains("50m ago"), "{lines:#?}");
         assert!(lines[pane].contains("40m ago"));
+        assert!(lines[pane].starts_with(" worker · pane output"));
         assert_eq!(
             session
                 .response_key_at(mapped.sources[later])

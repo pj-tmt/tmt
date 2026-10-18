@@ -366,7 +366,7 @@ impl Session {
                     append(
                         Line::styled(
                             super::super::view::fit(
-                                &format!("{name} · pane output · {stamp}"),
+                                &format!(" {name} · pane output · {stamp}"),
                                 width,
                             ),
                             look.role(Role::Muted),

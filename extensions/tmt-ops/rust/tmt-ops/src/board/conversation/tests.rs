@@ -1142,8 +1142,11 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
             .collect();
         let header = labels
             .iter()
-            .position(|line| line.contains("pane output"))
+            .position(|line| line.starts_with(" alpha · pane "))
             .unwrap();
+        if width >= 21 {
+            assert!(labels[header].contains("pane output"));
+        }
         assert!(
             labels[0].contains("real exchange"),
             "exchange wins equal-time tie"
@@ -1453,7 +1456,7 @@ fn pane_output_uses_the_exchange_header_time_format() {
                 .lines
                 .iter()
                 .any(|line| line.width() == 60
-                    && line.to_string().trim_end() == "alpha · pane output · 6h ago")
+                    && line.to_string().trim_end() == " alpha · pane output · 6h ago")
         );
     });
 }
