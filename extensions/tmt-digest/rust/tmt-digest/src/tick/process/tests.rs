@@ -70,13 +70,17 @@ esac
         self.write("policies.json", json!({"policies":[{"identityId":MEMBER,"revision":revision,"active":active,"ownerIdentityId":OWNER,"setterIdentityId":SETTER}]}));
     }
     fn stats(&self, held: u64, age: u64) {
-        self.write("stats.json", json!({"stats":[{"identityId":MEMBER,"heldCount":held,"oldestHeldAgeMs":if held==0 {Value::Null} else {json!(age)},"observedAtMs":super::super::now_ms().unwrap()}]}));
+        self.observed(held, age, super::super::now_ms().unwrap());
     }
-    /// `held` messages, the oldest of which arrived at `arrived`: the age grows
-    /// with the clock exactly as Core reports it, so the arrival stays the same.
+    fn observed(&self, held: u64, age: u64, now: u64) {
+        self.write("stats.json", json!({"stats":[{"identityId":MEMBER,"heldCount":held,"oldestHeldAgeMs":if held==0 {Value::Null} else {json!(age)},"observedAtMs":now}]}));
+    }
+    /// `held` messages, the oldest of which arrived at `arrived`. Core derives the
+    /// age and the observation time from one reading of the clock, so the arrival
+    /// (`observedAtMs - oldestHeldAgeMs`) is exactly the same at every call.
     fn arrived(&self, held: u64, arrived: u64) {
         let now = super::super::now_ms().unwrap();
-        self.stats(held, now - arrived);
+        self.observed(held, now - arrived, now);
     }
     fn settings(&self, mode: &str, setter: Option<&str>) {
         let attribution = setter
