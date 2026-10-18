@@ -188,20 +188,26 @@ fn coded(fault: PatchFault) -> Box<dyn std::error::Error + Send + Sync> {
     fail(fault.code(), &fault.to_string())
 }
 
+fn open(layout: &Layout, key: &Keyring, operand: &str) -> Result<(Store, String)> {
+    let store = Store::read(layout)?;
+    store.require_current_schema()?;
+    let id = resolve_page(&store, key, operand)?;
+    Ok((store, id))
+}
+
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
+    let operand = args.get_one::<String>("page").expect("required page");
+    // The page operand resolves before any patch file or stdin byte is read.
+    let (mut store, mut id) = open(&layout, &key, operand)?;
     let patch = build(args)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let expected = args
         .get_one::<String>("expected-revision")
         .map(String::as_str);
-    let operand = args.get_one::<String>("page").expect("required page");
     let mut retries = 0;
     loop {
-        let store = Store::read(&layout)?;
-        store.require_current_schema()?;
-        let id = resolve_page(&store, &key, operand)?;
         let base = page::read(&store, &key, &id, &mut decoder)?;
         let edited = match patch.apply(&base.source) {
             Ok(edited) => edited,
@@ -247,6 +253,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     && crate::error_code(error.as_ref()) == Fault::StaleBase.code() =>
             {
                 retries += 1;
+                (store, id) = open(&layout, &key, operand)?;
             }
             Err(error) => return Err(error),
         }
