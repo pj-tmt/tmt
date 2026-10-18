@@ -24,7 +24,7 @@ pub(super) fn summary(app: &crate::board::app::App) -> String {
 pub(super) use model::{
     compact_savings_caption, percent_text, savings_caption, savings_start, savings_value, usd_text,
 };
-pub(super) use render::render;
+pub(super) use render::{details_clock_mark, render};
 
 #[cfg(test)]
 pub(in crate::board) mod tests;
