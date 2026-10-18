@@ -3588,6 +3588,10 @@ impl App {
         if key.kind == ratatui::crossterm::event::KeyEventKind::Release {
             return Effect::None;
         }
+        if key.code == KeyCode::Esc && self.pane_resize.cancel_drag() {
+            self.invalidate_frame_geometry();
+            return Effect::None;
+        }
         self.set_notice(None, false);
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;

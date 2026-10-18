@@ -88,15 +88,25 @@ fn unknown_pane_names_do_not_discard_recognized_ratios() {
     );
 }
 #[test]
-fn invalidated_and_clipped_boundaries_cannot_start_or_continue_drag() {
+fn clipped_targets_cannot_start_and_a_completed_missing_boundary_ends_drag() {
     let state = State::default();
     let b = boundary(Id::AgentsColumns);
     let now = Instant::now();
     state.record(b, Rect::new(0, 0, 50, 100));
     assert!(state.frame.borrow().is_empty());
+    assert!(
+        state
+            .mouse(event(MouseEventKind::Down(MouseButton::Left), 50, 3), now)
+            .is_none()
+    );
     state.record(b, Rect::new(0, 0, 160, 100));
     state.mouse(event(MouseEventKind::Down(MouseButton::Left), 50, 3), now);
     state.invalidate();
+    assert!(
+        state.dragging(),
+        "temporary geometry invalidation preserves capture"
+    );
+    state.finish_frame(&Buffer::empty(Rect::new(0, 0, 160, 100)));
     assert!(
         state
             .mouse(event(MouseEventKind::Drag(MouseButton::Left), 90, 3), now)
@@ -170,6 +180,164 @@ fn paint(app: &mut App, width: u16, height: u16) -> Buffer {
     .unwrap();
     terminal.backend().buffer().clone()
 }
+
+#[test]
+fn held_drag_survives_refresh_and_loading_until_the_release_position() {
+    use crate::board::shell::OpsTab;
+    let _no_commands = crate::runner::forbid_commands();
+    let mut app = app(OpsTab::Agents);
+    paint(&mut app, 160, 51);
+    let b = app
+        .pane_resize
+        .frame
+        .borrow()
+        .iter()
+        .find(|b| b.id == Id::AgentsColumns)
+        .copied()
+        .unwrap();
+    let now = Instant::now();
+    app.mouse(
+        event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+        now,
+    );
+    app.mouse(
+        event(
+            MouseEventKind::Drag(MouseButton::Left),
+            b.hit.x + 4,
+            b.hit.y,
+        ),
+        now,
+    );
+    app.invalidate_frame_geometry();
+    assert!(
+        app.pane_resize.dragging(),
+        "refresh invalidates hits, not the held gesture"
+    );
+
+    let current = app.current.clone();
+    app.current = Some("refresh-in-flight".into());
+    assert!(app.loading());
+    paint(&mut app, 160, 51);
+    assert!(
+        app.pane_resize.dragging(),
+        "loading paint retains the visible boundary"
+    );
+    app.mouse(
+        event(
+            MouseEventKind::Drag(MouseButton::Left),
+            b.hit.x + 8,
+            b.hit.y,
+        ),
+        now,
+    );
+    assert!(
+        app.pane_resize.ratios().is_empty(),
+        "preview is not yet a retained ratio"
+    );
+    app.mouse(
+        event(MouseEventKind::Up(MouseButton::Left), b.hit.x + 11, b.hit.y),
+        now,
+    );
+    assert!(!app.pane_resize.dragging());
+    let expected =
+        ((u32::from(b.before + 11) * SCALE + u32::from(b.total) / 2) / u32::from(b.total)) as u16;
+    assert_eq!(app.pane_resize.ratios().get(&b.id), Some(&expected));
+    app.current = current;
+    paint(&mut app, 160, 51);
+    let released = app
+        .pane_resize
+        .frame
+        .borrow()
+        .iter()
+        .find(|item| item.id == b.id)
+        .copied()
+        .unwrap();
+    assert_eq!(
+        released.before,
+        b.before + 11,
+        "the split follows mouse-up, not the first refresh"
+    );
+}
+
+#[test]
+fn removed_boundary_and_escape_discard_the_preview_without_saving_it() {
+    use crate::board::shell::OpsTab;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    let _no_commands = crate::runner::forbid_commands();
+    for escape in [false, true] {
+        let mut app = app(OpsTab::Agents);
+        paint(&mut app, 160, 51);
+        let b = app
+            .pane_resize
+            .frame
+            .borrow()
+            .iter()
+            .find(|b| b.id == Id::AgentsColumns)
+            .copied()
+            .unwrap();
+        app.pane_resize.save(b, b.before);
+        let saved = app.pane_resize.ratios();
+        let now = Instant::now();
+        app.mouse(
+            event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+            now,
+        );
+        app.mouse(
+            event(
+                MouseEventKind::Drag(MouseButton::Left),
+                b.hit.x + 7,
+                b.hit.y,
+            ),
+            now,
+        );
+        assert!(app.pane_resize.dragging());
+        assert_eq!(app.pane_resize.ratios(), saved);
+        if escape {
+            let mut released = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+            released.kind = KeyEventKind::Release;
+            app.key(released);
+            assert!(
+                app.pane_resize.dragging(),
+                "key release does not cancel a gesture"
+            );
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                Effect::None
+            );
+        } else {
+            paint(&mut app, 60, 8);
+            assert!(app.pane_resize.frame.borrow().is_empty());
+        }
+        assert!(!app.pane_resize.dragging());
+        app.mouse(
+            event(MouseEventKind::Up(MouseButton::Left), b.hit.x + 12, b.hit.y),
+            now,
+        );
+        assert_eq!(
+            app.pane_resize.ratios(),
+            saved,
+            "an abandoned gesture cannot save later mouse-up"
+        );
+    }
+}
+
+#[test]
+fn loading_frame_cannot_admit_a_new_divider_drag() {
+    use crate::board::shell::OpsTab;
+    let mut app = app(OpsTab::Agents);
+    paint(&mut app, 160, 51);
+    let b = app.pane_resize.frame.borrow()[0];
+    app.current = Some("refresh-in-flight".into());
+    assert!(app.loading());
+    paint(&mut app, 160, 51);
+    app.mouse(
+        event(MouseEventKind::Down(MouseButton::Left), b.hit.x, b.hit.y),
+        Instant::now(),
+    );
+    assert!(!app.pane_resize.dragging());
+    assert!(app.pane_resize.ratios().is_empty());
+}
+
 #[test]
 fn painted_panes_drag_without_row_effects_and_keyboard_uses_the_same_geometry() {
     use crate::board::shell::OpsTab;
@@ -270,7 +438,7 @@ fn painted_panes_drag_without_row_effects_and_keyboard_uses_the_same_geometry() 
     }
 }
 #[test]
-fn hover_highlights_strokes_and_overlay_or_resize_revokes_drag_authority() {
+fn hover_highlights_strokes_and_an_overlay_removes_drag_authority() {
     use crate::board::shell::OpsTab;
     let mut app = app(OpsTab::Agents);
     let original = paint(&mut app, 160, 51);
@@ -288,6 +456,7 @@ fn hover_highlights_strokes_and_overlay_or_resize_revokes_drag_authority() {
         now,
     );
     app.invalidate_frame_geometry();
+    assert!(app.pane_resize.dragging());
     app.mouse(
         event(
             MouseEventKind::Drag(MouseButton::Left),
@@ -297,11 +466,13 @@ fn hover_highlights_strokes_and_overlay_or_resize_revokes_drag_authority() {
         now,
     );
     assert!(app.pane_resize.ratios().is_empty());
+    assert!(app.pane_resize.dragging());
     paint(&mut app, 160, 51);
     app.help = true;
     paint(&mut app, 160, 51);
     assert!(app.pane_resize.frame.borrow().is_empty());
     assert!(app.pane_resize.hint().is_none());
+    assert!(!app.pane_resize.dragging());
 }
 #[test]
 fn retained_controls_carry_ratios_but_not_drag_or_hover() {

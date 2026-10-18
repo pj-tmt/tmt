@@ -224,11 +224,16 @@ pub(in crate::board) fn render_frame(
     }
     panes::render_body(frame, app, body);
     waiting::inline_prompt(frame, app, body);
-    if !app.modal_open() && app.input.is_none() && !app.searching && !app.loading() {
+    if !app.modal_open()
+        && app.input.is_none()
+        && !app.searching
+        && (!app.loading() || app.pane_resize.dragging())
+    {
         app.pane_resize.finish_frame(frame.buffer_mut());
         app.pane_resize.highlight(frame.buffer_mut(), look);
     } else {
         app.pane_resize.invalidate();
+        app.pane_resize.finish_frame(frame.buffer_mut());
     }
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);

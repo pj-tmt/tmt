@@ -61,11 +61,16 @@ impl Boundary {
     fn coordinate(self, point: Position) -> u16 {
         if self.id.columns() { point.x } else { point.y }
     }
+    fn ratio(self, before: u16) -> u16 {
+        ((u32::from(before.clamp(self.min, self.max)) * SCALE + u32::from(self.total) / 2)
+            / u32::from(self.total)) as u16
+    }
 }
 #[derive(Clone, Copy)]
 struct Drag {
     boundary: Boundary,
     start: u16,
+    preview: u16,
     moved: bool,
 }
 
@@ -83,6 +88,10 @@ impl State {
     }
     pub fn adjusted(&self, id: Id) -> bool {
         self.ratios.borrow().contains_key(&id)
+            || self
+                .drag
+                .get()
+                .is_some_and(|drag| drag.boundary.id == id && drag.moved)
     }
     pub fn ratios(&self) -> Ratios {
         self.ratios.borrow().clone()
@@ -97,19 +106,26 @@ impl State {
     pub fn invalidate(&self) {
         self.begin_frame();
         self.hovered.set(None);
-        self.drag.set(None);
         self.last_click.set(None);
+    }
+    pub fn cancel_drag(&self) -> bool {
+        self.drag.take().is_some()
     }
     /// The unchanged default is exact; only an explicitly adjusted split uses a ratio.
     pub fn size(&self, id: Id, total: u16, default: u16, min: u16, after_min: u16) -> u16 {
-        let ratios = self.ratios.borrow();
-        let Some(ratio) = ratios.get(&id) else {
+        let ratio = self
+            .drag
+            .get()
+            .filter(|drag| drag.boundary.id == id && drag.moved)
+            .map(|drag| drag.boundary.ratio(drag.preview))
+            .or_else(|| self.ratios.borrow().get(&id).copied());
+        let Some(ratio) = ratio else {
             return default;
         };
         if total < min.saturating_add(after_min) {
             return default;
         }
-        (((u32::from(total) * u32::from(*ratio) + SCALE / 2) / SCALE) as u16)
+        (((u32::from(total) * u32::from(ratio) + SCALE / 2) / SCALE) as u16)
             .clamp(min, total - after_min)
     }
 
@@ -152,6 +168,16 @@ impl State {
                 }
             }
         }
+        // Hit-map invalidation is temporary; only the completed frame can
+        // establish that the captured boundary no longer exists.
+        if self
+            .drag
+            .get()
+            .is_some_and(|drag| !frame.iter().any(|boundary| boundary.id == drag.boundary.id))
+        {
+            self.cancel_drag();
+            self.last_click.set(None);
+        }
     }
     pub fn move_pointer(&self, point: Position, active: bool) -> bool {
         let next = active
@@ -167,9 +193,7 @@ impl State {
         self.hovered.replace(next) != next
     }
     fn save(&self, boundary: Boundary, before: u16) -> bool {
-        let before = before.clamp(boundary.min, boundary.max);
-        let ratio = ((u32::from(before) * SCALE + u32::from(boundary.total) / 2)
-            / u32::from(boundary.total)) as u16;
+        let ratio = boundary.ratio(before);
         self.ratios.borrow_mut().insert(boundary.id, ratio) != Some(ratio)
     }
     fn reset(&self, id: Id) -> bool {
@@ -201,6 +225,7 @@ impl State {
                     self.drag.set(Some(Drag {
                         boundary,
                         start: boundary.coordinate(point),
+                        preview: boundary.before,
                         moved: false,
                     }));
                     Some(false)
@@ -212,13 +237,19 @@ impl State {
                 let before = (i32::from(drag.boundary.before) + delta)
                     .clamp(i32::from(drag.boundary.min), i32::from(drag.boundary.max))
                     as u16;
-                let changed = (delta != 0 || drag.moved) && self.save(drag.boundary, before);
+                let changed = before != drag.preview;
+                drag.preview = before;
                 drag.moved |= delta != 0;
                 self.drag.set(Some(drag));
                 if delta != 0 {
                     self.last_click.set(None);
                 }
                 if matches!(event.kind, MouseEventKind::Up(_)) {
+                    if drag.moved {
+                        // Committing an already-painted preview does not revoke
+                        // its current hover/hit geometry.
+                        self.save(drag.boundary, before);
+                    }
                     self.drag.set(None);
                     if drag.moved {
                         self.move_pointer(point, true);
@@ -333,21 +364,23 @@ impl State {
     }
 }
 impl App {
-    fn invalidate_after_resize(&self) {
-        let drag = self.pane_resize.drag.get();
-        self.invalidate_frame_geometry();
-        self.pane_resize.drag.set(drag);
-    }
     pub(super) fn resize_mouse(&mut self, event: MouseEvent, now: Instant) -> bool {
-        if self.modal_open() || self.input.is_some() || self.searching || self.loading() {
+        if self.modal_open()
+            || self.input.is_some()
+            || self.searching
+            || self.loading() && !self.pane_resize.dragging()
+        {
             self.pane_resize.invalidate();
             return false;
+        }
+        if self.loading() && matches!(event.kind, MouseEventKind::Down(_)) {
+            return true;
         }
         let Some(changed) = self.pane_resize.mouse(event, now) else {
             return false;
         };
         if changed {
-            self.invalidate_after_resize();
+            self.invalidate_frame_geometry();
         }
         // Never let a divider press become a row's click/double-click.
         true

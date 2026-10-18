@@ -208,8 +208,10 @@ UUID without a local roster mutation or readiness claim.
 placement owners apply ratios before both paint and pointer focus consume their
 rectangles. Only admitted visible pairs publish clipped divider/rule targets.
 App routes a drag ahead of row activation, keeps its starting geometry until
-release, blocks exec reload while held, and revokes it on external geometry
-invalidation. Hover changes separator
+release and blocks exec reload while held. Refresh and loading paints invalidate
+hits and hover without ending an admitted drag; the completed frame cancels it
+if its boundary disappears. Drag ratios remain live previews until mouse-up;
+Esc discards the preview. Hover changes separator
 strokes only. Double-click identity belongs to a boundary, independently of row
 clicks. Hidden panels and space below usable minimums publish no drag target.
 `view_state::Controls` carries ratios through the existing named-layer writer and
