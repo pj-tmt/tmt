@@ -43,6 +43,26 @@ export const QUEUE_QUERY = `query InfraTickQueue($owner: String!, $name: String!
     }
   }
 }`;
+export const REVIEW_QUERY = `query InfraTickReviews($ids: [ID!]!) {
+  rateLimit { cost }
+  nodes(ids: $ids) {
+    __typename
+    ... on PullRequest {
+      id number headRefOid changedFiles
+      repository { nameWithOwner }
+      files(first: 100) {
+        totalCount
+        pageInfo { hasNextPage }
+        nodes { path }
+      }
+      comments(last: 100) {
+        totalCount
+        pageInfo { hasPreviousPage hasNextPage }
+        nodes { id body url }
+      }
+    }
+  }
+}`;
 export const COVERAGE =
   'Run health uses 24 h/interval counts; failure, timed_out, action_required and stale details use bounded created-window searches, plus tracked older runs and older queued/in-progress runs. Previously analysed failure tokens are retained for 24 h without repeat detail reads. Workflow startup_failure conclusions are not searched and remain outside detail coverage. An unobserved older rerun that starts and finishes between ticks is outside coverage. Review scope is open PRs updated since the tick boundary plus PRs merged in the interval. Statements are evidence, not scripted acceptance.';
 const hash = (text) => createHash('sha256').update(text).digest('hex');
@@ -58,7 +78,7 @@ function identity(row, label) {
   return row.id;
 }
 
-/** One shared API-call/deadline owner, including the single fixed query exception. */
+/** One shared API-call/deadline owner, including the two fixed read-only queries. */
 export function createTickClient({
   repository,
   cache,
@@ -69,29 +89,58 @@ export function createTickClient({
   assert.match(repository, /^[\w.-]+\/[\w.-]+$/);
   const prefix = `repos/${repository}/`;
   let requests = 0,
-    queries = 0;
+    queueQueries = 0,
+    reviewQueries = 0,
+    reviewPoints = 0,
+    stage = 'acquisition',
+    prCount = 0;
   const deadline = clock() + 120_000;
   const command = (program, args, options) => {
     assert.equal(program, 'gh', 'Only the GitHub read port is allowed.');
     assert.equal(args[0], 'api', 'Only the API read port is allowed.');
     if (args[1] === 'graphql') {
-      assert.deepEqual(
-        args,
-        [
-          'api',
-          'graphql',
-          '--method',
-          'POST',
-          '-f',
-          `query=${QUEUE_QUERY}`,
-          '-f',
-          `owner=${repository.split('/')[0]}`,
-          '-f',
-          `name=${repository.split('/')[1]}`,
-        ],
-        'Only the fixed queue query is allowed.'
-      );
-      assert.ok(++queries <= 1, 'Only one queue query per tick is allowed.');
+      if (args[5] === `query=${QUEUE_QUERY}`) {
+        assert.deepEqual(
+          args,
+          [
+            'api',
+            'graphql',
+            '--method',
+            'POST',
+            '-f',
+            `query=${QUEUE_QUERY}`,
+            '-f',
+            `owner=${repository.split('/')[0]}`,
+            '-f',
+            `name=${repository.split('/')[1]}`,
+          ],
+          'Only the fixed queue query is allowed.'
+        );
+        assert.ok(++queueQueries <= 1, 'Only one queue query per tick is allowed.');
+      } else {
+        assert.deepEqual(
+          args.slice(0, 6),
+          ['api', 'graphql', '--method', 'POST', '-f', `query=${REVIEW_QUERY}`],
+          'Only the fixed review query is allowed.'
+        );
+        const fields = args.slice(6);
+        assert.ok(
+          fields.length > 0 && fields.length <= 200 && fields.length % 2 === 0,
+          'Review query needs at most 100 node IDs.'
+        );
+        assert.ok(
+          fields.every((field, index) =>
+            index % 2 === 0 ? field === '-F' : /^ids\[\]=[A-Za-z0-9_+\/=-]{1,256}$/.test(field)
+          ),
+          'Only review node-ID variables are allowed.'
+        );
+        assert.equal(
+          new Set(fields.filter((_, index) => index % 2 === 1)).size,
+          fields.length / 2,
+          'Duplicate review node ID.'
+        );
+        assert.ok(++reviewQueries <= 1, 'Only one review query per tick is allowed.');
+      }
     } else {
       const endpoint = args.find((arg) => arg === prefix.slice(0, -1) || arg.startsWith(prefix));
       assert.ok(
@@ -113,13 +162,18 @@ export function createTickClient({
       );
     }
     const timeBudget = () =>
-      new Error(`Infra tick time budget exhausted (120 seconds; ${requests}/80 calls).`);
+      new Error(
+        `Infra tick time budget exhausted (120 seconds; ${requests}/80 calls; stage=${stage}; PRs=${prCount}).`
+      );
     if (requests >= 80)
-      throw new Error('Infra tick API call budget exhausted (80 calls / 120 seconds).');
+      throw new Error(
+        `Infra tick API call budget exhausted (80 calls / 120 seconds; stage=${stage}; PRs=${prCount}).`
+      );
     if (clock() >= deadline) throw timeBudget();
     requests++;
     const started = clock();
-    let outcome = 'error';
+    let outcome = 'error',
+      graphqlCost;
     try {
       const result = execute(program, args, {
         ...options,
@@ -128,6 +182,17 @@ export function createTickClient({
         ...(args.includes('--allow-escape-sequences') ? { maxBuffer: 16 * 1024 * 1024 } : {}),
         timeoutMs: Math.min(options.timeoutMs, deadline - clock()),
       });
+      if (args[5] === `query=${REVIEW_QUERY}`) {
+        const response = JSON.parse(result);
+        graphqlCost = response.data?.rateLimit?.cost;
+        assert.ok(
+          Number.isSafeInteger(graphqlCost) && graphqlCost > 0,
+          'Review GraphQL cost missing, invalid or above 20 points.'
+        );
+        reviewPoints += graphqlCost;
+        assert.ok(graphqlCost <= 20, 'Review GraphQL cost above 20 points.');
+        assert.ok(!response.errors?.length, 'GraphQL review errors.');
+      }
       outcome = 'success';
       return result;
     } catch (error) {
@@ -139,10 +204,13 @@ export function createTickClient({
         method: args[1] === 'graphql' ? 'POST' : 'GET',
         endpoint:
           args[1] === 'graphql'
-            ? 'graphql:InfraTickQueue'
+            ? args[5] === `query=${QUEUE_QUERY}`
+              ? 'graphql:InfraTickQueue'
+              : 'graphql:InfraTickReviews'
             : args.find((arg) => arg.startsWith(prefix.slice(0, -1))),
         outcome,
         milliseconds: Math.max(0, clock() - started),
+        ...(Number.isSafeInteger(graphqlCost) ? { graphqlCost } : {}),
       });
     }
   };
@@ -150,6 +218,10 @@ export function createTickClient({
   return {
     get: api.get,
     qualifyTerminalJobs: api.qualifyTerminalJobs,
+    stage: (name, count = 0) => {
+      stage = name;
+      prCount = count;
+    },
     releases: () => {
       const repositoryEvidence = JSON.parse(
         command('gh', ['api', prefix.slice(0, -1), '--method', 'GET'], {
@@ -183,7 +255,33 @@ export function createTickClient({
       assert.ok(!result.errors?.length, 'GraphQL queue errors.');
       return result.data?.repository?.mergeQueue?.entries;
     },
-    evidence: () => ({ ...api.evidence(), requests, queueQueries: queries }),
+    reviews: (ids) => {
+      const result = JSON.parse(
+        command(
+          'gh',
+          [
+            'api',
+            'graphql',
+            '--method',
+            'POST',
+            '-f',
+            `query=${REVIEW_QUERY}`,
+            ...ids.flatMap((id) => ['-F', `ids[]=${id}`]),
+          ],
+          { cwd: ROOT, env: process.env, timeoutMs: 30_000 }
+        )
+      );
+      return result.data?.nodes;
+    },
+    evidence: () => ({
+      ...api.evidence(),
+      requests,
+      queueQueries,
+      reviewQueries,
+      reviewPoints,
+      stage,
+      prCount,
+    }),
   };
 }
 
@@ -288,11 +386,33 @@ function validateReviewMap(map) {
   }
 }
 
+function completeReviewConnection(connection, label, tail = false) {
+  assert.ok(
+    Number.isSafeInteger(connection?.totalCount) &&
+      connection.totalCount >= 0 &&
+      Array.isArray(connection.nodes) &&
+      connection.nodes.length <= 100 &&
+      connection.nodes.length <= connection.totalCount &&
+      typeof connection.pageInfo?.hasNextPage === 'boolean' &&
+      (!tail || typeof connection.pageInfo.hasPreviousPage === 'boolean'),
+    `Invalid GraphQL ${label} connection.`
+  );
+  if (connection.pageInfo.hasNextPage || (tail && connection.pageInfo.hasPreviousPage))
+    return false;
+  assert.equal(
+    connection.nodes.length,
+    connection.totalCount,
+    `Truncated GraphQL ${label} evidence.`
+  );
+  return true;
+}
+
 /** Injected evidence ports; a partial collection never becomes an empty healthy report. */
 export function collectInfraTick(
   api,
   { repository, since, until, previous = null, reviewMap, local }
 ) {
+  api.stage?.('run evidence');
   const end = time(until),
     start = time(since),
     day = end - 24 * 60 * 60_000;
@@ -302,6 +422,8 @@ export function collectInfraTick(
   );
   assert.match(repository, /^[\w.-]+\/[\w.-]+$/);
   validateReviewMap(reviewMap);
+  const needsReview = (file) =>
+    sharedPath(file) || reviewMap.rules.some((rule) => file.startsWith(rule.prefix));
   if (previous) {
     assert.equal(previous.schema, 1, 'Invalid tick cursor schema.');
     assert.ok(
@@ -577,6 +699,7 @@ export function collectInfraTick(
     queue.length = 0;
     anomaly('queue coverage unavailable', {});
   }
+  api.stage?.('release catalogue');
   const releases = api.releases();
   for (const release of releases) identity(release, 'release');
   const failedDrafts = releases
@@ -628,6 +751,7 @@ export function collectInfraTick(
     if (!priorFailures.has(`${failure.run}:${failure.attempt}`))
       anomaly('published release post-publication check failed', published);
   }
+  api.stage?.('PR cohort');
   const recentPulls = (state) => {
     const collected = [],
       seen = new Set();
@@ -657,22 +781,90 @@ export function collectInfraTick(
   };
   const open = recentPulls('open'),
     closed = recentPulls('closed');
-  const reviewEvidence = [];
-  for (const pr of [...open, ...closed]) {
+  const cohort = [...open, ...closed];
+  api.stage?.('PR review', cohort.length);
+  assert.ok(cohort.length <= 100, `PR review stage: ${cohort.length} PRs exceeds 100-node bound.`);
+  for (const pr of cohort)
     assert.ok(
-      Number.isSafeInteger(pr.number) && pr.number > 0 && SHA.test(pr.head?.sha),
+      Number.isSafeInteger(pr.number) &&
+        pr.number > 0 &&
+        SHA.test(pr.head?.sha) &&
+        typeof pr.node_id === 'string' &&
+        pr.node_id.length > 0,
       'Incomplete listed PR identity.'
     );
-    const files = pages(api, `${root}/pulls/${pr.number}/files`, undefined, undefined, (file) => {
-      assert.ok(
-        typeof file.filename === 'string' && file.filename.length > 0,
-        'Missing changed file path.'
-      );
-      return file.filename;
-    }).rows.map((file) => file.filename);
-    const shared = files.filter(
-      (file) => sharedPath(file) || reviewMap.rules.some((rule) => file.startsWith(rule.prefix))
+  const batch = cohort.length ? api.reviews(cohort.map((pr) => pr.node_id)) : [];
+  assert.ok(
+    Array.isArray(batch) && batch.length === cohort.length,
+    'Incomplete GraphQL review cohort.'
+  );
+  const seen = new Set();
+  const reviewEvidence = [];
+  for (const [index, pr] of cohort.entries()) {
+    const row = batch[index];
+    assert.ok(
+      row?.__typename === 'PullRequest' &&
+        row.id === pr.node_id &&
+        !seen.has(row.id) &&
+        row.number === pr.number &&
+        row.repository?.nameWithOwner === repository &&
+        Number.isSafeInteger(row.changedFiles) &&
+        row.changedFiles >= 0,
+      'Foreign, duplicate or incomplete GraphQL PR identity.'
     );
+    seen.add(row.id);
+    assert.equal(row.headRefOid, pr.head.sha, 'PR head changed while reading review evidence.');
+    assert.equal(row.files?.totalCount, row.changedFiles, 'Incomplete PR file count.');
+    let files, comments, verified;
+    const completeFiles = completeReviewConnection(row.files, 'files');
+    if (completeFiles) {
+      files = row.files.nodes.map((file) => {
+        assert.ok(
+          typeof file.path === 'string' && file.path.length > 0,
+          'Missing changed file path.'
+        );
+        return file.path;
+      });
+      assert.equal(new Set(files).size, files.length, 'Duplicate changed file path.');
+      const shared = files.some(needsReview);
+      if (!shared) comments = [];
+      else if (completeReviewConnection(row.comments, 'comments', true)) {
+        const ids = new Set();
+        comments = row.comments.nodes.map((comment) => {
+          assert.ok(
+            typeof comment.id === 'string' &&
+              comment.id &&
+              !ids.has(comment.id) &&
+              typeof comment.body === 'string' &&
+              typeof comment.url === 'string' &&
+              comment.url,
+            'Invalid GraphQL comment identity or evidence.'
+          );
+          ids.add(comment.id);
+          return { body: comment.body, html_url: comment.url };
+        });
+      }
+    }
+    // Only a paginated PR pays for the old complete REST walk. Batched heads,
+    // file counts and complete comment bodies otherwise replace all three reads.
+    if (comments === undefined) {
+      files = pages(api, `${root}/pulls/${pr.number}/files`, undefined, undefined, (file) => {
+        assert.ok(
+          typeof file.filename === 'string' && file.filename.length > 0,
+          'Missing changed file path.'
+        );
+        return file.filename;
+      }).rows.map((file) => file.filename);
+      const shared = files.some(needsReview);
+      comments = shared ? pages(api, `${root}/issues/${pr.number}/comments`).rows : [];
+      verified = api.get(`${root}/pulls/${pr.number}`);
+    } else
+      verified = {
+        number: row.number,
+        head: { sha: row.headRefOid },
+        changed_files: row.changedFiles,
+      };
+    const shared = files.filter(needsReview);
     const requirements = new Map();
     for (const file of shared) {
       const rules = reviewMap.rules.filter((rule) => file.startsWith(rule.prefix));
@@ -683,8 +875,6 @@ export function collectInfraTick(
           requirements.get(lead).push({ file, source: rule.source });
         }
     }
-    const comments = shared.length ? pages(api, `${root}/issues/${pr.number}/comments`).rows : [];
-    const verified = api.get(`${root}/pulls/${pr.number}`);
     assert.equal(verified.head?.sha, pr.head.sha, 'PR head changed while reading review evidence.');
     assert.ok(
       verified.number === pr.number &&
@@ -721,6 +911,7 @@ export function collectInfraTick(
       disposition: 'Lead must judge acceptance; statements are not interpreted as approval.',
     });
   }
+  api.stage?.('local guides and host', cohort.length);
   assert.deepEqual(
     Object.keys(local.guides).sort(),
     ['ARCHITECTURE.md', 'DEVELOPMENT.md'],
@@ -825,16 +1016,18 @@ function main() {
       output: { type: 'string' },
       'review-map': { type: 'string' },
       since: { type: 'string' },
+      until: { type: 'string' },
       bootstrap: { type: 'boolean', default: false },
     },
   });
   assert.ok(
     values.output && values['review-map'],
-    'Usage: infra-tick-summary.mjs --output DIR --review-map FILE [--bootstrap | --since UTC] [--repo OWNER/REPO]'
+    'Usage: infra-tick-summary.mjs --output DIR --review-map FILE [--bootstrap | --since UTC] [--until UTC] [--repo OWNER/REPO]'
   );
   mkdirSync(values.output, { recursive: true });
   const cursor = path.join(values.output, 'cursor.json');
-  const until = new Date().toISOString();
+  const until = values.until ?? new Date().toISOString();
+  assert.ok(time(until) <= Date.now(), 'Tick end cannot be in the future.');
   const secrets = [process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter(Boolean);
   const safe = (text) =>
     secrets.reduce((result, secret) => result.replaceAll(secret, '[REDACTED]'), text);
@@ -946,13 +1139,14 @@ function main() {
     } else process.exitCode = 1;
     trace({ event: 'completed', requests: api.evidence().requests, complete: report.complete });
   } catch (error) {
+    const { stage, prCount } = api.evidence();
     const report = {
       schema: 1,
       complete: false,
       since,
       until,
       coverage: COVERAGE,
-      anomalies: [{ kind: 'collection refused', message: safe(error.message) }],
+      anomalies: [{ kind: 'collection refused', message: safe(error.message), stage, prCount }],
       evidence: api.evidence(),
     };
     writeFileSync(
@@ -960,7 +1154,7 @@ function main() {
       JSON.stringify(report, null, 2) + '\n',
       { mode: 0o600 }
     );
-    const markdown = `# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${safe(error.message)}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Historical collection may not converge; use --bootstrap only when intentionally starting a new observer without a cursor.\n`;
+    const markdown = `# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${safe(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.\n`;
     writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
     process.stdout.write(markdown);
     trace({ event: 'refused', requests: api.evidence().requests, complete: false });
