@@ -927,9 +927,10 @@ layer has `quota: enabled` without a quota observation because its browser and n
 [Free-plan budget guard](#free-plan-budget-guard) for their own modeled usage. An explicitly recorded
 quota refusal retains its fixed reason; no local counter is presented as aggregate project usage.
 This policy does not advertise a guard for unimplemented attachments or satisfy a paid-required layer.
-Ready sharing's CLI human line and SDK section include the fixed note: "Usage is limited by each client's
-guard. Project-wide remaining quota is not checked; Firebase may refuse requests." The note is presentation,
-not a new wire member or reason. Exhaustion and an unavailable guard remain use-time refusals; readiness
+Ready sharing's CLI human line and SDK section include the fixed note: "Each client stops itself before the
+free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."
+The CLI follows the shared style's final-period omission; the SDK retains the period. The note is
+presentation, not a new wire member or reason. Exhaustion and an unavailable guard remain use-time refusals; readiness
 never promises the next request will succeed.
 The sharing index prerequisite reads the authorized run's digest-derived `composite-index` steps, using the
 same canonical index set as composition, authorization and verification; it makes no provider call.

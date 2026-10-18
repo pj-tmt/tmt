@@ -239,14 +239,17 @@ test('ready sharing names guarded usage without claiming observed quota or chang
     sharing
       .text()
       .includes(
-        "Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.",
+        "Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests.",
       ),
   );
   assert.equal(JSON.stringify(layers), before);
   const unknown = enabledFixture();
   unknown[0]!.state = 'unknown';
   Object.assign(unknown[0]!.prerequisites[0]!, { state: 'unknown', reason: 'not-checked' });
-  assert.equal(render(unknown).text().includes("Usage is limited by each client's guard."), false);
+  assert.equal(
+    render(unknown).text().includes('Each client stops itself before the free-plan limits.'),
+    false,
+  );
   vi.unstubAllGlobals();
 });
 test('strict readiness rejects arbitrary copy, extra keys, wrong order, illegal reasons and inconsistent aggregates', () => {

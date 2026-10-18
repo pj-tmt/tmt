@@ -692,7 +692,7 @@ fn complete_sharing_satisfies_guard_requirements_without_inventing_observations(
     assert_eq!(value[2]["prerequisites"][3]["state"], "unknown");
     assert_eq!(
         human_lines(&value, &LAYERS)[0].what,
-        "Page sharing is enabled. Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests."
+        "Page sharing is enabled. Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests."
     );
     assert_eq!(serde_json::to_vec(&record).unwrap(), before);
     for id in ["database", "sign-in:anonymous", "rules", "verify"] {

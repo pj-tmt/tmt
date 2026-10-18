@@ -130,7 +130,7 @@ export function renderFirestore(
         group.append(
           node(
             'p',
-            "Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.",
+            "Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests.",
           ),
         );
     }

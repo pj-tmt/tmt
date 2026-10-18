@@ -631,7 +631,7 @@ pub fn human_lines(value: &Value, layers: &[LayerSpec]) -> Vec<HumanLine> {
                 return HumanLine {
                     enabled: true,
                     what: if spec.layer == FirestoreLayer::Sharing {
-                        format!("{title} is enabled. Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.")
+                        format!("{title} is enabled. Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests.")
                     } else {
                         format!("{title} is enabled.")
                     },

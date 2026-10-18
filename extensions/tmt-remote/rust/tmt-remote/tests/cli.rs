@@ -3582,7 +3582,7 @@ fn running_layer_status_reads_atomic_deploy_snapshots_without_the_writer_lock() 
     let complete_layers =
         status_answer(&pilot, &["status", "--layers", "--json"])["firestoreLayers"].clone();
     assert_eq!(complete_layers[0]["state"], "enabled");
-    let note = "Page sharing is enabled. Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.";
+    let note = "Page sharing is enabled. Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests.";
     let human = pilot
         .command()
         .args(["status", "--layers"])

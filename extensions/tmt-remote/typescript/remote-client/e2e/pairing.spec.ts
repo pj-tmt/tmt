@@ -3217,7 +3217,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   const sharing = page.locator('[data-layer="sharing"]');
   await expect(sharing.locator('h3')).toContainText('Enabled');
   await expect(sharing).toContainText(
-    "Usage is limited by each client's guard. Project-wide remaining quota is not checked; Firebase may refuse requests.",
+    "Each client stops itself before the free-plan limits. TMT does not check the project's remaining quota, so Firebase may still refuse requests.",
   );
   for (const item of ['plan-tier', 'quota'])
     await expect(page.locator(`[data-item="${item}"]`)).toContainText('Enabled');
