@@ -29,7 +29,7 @@ export const TOOLCHAIN: string;
 export type NextestInventory = Parameters<typeof compareInventories>[1];
 export interface WorkspaceManifest {
   schema: number;
-  identity: Record<string, string>;
+  producerIdentity: Record<string, string>;
   partitions: number;
   archive: { bytes: number; sha256: string };
   cases: TestCase[];
@@ -37,7 +37,9 @@ export interface WorkspaceManifest {
 }
 export interface PartitionResult {
   schema: number;
-  identity: Record<string, string>;
+  producerIdentity: Record<string, string>;
+  executionIdentity: Record<string, string>;
+  manifestSha256: string;
   archive: { bytes: number; sha256: string };
   index: number;
   partitions: number;
@@ -56,7 +58,8 @@ export function admitPartition(
 export function aggregatePartitions(
   manifest: WorkspaceManifest,
   results: PartitionResult[],
-  states: { producer: string; consumers: string }
+  states: { producer: string; consumers: string },
+  selection?: PartitionSelection
 ): { passed: number; ignored: number; total: number };
 export function admitArchive(
   manifest: WorkspaceManifest,
@@ -81,3 +84,55 @@ export function exampleExecutables(
 ): string[];
 export function runtimeArchiveConfig(files: string[]): string;
 export function verifyRuntimeExecutables(files: string[], targetDirectory: string): void;
+
+export interface ProducerReceipt {
+  proof: {
+    schema: number;
+    producerIdentity: Record<string, string>;
+    partitions: number;
+    manifestSha256: string;
+    archive: WorkspaceManifest['archive'];
+  };
+  closure: { id: string; digest: string };
+  inventory: { id: string; digest: string };
+}
+export interface PartitionSelection {
+  schema: number;
+  producerIdentity: Record<string, string>;
+  collectorIdentity: Record<string, string>;
+  manifestSha256: string;
+  partitions: {
+    index: number;
+    attempt: string;
+    jobId: number | null;
+    artifact: { id: string; name: string; digest: string } | null;
+  }[];
+}
+export function resultArtifactName(
+  index: number,
+  identity: Record<string, string>,
+  attempt: string
+): string;
+export function admitProducerReceipt(
+  receipt: ProducerReceipt,
+  expectedRun: Record<string, string>,
+  producerResult: string
+): ProducerReceipt;
+export function admitManifest(receipt: ProducerReceipt, bytes: Uint8Array): WorkspaceManifest;
+export function admitExecutionIdentity(
+  producer: Record<string, string>,
+  execution: Record<string, string>,
+  collectorAttempt?: string
+): Record<string, string>;
+export function createRecoveryReader(
+  repository: string,
+  execute?: (program: string, args: string[], options: { timeoutMs: number }) => string,
+  clock?: () => number
+): (resource: string) => unknown;
+export function planPartitionRecovery(
+  receipt: ProducerReceipt,
+  collector: Record<string, string>,
+  states: { producer: string; consumers: string },
+  read: (resource: string) => unknown,
+  workflowHead?: string
+): PartitionSelection;
