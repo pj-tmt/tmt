@@ -559,11 +559,16 @@ describe('direct provider conversation discovery', { concurrent: false }, () => 
               readFileSync(path.join(fixture.globalDir, 'caller-session-refusals.json'), 'utf8')
             ) as {
               version: number;
-              entries: Array<{ key: { harness: string; session: string }; layer: string }>;
+              entries: Array<{
+                key: { harness: string; session: string; target: Record<string, unknown> };
+                layer: string;
+              }>;
             };
-            expect(cache.version).toBe(1);
+            expect(cache.version).toBe(2);
             expect(cache.entries).toHaveLength(1);
             expect(cache.entries[0].key).toMatchObject({ harness: provider, session });
+            // A tmux caller's hint stays keyed by the binding its pane selected.
+            expect(Object.keys(cache.entries[0].key.target)).toEqual(['binding']);
           }
           if (unknownHeader) {
             for (const call of ordinaryCalls) {
