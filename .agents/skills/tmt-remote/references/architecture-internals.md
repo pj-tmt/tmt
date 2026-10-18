@@ -200,9 +200,8 @@ The real port inventories Hosting and executes the frozen steps through the same
 The adapter captures it with prepared content and passes it only in its private helper request;
 the helper uses its prefix for labels/read-back without a second hash implementation. Full
 file/config checks remain; no frozen plan/record field or old-label migration is added.
-Every Version file inventory unions explicit `status=EXPECTED` and `status=ACTIVE` bounded
-lists; a matching path/hash seen transitioning to ACTIVE counts once. Conflicting hashes,
-duplicates within a status list and incomplete/mismatching unions refuse without re-populating.
+The helper owns the [user-file inventory projection](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
+for every staged/live Version check, including the two reserved init paths and retained-fingerprint fence.
 An omitted `uploadRequiredHashes` is empty. Optional cause file counts contain no identifiers
 and do not enter the frozen envelope or its digest.
 Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage

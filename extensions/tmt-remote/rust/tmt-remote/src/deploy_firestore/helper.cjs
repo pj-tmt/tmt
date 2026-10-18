@@ -582,12 +582,14 @@ async function execute(request, deps) {
     return { apiKey: config.apiKey, authDomain: config.authDomain, projectId: project, appId };
   }
   async function hostingFiles(name) {
+    // Hosting adds these files even to a fresh Version; they are not user content.
+    const reserved = new Set(['/__/firebase/init.js', '/__/firebase/init.json']);
     const union = new Map();
     // Remaining uploads are not a complete inventory. Read both explicit states.
     for (const status of ['EXPECTED', 'ACTIVE']) {
       const listed = await pages('hosting', `${name}/files?status=${status}`, 'files');
       if (
-        listed.length > 256 ||
+        listed.length > 256 + reserved.size ||
         new Set(listed.map((f) => f?.path)).size !== listed.length ||
         listed.some(
           (f) =>
@@ -603,8 +605,12 @@ async function execute(request, deps) {
         union.set(path, { path, hash, status });
       }
     }
-    if (union.size > 256) fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
-    return [...union.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    if (union.size > 256 + reserved.size)
+      fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
+    const files = [...union.values()].filter((file) => !reserved.has(file.path));
+    if (files.length > 256)
+      fail('unknown', undefined, { code: 'inventory-incomplete', phase: 'list' });
+    return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   }
 
   async function liveHosting(expectedName) {
