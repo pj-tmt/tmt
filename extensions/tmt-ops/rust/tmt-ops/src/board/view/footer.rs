@@ -681,6 +681,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         ))
     } else if app.modal_open() {
         Line::default()
+    } else if app
+        .composer_projection()
+        .is_some_and(|projection| projection.focused)
+    {
+        // Conversation editing keys live in its stable information line.
+        Line::default()
     } else if app.input.is_some() && app.input_band.get().is_some() {
         // The filled input owns Send/Cancel; capability-derived editing keys
         // remain in the footer rather than reviving the old composer frame.

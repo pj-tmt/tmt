@@ -93,7 +93,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, left: Option<Rect>,
         projection.key.is_some() && (projection.focused || app.composer_start().is_some())
     });
     let input = if admitted_input {
-        remaining.min(crate::board::input_field::ROWS)
+        remaining.min(app.composer_rows())
     } else {
         0
     };

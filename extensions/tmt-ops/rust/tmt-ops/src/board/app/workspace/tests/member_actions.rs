@@ -94,7 +94,7 @@ fn member_note_without_an_observed_lead_never_falls_back_to_member_talk() {
 }
 
 #[test]
-fn member_note_chrome_names_both_recipient_and_subject() {
+fn member_note_placeholder_names_the_lead_and_keeps_the_subject_in_the_send_owner() {
     for tab in [OpsTab::Overview, OpsTab::Agents] {
         for width in [160, 60] {
             let mut app = member_actions_with_lead();
@@ -105,9 +105,12 @@ fn member_note_chrome_names_both_recipient_and_subject() {
             assert!(
                 lines
                     .iter()
-                    .any(|line| line.contains("Note to") && line.contains("about worker")),
+                    .any(|line| line.contains("note to product-lead")),
                 "{tab:?} width={width}: {lines:?}"
             );
+            assert!(!lines.iter().any(|line| line.contains("about worker")));
+            assert!(matches!(&app.input.as_ref().unwrap().compose,
+                Compose::Annotate { to, row } if to == "product-lead" && row == "worker"));
         }
     }
 }

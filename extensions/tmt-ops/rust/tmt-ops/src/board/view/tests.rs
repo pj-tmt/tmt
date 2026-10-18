@@ -138,8 +138,14 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("⏎ send · Esc cancel")),
+            .any(|line| line.contains("Alt+⏎") && line.contains('@')),
         "{lines:?}"
+    );
+    let editor = app.input_viewport.get().unwrap().0;
+    assert!(lines[usize::from(editor.bottom())].contains("Alt+⏎"));
+    assert!(
+        lines[0].contains("Quote"),
+        "the quote stays above the editor"
     );
     assert!(!lines.iter().any(|line| line.contains(request)));
     let hit = app

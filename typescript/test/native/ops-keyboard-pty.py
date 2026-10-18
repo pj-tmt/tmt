@@ -38,6 +38,7 @@ class Screen:
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self.pending = ""
         self.x = self.y = 0
+        self.cursor_visible = False
         self.cells = [[" "] * 160 for _ in range(36)]
 
     def feed(self, data):
@@ -52,6 +53,8 @@ class Screen:
                 if values.startswith("?"):
                     if values == "?1049" and final == "h":
                         self.cells = [[" "] * 160 for _ in range(36)]
+                    if values == "?25" and final in ("h", "l"):
+                        self.cursor_visible = final == "h"
                     continue
                 if values.startswith((">", "<", "=")):
                     continue
@@ -148,6 +151,12 @@ def fresh_text(text, after=0):
     return screen.contains(text)
 
 
+def composer_ready():
+    # The info line is identical in read and edit mode. The terminal cursor,
+    # published by the actual editor, proves focus rather than a stale label.
+    return screen.cursor_visible and screen.contains("Alt+⏎")
+
+
 def api(operation, values):
     result = subprocess.run(
         spec["cli"] + ["api"],
@@ -198,7 +207,7 @@ def stop_and_resume():
         lambda: b"\x1b[>1u" in output[mark:]
         and termios.tcgetattr(slave) != original_modes
         and fresh_text("first")
-        and fresh_text("⏎ send · Esc cancel"),
+        and composer_ready(),
         "resumed composer and keyboard mode",
     )
     if queries != before_queries:
@@ -252,8 +261,7 @@ sys.exit(0)
     wait_for(lambda: fresh_text("⏎ to message worker", mark), "selected member input")
     mark = len(output)
     os.write(master, b"\r")
-    caption = "Shift+Enter new line" if spec["enhanced"] else "Alt+Enter new line"
-    wait_for(lambda: fresh_text(caption, mark), "capability-derived newline hint")
+    wait_for(composer_ready, "focused composer and stable newline keys")
     os.write(master, b"first")
     if spec["lifecycle"] == "suspend":
         wait_for(lambda: fresh_text("first", mark), "retained draft before suspension")
@@ -366,6 +374,7 @@ sys.exit(0)
             lambda: queries > before_queries
             and fresh_text("Board reloaded")
             and fresh_text("⏎ to message worker")
+            and not screen.cursor_visible
             and not fresh_text("Sending…"),
             "reload after submitted draft",
             30,
@@ -373,7 +382,7 @@ sys.exit(0)
         if b"\x1b[<1u" not in output[mark:] or b"\x1b[>1u" not in output[mark:]:
             raise AssertionError("exec handoff did not restore and re-enable keyboard mode")
         os.write(master, b"\r")
-        wait_for(lambda: fresh_text(caption), "composer after exec")
+        wait_for(composer_ready, "composer after exec")
         if len(received()) != 1:
             raise AssertionError("reload dispatched the message twice")
     if spec["lifecycle"] == "term":

@@ -154,6 +154,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
                     name: (*name).into(),
                     canonical: (*name).into(),
                     basic: false,
+                    context: None,
                 },
             );
             resumes.insert(id.clone(), json!({}));
@@ -395,8 +396,8 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                         assert!(pane.y > 6);
                     }
                     let band = app.input_band.get().unwrap();
-                    assert_eq!(band.height, 3);
-                    assert!(band.bottom() < pane.bottom());
+                    assert_eq!(band.height, 4);
+                    assert_eq!(band.bottom(), pane.bottom());
                     assert!(text.contains(if selected == "tmt-night" {
                         "lead night-lead"
                     } else {

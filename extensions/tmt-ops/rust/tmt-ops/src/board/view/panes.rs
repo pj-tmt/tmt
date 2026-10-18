@@ -16,9 +16,10 @@ pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
             let height =
                 super::waiting::input_lines(app, area).min(usize::from(area.height)) as u16;
             app.input_band.set(Some(Rect::new(
-                area.x,
+                area.x + area.width.min(crate::board::input_field::GUTTER),
                 area.bottom() - height,
-                area.width,
+                area.width
+                    .saturating_sub(crate::board::input_field::GUTTER * 2),
                 height,
             )));
             let list_height = area.height - height;
