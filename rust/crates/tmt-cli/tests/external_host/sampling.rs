@@ -113,10 +113,6 @@ impl DirectSampler {
         self.child.as_ref().unwrap().id()
     }
 
-    fn group(&self) -> nix::unistd::Pid {
-        nix::unistd::Pid::from_raw(i32::try_from(self.pid()).unwrap())
-    }
-
     fn request(&mut self, request: &[u8]) {
         let mut stdin = self.child.as_mut().unwrap().stdin.take().unwrap();
         stdin.write_all(request).unwrap();
@@ -148,24 +144,8 @@ impl DirectSampler {
     /// the leader within 3 s, then waits, read only, for the group to be
     /// empty.
     fn stop(&mut self) -> ExitStatus {
-        use nix::sys::signal::{Signal::SIGKILL, killpg};
-        let group = self.group();
         let mut child = self.child.take().unwrap();
-        let _ = killpg(group, SIGKILL);
-        let reaped = Instant::now() + Duration::from_secs(3);
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break status;
-            }
-            assert!(Instant::now() < reaped, "the sampler was not reaped");
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        let empty = Instant::now() + Duration::from_secs(3);
-        while !matches!(killpg(group, None), Err(nix::errno::Errno::ESRCH)) {
-            assert!(Instant::now() < empty, "the sampler's group is not empty");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        status
+        stop_owned_group(&mut child, "the sampler")
     }
 }
 
