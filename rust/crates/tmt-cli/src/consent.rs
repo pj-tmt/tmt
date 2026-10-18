@@ -26,7 +26,7 @@ pub fn interactive<W: Write>(mode: OutputMode, output: &Stream<W>) -> bool {
 /// Asks on `output` (the caller's stdout) only when stdin and that stream are
 /// both terminals and output is not JSON. A decline prints `declined` and
 /// returns false. The answer is bounded to 256 bytes, and one that does not end
-/// within them is declined.
+/// within them is declined and its line drained.
 pub fn ask(
     output: &mut Stream<impl Write>,
     yes: bool,
@@ -53,23 +53,32 @@ pub fn ask(
 /// The most bytes of an answer read, counting its newline.
 const ANSWER_LIMIT: u64 = 256;
 
+/// The most bytes read past `ANSWER_LIMIT` to finish consuming a declined over-long line.
+const DRAIN_LIMIT: u64 = 4096;
+
 /// Reads one answer line and says whether it is `y` or `yes`. The answer counts only when its
 /// newline or the end of input arrives within `ANSWER_LIMIT`: a read that used the whole limit
-/// without either may be the prefix of a longer line, so it is not affirmative. The rest of an
-/// over-long line is left unread, not drained.
-fn read_affirmative(input: impl BufRead) -> io::Result<bool> {
+/// without either may be the prefix of a longer line, so it is declined. Only then is the rest
+/// of that line consumed, up to its newline and at most `DRAIN_LIMIT` bytes, so it is not left
+/// in the terminal for the shell to run after `tmt` exits. A terminal in canonical mode has
+/// already delivered the whole line, so the drain waits for no new typing. Input after the
+/// newline, and everything after a short answer, stays unread.
+fn read_affirmative(mut input: impl BufRead) -> io::Result<bool> {
     let mut answer = Vec::new();
-    input.take(ANSWER_LIMIT).read_until(b'\n', &mut answer)?;
+    io::Read::take(&mut input, ANSWER_LIMIT).read_until(b'\n', &mut answer)?;
     let complete = answer.last() == Some(&b'\n') || (answer.len() as u64) < ANSWER_LIMIT;
-    Ok(complete
-        && matches!(
-            std::str::from_utf8(&answer)
-                .unwrap_or("")
-                .trim()
-                .to_ascii_lowercase()
-                .as_str(),
-            "y" | "yes"
-        ))
+    if !complete {
+        input.take(DRAIN_LIMIT).read_until(b'\n', &mut Vec::new())?;
+        return Ok(false);
+    }
+    Ok(matches!(
+        std::str::from_utf8(&answer)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "y" | "yes"
+    ))
 }
 
 #[cfg(test)]
@@ -135,6 +144,48 @@ mod tests {
             !affirmed(format!("y{}\n", " ".repeat(400)).as_bytes()),
             "an over-limit line"
         );
+    }
+
+    /// What `read_affirmative` leaves unread, and its verdict.
+    fn leftover(input: &[u8]) -> (bool, Vec<u8>) {
+        let mut cursor = Cursor::new(input);
+        let accepted = read_affirmative(&mut cursor).unwrap();
+        let mut rest = Vec::new();
+        cursor.read_to_end(&mut rest).unwrap();
+        (accepted, rest)
+    }
+
+    /// An over-long answer is declined, and the rest of its line goes with it so the terminal does
+    /// not hand it to the shell after `tmt` exits.
+    #[test]
+    fn a_declined_over_long_line_is_drained_to_its_newline() {
+        let line = format!("yes{}rm -rf important\n", " ".repeat(300));
+        let (accepted, rest) = leftover(format!("{line}next command\n").as_bytes());
+        assert!(!accepted);
+        assert_eq!(
+            rest, b"next command\n",
+            "only the over-long line is consumed"
+        );
+    }
+
+    #[test]
+    fn draining_stops_at_its_bound_without_a_newline() {
+        let long = format!("yes{}", "x".repeat(10_000));
+        let (accepted, rest) = leftover(long.as_bytes());
+        assert!(!accepted);
+        assert_eq!(
+            rest.len(),
+            long.len() - 256 - 4096,
+            "256 answer bytes and at most 4096 drained bytes are read"
+        );
+    }
+
+    #[test]
+    fn a_short_answer_is_not_drained() {
+        assert_eq!(leftover(b"yes\nnext\n"), (true, b"next\n".to_vec()));
+        assert_eq!(leftover(b"no\nnext\n"), (false, b"next\n".to_vec()));
+        let at_limit = format!("yes{}\nnext\n", " ".repeat(252));
+        assert_eq!(leftover(at_limit.as_bytes()), (true, b"next\n".to_vec()));
     }
 
     #[test]
