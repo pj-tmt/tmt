@@ -6,6 +6,9 @@ const crypto = require('node:crypto');
 const SUPPORTED = ['15.29.0'];
 const BYTES = 4 * 1024 * 1024;
 const PAGES = 10;
+const FILE_SAMPLE_COUNT = 4;
+const FILE_SAMPLE_PATH_BYTES = 128;
+const FILE_SAMPLE_BYTES = 1024;
 const OVERRIDDEN_FIELDS_FILTER = 'indexConfig.usesAncestorConfig=false OR ttlConfig:*';
 const HOSTING_PHASE_MS = 30000;
 const HOSTING_APPLY_MS = 3 * HOSTING_PHASE_MS;
@@ -744,6 +747,52 @@ async function execute(request, deps) {
       const identity = (file) => stable([file.path, file.hash]);
       const planned = new Set(files.map(identity));
       const observed = new Set(listed.map(identity));
+      const sensitive = [
+        project,
+        h.site,
+        i.deployment,
+        credential.account,
+        credential.token,
+        cp.appId,
+        cp.version,
+        cp.version?.split('/').at(-1),
+        cp.publication?.publicConfig?.apiKey,
+      ].filter((value) => typeof value === 'string' && value.length > 0);
+      const samples = listed
+        .map((file) => ({
+          file,
+          relation: planned.has(identity(file))
+            ? 'exact'
+            : files.some((planned) => planned.path === file.path)
+              ? 'hash-different'
+              : 'path-missing',
+        }))
+        .sort(
+          (a, b) =>
+            Number(a.relation === 'exact') - Number(b.relation === 'exact') ||
+            (a.file.path < b.file.path ? -1 : a.file.path > b.file.path ? 1 : 0)
+        )
+        .slice(0, FILE_SAMPLE_COUNT)
+        .map(({ file, relation }) => {
+          const publicPath =
+            file.path.startsWith('/') &&
+            Buffer.byteLength(file.path) <= FILE_SAMPLE_PATH_BYTES &&
+            file.path
+              .slice(1)
+              .split('/')
+              .every(
+                (part) =>
+                  /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(part) &&
+                  !['projects', 'sites', 'versions', 'webApps'].includes(part)
+              ) &&
+            !sensitive.some((value) => file.path.includes(value));
+          return {
+            path: publicPath ? file.path : '<redacted>',
+            status: file.status,
+            hashPrefix: file.hash.slice(0, 8),
+            relation,
+          };
+        });
       fail('unknown', undefined, {
         code: 'files-mismatch',
         phase: 'list',
@@ -755,6 +804,9 @@ async function execute(request, deps) {
           missing: files.filter((f) => !observed.has(identity(f))).length,
           extra: listed.filter((f) => !planned.has(identity(f))).length,
         },
+        ...(Buffer.byteLength(JSON.stringify(samples)) <= FILE_SAMPLE_BYTES
+          ? { fileSamples: samples }
+          : {}),
       });
     }
     async function versionFiles() {

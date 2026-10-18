@@ -1442,6 +1442,7 @@ test('partial Hosting inventory records a closed list cause before any populate 
         phase: 'list',
         httpStatusClass: '2xx',
         files: { planned: 1, expected: 1, active: 0, listed: 1, missing: 1, extra: 1 },
+        fileSamples: [{ path: '/different.html', status: 'EXPECTED', hashPrefix: 'cccccccc', relation: 'path-missing' }],
       });
       assert.ok(!JSON.stringify(error.cause).includes(PROJECT));
       return error.code === 'unknown';
@@ -1762,5 +1763,108 @@ test('Hosting malformed populate hash requirements stay unknown without followin
       x.calls.filter((c) => c.url.startsWith('https://upload-firebasehosting.')).length,
       0
     );
+  }
+});
+
+test('fresh Hosting version mismatch samples identify the two ACTIVE files before any populate POST', async () => {
+  const x = hostedFixture();
+  const original = x.input.hosting.content.files[0];
+  x.input.hosting.content.files = Array.from({ length: 15 }, (_, index) => ({
+    ...original,
+    path: `/planned-${String(index).padStart(2, '0')}.html`,
+    gzipDigest: hash(`planned-${index}`),
+  }));
+  await x.call('apply-hosting', 'create');
+  x.state.files = [
+    { path: '/index.html', hash: 'b'.repeat(64), status: 'ACTIVE' },
+    { path: '/404.html', hash: 'a'.repeat(64), status: 'ACTIVE' },
+  ];
+  await assert.rejects(
+    () => x.call('apply-hosting', 'populate'),
+    (error) => {
+      assert.equal(error.code, 'unknown');
+      assert.deepEqual(error.cause.files, {
+        planned: 15,
+        expected: 0,
+        active: 2,
+        listed: 2,
+        missing: 15,
+        extra: 2,
+      });
+      assert.deepEqual(error.cause.fileSamples, [
+        { path: '/404.html', status: 'ACTIVE', hashPrefix: 'aaaaaaaa', relation: 'path-missing' },
+        { path: '/index.html', status: 'ACTIVE', hashPrefix: 'bbbbbbbb', relation: 'path-missing' },
+      ]);
+      const samples = JSON.stringify(error.cause.fileSamples);
+      for (const forbidden of [
+        PROJECT,
+        x.input.hosting.site,
+        x.input.checkpoint.version,
+        x.input.checkpoint.version.split('/').at(-1),
+        'sites/',
+        'versions/',
+        ACCOUNT,
+        CANARY,
+      ])
+        if (forbidden) assert.ok(!samples.includes(forbidden));
+      return true;
+    }
+  );
+  assert.equal(
+    x.calls.filter((c) => c.method === 'POST' && c.url.endsWith(':populateFiles')).length,
+    0
+  );
+});
+
+test('Hosting file samples are bounded, distinguish hash drift and redact non-public paths and identifiers', async () => {
+  for (const unsafe of [
+    `/assets/${PROJECT}.js`,
+    '/assets/one.js',
+    '/sites/private-site/versions/private-version',
+    `/${ACCOUNT}`,
+    `/${CANARY}`,
+    '/index.html?token=SECRET',
+    '/%2e%2e/secret',
+    '/bad\nname',
+    '/' + 'x'.repeat(129),
+  ]) {
+    const x = hostedFixture();
+    await x.call('apply-hosting', 'create');
+    const version = x.input.checkpoint.version;
+    x.state.files = [
+      { path: unsafe, hash: 'a'.repeat(64), status: 'ACTIVE' },
+      { path: '/index.html', hash: 'c'.repeat(64), status: 'ACTIVE' },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        path: `/z-${i}.html`,
+        hash: 'b'.repeat(64),
+        status: 'EXPECTED',
+      })),
+    ];
+    await assert.rejects(
+      () => x.call('apply-hosting', 'populate'),
+      (error) => {
+        const samples = error.cause.fileSamples;
+        assert.equal(samples.length, 4);
+        assert.ok(samples.some((row) => row.path === '<redacted>'));
+        assert.ok(
+          samples.some((row) => row.path === '/index.html' && row.relation === 'hash-different')
+        );
+        const encoded = JSON.stringify(samples);
+        assert.ok(Buffer.byteLength(encoded) <= 1024);
+        for (const forbidden of [
+          unsafe,
+          PROJECT,
+          version,
+          version?.split('/').at(-1),
+          ACCOUNT,
+          CANARY,
+          'SECRET',
+        ])
+          if (forbidden) assert.ok(!encoded.includes(forbidden), forbidden);
+        assert.ok(samples.every((row) => /^[0-9a-f]{8}$/.test(row.hashPrefix)));
+        return true;
+      }
+    );
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
   }
 });

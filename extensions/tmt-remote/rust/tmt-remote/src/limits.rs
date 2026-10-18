@@ -175,6 +175,9 @@ pub const DEPLOY_DECLARATION_CALL: Duration = Duration::from_secs(10);
 
 // Release-embedded Firebase Hosting static inventory, not free-plan quota allowances.
 pub const HOSTING_FILES: usize = 256;
+pub const DEPLOY_FILE_SAMPLES: usize = 4;
+pub const DEPLOY_FILE_SAMPLE_PATH_BYTES: usize = 128;
+pub const DEPLOY_FILE_SAMPLES_BYTES: usize = 1024;
 pub const HOSTING_FILE_BYTES: usize = 4 * 1024 * 1024;
 pub const HOSTING_TOTAL_BYTES: usize = 16 * 1024 * 1024;
 pub const HOSTING_REPLY_BYTES: usize = 24 * 1024 * 1024;

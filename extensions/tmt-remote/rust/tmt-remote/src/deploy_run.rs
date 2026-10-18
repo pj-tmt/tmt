@@ -499,7 +499,7 @@ pub enum DeployApplied {
     Building,
     OwnerAction(DeployOwnerAction),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeployProviderError {
     Rejected(DeployFault),
     /// The outcome is unknown: the call may have taken effect.
@@ -573,6 +573,55 @@ fn file_counts<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<FileCoun
     Ok(counts)
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum FileStatus {
+    Expected,
+    Active,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FileRelation {
+    PathMissing,
+    HashDifferent,
+    Exact,
+}
+/// Public file identity only; resource names and provider text are not diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileSample {
+    pub path: String,
+    pub status: FileStatus,
+    pub hash_prefix: String,
+    pub relation: FileRelation,
+}
+fn file_samples<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Vec<FileSample>>, D::Error> {
+    let samples = Option::<Vec<FileSample>>::deserialize(d)?;
+    if samples.as_ref().is_some_and(|rows| {
+        rows.len() > crate::limits::DEPLOY_FILE_SAMPLES
+            || serde_json::to_vec(rows).map_or(true, |bytes| {
+                bytes.len() > crate::limits::DEPLOY_FILE_SAMPLES_BYTES
+            })
+            || rows.iter().any(|row| {
+                (row.path != "<redacted>"
+                    && (!crate::hosting::path_ok(&row.path)
+                        || row.path.len() > crate::limits::DEPLOY_FILE_SAMPLE_PATH_BYTES
+                        || row.path.split('/').any(|part| {
+                            ["projects", "sites", "versions", "webApps"].contains(&part)
+                        })))
+                    || row.hash_prefix.len() != 8
+                    || !row
+                        .hash_prefix
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+    }) {
+        return Err(serde::de::Error::custom("invalid file samples"));
+    }
+    Ok(samples)
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepCause {
     pub code: CauseCode,
@@ -585,6 +634,12 @@ pub struct StepCause {
         deserialize_with = "file_counts"
     )]
     pub files: Option<FileCounts>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "file_samples"
+    )]
+    pub file_samples: Option<Vec<FileSample>>,
 }
 impl StepCause {
     pub fn new(code: CauseCode, phase: CausePhase) -> Self {
@@ -593,6 +648,7 @@ impl StepCause {
             phase,
             http_status_class: None,
             files: None,
+            file_samples: None,
         }
     }
 }
@@ -1051,8 +1107,8 @@ fn set_failure(
     phase: CausePhase,
 ) -> Result<(), DeployError> {
     run_of(record).steps[index].cause = if matches!(step.kind, StepKind::Hosting(_)) {
-        match error {
-            DeployProviderError::Unconfirmed(cause) => Some(cause),
+        match &error {
+            DeployProviderError::Unconfirmed(cause) => Some(cause.clone()),
             DeployProviderError::Unknown => Some(StepCause::new(CauseCode::InvalidResponse, phase)),
             DeployProviderError::Rejected(_) => None,
         }

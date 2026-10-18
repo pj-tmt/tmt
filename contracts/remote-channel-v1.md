@@ -1963,7 +1963,7 @@ duplicate paths within one status and an incomplete union refuse. Populate compa
 paths/hashes; upload/finalize/release also require the appropriate ACTIVE evidence. Omitted
 `uploadRequiredHashes` means none required; a supplied list must contain only planned hashes.
 
-Each unknown Hosting step adds optional `cause:{code,phase,httpStatusClass?,files?}` to its existing
+Each unknown Hosting step adds optional `cause:{code,phase,httpStatusClass?,files?,fileSamples?}` to its existing
 step record and JSON; the human Cause line is unchanged. `phase` is `credentials`, `list`, `mutation`, `body` or
 `child-exit`; the closed cause codes are `deadline`, `transport`, `invalid-response`, `body-invalid`,
 `body-too-large`, `inventory-incomplete`, `files-mismatch`, `http-rejected`, `child-failed`,
@@ -1971,8 +1971,14 @@ step record and JSON; the human Cause line is unchanged. `phase` is `credentials
 `1xx` through `5xx`. Optional `files:{planned,expected,active,listed,missing,extra}` reports only
 integer counts (0–256): planned files, union members by EXPECTED/ACTIVE status, union total,
 and missing/extra path+hash pairs. Unknown/incomplete enumeration does not claim exact counts.
-No provider body or identifier crosses this boundary. The field defaults
-absent, is omitted when absent and clears on a definitive outcome; old records read unchanged
+Optional `fileSamples` contains at most four deterministic rows, mismatches first then path order:
+`{path,status,hashPrefix,relation}`. Each path is a validated public Hosting-relative path of at
+most 128 bytes or `<redacted>`; selected account/project/app/site/version names, resource names,
+URLs, queries and unsafe paths are redacted. Status is `EXPECTED` or `ACTIVE`, the hash prefix
+is eight lowercase hex digits, and relation is `path-missing`, `hash-different` or `exact`.
+Samples total at most 1 KiB, never contain file content, provider bodies or full hashes, and
+are also shown beneath the human Cause line. Both detail fields are bounded and validated on
+read. Diagnostics default absent, are omitted when absent and clear on a definitive outcome; old records read unchanged
 and resume without a version bump. Diagnostics are outside the authorized plan grammar.
 An unconfirmed create reports that it will not be repeated: rerun the same command to observe
 its result and inspect the recorded cause/provider state if still unknown; retain the saved

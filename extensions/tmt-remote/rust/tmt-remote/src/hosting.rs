@@ -106,7 +106,7 @@ impl HostingManifest {
         sha256_hex(&serde_json::to_vec(self).expect("manifest serializes"))
     }
 }
-fn path_ok(path: &str) -> bool {
+pub(crate) fn path_ok(path: &str) -> bool {
     path.starts_with('/')
         && path.len() <= limits::HOSTING_PATH_BYTES
         && path[1..].split('/').all(|part| {
