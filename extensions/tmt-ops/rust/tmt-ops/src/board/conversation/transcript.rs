@@ -20,7 +20,7 @@ impl State {
 }
 
 impl App {
-    fn pane_output_enabled(&self) -> bool {
+    pub(in crate::board) fn pane_output_enabled(&self) -> bool {
         self.workspace_snapshot().is_none() || self.shell.tab == crate::board::shell::OpsTab::Agents
     }
 

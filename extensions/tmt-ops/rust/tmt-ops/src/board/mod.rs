@@ -170,6 +170,12 @@ pub(super) enum BoardEvent {
         revision: u64,
         body: Result<String, String>,
     },
+    Finals {
+        cancellation: crate::runner::Cancellation,
+        key: home_leads::FinalsKey,
+        revision: u64,
+        result: Result<Vec<serde_json::Value>, String>,
+    },
     PaneOutput {
         cancellation: crate::runner::Cancellation,
         key: conversation::ConversationKey,
@@ -673,6 +679,21 @@ fn session(
                     && app.selected_read() == Some(refresh::SelectedRead::Message(key.clone()))
                 {
                     app.apply_message(&key, body);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Finals {
+                cancellation,
+                key,
+                revision: read_revision,
+                result,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read() == Some(refresh::SelectedRead::Finals(key.clone()))
+                {
+                    app.apply_finals(key, result);
                     dirty = true;
                 }
                 Effect::None
@@ -1438,6 +1459,18 @@ mod tests {
         app
     }
 
+    /// A worker whose per-agent finals read finds nothing beyond the windows.
+    fn answer_finals(events: &Sender<BoardEvent>, key: home_leads::FinalsKey, revision: u64) {
+        events
+            .send(BoardEvent::Finals {
+                cancellation: Default::default(),
+                key,
+                revision,
+                result: Ok(Vec::new()),
+            })
+            .unwrap();
+    }
+
     #[test]
     fn selected_responses_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
         use workspace::OpsTarget;
@@ -1492,6 +1525,10 @@ mod tests {
             &input,
             |_, _, _, _| {},
             |revision, selected| {
+                if let Some(refresh::SelectedRead::Finals(key)) = selected {
+                    answer_finals(&events, key, revision);
+                    return;
+                }
                 let Some(refresh::SelectedRead::Message(key)) = selected else {
                     return;
                 };
@@ -1606,6 +1643,10 @@ mod tests {
             &input,
             |_, _, _, _| {},
             |revision, selected| {
+                if let Some(refresh::SelectedRead::Finals(key)) = selected {
+                    answer_finals(&events, key, revision);
+                    return;
+                }
                 let Some(refresh::SelectedRead::PaneOutput(key)) = selected else {
                     return;
                 };

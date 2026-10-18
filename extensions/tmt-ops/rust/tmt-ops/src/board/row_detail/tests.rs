@@ -633,3 +633,152 @@ fn finals_arrive_from_storage_alone_when_the_originator_has_no_live_pane() {
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+fn own_final(request: &str, recipient: &str, at: u64) -> Value {
+    json!({"requestId":request,"recipientId":recipient,"submittedAtMs":at,"status":"retained"})
+}
+
+/// Finals the shared windows scrolled past still reach the conversation: the
+/// selected agent's own read supplies them once, then their bodies are read
+/// like any other and nothing is shown twice.
+#[test]
+fn an_agents_older_finals_come_from_its_own_read_once_and_join_the_windows() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    use crate::board::refresh::SelectedRead;
+    let mut app = board();
+    let now = crate::status::now_ms();
+    app.home_leads.test_results(
+        ACTOR,
+        json!({"items":[final_item("new", MEMBER, now - 60_000)],"nextBefore":null}),
+    );
+    draw(&app, 148, 51);
+    let Some(SelectedRead::Finals(key)) = app.selected_read() else {
+        panic!("the agent's own finals are read before any body");
+    };
+    assert_eq!((key.sender.as_str(), key.agent.as_str()), (ACTOR, MEMBER));
+    app.apply_finals(
+        key,
+        Ok(vec![
+            own_final("new", MEMBER, now - 60_000),
+            own_final("old2", MEMBER, now - 2_000_000),
+            own_final("old1", MEMBER, now - 3_000_000),
+        ]),
+    );
+    draw(&app, 148, 51);
+    assert!(app.finals_read().is_none(), "read once per activation");
+    assert!(matches!(
+        app.selected_read(),
+        Some(SelectedRead::Message(_))
+    ));
+    let order = read_all(&mut app, |request| format!("body {request}"));
+    assert_eq!(order, ["new", "old2", "old1"], "newest first, each once");
+    let detail = app
+        .row_detail(&app.conversation_target().unwrap(), &[])
+        .unwrap();
+    let shown = detail
+        .finals
+        .iter()
+        .map(|reply| {
+            (
+                reply.key.as_ref().unwrap().request.as_str(),
+                reply.at_ms,
+                reply.body.as_str(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        shown,
+        [
+            ("old1", Some(now - 3_000_000), "body old1"),
+            ("old2", Some(now - 2_000_000), "body old2"),
+            ("new", Some(now - 60_000), "body new"),
+        ]
+    );
+    assert_eq!(detail.reply.unwrap().key.unwrap().request, "new");
+}
+
+#[test]
+fn a_failed_or_stale_finals_read_is_not_retried_and_never_hides_the_windows() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    use crate::board::home_leads::FinalsKey;
+    use crate::board::refresh::SelectedRead;
+    let mut app = board();
+    let now = crate::status::now_ms();
+    app.home_leads.test_results(
+        ACTOR,
+        json!({"items":[final_item("new", MEMBER, now - 60_000)],"nextBefore":null}),
+    );
+    draw(&app, 148, 51);
+    let Some(SelectedRead::Finals(key)) = app.selected_read() else {
+        panic!("finals read first");
+    };
+    // An answer for an agent that is not on screen is dropped.
+    app.apply_finals(
+        FinalsKey {
+            sender: ACTOR.into(),
+            agent: "99999999-9999-4999-8999-999999999999".into(),
+        },
+        Ok(vec![own_final("elsewhere", MEMBER, now - 1_000)]),
+    );
+    assert!(app.row_details.agent_finals.is_empty());
+    // An older core refuses the recipient form: no retry loop, windows intact.
+    app.apply_finals(key, Err("API_INPUT_INVALID".into()));
+    draw(&app, 148, 51);
+    assert!(app.finals_read().is_none());
+    assert!(matches!(
+        app.selected_read(),
+        Some(SelectedRead::Message(_))
+    ));
+    read_all(&mut app, |request| request.to_owned());
+    let detail = app
+        .row_detail(&app.conversation_target().unwrap(), &[])
+        .unwrap();
+    let [only] = detail.finals.as_slice() else {
+        panic!("the window's final alone");
+    };
+    assert_eq!(only.key.as_ref().unwrap().request, "new");
+}
+
+#[test]
+fn the_agents_own_read_asks_core_for_that_originators_finals_to_that_recipient_only() {
+    use crate::board::app::workspace::tests::MEMBER;
+    use crate::board::home_leads::FinalsKey;
+    let now = crate::status::now_ms();
+    let directory =
+        std::env::temp_dir().join(format!("ops-agent-finals-{}", crate::id::new_v4().unwrap()));
+    std::fs::create_dir(&directory).unwrap();
+    let foreign = json!({"requestId":"theirs","kind":"request","sender":{"identityId":"99999999-9999-4999-8999-999999999999"},
+        "recipientId":MEMBER,"final":{"status":"retained","submittedAtMs":now - 5}});
+    let list = json!({"items":[
+        final_item("mine", MEMBER, now - 10),
+        final_item("misrouted", "88888888-8888-4888-8888-888888888888", now - 20),
+        foreign,
+    ],"nextBefore":null});
+    let log = directory.join("input");
+    crate::test_support::write_ready_executable(
+        &directory.join("tmt"),
+        &format!(
+            "#!/bin/sh\ncat > '{log}'\nprintf '%s\\n' '{list}'\n",
+            log = log.display(),
+        ),
+    );
+    let core = crate::core::Core::at(directory.join("tmt"));
+    let key = FinalsKey {
+        sender: ACTOR.into(),
+        agent: MEMBER.into(),
+    };
+    let rows = key.read(&core).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&log).unwrap()).unwrap(),
+        json!({"version":1,"operation":"requests.list","input":{
+            "originatorId":ACTOR,"recipientId":MEMBER,"view":"results","limit":FINALS}})
+    );
+    assert_eq!(rows, [own_final("mine", MEMBER, now - 10)]);
+    // A refusal (an older core) is an error the board turns into "no more finals".
+    crate::test_support::write_ready_executable(
+        &directory.join("tmt"),
+        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"error\":{\"code\":\"API_INPUT_INVALID\",\"message\":\"Invalid operation, fields or bounded input.\"}}'\nexit 1\n",
+    );
+    assert!(key.read(&core).is_err());
+    std::fs::remove_dir_all(directory).unwrap();
+}

@@ -57,7 +57,11 @@ also requests one bounded originator-results page for HOME, member boards and
 boards configured with a Replies pane. `home_leads::State` fences that projection by sender
 UUID. `row_detail` keeps the newest eight finals (`Detail.finals`, oldest first, one per
 request ID, with author, exact text and `submittedAtMs`) for the selected recipient UUID
-across room and global observations; `Detail.reply` is the newest of them. Request bodies
+across room and global observations; `Detail.reply` is the newest of them. Those windows are
+bounded and shared, so the painted conversation (`pane_output_enabled`, Replies pane visible)
+also reads its agent's own newest eight once per activation (`SelectedRead::Finals`,
+`requests.list` with `originatorId`, `recipientId`, `view:"results"`); a core that refuses
+that form leaves the windows as the only source. Request bodies
 load off the UI thread, newest first, one selected read at a time. Finals come from storage
 alone (`requests.list` and `requests.show`): the originator notification, which is
 `unavailable` for a person with no live pane, and pane output never supply one. A header
