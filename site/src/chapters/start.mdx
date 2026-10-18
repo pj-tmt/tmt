@@ -30,11 +30,72 @@ Start with the talk, reply and receipt in step 1. Board, colab and meet all sit 
 
 <BandHead name="install" />
 
-### Install
+### Install TMT
 
 <Cmd>{`$ curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh`}</Cmd>
 
 The installer puts `tmt` in `~/.local/bin` and, on a terminal, continues into `tmt setup`: it finds your agents, lists every file it will change (skills for each agent, session hooks for the ones installed here) and asks once. Run `tmt setup` any time later; it offers only what is missing. If `tmt` is not found, add `~/.local/bin` to your PATH once.
+
+### Update before setting up Firestore
+
+TMT is an early alpha. Update to the alpha channel before starting the setup below:
+
+<Cmd>{`$ tmt upgrade --channel alpha`}</Cmd>
+
+Read the result and any question about updating installed extensions. Finish updates before starting a deploy: an update can change the website files the deploy asks you to approve.
+
+### Install Remote and Colab
+
+Remote deploys the Firebase setup; Colab supplies the shared-page app and its deployment requirements. Install both on the machine that will own the deployment:
+
+<Cmd>{`
+$ tmt extension install remote --channel alpha
+$ tmt extension install colab --channel alpha
+`}</Cmd>
+
+Review and accept each installation question. Installing an extension does not approve changes to your Firebase project.
+
+### Prepare your Firebase project
+
+Use your own Firebase project on the free Spark plan. TMT does not create the project. Choose the Firestore region before deploying; an existing database cannot move to another region.
+
+Install Node.js if it is not already available, then install the supported Firebase CLI and sign in with your own project-owner account:
+
+<Cmd>{`
+$ npm install -g firebase-tools@15.29.0
+$ firebase login
+`}</Cmd>
+
+In the Firebase console, open **Authentication** and choose **Get started** once. The command below selects anonymous sign-in; signing in to the Firebase CLI does not perform that console step.
+
+### Review and deploy
+
+Replace `<project-id>` and `<region>` with your project ID and chosen region. Run this yourself in an interactive terminal:
+
+<Cmd>{`$ tmt remote deploy firestore --project <project-id> --region <region> --sign-in anonymous`}</Cmd>
+
+Check the account, project, region, Security rules and Website files in the summary. Add `--details` to the same command to see the full changes before the question:
+
+<Cmd>{`Deploy these changes to your Firebase project? [y/N]`}</Cmd>
+
+Answer `y` only when those changes are the ones you want. No or end-of-input leaves your Firebase project unchanged in that invocation; earlier changes from an unfinished deploy are not undone. This deploy command has no `--yes` or `--no-open` flag.
+
+The command saves progress and creates the required indexes together, checking for up to three minutes while they build. If it stops with an instruction, follow it and rerun the same command with the same inputs. An unfinished deploy you already approved continues without another question when its captured inputs are unchanged. If they changed, read the new summary and any replacement warning before answering.
+
+Keep the saved `deploy.json` at the path printed by the command. If an outcome is unknown, keep its `Cause:` and `File:` diagnostics private and follow the printed next step; do not delete the record or repeatedly approve a fresh deploy to bypass it.
+
+### Check completion
+
+Success is `Run: complete; usable binding: true`, with verification done and a `Remote link:`. Pending or unknown work is not a completed setup. To print the public connection link again, or inspect the locally recorded setup:
+
+<Cmd>{`
+$ tmt remote link --project <project-id> --json
+$ tmt remote status --project <project-id> --layers --json
+`}</Cmd>
+
+The link describes how to connect; it is not an access grant. Status reads saved evidence, not the project's remaining quota, and completing the deploy does not prove another person can open a shared page.
+
+If a fix is needed while a deploy is unfinished, preserve the record. When instructed to install a Remote-only fix, use `tmt extension upgrade remote --yes --json`, then resume the same deploy command. A general `tmt upgrade` can also change Colab's website files and the changes you must approve.
 
 ### Built-in drivers
 
