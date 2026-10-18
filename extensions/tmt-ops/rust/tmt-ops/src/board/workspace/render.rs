@@ -348,7 +348,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     format!(
                         "{}{}",
                         if partial { "~" } else { "" },
-                        crate::source::tokens(tokens as f64)
+                        crate::source::tokens(tokens)
                     )
                 },
             );
@@ -536,7 +536,7 @@ fn squad_usage(
                 format!(
                     "{}{} tok",
                     if value.partial { "~" } else { "" },
-                    crate::source::tokens(value.tokens as f64)
+                    crate::source::tokens(value.tokens)
                 )
             },
         )
@@ -1152,7 +1152,7 @@ mod usage_tests {
         assert!(text.contains("Lead model: unfamiliar-model-123"));
         assert!(text.contains("1m 0 tok"));
         assert!(text.contains("5m not reported"));
-        assert!(text.contains("1h ~8k tok"));
+        assert!(text.contains("1h ~7.5k tok"));
         assert!(
             text.contains("Lead share: ~38%"),
             "share is supplied independently of absent totals: {text}"

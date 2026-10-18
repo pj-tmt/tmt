@@ -192,7 +192,7 @@ fn owner_window_reentry_hidden_and_covered_fields_do_not_leak_or_wake() {
             true,
             now
         ),
-        "1k"
+        "1.2k"
     );
     frame(
         &mut state,
@@ -223,7 +223,7 @@ fn owner_window_reentry_hidden_and_covered_fields_do_not_leak_or_wake() {
             true,
             now
         ),
-        "2k"
+        "1.8k"
     );
     assert_eq!(
         state.wait(now),

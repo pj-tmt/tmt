@@ -101,7 +101,7 @@ impl Counter {
                 format!(
                     "{}{}",
                     if partial { "~" } else { "" },
-                    crate::source::tokens(self.displayed)
+                    crate::source::tokens(self.displayed.round() as u128)
                 )
             },
         )

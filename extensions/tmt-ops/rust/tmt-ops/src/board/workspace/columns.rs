@@ -596,7 +596,7 @@ impl WorkspaceColumnValues {
                     format!(
                         "{}{}",
                         if self.partial { "~" } else { "" },
-                        crate::source::tokens(tokens)
+                        crate::source::tokens(tokens.round() as u128)
                     )
                 },
             ),

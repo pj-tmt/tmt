@@ -22,7 +22,7 @@ fn bar_readout_uses_retained_slice_total_and_bucket_end_age() {
         meter
             .bar_readout(7, now + Duration::from_secs(185))
             .as_deref(),
-        Some("18k tok · 3m ago"),
+        Some("18.0k tok · 3m ago"),
         "the bar uses the same token formatter as the live meter"
     );
     meter.trend[7] = None;
