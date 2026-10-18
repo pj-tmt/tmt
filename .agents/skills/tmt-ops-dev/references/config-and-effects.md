@@ -382,7 +382,7 @@ ships and the extension installer offers every skill under `skills/`, while a pl
 installed only on request, and a test pins that no playbook is in that tree. `playbook.rs`
 holds the one catalog of embedded sources and registers the subtree through `tmt-cli-style`.
 `show` prints the exact bytes; `install` asks (the same `consent` helper as `hotkeys`), then
-calls `skills.install` as owner `squad`; `rm` calls `skills.remove` with the playbook's name,
+calls `skills.install` as owner `ops` (its `OWNER` constant); `rm` calls `skills.remove` with the playbook's name,
 so the lead skill and `tmt extension rm squad` are unaffected. Squad never writes a provider
 directory and never executes a playbook. The lead skill source is embedded only in the squad
 executable, never in the core skill bundle.
