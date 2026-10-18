@@ -19,7 +19,8 @@ Cargo and installed serving never run Node or a generator. The shared package ow
 browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
 Remote defines host metrics, viewport layout, safe-area offsets and one window
 scrollbar. Regeneration and drift checks belong to the
-[shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Its four static templates carry the approved
+[shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Host pages use 14px body text,
+controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Its four static templates carry the approved
 inline TMT mark (one even-odd path in a 96 × 96 viewBox, currentColor fill) from the
 leaf’s static-host contract (#2608), pinned by a Remote-owned literal
 test; Cargo does not read the leaf’s React source or fetch the mark at runtime.
@@ -87,6 +88,9 @@ Colab's integrated app-routing acceptance remains Colab-owned.
 
 `/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
 Remote host metrics; its additional stylesheet owns settings layout and static listbox geometry.
+Normal settings use thin section rules, a desktop summary/control grid and a single-column
+narrow layout. Each setting keeps its unchanged hint and original-result feedback beside its
+Save action; loading triggers show no invented default value.
 Button-triggered, named listboxes use native top-layer popovers with shared static menu CSS:
 arrow/Home/End/typeahead navigation, Enter/Space choice, Escape/Tab dismissal and trigger focus
 return. Choice changes stay local until Save; the display-only unset Default stays disabled.

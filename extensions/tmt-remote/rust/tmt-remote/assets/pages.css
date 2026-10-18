@@ -1,30 +1,33 @@
 /* Remote-owned layout and explicit host metrics; shared presentation is embedded first. */
 :root {
   color-scheme: light dark;
-  --tmt-ui-host-focus-offset: 4px;
-  --tmt-ui-host-notice-mark-size: 30px;
-  --tmt-ui-host-eyebrow-line-height: 1.6;
-  --tmt-ui-host-notice-heading-size: clamp(28px, 4vw, 36px);
-  --tmt-ui-host-notice-heading-weight: 650;
-  --tmt-ui-host-notice-heading-tracking: -0.025em;
-  --tmt-ui-host-notice-body-size: 17px;
-  --tmt-ui-host-notice-body-line-height: 1.6;
+  --tmt-ui-host-focus-offset: 3px;
+  --tmt-ui-host-notice-mark-size: 18px;
+  --tmt-ui-host-eyebrow-line-height: 1.5;
+  --tmt-ui-host-notice-heading-size: 24px;
+  --tmt-ui-host-notice-heading-weight: 600;
+  --tmt-ui-host-notice-heading-tracking: normal;
+  --tmt-ui-host-notice-body-size: 14px;
+  --tmt-ui-host-notice-body-line-height: 1.5;
   --tmt-ui-host-notice-action-gap: 12px;
-  --tmt-ui-host-notice-action-margin: 24px;
-  --tmt-ui-host-action-padding: 10px 22px;
-  --tmt-ui-host-action-min-height: 44px;
-  --tmt-ui-host-action-size: 13px;
-  --tmt-ui-host-action-weight: 600;
-  --tmt-ui-host-action-line-height: 1.6;
-  --tmt-ui-host-action-font: var(--tmt-ui-font-mono);
+  --tmt-ui-host-notice-action-margin: 12px;
+  --tmt-ui-host-action-padding: 7px 12px;
+  --tmt-ui-host-action-min-height: 36px;
+  --tmt-ui-host-action-size: 14px;
+  --tmt-ui-host-action-weight: 400;
+  --tmt-ui-host-action-line-height: 1.5;
+  --tmt-ui-host-action-font: var(--tmt-ui-font-body);
   --tmt-ui-host-action-gap: 12px;
-  --tmt-ui-host-field-padding: 12px 14px;
-  --tmt-ui-host-field-size: 17px;
-  --tmt-ui-host-field-line-height: 1.6;
+  --tmt-ui-host-field-padding: 7px 8px;
+  --tmt-ui-host-field-size: 14px;
+  --tmt-ui-host-field-line-height: 1.5;
   --tmt-ui-host-field-label-size: 12px;
-  --tmt-ui-host-field-label-weight: 600;
-  --tmt-ui-host-field-label-line-height: 1.6;
-  --tmt-ui-host-field-label-font: var(--tmt-ui-font-mono);
+  --tmt-ui-host-field-label-weight: 400;
+  --tmt-ui-host-field-label-line-height: 1.5;
+  --tmt-ui-host-field-label-font: var(--tmt-ui-font-body);
+  --tmt-ui-notice-padding: 12px 0;
+  --tmt-ui-notice-border-width: 0px;
+  --tmt-ui-notice-heading-line-height: 1.25;
 }
 * {
   box-sizing: border-box;
@@ -39,7 +42,7 @@ body {
   background: var(--tmt-ui-surface-paper);
   color: var(--tmt-ui-color-text);
   padding-top: calc(var(--tmt-ui-header-height) + env(safe-area-inset-top, 0px));
-  font: 400 17px/1.6 var(--tmt-ui-font-body);
+  font: 400 14px/1.5 var(--tmt-ui-font-body);
   -webkit-text-size-adjust: 100%;
 }
 .header {
@@ -50,21 +53,21 @@ body {
   z-index: 30;
 }
 .page {
-  width: min(100% - 48px, 680px);
-  margin: clamp(44px, 11vh, 104px) auto 64px;
+  width: min(100% - 32px, 820px);
+  margin: 32px auto 64px;
 }
 .tmt-ui-notice-mark {
   margin-bottom: 12px;
 }
 .state-mark {
-  font: 700 30px/1 var(--tmt-ui-font-mono);
+  font: 400 18px/1.5 var(--tmt-ui-font-mono);
 }
 .eyebrow {
   margin-top: 0;
   text-transform: uppercase;
 }
 p {
-  margin: 0 0 24px;
+  margin: 0 0 12px;
 }
 p:last-child {
   margin-bottom: 0;
@@ -77,15 +80,15 @@ a:focus-visible {
   outline-offset: var(--tmt-ui-host-focus-offset);
 }
 form {
-  margin-top: 28px;
+  margin-top: 16px;
 }
 input {
   display: block;
   width: 100%;
-  margin: 8px 0 20px;
+  margin: 6px 0 12px;
 }
 #comparison {
-  margin-top: 28px;
+  margin-top: 16px;
 }
 .words-label {
   margin-bottom: 8px;
@@ -106,14 +109,20 @@ input {
   padding-top: 20px;
   border-top: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
 }
-@media (max-width: 480px) {
-  button {
-    width: 100%;
+@media (max-width: 650px), (pointer: coarse) {
+  :root {
+    --tmt-ui-host-action-min-height: 44px;
+    --tmt-ui-host-field-padding: 11px 8px;
+  }
+}
+@media (max-width: 650px) {
+  :root {
+    --tmt-ui-host-notice-heading-size: 22px;
   }
 }
 /* Local pairing evidence remains separate from live access. */
 .entry-status {
-  margin: 0 0 24px;
+  margin: 0 0 12px;
 }
 .entry-status dt {
   color: var(--tmt-ui-color-secondary);
@@ -124,7 +133,7 @@ input {
 }
 /* Landing keeps next steps in its one state sheet, with optional technical details. */
 .entry-steps {
-  margin: 0 0 24px;
+  margin: 0 0 12px;
   padding-left: 24px;
 }
 .entry-steps li + li {
@@ -233,9 +242,26 @@ input {
 
 .remote-state[data-tone='working'],
 .remote-menu [data-tone='working'],
-.remote-chip[data-tone='working'] { color: var(--tmt-ui-color-working); }
-.remote-chip[data-tone='waiting'] { color: var(--tmt-ui-color-waiting); }
-.remote-chip[data-tone='blocked'] { color: var(--tmt-ui-color-blocked); }
-.remote-chip { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.remote-menu { max-width: min(420px, calc(100vw - 16px)); }
-.remote-menu .tmt-ui-menu-item { white-space: normal; overflow-wrap: anywhere; }
+.remote-chip[data-tone='working'] {
+  color: var(--tmt-ui-color-working);
+}
+.remote-chip[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.remote-chip[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.remote-chip {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.remote-menu {
+  max-width: min(420px, calc(100vw - 16px));
+}
+.remote-menu .tmt-ui-menu-item {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
