@@ -664,6 +664,13 @@ test('login is re-resolved immediately before each effect, not cached from obser
 });
 
 // Remote-owned, in-memory API lifecycle fixture; no provider/account acceptance.
+function reservedHostingFiles() {
+  return ['/__/firebase/init.js', '/__/firebase/init.json'].map((path) => ({
+    path,
+    hash: hash(path),
+    status: 'ACTIVE',
+  }));
+}
 function hostedFixture() {
   const files = [
     {
@@ -748,6 +755,7 @@ function hostedFixture() {
           ...payload,
         };
         state.versions.push(version);
+        state.files = reservedHostingFiles();
         return ok(version);
       }
       if (route === `/v1beta1/sites/${PROJECT}/versions/one`) {
@@ -758,14 +766,24 @@ function hostedFixture() {
         // The default is the remaining upload inventory, not every Version file.
         const status = new URL(url).searchParams.get('status') ?? 'EXPECTED';
         assert.ok(['EXPECTED', 'ACTIVE'].includes(status));
-        return ok({ files: state.files.filter((file) => file.status === status) });
+        const files = state.files.filter((file) => file.status === status);
+        if (files.length <= 200) return ok({ files });
+        const offset = Number(new URL(url).searchParams.get('pageToken') ?? 0);
+        assert.ok(Number.isInteger(offset) && offset >= 0);
+        return ok({
+          files: files.slice(offset, offset + 200),
+          ...(offset + 200 < files.length ? { nextPageToken: String(offset + 200) } : {}),
+        });
       }
       if (route.endsWith('/versions/one:populateFiles')) {
-        state.files = Object.entries(payload.files).map(([path, hash]) => ({
-          path,
-          hash,
-          status: state.activeHashes?.includes(hash) ? 'ACTIVE' : 'EXPECTED',
-        }));
+        state.files = [
+          ...reservedHostingFiles(),
+          ...Object.entries(payload.files).map(([path, hash]) => ({
+            path,
+            hash,
+            status: state.activeHashes?.includes(hash) ? 'ACTIVE' : 'EXPECTED',
+          })),
+        ];
         return ok({
           ...(state.omitRequired
             ? {}
@@ -843,6 +861,157 @@ function hostedFixture() {
   }
   return { f, state, calls, input, call };
 }
+test('Hosting fresh reserved init files permit one populate POST without a mismatch', async () => {
+  const x = hostedFixture();
+  await x.call('apply-hosting', 'create');
+  assert.deepEqual(x.state.files, reservedHostingFiles());
+  assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+  assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 1);
+  assert.deepEqual(x.state.files.slice(0, 2), reservedHostingFiles());
+});
+
+test('Hosting excludes only the two reserved paths from mismatch counts and samples', async () => {
+  for (const path of [
+    '/__/firebase/other.js',
+    '/__/firebase/init.js.map',
+    '/__/firebase/init.json/',
+    '/__/Firebase/init.js',
+    '/init.js',
+  ]) {
+    const x = hostedFixture();
+    await x.call('apply-hosting', 'create');
+    // Even identical bytes to a reserved file do not exempt an unexpected path.
+    x.state.files.push({ ...x.state.files[0], path });
+    await assert.rejects(
+      () => x.call('apply-hosting', 'populate'),
+      (error) => {
+        assert.equal(error.code, 'unknown');
+        assert.deepEqual(error.cause.files, {
+          planned: 1,
+          expected: 0,
+          active: 1,
+          listed: 1,
+          missing: 1,
+          extra: 1,
+        });
+        assert.equal(error.cause.fileSamples.length, 1);
+        assert.equal(error.cause.fileSamples[0].relation, 'path-missing');
+        return true;
+      }
+    );
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+  }
+});
+
+test('Hosting reserved files plus 15 planned files complete every later file check', async () => {
+  const x = hostedFixture();
+  const first = x.input.hosting.content.files[0];
+  x.input.hosting.content.files = Array.from({ length: 15 }, (_, i) => ({
+    ...first,
+    path: `/planned-${String(i).padStart(2, '0')}.html`,
+  }));
+  for (const action of ['web-app', 'site', 'configure', 'create', 'populate'])
+    assert.equal((await x.call('apply-hosting', action)).state, 'done');
+  assert.equal(x.state.files.length, 17);
+  assert.equal(
+    (
+      await x.call('apply-hosting', 'upload', {
+        hash: first.gzipDigest,
+        bytesBase64: Buffer.from('gzip-fixture').toString('base64'),
+      })
+    ).state,
+    'done'
+  );
+  // All 15 paths share the same frozen bytes; one upload satisfies every one.
+  assert.equal(
+    x.calls.filter((c) => c.url.startsWith('https://upload-firebasehosting.')).length,
+    1
+  );
+  assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+  assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 1);
+  for (const action of ['finalize', 'release'])
+    assert.equal((await x.call('apply-hosting', action)).state, 'done');
+  await x.call('verify-hosting', 'verify');
+  assert.equal((await x.call('observe-hosting', 'release')).state, 'satisfied');
+  const inventory = await execute(request('hosting-inventory', { project: PROJECT }), x.f);
+  assert.deepEqual(
+    inventory.live.files,
+    x.input.hosting.content.files.map((file) => ({
+      path: file.path,
+      hash: file.gzipDigest,
+      status: 'ACTIVE',
+    }))
+  );
+});
+
+test('Hosting admits 256 user files plus two reserved rows but refuses 257 user files', async () => {
+  for (const [count, includeReserved] of [
+    [256, true],
+    [257, false],
+    [257, true],
+  ]) {
+    const x = hostedFixture();
+    const first = x.input.hosting.content.files[0];
+    x.input.hosting.content.files = Array.from({ length: Math.min(count, 256) }, (_, i) => ({
+      ...first,
+      path: `/file-${String(i).padStart(3, '0')}.html`,
+    }));
+    await x.call('apply-hosting', 'create');
+    x.state.files = [
+      ...(includeReserved ? reservedHostingFiles() : []),
+      ...Array.from({ length: count }, (_, i) => ({
+        path: `/file-${String(i).padStart(3, '0')}.html`,
+        hash: first.gzipDigest,
+        status: 'ACTIVE',
+      })),
+    ];
+    if (count === 256) assert.equal((await x.call('apply-hosting', 'populate')).state, 'done');
+    else
+      await assert.rejects(
+        () => x.call('apply-hosting', 'populate'),
+        (error) => {
+          assert.equal(error.code, 'unknown');
+          assert.equal(error.cause.code, 'inventory-incomplete');
+          return true;
+        }
+      );
+    assert.ok(x.calls.some((c) => new URL(c.url).searchParams.has('pageToken')));
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+  }
+});
+
+test('Hosting validates reserved rows before exclusion and never exempts user hash drift', async () => {
+  for (const mode of ['hash', 'duplicate', 'status', 'conflict', 'user-hash']) {
+    const x = hostedFixture();
+    await x.call('apply-hosting', 'create');
+    if (mode === 'hash') x.state.files[0].hash = 'bad';
+    if (mode === 'duplicate') x.state.files.push({ ...x.state.files[0] });
+    if (mode === 'conflict')
+      x.state.files.push({
+        ...x.state.files[0],
+        hash: 'd'.repeat(64),
+        status: 'EXPECTED',
+      });
+    if (mode === 'user-hash')
+      x.state.files.push({
+        path: '/index.html',
+        hash: x.state.files[0].hash,
+        status: 'ACTIVE',
+      });
+    if (mode === 'status') {
+      const http = x.f.http;
+      x.f.http = async (url, options, deadline) => {
+        const response = await http(url, options, deadline);
+        if (new URL(url).pathname.endsWith('/files') && response.body.files.length)
+          response.body.files[0].status = 'BROKEN';
+        return response;
+      };
+    }
+    await failure(() => x.call('apply-hosting', 'populate'), 'unknown');
+    assert.equal(x.calls.filter((c) => c.url.endsWith(':populateFiles')).length, 0);
+  }
+});
+
 test('Hosting inventory admits an omitted default WebApp display name without an effect', async () => {
   const x = hostedFixture();
   x.state.apps.push({
@@ -906,6 +1075,60 @@ async function finalizedHostingFixture() {
   await x.call('apply-hosting', 'finalize');
   return x;
 }
+
+test('Hosting retains an old foreign fingerprint and refuses before release, but reconciles exact own live', async () => {
+  const x = await finalizedHostingFixture();
+  const previous = {
+    ...x.state.versions[0],
+    name: `sites/${PROJECT}/versions/previous`,
+    labels: { ...x.state.versions[0].labels, 'tmt-deployment': 'foreign-deployment' },
+  };
+  x.state.live = { name: `sites/${PROJECT}/releases/previous`, version: previous };
+  const http = x.f.http;
+  x.f.http = async (url, options, deadline) => {
+    if (new URL(url).pathname.endsWith('/versions/previous'))
+      return { status: 200, body: previous };
+    return http(url.replace('/versions/previous/files', '/versions/one/files'), options, deadline);
+  };
+  const observed = await execute(request('hosting-inventory', { project: PROJECT }), x.f);
+  const canonical = (value) =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.keys(value)
+              .sort()
+              .map((key) => [key, canonical(value[key])])
+          )
+        : value;
+  const oldLive = {
+    ...observed.live,
+    files: [...observed.live.files, ...reservedHostingFiles()].sort((a, b) =>
+      a.path < b.path ? -1 : 1
+    ),
+  };
+  const oldFingerprint = hash(JSON.stringify(canonical(oldLive)));
+  assert.notEqual(oldFingerprint, hash(JSON.stringify(canonical(observed.live))));
+  x.input.hosting.replaces = 'foreign';
+  x.input.hosting.replacedFingerprint = oldFingerprint;
+  const frozen = JSON.stringify(x.input);
+  await failure(() => x.call('apply-hosting', 'release'), 'provider-rejected');
+  assert.equal(JSON.stringify(x.input), frozen);
+  assert.equal(
+    x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length,
+    0
+  );
+  // Reconcile only the exact intended version and labels, without another release effect.
+  x.state.live.version = x.state.versions[0];
+  assert.equal((await x.call('apply-hosting', 'release')).state, 'done');
+  assert.equal(x.input.hosting.replacedFingerprint, oldFingerprint);
+  assert.equal(
+    x.calls.filter((c) => c.method === 'POST' && c.url.includes('/releases?')).length,
+    0
+  );
+  x.state.files.find((file) => file.path === '/index.html').hash = hash('changed');
+  await failure(() => x.call('apply-hosting', 'release'), 'provider-rejected');
+});
 
 test('Hosting admits either same-site live release name without rewriting it', async () => {
   const names = [`sites/${PROJECT}/releases/one`, `sites/${PROJECT}/channels/live/releases/one`];

@@ -100,7 +100,9 @@ fn manifest_refuses_only_the_perturbed_guard_in_valid_controls() {
     }
     for path in [
         "/__",
+        "/__/firebase/init.js",
         "/__/firebase/init.json",
+        "/__/firebase/other.js",
         "/tmt/declarations",
         "/tmt/declarations/notes.json",
     ] {

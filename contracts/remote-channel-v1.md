@@ -1962,8 +1962,13 @@ including process I/O and exit. After an ambiguous mutation the adapter reconcil
 same run, accepts only exact original evidence, and never sends a second mutation. Partial or
 mismatching file inventory remains unknown, never permission to re-populate. File inventories
 union explicit `status=EXPECTED` and `status=ACTIVE` bounded listings, including live inventory;
-an identical path/hash transitioning between them counts once as ACTIVE. Conflicting hashes,
-duplicate paths within one status and an incomplete union refuse. Populate compares the union's
+an identical path/hash transitioning between them counts once as ACTIVE. After validating every
+row, the helper excludes exactly `/__/firebase/init.js` and `/__/firebase/init.json` from the user-file
+union, including live fingerprints, counts and samples. The raw union permits only the 256-user-file
+cap plus those two entries; the user union still has the 256-file cap. No other path or hash is exempt.
+Conflicting hashes, duplicate paths within one status and an incomplete union refuse. A retained
+foreign replacement fingerprint is never rewritten: a changed observed fingerprint refuses before
+release unless exact read-back already proves the intended release. Populate compares the union's
 paths/hashes; upload/finalize/release also require the appropriate ACTIVE evidence. Omitted
 `uploadRequiredHashes` means none required; a supplied list must contain only planned hashes.
 

@@ -1412,6 +1412,92 @@ fn frozen_hosted_envelope_survives_own_inventory_changes_but_not_intent_changes(
 }
 
 #[test]
+fn old_partial_populate_record_retains_its_unfiltered_foreign_fingerprint_and_digest() {
+    use tmt_remote::deploy_run::{CauseCode, CausePhase, DeployView, FileCounts, StepCause};
+    let plan = hosted_plan();
+    let mut fake = HostedFake::new();
+    fake.inner
+        .faults
+        .insert("hosting:stage:populate".into(), When::AfterEffectUnknown);
+    let mut record = run(
+        &plan,
+        &authorized(&plan),
+        DeployRecord::new(DEPLOYMENT),
+        &mut fake,
+        &mut Mem::default(),
+        1,
+    )
+    .unwrap();
+    let original_run = record.run.as_mut().unwrap();
+    assert_eq!(original_run.state, RunState::Partial);
+    let checkpoint = original_run.hosting.as_mut().unwrap();
+    let mut frozen: DeployView = serde_json::from_value(checkpoint.envelope.clone()).unwrap();
+    // Synthetic pre-change foreign inventory: user bytes plus both provider init files.
+    let raw_live = serde_json::json!({
+        "version": format!("sites/{PROJECT}/versions/previous"),
+        "deploymentId": null, "planDigestPrefix": null, "contentDigest": null,
+        "config": {"headers": [], "rewrites": []},
+        "files": [
+            {"path":"/__/firebase/init.js","hash":"a".repeat(64),"status":"ACTIVE"},
+            {"path":"/__/firebase/init.json","hash":"b".repeat(64),"status":"ACTIVE"},
+            {"path":"/index.html","hash":"c".repeat(64),"status":"ACTIVE"}
+        ]
+    });
+    let fingerprint = sha256(&serde_json::to_vec(&raw_live).unwrap());
+    let hosting = frozen.hosting.as_mut().unwrap();
+    hosting.replaces = "foreign".into();
+    hosting.replaced_fingerprint = Some(fingerprint.clone());
+    original_run.plan_digest = sha256(&serde_json::to_vec(&frozen).unwrap());
+    checkpoint.envelope = serde_json::to_value(&frozen).unwrap();
+    checkpoint.version = Some(format!("sites/{PROJECT}/versions/one"));
+    checkpoint.version_created_ms = Some(1);
+    let populate = original_run
+        .steps
+        .iter_mut()
+        .find(|step| step.id == "hosting:stage:populate")
+        .unwrap();
+    assert_eq!(populate.state, StepState::Unknown);
+    let mut cause = StepCause::new(CauseCode::FilesMismatch, CausePhase::List);
+    cause.files = Some(FileCounts {
+        planned: 2,
+        expected: 0,
+        active: 2,
+        listed: 2,
+        missing: 2,
+        extra: 2,
+    });
+    populate.cause = Some(cause);
+    let before = serde_json::to_vec(&record).unwrap();
+    let root = deploy_fixture_root::Root::new();
+    let mut writer =
+        tmt_remote::deploy_record::DeployRecordStore::open(&root.layout(), PROJECT).unwrap();
+    writer.bind_target(PROJECT, LOCATION).unwrap();
+    writer.persist(&record).unwrap();
+    let path = root
+        .remote()
+        .join(format!("deployments/{PROJECT}/deploy.json"));
+    let disk_before = fs::read(&path).unwrap();
+    let read = writer.load_or_draft().unwrap();
+    assert_eq!(fs::read(&path).unwrap(), disk_before);
+    assert_eq!(serde_json::to_vec(&read).unwrap(), before);
+    let retained = tmt_remote::deploy_run::retain_hosting_plan(hosted_plan(), &read).unwrap();
+    assert_eq!(retained.bytes(), serde_json::to_vec(&frozen).unwrap());
+    assert_eq!(retained.digest(), read.run.as_ref().unwrap().plan_digest);
+    assert_eq!(
+        retained
+            .view()
+            .hosting
+            .as_ref()
+            .unwrap()
+            .replaced_fingerprint,
+        Some(fingerprint)
+    );
+    assert!(authorize(&retained, retained.digest()).is_ok());
+    // This does not authorize a foreign release: the helper independently compares
+    // this unchanged fingerprint with its newly observed user-file inventory.
+}
+
+#[test]
 fn hosting_checkpoint_survives_every_save_interruption_without_duplicate_effects() {
     let plan = hosted_plan();
     let mut baseline = Mem::default();
