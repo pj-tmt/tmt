@@ -11,6 +11,18 @@ use tmt_tui::components::strip;
 
 /// Common shell counts are held snapshot evidence, independent of the active tab.
 pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
+    paint_shell(frame.buffer_mut(), app, area, crate::status::now_ms());
+    if !area.is_empty()
+        && crate::board::home::limits_enabled(app)
+        && app.limits.as_ref().is_some_and(|limits| !limits.is_empty())
+    {
+        app.frame_clocks
+            .borrow_mut()
+            .push(ClockSurface::TopBar { width: area.width });
+    }
+}
+
+fn paint_shell(buffer: &mut ratatui::buffer::Buffer, app: &App, area: Rect, now: u64) {
     let attention = app.workspace_snapshot().map(|snapshot| {
         let counts = &snapshot.shell_counts;
         let complete = counts.complete && snapshot.roster.complete() && app.error.is_none();
@@ -37,11 +49,33 @@ pub(super) fn render_shell(frame: &mut Frame, app: &App, area: Rect) {
             ),
         }
     });
+    let context = app.workspace.selected.as_ref().and_then(|target| {
+        let crate::board::workspace::OpsTarget::Member { identity_id, .. } = target else {
+            return None;
+        };
+        let snapshot = app.workspace_snapshot()?;
+        if !snapshot.roster.contains(target) {
+            return None;
+        }
+        let member = snapshot.roster.members.get(identity_id)?;
+        let context = app.references.agents.get(identity_id)?.context?;
+        Some((member.name.as_str(), context))
+    });
+    let observations = crate::board::top_bar::Observations {
+        limits: if crate::board::home::limits_enabled(app) {
+            app.limits.as_deref().unwrap_or_default()
+        } else {
+            &[]
+        },
+        context,
+        now,
+    };
     crate::board::top_bar::paint(
-        frame.buffer_mut(),
+        buffer,
         area,
         (app.view_layer.name() != "default").then(|| app.view_layer.name()),
         attention.as_ref(),
+        Some(&observations),
         app.look(),
     );
 }
@@ -215,6 +249,9 @@ pub(in crate::board) fn spinner_wait(
 /// Clock-dependent surfaces actually admitted to the last frame. Stable target
 /// keys avoid rebuilding/filtering the whole roster on every UI clock tick.
 pub(in crate::board) enum ClockSurface {
+    TopBar {
+        width: u16,
+    },
     Labels {
         target: RowTarget,
         width: usize,
@@ -242,6 +279,12 @@ pub(in crate::board) enum ClockSurface {
 impl ClockSurface {
     fn mark(&self, app: &App, now: u64) -> String {
         match self {
+            Self::TopBar { width } => {
+                let area = Rect::new(0, 0, *width, 1);
+                let mut buffer = ratatui::buffer::Buffer::empty(area);
+                paint_shell(&mut buffer, app, area, now);
+                format!("{:?}", buffer.content)
+            }
             Self::Labels { target, width } => {
                 let Some(row) = app.target_row(target) else {
                     return String::new();

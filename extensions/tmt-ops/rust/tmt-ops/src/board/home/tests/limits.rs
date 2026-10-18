@@ -71,8 +71,13 @@ fn rows(app: &App, width: u16) -> Vec<String> {
 }
 
 fn index_of(rows: &[String], needle: &str) -> usize {
+    // The shared top bar repeats known provider values; these tests locate
+    // the body quota and its adjacent rows, not the global compact summary.
     rows.iter()
-        .position(|row| row.contains(needle))
+        .enumerate()
+        .skip(1)
+        .find(|(_, row)| row.contains(needle))
+        .map(|(index, _)| index)
         .unwrap_or_else(|| panic!("no row with {needle:?} in {rows:#?}"))
 }
 

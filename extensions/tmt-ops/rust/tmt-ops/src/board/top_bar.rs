@@ -9,6 +9,13 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
+#[cfg(test)]
+mod capture;
+#[cfg(test)]
+mod host_tests;
+mod observations;
+pub(in crate::board) use observations::Observations;
+
 pub(in crate::board) struct Attention {
     pub online: String,
     pub unread: super::unread::Count,
@@ -21,12 +28,16 @@ pub(in crate::board) struct Attention {
 }
 impl Attention {
     fn line(&self, look: Look) -> Line<'static> {
+        self.with_words(look, true)
+    }
+    fn with_words(&self, look: Look, words: bool) -> Line<'static> {
         let mut spans = vec![
             Span::styled(
                 format!(
-                    "{} {} online  ",
+                    "{} {}{}  ",
                     if self.ascii { "+" } else { "●" },
-                    self.online
+                    self.online,
+                    if words { " online" } else { "" }
                 ),
                 look.role(Role::Muted),
             ),
@@ -39,7 +50,7 @@ impl Attention {
                 }),
             ),
             Span::styled(
-                format!(" {} waiting  ", self.waiting),
+                format!(" {}{}  ", self.waiting, if words { " waiting" } else { "" }),
                 look.role(Role::Muted),
             ),
             Span::styled(
@@ -52,9 +63,10 @@ impl Attention {
             ),
             Span::styled(
                 format!(
-                    " {} blocked{}",
+                    " {}{}{}",
                     self.blocked,
-                    if self.complete {
+                    if words { " blocked" } else { "" },
+                    if self.complete || !words {
                         ""
                     } else {
                         " · totals unknown"
@@ -92,42 +104,79 @@ pub(in crate::board) fn paint(
     area: Rect,
     layer: Option<&str>,
     attention: Option<&Attention>,
+    observations: Option<&Observations<'_>>,
     look: Look,
 ) {
-    let mut caption = Line::from(vec![
-        Span::styled(" ▚ TMT   ", look.role(Role::Text)),
-        Span::styled("OPS / UI", look.role(Role::Muted)),
-    ]);
-    let caption_width = caption.width() as u16;
-    let attention = attention.map(|value| value.fitted(look, usize::from(area.width)));
-    let left_width = attention.as_ref().map_or(area.width, |line| {
-        area.width
-            .saturating_sub((line.width() as u16).saturating_add(2))
-    });
-    let name_width = left_width.saturating_sub(caption_width + 3);
-    if let Some(name) = layer.filter(|_| name_width > 0) {
-        let name = super::notes::single_line(name);
-        let fitted = super::view::fit(&name, usize::from(name_width).min(name.width()));
-        caption
-            .spans
-            .push(Span::styled(format!(" · {fitted}"), look.role(Role::Muted)));
-    }
-    if left_width < caption_width {
-        caption = Line::styled(
-            super::view::fit(&caption.to_string(), usize::from(left_width)),
-            look.role(Role::Muted),
+    // Whole semantic segments yield in the approved order. Never fit a partial
+    // percentage or token count into the space between the two owners.
+    let stages = [
+        (true, true, true, true),
+        (false, true, true, true),
+        (false, false, true, true),
+        (false, false, false, true),
+        (false, false, false, false),
+    ];
+    for (index, (weekly, words, window, brand)) in stages.into_iter().enumerate() {
+        let right = attention.map(|value| {
+            if words {
+                value.fitted(look, usize::from(area.width))
+            } else {
+                value.with_words(look, false)
+            }
+        });
+        let left_width = right.as_ref().map_or(area.width, |line| {
+            area.width
+                .saturating_sub((line.width() as u16).saturating_add(2))
+        });
+        let mut caption = Line::from(vec![
+            Span::styled(
+                if brand { " ▚ TMT   " } else { " ▚ TMT" },
+                look.role(Role::Text),
+            ),
+            Span::styled(if brand { "OPS / UI" } else { "" }, look.role(Role::Muted)),
+        ]);
+        let extra = observations.map(|value| {
+            let width = (index + 1 == stages.len())
+                .then(|| usize::from(left_width).saturating_sub(caption.width()));
+            value.line(weekly, window, width, look)
+        });
+        if let Some(extra) = extra.filter(|line| !line.spans.is_empty()) {
+            if caption.width() + extra.width() > usize::from(left_width) {
+                if index + 1 < stages.len() {
+                    continue;
+                }
+                // At extremely small sizes preserve attention evidence rather
+                // than clipping an observation into an apparent smaller value.
+            } else {
+                caption.spans.extend(extra.spans);
+            }
+        }
+        let name_width = left_width.saturating_sub(caption.width() as u16 + 3);
+        if let Some(name) = layer.filter(|_| name_width > 0) {
+            let name = super::notes::single_line(name);
+            let fitted = super::view::fit(&name, usize::from(name_width).min(name.width()));
+            caption
+                .spans
+                .push(Span::styled(format!(" · {fitted}"), look.role(Role::Muted)));
+        }
+        if caption.width() > usize::from(left_width) {
+            caption = Line::styled(
+                super::view::fit(&caption.to_string(), usize::from(left_width)),
+                look.role(Role::Muted),
+            );
+        }
+        strip::paint_left(
+            buffer,
+            Rect {
+                width: left_width,
+                ..area
+            },
+            caption,
         );
-    }
-    strip::paint_left(
-        buffer,
-        Rect {
-            width: left_width,
-            ..area
-        },
-        caption,
-    );
-    if let Some(attention) = attention {
-        strip::paint_right(buffer, area, attention);
+        if let Some(right) = right {
+            strip::paint_right(buffer, area, right);
+        }
+        return;
     }
 }
 
@@ -168,6 +217,7 @@ mod tests {
             Rect::new(0, 0, 60, 1),
             Some("a very long named layer that yields"),
             Some(&attention),
+            None,
             look,
         );
         let text = buffer
@@ -200,6 +250,7 @@ mod narrow_tests {
             Rect::new(0, 0, 60, 1),
             None,
             Some(&attention),
+            None,
             Look::default(),
         );
         let text = buffer
@@ -245,6 +296,7 @@ mod unread_tests {
             Rect::new(0, 0, 60, 1),
             Some("long layer name yields first"),
             Some(&attention),
+            None,
             look,
         );
         let text = buffer
