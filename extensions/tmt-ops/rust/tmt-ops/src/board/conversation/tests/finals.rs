@@ -336,5 +336,45 @@ fn stored_finals_fold_independently_and_keep_their_source_after_wrapping_and_res
             session.response_key_at(older).unwrap().0.request,
             "long-older"
         );
+        drop(state);
+        let target = app.conversation_target().unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(width, 44)).unwrap();
+        terminal
+            .draw(|frame| {
+                super::super::exchange::render_for(
+                    frame,
+                    &app,
+                    frame.area(),
+                    &super::super::exchange::Surface::Agents {
+                        target: target.clone(),
+                        interactive: true,
+                    },
+                )
+            })
+            .unwrap();
+        let rows: Vec<String> = terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(usize::from(width))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        let headers: Vec<_> = rows.iter().filter(|row| row.contains("worker →")).collect();
+        assert_eq!(headers.len(), 2);
+        assert!(
+            headers
+                .iter()
+                .all(|row| row.trim_start().starts_with("worker →")),
+            "folding must not turn a message header into body text: {headers:?}"
+        );
+        let row = rows
+            .iter()
+            .find(|row| row.contains("newest final 19"))
+            .unwrap();
+        let at = row.find("newest final 19").unwrap();
+        assert!(
+            row[..at].trim_end().ends_with('│'),
+            "folded row keeps the final body gutter: {row}"
+        );
     }
 }

@@ -260,59 +260,63 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                 .unwrap_or_default(),
         )]);
     }
-    let (offset, shown) = app.scrolls.show_exchange(
-        frame,
-        body,
-        &mapped.lines,
-        look,
-        earlier_key,
-        |index, line| {
-            let source = session
-                .rendered
-                .as_ref()
-                .unwrap()
-                .response_sources
-                .as_ref()
-                .map_or(Some(mapped.sources[index]), |sources| {
-                    sources.get(mapped.sources[index]).copied().flatten()
-                });
-            let Some(source) = source else {
-                return if session
+    let (offset, shown) =
+        app.scrolls.show_exchange(
+            frame,
+            body,
+            &mapped.lines,
+            look,
+            earlier_key,
+            |index, line| {
+                let source = session
                     .rendered
                     .as_ref()
                     .unwrap()
-                    .final_spans
-                    .iter()
-                    .any(|(range, _)| range.contains(&mapped.sources[index]))
-                {
-                    exchange::body(line.clone(), look)
-                } else {
-                    line.clone()
+                    .response_sources
+                    .as_ref()
+                    .map_or(Some(mapped.sources[index]), |sources| {
+                        sources.get(mapped.sources[index]).copied().flatten()
+                    });
+                let Some(source) = source else {
+                    return if session.rendered.as_ref().unwrap().final_spans.iter().any(
+                        |(range, _)| {
+                            session
+                                .rendered
+                                .as_ref()
+                                .unwrap()
+                                .anchor_sources
+                                .get(index)
+                                .is_some_and(|original| range.contains(original))
+                        },
+                    ) {
+                        exchange::body(line.clone(), look)
+                    } else {
+                        line.clone()
+                    };
                 };
-            };
-            match session.authored_lines.get(&source) {
-                Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
-                Some(AuthoredLine::Outgoing { answer: false }) => {
-                    exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                match session.authored_lines.get(&source) {
+                    Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
+                    Some(AuthoredLine::Outgoing { answer: false }) => {
+                        exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                    }
+                    Some(AuthoredLine::ReplyHeading) => {
+                        exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
+                    }
+                    Some(AuthoredLine::Status) => {
+                        let text = line.to_string();
+                        let suffix = format!(" · {}", session.agent_mark);
+                        exchange::feedback(
+                            text.trim_end()
+                                .strip_suffix(suffix.trim_end())
+                                .unwrap_or(text.trim_end())
+                                .trim_end(),
+                            look,
+                        )
+                    }
+                    None => exchange::body(line.clone(), look),
                 }
-                Some(AuthoredLine::ReplyHeading) => {
-                    exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
-                }
-                Some(AuthoredLine::Status) => {
-                    let text = line.to_string();
-                    let suffix = format!(" · {}", session.agent_mark);
-                    exchange::feedback(
-                        text.trim_end()
-                            .strip_suffix(suffix.trim_end())
-                            .unwrap_or(text.trim_end())
-                            .trim_end(),
-                        look,
-                    )
-                }
-                None => exchange::body(line.clone(), look),
-            }
-        },
-    );
+            },
+        );
     let text_area = Rect::new(
         body.x + body.width.min(3),
         body.y,
