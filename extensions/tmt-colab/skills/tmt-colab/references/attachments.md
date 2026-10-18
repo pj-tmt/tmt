@@ -20,8 +20,12 @@ Keep `data:` images for tiny inline icons only.
 
 Local reader links can display document images under the same page ticket and verified read
 admission as Files. Ending access clears display copies. Epoch re-sealing replaces the attachment
-ID; the old HTML reference then shows an unavailable placeholder. Reference repair is deferred
-to #2746; this feature does not rewrite saved HTML.
+ID. When the serve's object maintenance re-seals an attachment, it then repairs the page's
+references with an ordinary revision-fenced Save: only complete `img` `src` values naming the
+old full ID, or its unique 8-hex-digit prefix, change; prose, comments and every other byte stay
+as written. A deleted page drops its repair; a source the repair cannot scan safely or a page
+that moved keeps it pending, and until that Save lands the old reference shows an unavailable
+placeholder.
 
 This image path is available on the Local Remote object backend. The Firebase MVP has no file
 blob resource yet: use text/non-image alternatives or tiny inline icons there, and expect
