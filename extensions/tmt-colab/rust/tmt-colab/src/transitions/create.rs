@@ -14,6 +14,7 @@ use crate::{
 use tmt_colab_model::{crypto, object, values, wrap};
 
 pub(super) struct Selection<'a> {
+    pub shell: bool,
     pub page: &'a str,
     pub title: &'a str,
     pub source: &'a str,
@@ -41,6 +42,7 @@ impl Engine {
         now: u64,
     ) -> Result<(Vec<u8>, bool)> {
         let Selection {
+            shell,
             page,
             title,
             source,
@@ -69,6 +71,12 @@ impl Engine {
         if let Some(recipient) = creation_recipient {
             selection["creationRecipient"] = serde_json::to_value(recipient)?;
         }
+        if shell {
+            if !source.is_empty() {
+                return Err(OwnerFault::Invalid.into());
+            }
+            selection["pageType"] = serde_json::json!("shell");
+        }
         let digest = context.digest(key, "page.create", &selection)?;
         self.run_transition(
             store,
@@ -88,18 +96,25 @@ impl Engine {
                     }
                     Ok(())
                 })?;
-                let baseline = engine.decoder(page)?.produce_page(
-                    BaselineInput {
-                        original_author: publisher_agent,
-                        attachments: None,
-                        source: source.as_bytes(),
-                        title,
-                        publisher_agent,
-                        creation_recipient,
-                        source_digest: crypto::digest(source.as_bytes()),
-                    },
-                    None,
-                )?;
+                let input = BaselineInput {
+                    original_author: publisher_agent,
+                    attachments: None,
+                    source: source.as_bytes(),
+                    title,
+                    publisher_agent,
+                    creation_recipient,
+                    source_digest: crypto::digest(source.as_bytes()),
+                };
+                let baseline = if shell {
+                    engine.decoder(page)?.produce_shell(
+                        input,
+                        &crate::shell::empty(),
+                        true,
+                        None,
+                    )?
+                } else {
+                    engine.decoder(page)?.produce_page(input, None)?
+                };
                 let mut secret = [0; 32];
                 getrandom::fill(&mut secret)?;
                 Ok(Some(Prepared {

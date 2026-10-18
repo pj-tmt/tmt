@@ -102,6 +102,15 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
 
 ## Page source and export
 
+- `shell.rs` and browser `shell.ts` own closed structured shell values and detached trial
+  actions; `cli_shell.rs` exposes conditional actions through the same page publication
+  owner. The isolated decoder prepares and replays each action; no parent parses Yjs.
+  Shell metadata survives fresh epoch baselines. Source operations refuse shells; export
+  publishes their canonical value as `shell.json`. The mounted page dispatches a neutral
+  notice until shell UI support ships, rather than rendering the empty wire text container.
+  The [Shell pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#shell-pages-3648)
+  owns roots, action grammar, attribution and shared validation vectors.
+
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.

@@ -7,6 +7,7 @@ mod cli_page_check;
 mod cli_patch;
 mod cli_proposal;
 mod cli_read;
+mod cli_shell;
 mod cli_threads;
 mod door;
 mod open;
@@ -338,6 +339,7 @@ fn grammar() -> Command {
             .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
             .subcommand(cli_labels::command())
+            .subcommand(cli_shell::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
@@ -453,6 +455,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     }
     if command == "label" {
         return cli_labels::run(&root, args);
+    }
+    if command == "shell" {
+        return cli_shell::run(&root, args);
     }
     let json_output = args.get_flag("json");
     if command == "spaces" {

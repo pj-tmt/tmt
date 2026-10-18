@@ -111,7 +111,7 @@ export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn()
     return (
       <div className="hosted-reader">
         <ReaderApp
-          state={{ kind: 'ready', view: state.view }}
+          state={{ kind: 'ready', view: state.view, pageId: state.pageId }}
           canEdit={state.role === 'editor'}
           edit={state.role === 'editor' ? state.edit : undefined}
           accessNote={

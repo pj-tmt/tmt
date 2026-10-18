@@ -8,6 +8,40 @@ import {
   type FoldCommand,
 } from '../src/fold-protocol.js';
 import { contentBase } from './content-base.js';
+import shellVectors from '../../../contracts/vectors/shell-v1.json';
+
+it('validates structured shell projections with the shared corpus and refuses HTML replacement', () => {
+  for (const fixture of shellVectors.cases) {
+    if ('action' in fixture) continue;
+    const projection = {
+      source: '',
+      title: 'Shell',
+      pageType: 'shell' as const,
+      shell: fixture.document,
+    };
+    if (fixture.valid) expect(() => validateProjection(projection)).not.toThrow();
+    else expect(() => validateProjection(projection)).toThrow();
+  }
+  const base = {
+    source: '',
+    title: 'Shell',
+    pageType: 'shell' as const,
+    shell: { version: 1 as const, items: {}, order: [] },
+    own: {},
+  };
+  for (const bad of [
+    { ...base, source: '<p>HTML</p>' },
+    { ...base, attachments: [] },
+    { ...base, pageType: undefined },
+    { ...base, shell: undefined },
+  ])
+    expect(() => validateProjection(bad)).toThrow();
+  const worker = { postMessage: vi.fn(), terminate: vi.fn(), onerror: null, onmessage: null };
+  const fold = new Fold(worker as unknown as Worker);
+  expect(() => fold.prepareContent('erase', base)).toThrow('cannot replace a shell');
+  expect(worker.postMessage).not.toHaveBeenCalled();
+  fold.close();
+});
 
 it('terminates a stalled decoder and rejects further use without publishing output', async () => {
   vi.useFakeTimers();

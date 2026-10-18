@@ -2167,6 +2167,105 @@ Detached threads retain their quote and require a fresh selection plus explicit
 parent confirmation to reattach. Re-resolve against every fresh render and epoch;
 absent own history is never recreated automatically.
 
+### Shell pages (#3648)
+
+A shell is an ordinary page with structured content, not authored HTML. A space
+may have many shells; none is a default or Home. Creation, membership, archive,
+delete, epoch, signed content publication and revision fences retain their existing
+owners. Only the owner and the owner's admitted agents edit a shell in v1;
+shared viewers read it. References grant no access to their targets.
+
+The content document retains its existing `html` and `meta` roots. A shell has an
+empty `html` text and `meta.pageType = "shell"`; `meta.shell` holds the complete
+closed value below as plain JSON, not nested executable markup. The empty text
+is a wire container, never rendered as the shell's content. A shell cannot have
+HTML text or document attachments. The discriminator and shell value occur
+together. Ordinary HTML pages have neither field. The isolated native decoder
+and browser fold validate this on every incoming state and prepared action;
+raw Yjs updates cannot bypass the same schema. A shell's title stays in
+`meta.title` so the ordinary list and search can display it.
+
+```json
+{
+  "version": 1,
+  "items": {},
+  "order": []
+}
+```
+
+`items` maps canonical generated UUID item IDs to one of these closed objects:
+
+- page: `{kind:"page", pageId, note?, audience?}`;
+- anchor: `{kind:"anchor", pageId, anchor, note?, audience?}`;
+- reading: `{kind:"reading", pageId, readingId, note?, audience?}`.
+
+`pageId` and `readingId` are canonical generated UUIDs. Targets belong to the
+shell's space. An anchor is exactly
+`[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}`: it resolves by exact ID to exactly one
+element, never by CSS/XPath, and scrolling or highlighting grants no action
+authority. A reference to another shell is a link only, never expanded.
+Deleted, absent, ambiguous or unreadable targets stay unavailable references;
+they are never automatically removed or admitted.
+
+Optional fields are omitted, never null. `note` is at most 512 UTF-8 bytes;
+`audience` at most 128. Text is inert and contains no control characters or
+unpaired surrogates. `order` contains every item ID exactly once. There are at
+most 256 items. The whole shell value, encoded as compact UTF-8 JSON with
+lexically sorted ASCII field/UUID keys and integral numbers normalized, is at
+most 131072 bytes. Existing update, history and transport limits apply too;
+the shell bound does not measure retained Yjs history.
+
+An optional `summary` is
+`{line1,line2,attribution:{writerId,timeMs,displayAgent?}}`. `line1` is at most
+24 Unicode code points and `line2` at most 60, with the same inert-text rules.
+The write owner records its authenticated writer UUID and owner-clock Unix
+milliseconds. Optional `displayAgent:{name,id?}` is the existing Core-resolved,
+validated display metadata, never proof of agent authority. Missing agent data
+is omitted and never interpreted as a person. Actions cannot supply attribution.
+There are no layout, style, section-heading, smart-search or seen-state fields.
+
+Each action is trial-applied to a detached admitted document. Only a schema-valid
+whole result becomes an ordinary signed content publication. The seven closed
+bodies are:
+
+| Action            | Body                                                  | Effect                                                       |
+| ----------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
+| `item.add`        | `{itemId,item,beforeId?}`                             | Add a new reference; omitted placement appends.              |
+| `item.remove`     | `{itemId}`                                            | Remove the reference and order entry, never the source page. |
+| `item.move`       | `{itemId,beforeId?}`                                  | Move an existing reference; omitted placement moves it last. |
+| `item.set`        | `{itemId,item}`                                       | Replace the whole item, preserving its position.             |
+| `summary.set`     | `{line1,line2}`                                       | Set both lines and system attribution.                       |
+| `summary.clear`   | `{}`                                                  | Remove summary; absent already is a valid no-op.             |
+| `reading.suggest` | `{itemId,pageId,readingId,beforeId?,note?,audience?}` | Add a reading reference under the same add rules.            |
+
+Extra/missing fields, invalid types, null optionals, overlimits, duplicate or
+unknown IDs, before-self, unknown placement and an incomplete order refuse the
+whole action with `COLAB_INPUT_INVALID`, leaving the base untouched. A changed
+revision is `COLAB_STALE_BASE`: read again, without an automatic retry. Adding
+a caller-chosen item ID makes an uncertain outcome inspectable by reading it
+back. Suggesting a reading never marks it read or sends a notice; those remain
+the source reading's explicit person action and existing notification owner.
+
+`tmt colab shell create --title TITLE --json` creates an empty shell and never
+opens a browser. `shell read PAGE --json` returns
+`{spaceId,pageId,title,pageType:"shell",shell,epoch,membershipHead,revision}`.
+There is one mutating subcommand per action: `item-add`, `item-remove`,
+`item-move`, `item-set`, `summary-set`, `summary-clear`, `reading-suggest`.
+Each takes `PAGE --expected-revision REV --json` and, except `summary-clear`,
+`--file PATH|-` containing its exact JSON body. Revision is required. Existing
+space selection and short page-ID resolution apply. No raw Yjs or whole-shell
+replacement CLI is added. Ordinary publication receipts, no-op and retained
+original-operation/unknown-outcome handling apply; no resend or offline
+fallback follows a possibly published request.
+
+HTML-only source operations refuse a shell with `COLAB_INPUT_INVALID` rather
+than erase it. Export writes `shell.json` beside the usual metadata, never
+`page.html`. Before the shell UI ships, the browser opens a shell with a neutral
+notice explaining `tmt colab shell read`; list/search use its title and needs-you
+counts do not treat shell references as authored questions or pending readings.
+No shell UI, Today integration or migration of older collection data ships in
+this slice. Native and browser consume the shared `shell-v1.json` vectors.
+
 ### Answer blocks
 
 An answer block is authored page HTML, not a new discussion record or CLI command:
@@ -4941,25 +5040,31 @@ and verified membership head MUST belong to that same snapshot. A later write
 cannot change an already captured bundle. This head is locally verified, not a
 claim of globally current membership.
 
+For a [shell page](#shell-pages-3648), `shell.json` replaces `page.html` and
+contains the canonical shell value, including summary attribution. The manifest
+also carries `pageType:"shell"`; ordinary HTML exports omit it. All other
+snapshot, privacy, file-publication and failure rules are unchanged.
+
 The manifest is UTF-8 JSON with these fields:
 
-| Field               | Value / meaning                                                                                                       |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `format`            | `tmt-colab-page-export`                                                                                               |
-| `version`           | JSON integer `1`                                                                                                      |
-| `spaceId`           | Pinned space ID                                                                                                       |
-| `pageId`            | Exported page UUID                                                                                                    |
-| `title`             | Exact admitted title                                                                                                  |
-| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                   |
-| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                     |
-| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                      |
-| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                         |
-| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
-| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                             |
-| `plaintext`         | `true`                                                                                                                |
-| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
-| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                     |
-| `files`             | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                                                 |
+| `version`           | JSON integer `1`                                                                                                                        |
+| `spaceId`           | Pinned space ID                                                                                                                         |
+| `pageId`            | Exported page UUID                                                                                                                      |
+| `title`             | Exact admitted title                                                                                                                    |
+| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                           |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                     |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                       |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                        |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                           |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                    |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                               |
+| `plaintext`         | `true`                                                                                                                                  |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                   |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                       |
+| `files`             | `page.html` (or `shell.json`), `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
 before asynchronous work; it does not acquire or infer a new recipient.

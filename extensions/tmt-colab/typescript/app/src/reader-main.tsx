@@ -57,7 +57,7 @@ async function start() {
     const session = await ReaderSession.open(
       link,
       new URL('./', location.href),
-      (view) => show({ kind: 'ready', view }),
+      (view) => show({ kind: 'ready', view, pageId: link.page }),
       failure,
     );
     files = session.attachments;

@@ -18,7 +18,14 @@ type Usage = Awaited<ReturnType<HostedBudget['snapshot']>>;
 export type HostedEntryState =
   | { phase: 'loading' | 'link-needed' | 'recovering' | 'paused' }
   | { phase: 'sign-in'; hasLink: boolean; role?: ReaderLink['role'] }
-  | { phase: 'ready'; view: PageView; budget: Usage; role?: ReaderLink['role']; edit?: ReaderEdit }
+  | {
+      phase: 'ready';
+      view: PageView;
+      pageId?: string;
+      budget: Usage;
+      role?: ReaderLink['role'];
+      edit?: ReaderEdit;
+    }
   | { phase: 'failed'; failure: unknown };
 interface Options {
   state(value: HostedEntryState): void;
@@ -268,6 +275,7 @@ export class HostedEntry {
             answer.show(view.source);
             this.options.state({
               phase: 'ready',
+              pageId: target.page,
               view,
               budget,
               role: target.role,

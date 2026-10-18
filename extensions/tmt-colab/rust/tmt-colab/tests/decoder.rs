@@ -50,6 +50,172 @@ fn source() -> (Vec<u8>, Vec<Vec<u8>>) {
     (baseline, updates)
 }
 #[test]
+fn shell_shared_values_are_checked_by_the_actual_isolated_decoder() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../../../contracts/vectors/shell-v1.json")).unwrap();
+    for case in corpus["cases"].as_array().unwrap() {
+        if case.get("action").is_some() {
+            continue;
+        }
+        let doc = Doc::new();
+        doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut tx = doc.transact_mut();
+        meta.insert(&mut tx, "title", "Shell");
+        meta.insert(&mut tx, "pageType", "shell");
+        meta.insert(
+            &mut tx,
+            "shell",
+            yrs::Any::from_json(&case["document"].to_string()).unwrap(),
+        );
+        let bytes = tx.encode_state_as_update_v1(&StateVector::default());
+        drop(tx);
+        let result = owner().decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &bytes,
+                updates: &[],
+            },
+            Role::Editor,
+            None,
+        );
+        assert_eq!(
+            result.is_ok(),
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+        if let Ok(value) = result {
+            assert_eq!(value.projection["meta"]["shell"], case["document"]);
+            gone(value.child_pid);
+        }
+    }
+}
+
+#[test]
+fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
+    let shell = serde_json::json!({"version":1,"items":{},"order":[],"summary":{
+        "line1":"Release plan","line2":"Read the latest plan",
+        "attribution":{"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}
+    }});
+    let view = || BaselineInput {
+        original_author: Some("Agent 1"),
+        attachments: None,
+        source: b"",
+        title: "Shell",
+        publisher_agent: Some("Agent 1"),
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(b""),
+    };
+    let mut decoder = owner();
+    for page in [true, false] {
+        let baseline = decoder.produce_shell(view(), &shell, page, None).unwrap();
+        gone(baseline.child_pid);
+        assert_eq!(baseline.chunks.len(), usize::from(page));
+        let verified = decoder
+            .verify_baseline(view(), &baseline.update, baseline.commitment, None)
+            .unwrap();
+        gone(verified.child_pid);
+        let decoded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &verified.update,
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(decoded.projection["meta"]["shell"], shell);
+        assert_eq!(decoded.projection["meta"]["pageType"], "shell");
+        assert_eq!(decoded.projection["html"], "");
+        gone(decoded.child_pid);
+        let mut changed = baseline.commitment;
+        changed[0] ^= 1;
+        assert!(
+            decoder
+                .verify_baseline(view(), &baseline.update, changed, None)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, ShellEdit};
+    let view = || BaselineInput {
+        original_author: None,
+        attachments: None,
+        source: b"",
+        title: "Shell",
+        publisher_agent: None,
+        creation_recipient: None,
+        source_digest: tmt_colab_model::crypto::digest(b""),
+    };
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_shell(view(), &tmt_colab::shell::empty(), true, None)
+        .unwrap();
+    let batch = || UpdateBatch {
+        namespace: Namespace::Content,
+        baseline: baseline.update.as_slice(),
+        updates: &[],
+    };
+    let before = decoder.decode(batch(), Role::Editor, None).unwrap();
+    let edit = ShellEdit {
+        action: "summary.set".into(),
+        body: serde_json::json!({"line1":"Plan","line2":"Check first"}),
+        attribution: serde_json::json!({"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}),
+    };
+    let prepared = decoder
+        .prepare_shell_batch(batch(), &before.projection, &edit, None)
+        .unwrap();
+    let ContentBatch::Updates(updates) = prepared.batch else {
+        panic!("expected update")
+    };
+    assert_eq!(updates.len(), 1);
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let after = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(after.projection, prepared.projection);
+    assert_eq!(
+        after.projection["meta"]["shell"]["summary"]["line1"],
+        "Plan"
+    );
+    assert!(before.projection["meta"]["shell"].get("summary").is_none());
+    assert!(
+        decoder
+            .prepare_content_batch(
+                batch(),
+                &before.projection,
+                ContentEdit {
+                    source: "erase",
+                    publisher_agent: None,
+                    attachments: None,
+                },
+                None
+            )
+            .is_err()
+    );
+    let mut bad = edit.clone();
+    bad.body["author"] = serde_json::json!("caller");
+    assert!(
+        decoder
+            .prepare_shell_batch(batch(), &before.projection, &bad, None)
+            .is_err()
+    );
+}
+#[test]
 fn child_materializes_and_merges_only_author_updates_preserving_dependencies_and_deletes() {
     let (baseline, updates) = source();
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();

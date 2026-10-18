@@ -94,6 +94,8 @@ export class Fold {
           ...(Object.hasOwn(event.data as object, 'originalAuthor') ? ['originalAuthor'] : []),
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
           ...(Object.hasOwn(event.data as object, 'attachments') ? ['attachments'] : []),
+          ...(Object.hasOwn(event.data as object, 'pageType') ? ['pageType'] : []),
+          ...(Object.hasOwn(event.data as object, 'shell') ? ['shell'] : []),
           ...(Object.hasOwn(event.data as object, 'creationRecipient')
             ? ['creationRecipient']
             : []),
@@ -116,6 +118,8 @@ export class Fold {
               originalAuthor: value.originalAuthor,
               creationRecipient: value.creationRecipient,
               attachments: value.attachments,
+              pageType: value.pageType,
+              shell: value.shell,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -132,6 +136,9 @@ export class Fold {
           title: value.title,
           ...(value.originalAuthor === undefined ? {} : { originalAuthor: value.originalAuthor }),
           ...(Object.hasOwn(value, 'attachments') ? { attachments: value.attachments } : {}),
+          ...(Object.hasOwn(value, 'pageType')
+            ? { pageType: value.pageType, shell: value.shell }
+            : {}),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           ...(value.creationRecipient === undefined
             ? {}
@@ -153,6 +160,8 @@ export class Fold {
     base: ContentSnapshot,
     attachments?: attachment.DocumentChange,
   ): Promise<ContentPreparation> {
+    if (base.pageType === 'shell')
+      throw new Error('HTML source operations cannot replace a shell page');
     exactKeys(base, [
       'source',
       'title',

@@ -1,0 +1,16 @@
+.shell-notice {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 32px 80px;
+}
+.shell-notice > p {
+  margin: 0 0 16px;
+}
+@media (max-width: 800px) {
+  .shell-notice {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}

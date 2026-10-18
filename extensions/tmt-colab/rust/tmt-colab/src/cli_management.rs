@@ -678,6 +678,18 @@ pub fn create_page(
     source: String,
     checks: &[page_check::Finding],
 ) -> Result<()> {
+    create_page_kind(root, args, source, checks, false)
+}
+pub fn create_shell(root: &Path, args: &ArgMatches) -> Result<()> {
+    create_page_kind(root, args, String::new(), &[], true)
+}
+fn create_page_kind(
+    root: &Path,
+    args: &ArgMatches,
+    source: String,
+    checks: &[page_check::Finding],
+    shell: bool,
+) -> Result<()> {
     let title = text(args, "title");
     if title.is_empty() {
         return Err(input("Page title cannot be empty."));
@@ -700,6 +712,9 @@ pub fn create_page(
     let layout = Layout::open(root)?;
     let correlation = json!({"operationId":operation_id,"pageId":page_id});
     let mut payload = json!({"pageId":page_id,"title":title,"source":source});
+    if shell {
+        payload["pageType"] = json!("shell");
+    }
     if let Some(agent) = publisher_agent {
         payload["publisherAgent"] = json!(agent);
     }
@@ -773,7 +788,7 @@ pub fn create_page(
     // The page opens in the browser unless the setting, a flag or the environment says not to.
     let mut shown = reach.text(&relative);
     let mut warnings = Vec::new();
-    if let Some(link) = reach.short_link(&relative) {
+    if !shell && let Some(link) = reach.short_link(&relative) {
         // The page is committed: unreadable settings are the defaults, never a failed command.
         let settings = tmt_colab::settings::read_or_default(root);
         let outcome =

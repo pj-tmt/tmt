@@ -154,6 +154,8 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'publisherAgent' &&
         key !== 'originalAuthor' &&
         key !== 'creationRecipient' &&
+        key !== 'pageType' &&
+        key !== 'shell' &&
         key !== 'attachments',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
@@ -166,6 +168,8 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
     ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
     ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),
+    ...(meta.has('pageType') ? { pageType: meta.get('pageType') } : {}),
+    ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),
   };
   validateProjection(projection);
   return projection;
@@ -285,6 +289,8 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: DecoderComman
     } else if (command.type === 'prepare-content') {
       validateProjection({ source: command.source, title: '' });
       validateProjection(command.base);
+      if (command.base.pageType === 'shell')
+        throw new Error('HTML source operations cannot replace a shell page');
       validateOwn(command.base.own);
       const admittedOwn = Object.fromEntries(
         [...own].map(([writer, doc]) => [writer, projectOwn(doc, true)]),

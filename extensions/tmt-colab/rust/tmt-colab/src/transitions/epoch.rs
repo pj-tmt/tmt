@@ -36,18 +36,20 @@ impl Prepared {
             .get("attachments")
             .map(|value| serde_json::from_value(value.clone()))
             .transpose()?;
-        let baseline = decoder.produce_baseline(
-            BaselineInput {
-                original_author: view.original_author.as_deref(),
-                attachments: attachments.as_ref(),
-                source: view.source.as_bytes(),
-                title: &view.title,
-                publisher_agent: view.publisher_agent.as_deref(),
-                creation_recipient: view.creation_recipient.as_ref(),
-                source_digest: crypto::digest(view.source.as_bytes()),
-            },
-            None,
-        )?;
+        let baseline_input = BaselineInput {
+            original_author: view.original_author.as_deref(),
+            attachments: attachments.as_ref(),
+            source: view.source.as_bytes(),
+            title: &view.title,
+            publisher_agent: view.publisher_agent.as_deref(),
+            creation_recipient: view.creation_recipient.as_ref(),
+            source_digest: crypto::digest(view.source.as_bytes()),
+        };
+        let baseline = if let Some(shell) = view.meta.get("shell") {
+            decoder.produce_shell(baseline_input, shell, false, None)?
+        } else {
+            decoder.produce_baseline(baseline_input, None)?
+        };
         let epoch = snapshot.epoch.checked_add(1).ok_or(OwnerFault::Capacity)?;
         let body = serde_json::to_vec(&BaselineBody {
             source: view.source,

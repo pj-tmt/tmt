@@ -1,4 +1,5 @@
 import { validateDiscussionRecord } from './thread-records.js';
+import { validateShell, type Shell } from './shell.js';
 import {
   attachment,
   coreId,
@@ -60,6 +61,9 @@ export function validateCreationRecipient(value: unknown): asserts value is Crea
   coreId(value.agentId);
 }
 export interface Projection {
+  /** Structured content retains an empty wire text container; never render it as HTML. */
+  pageType?: 'shell';
+  shell?: Shell;
   attachments?: attachment.AttachmentDescriptor[];
   creationRecipient?: CreationRecipient;
   source: string;
@@ -185,6 +189,16 @@ export interface FoldResult extends Projection {
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
   const { source, title, publisherAgent, originalAuthor, creationRecipient } = value as Projection;
+  if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
+    const structured = value as Projection;
+    requireValue(
+      structured.pageType === 'shell' &&
+        Object.hasOwn(value, 'shell') &&
+        source === '' &&
+        !Object.hasOwn(value, 'attachments'),
+    );
+    validateShell(structured.shell);
+  }
   if (Object.hasOwn(value, 'attachments'))
     attachment.attachmentList((value as Projection).attachments, attachment.DOCUMENT_ATTACHMENTS);
   if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);

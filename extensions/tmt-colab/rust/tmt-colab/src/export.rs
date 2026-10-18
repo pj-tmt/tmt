@@ -182,6 +182,8 @@ struct Manifest<'a> {
     page_id: &'a str,
     title: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    page_type: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     original_author: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     publisher_agent: Option<&'a str>,
@@ -257,7 +259,14 @@ impl Bundle {
             }
         })?;
         let mut view = snapshot.materialize(key, page, decoder)?;
-        let html = std::mem::take(&mut view.source).into_bytes();
+        let (content_name, content) = if let Some(shell) = view.meta.get("shell") {
+            (
+                "shell.json",
+                crate::shell::canonical(shell).map_err(|_| crate::page::Fault::Invalid)?,
+            )
+        } else {
+            ("page.html", std::mem::take(&mut view.source).into_bytes())
+        };
         let conversations = conversations::Conversations::project(
             conversations::Capture {
                 space_id: &key.space_id,
@@ -298,7 +307,7 @@ impl Bundle {
             std::time::Instant::now(),
         )?;
         let mut files = vec![
-            FileInfo::new("page.html", &html),
+            FileInfo::new(content_name, &content),
             FileInfo::new("conversations.json", &json),
             FileInfo::new("conversations.md", &markdown),
         ];
@@ -308,6 +317,7 @@ impl Bundle {
             space_id: &key.space_id,
             page_id: page,
             title: &view.title,
+            page_type: view.meta.get("shell").map(|_| "shell"),
             original_author: view.original_author.as_deref(),
             publisher_agent: view.publisher_agent.as_deref(),
             creation_recipient: view.creation_recipient.as_ref(),
@@ -327,7 +337,7 @@ impl Bundle {
             attachments: &entries,
             files: &files,
         })?;
-        let mut contents = vec![html, json, markdown];
+        let mut contents = vec![content, json, markdown];
         for (name, bytes) in attachment_files {
             files.push(FileInfo::new(name, &bytes));
             contents.push(bytes);

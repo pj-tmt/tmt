@@ -637,6 +637,9 @@ impl Snapshot {
     ) -> Result<crate::decoder::PreparedContent> {
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
         let base = input.materialize(page, decoder, None)?;
+        if base.meta.get("pageType").is_some() {
+            return Err(crate::page::Fault::Invalid.into());
+        }
         // A caller that edited from a source it saw refuses to overwrite a different one.
         if base_sha256.is_some_and(|d| *d != crypto::digest(base.source.as_bytes())) {
             return Err(crate::page::Fault::StaleBase.into());
@@ -657,6 +660,49 @@ impl Snapshot {
         let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let prepared = decoder.prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &input.baseline,
+                updates: &refs,
+            },
+            &expected_base,
+            edit,
+            None,
+        )?;
+        if let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch {
+            input.admit_deltas(
+                page,
+                updates.len(),
+                checked_bytes(updates.iter().map(Vec::len))?,
+            )?;
+            input.admit_gzip(page, updates.iter().map(Vec::as_slice))?;
+        }
+        Ok(prepared)
+    }
+    pub(crate) fn prepare_shell_batch(
+        &self,
+        key: &Keyring,
+        page: &str,
+        edit: &crate::decoder::ShellEdit,
+        decoder: &mut Decoder,
+    ) -> Result<crate::decoder::PreparedContent> {
+        let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
+        let base = input.materialize(page, decoder, None)?;
+        if base.meta["pageType"].as_str() != Some("shell") {
+            return Err(crate::page::Fault::Invalid.into());
+        }
+        // Validate the action before crossing the child boundary so callers retain the typed
+        // input refusal, rather than an opaque decoder failure.
+        crate::shell::apply(
+            &base.meta["shell"],
+            &edit.action,
+            &edit.body,
+            &edit.attribution,
+        )
+        .map_err(|_| crate::page::Fault::Invalid)?;
+        let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
+        let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let prepared = decoder.prepare_shell_batch(
             UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &input.baseline,

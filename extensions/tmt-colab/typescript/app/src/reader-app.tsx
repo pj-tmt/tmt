@@ -1,3 +1,4 @@
+import { ShellNotice } from './shell-notice.js';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import type { AttachmentBinding } from './attachment-service.js';
@@ -15,7 +16,7 @@ import './reader-app.css';
 
 export type ReaderState =
   | { kind: 'opening' }
-  | { kind: 'ready'; view: PageView }
+  | { kind: 'ready'; view: PageView; pageId?: string }
   | { kind: 'ended' }
   | { kind: 'invalid' }
   | { kind: 'older' }
@@ -43,9 +44,10 @@ export function ReaderApp({
 }) {
   const [files, setFiles] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const mode = canEdit ? text.readerCanEdit : text.readerOnly;
+  const shell = state.kind === 'ready' && state.view.pageType === 'shell';
+  const mode = canEdit && !shell ? text.readerCanEdit : text.readerOnly;
   const descriptors = state.kind === 'ready' ? (state.view.attachments ?? []) : [];
-  const source = state.kind === 'ready' ? state.view.source : null;
+  const source = state.kind === 'ready' && !shell ? state.view.source : null;
   const title = state.kind === 'ready' ? state.view.title : '';
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
@@ -59,6 +61,10 @@ export function ReaderApp({
     renderer.current?.images(imageInput.current);
   }, [attachments, imageDescriptors, imageScope]);
   useEffect(() => {
+    if (shell) {
+      setRender('ready');
+      return;
+    }
     if (source === null) return;
     const controller = new AbortController();
     setRender('loading');
@@ -82,7 +88,7 @@ export function ReaderApp({
       controller.abort();
       renderer.current = null;
     };
-  }, [source]);
+  }, [source, shell]);
   return (
     <>
       <ColabHeader
@@ -125,7 +131,7 @@ export function ReaderApp({
                 </span>
               </>
             )}
-            {state.kind === 'ready' && edit && (
+            {state.kind === 'ready' && edit && !shell && (
               <button
                 className={ui.action}
                 data-variant="text"
@@ -162,7 +168,7 @@ export function ReaderApp({
                     publisherAgent={state.view.publisherAgent}
                   />
                 )}
-                <p>{accessNote ?? (canEdit ? text.readerNoteEditor : text.readerNote)}</p>
+                <p>{accessNote ?? (canEdit && !shell ? text.readerNoteEditor : text.readerNote)}</p>
                 <p>{text.warning}</p>
               </div>
             </details>
@@ -171,7 +177,9 @@ export function ReaderApp({
       />
       <main>
         {notice}
-        {state.kind === 'ready' ? (
+        {state.kind === 'ready' && shell ? (
+          <ShellNotice pageId={state.pageId} />
+        ) : state.kind === 'ready' ? (
           <section className="page">
             <div className="workspace">
               <div className="canvas">
@@ -212,7 +220,7 @@ export function ReaderApp({
         <ReaderSource
           source={state.view.source}
           edit={edit}
-          open={sourceOpen}
+          open={sourceOpen && !shell}
           onDismiss={() => setSourceOpen(false)}
         />
       )}

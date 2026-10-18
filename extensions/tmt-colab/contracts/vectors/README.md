@@ -3,6 +3,11 @@
 The [colab-v1 contract](../colab-v1.md) owns byte definitions and full L1 gates.
 All seeds and secrets here are public test fixtures, never runtime inputs.
 
+`shell-v1.json` contains hand-authored closed shell values and detached actions,
+shared by the native shell validator and browser fold validator. Expected results
+cover item order, complete replacement, summary attribution and reading references;
+they establish no target access or signature authority.
+
 `attachment-reference.py` independently frames descriptors/manifests, freezes
 strict selectors/creation-publication records and seals asset envelopes with
 Python cryptography over public RFC8032 fixture keys. Namespace and page-revision
