@@ -239,6 +239,9 @@ jobs:
           merge-multiple: true
           digest-mismatch: error
       - name: Download exact partition results
+        # download-artifact@v8.0.2 selects non-empty IDs before consulting pattern.
+        # Single-attempt IDs are empty; pattern selects that attempt's results.
+        # Recovery IDs can include retained results from earlier execution attempts.
         if: inputs.scope == 'full'
         uses: actions/download-artifact@v8
         with:

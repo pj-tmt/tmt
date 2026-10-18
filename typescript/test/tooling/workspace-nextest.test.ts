@@ -444,7 +444,13 @@ it('keeps recovery within the existing steps and gives only the collector the re
   expect(aggregate).toContain(
     'WORKFLOW_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}'
   );
-  expect(aggregate).toContain('artifact-ids: ${{ steps.selection.outputs.artifact-ids }}');
+  const resultsDownload = aggregate
+    .split('      - name: Download exact partition results\n')[1]
+    .split('\n      - name:')[0];
+  expect(resultsDownload).toContain('artifact-ids: ${{ steps.selection.outputs.artifact-ids }}');
+  expect(resultsDownload).toContain(
+    'pattern: workspace-result-*-${{ github.run_id }}-${{ fromJSON(needs.producer.outputs.receipt).proof.producerIdentity.attempt }}-${{ github.run_attempt }}'
+  );
   expect(aggregate).toContain('merge-multiple: false');
   expect(aggregate).toContain('/workspace-proof/selection.json');
   expect(consumers).toContain('PRODUCER_RECEIPT: ${{ needs.producer.outputs.receipt }}');
