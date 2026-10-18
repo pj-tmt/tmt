@@ -32,6 +32,7 @@ pub use object_channel::cloud_sync;
 pub use object_channel::documents as sealed_documents;
 pub mod serve_release;
 pub mod settings;
+pub mod shell;
 pub mod short_links;
 pub mod socket;
 pub mod store;
