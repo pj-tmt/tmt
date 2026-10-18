@@ -82,6 +82,8 @@ it('counts the distinct pages edited after the summary, ignoring unknown times a
   ]);
   // A is named by two items but counts once; B has no known edit time; GONE is unavailable.
   expect(pagesChangedSince(cells, 1_000)).toBe(1);
+  // Same owner clock: an edit in the very millisecond of the summary is not after it.
   expect(pagesChangedSince(cells, 2_000)).toBe(0);
+  expect(pagesChangedSince(cells, 1_999)).toBe(1);
   expect(pagesChangedSince([], 0)).toBe(0);
 });

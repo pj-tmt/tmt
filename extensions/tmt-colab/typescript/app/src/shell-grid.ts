@@ -14,7 +14,7 @@ export interface ShellCell {
   /** The source page is not in the space list (deleted or unreadable). The item stays listed. */
   unavailable: boolean;
   archived: boolean;
-  /** The source page's last edit, when the space list knows it. */
+  /** The source page's last edit on the owner clock, when the space list knows it. */
   lastUpdateAtMs: number | null;
   /** Pending items on the source page, from its owner summary; 0 where none is known. */
   needsYou: number;
@@ -57,7 +57,10 @@ export function shellByline(shell: Shell): { who?: string; timeMs: number } | un
 }
 
 /** How many distinct source pages were edited after the summary was written. A page named by
- * several items counts once; an unavailable page or one with no known edit time never counts. */
+ * several items counts once; an unavailable page or one with no known edit time never counts.
+ * Both times come from the one owner clock (the summary's `timeMs` is taken when the owner writes
+ * it, `lastUpdateAtMs` when the owner accepts a page's content), so they compare directly. An edit
+ * in the same millisecond as the summary is not later and does not count. */
 export function pagesChangedSince(cells: readonly ShellCell[], summaryTimeMs: number): number {
   return new Set(
     cells

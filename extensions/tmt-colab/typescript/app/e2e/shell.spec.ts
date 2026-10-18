@@ -107,6 +107,17 @@ for (const width of [1440, 1024, 390])
       expect(geometry.pageWidth).toBeLessThanOrEqual(1680);
       expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
       expect(geometry).toMatchObject({ shadow: 'none', borderLeft: '0px', radius: '0px' });
+      // The long note stays within two lines and keeps its full text in the title attribute.
+      const note = cells.nth(5).locator('.shell-cell-note');
+      const lines = await note.evaluate(
+        (node) =>
+          node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
+      );
+      expect(lines).toBeLessThanOrEqual(2.01);
+      expect(await note.getAttribute('title')).toContain('A long note that has to wrap');
+      // Keyboard focus on the first cell is part of the look capture.
+      await link(0).focus();
+      await expect(link(0)).toBeFocused();
       await page.screenshot({
         path: capturePath(`shell-page-${width}-${theme}.png`),
         fullPage: true,

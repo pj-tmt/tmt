@@ -157,7 +157,11 @@ function ShellCellView({
           <HomeTitleLink page={page} hints={hints} onClick={remember} />
         )}
       </p>
-      {cell.note && <p className="shell-cell-note">{cell.note}</p>}
+      {cell.note && (
+        <p className="shell-cell-note" title={cell.note}>
+          {cell.note}
+        </p>
+      )}
       {cell.audience && <p className="shell-cell-audience">{t.audience(cell.audience)}</p>}
       {cell.needsYou > 0 && (
         <p className="shell-cell-needs">
