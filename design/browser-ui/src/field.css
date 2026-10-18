@@ -14,7 +14,7 @@
   box-sizing: border-box;
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
-  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-field-border-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   padding: var(--tmt-ui-host-field-padding);
   font: var(--tmt-ui-host-field-size)/var(--tmt-ui-host-field-line-height) var(--tmt-ui-font-body);

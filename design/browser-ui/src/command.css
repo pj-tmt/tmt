@@ -9,7 +9,7 @@
   padding: var(--tmt-ui-command-padding);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-command);
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
 }
@@ -54,7 +54,7 @@
   max-width: 10rem;
   color: var(--tmt-ui-color-text);
   background: transparent;
-  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-color-edge);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
   font: 13px/1.5 var(--tmt-ui-font-body);
