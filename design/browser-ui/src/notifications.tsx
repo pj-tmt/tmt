@@ -61,6 +61,13 @@ function NotificationSurface({ events, suspended, isEligible }: BrowserNotificat
       if (!node.matches(':popover-open')) node.showPopover();
       const next = queue.takeAnnouncements();
       if (next.length) setAnnouncements(next);
+      // The status holds the currently eligible payload: an active withdrawal drops its item
+      // (clearing an emptied status), and surviving cards are never spoken again.
+      else
+        setAnnouncements((previous) => {
+          const kept = previous.filter((event) => host.current.isEligible(event));
+          return kept.length === previous.length ? previous : kept;
+        });
     } else {
       if (node.matches(':popover-open')) node.hidePopover();
       setAnnouncements((previous) => (previous.length ? [] : previous));

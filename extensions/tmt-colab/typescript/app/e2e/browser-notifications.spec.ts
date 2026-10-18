@@ -172,6 +172,23 @@ test('FIFO expiry, deduplication, trusted activation and page lifetime', async (
   await expect(cards(page)).toHaveCount(3);
 });
 
+test('an active withdrawal drops its item from the status and never re-speaks survivors', async ({
+  page,
+}) => {
+  await mount(page);
+  const status = page.getByRole('status').and(page.locator('.tmt-ui-notification-status'));
+  await page.getByRole('button', { name: 'Admit one', exact: true }).click();
+  await expect(status).toHaveText('Chat: The revised layout is ready for your review.\n');
+  await page.getByRole('button', { name: 'Admit three', exact: true }).click();
+  await expect(status).toContainText('Thread: I checked');
+  await expect(status).toContainText('Answer: Your answer');
+  await expect(status).not.toContainText('revised layout');
+  await page.getByRole('button', { name: 'Withdraw two', exact: true }).click();
+  await expect(cards(page)).toHaveCount(2);
+  await expect(status).toHaveText('Answer: Your answer has a follow-up question.\n');
+  await expect(status).not.toContainText('revised layout');
+});
+
 test('hover and focus pause independently and preserve remaining time', async ({ page }) => {
   await mount(page);
   await page.getByRole('button', { name: 'Admit one', exact: true }).click();

@@ -29,7 +29,7 @@
     "src/notice.tsx": "dd11ffed4586316239c1767ff1ddf4e247b144fe7412ce983fa81e88537c875b",
     "src/notification-queue.ts": "77e3ee5b9d052742852245b28e2a25eec579ba94f00a2ee7b30c20be055d174b",
     "src/notifications.css": "131707107129a466ec31b1d58574f6cee6d697630c9692ceef0db8d7083477ad",
-    "src/notifications.tsx": "038f39156db88c9add895cff6c17fd519f5afb354c5738d69be4b66666d07de3",
+    "src/notifications.tsx": "36cc4b9439e0f1f86ce1ef1b07fc133daf3955e806e15424ece89675977326de",
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
     "src/react.ts": "aab1a55341e34336a579d9d54651c2697c35b4de19dc5dc410d8e4cb3fd5ee90",
