@@ -242,7 +242,7 @@ test('an ambiguous token in the middle is replaced in place without losing surro
   await expect
     .poll(async () => (await run(page, 'editingProof')).draft)
     .toBe('Before @alpha  after.');
-  await expect(input.locator('.message-mention-machine')).toHaveText(' · My machine');
+  await expect(input.locator('.agent-chip-machine')).toHaveText(' · My machine');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
@@ -542,7 +542,7 @@ test('an open ambiguous-name list accepts the highlighted UUID without sending',
   await input.press('ArrowDown');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'editingProof')).draft).toBe('@alpha ');
-  await expect(input.locator('.message-mention-machine')).toHaveText(' · My machine');
+  await expect(input.locator('.agent-chip-machine')).toHaveText(' · My machine');
   await expect(input).toHaveAttribute('aria-expanded', 'false');
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await input.press('Enter');

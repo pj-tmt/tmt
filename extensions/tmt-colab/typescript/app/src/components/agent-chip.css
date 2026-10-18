@@ -1,0 +1,68 @@
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  max-width: 100%;
+  box-sizing: border-box;
+  gap: 4px;
+  line-height: 1.4;
+}
+.agent-chip-icon,
+.agent-chip-spinner {
+  flex: none;
+  width: 1em;
+  height: 1em;
+}
+.agent-chip-name,
+.agent-chip-machine,
+.agent-chip-driver {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-chip-name {
+  font-weight: 500;
+}
+.agent-chip-machine,
+.agent-chip-driver {
+  flex-shrink: 1;
+  font-weight: 400;
+  color: var(--tmt-ui-color-secondary);
+}
+.agent-chip[data-variant='chip'] {
+  padding: 2px 6px;
+  border: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: 0;
+  background: none;
+  font-size: var(--tmt-ui-caption-size);
+  --tmt-ui-host-icon-action-size: 24px;
+  --tmt-ui-header-icon-size: 12px;
+}
+.agent-chip[data-variant='chip'] .agent-chip-icon,
+.agent-chip[data-variant='chip'] .agent-chip-spinner {
+  width: 16px;
+  height: 16px;
+}
+.agent-chip[data-variant='chip'][data-state='not-found'] {
+  border-style: dashed;
+  border-color: var(--tmt-ui-color-edge);
+}
+/* The ring takes the working colour; the name stays neutral and the label says it in words. */
+.agent-chip-spinner {
+  box-sizing: border-box;
+  border: 1.5px solid var(--tmt-ui-surface-rule);
+  border-top-color: var(--tmt-ui-color-working);
+  border-radius: 50%;
+  animation: agent-chip-spin 0.9s linear infinite;
+}
+@keyframes agent-chip-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-chip-spinner {
+    animation: none;
+  }
+}

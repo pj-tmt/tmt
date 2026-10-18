@@ -323,6 +323,8 @@ export const text = {
   threadCollapse: 'Collapse thread',
   threadCollapseHelp: 'Collapse · Esc',
   conversationAgent: 'AGENT',
+  /** The accessible name of the spinner an agent chip shows while its agent works. */
+  agentWorking: 'working',
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
   sendOnHold: 'Send is on hold until the connection is back.',

@@ -275,7 +275,7 @@ for (const width of [1440, 390])
       );
       await card.getByRole('button', { name: 'Follow up', exact: true }).click();
       await expect(card.getByRole('combobox')).toHaveText('', { useInnerText: true });
-      await expect(card.locator('.message-mention-chip')).toHaveCount(0);
+      await expect(card.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
       await expect(card.locator('.creator-toggle')).toHaveCount(0);
       await expect(
         card.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),

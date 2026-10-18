@@ -119,16 +119,16 @@ test('manual typed and picked mentions survive off; toggling on does not duplica
   const input = await mount(page);
   await toggle(page).click();
   await input.fill('@alpha Manual');
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   await toggle(page).click();
   await toggle(page).click();
   await expect(input).toHaveText('@alpha Manual', { useInnerText: true });
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   await input.fill('@');
   await page.getByRole('option', { name: /@alpha/ }).click();
   await toggle(page).click();
   await toggle(page).click();
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   await expect(input).toHaveText('@alpha ', { useInnerText: true });
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0 });
 });
@@ -158,7 +158,7 @@ test('restored unknown-provenance creator mention is manual, and off does not de
   });
   await toggle(page).click();
   await expect(input).toHaveText('@alpha Saved', { useInnerText: true });
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
 });
 test('an offline saved creator stays seeded, and an offline agent on an online machine receives', async ({
   page,
@@ -299,10 +299,10 @@ for (const variant of [
       page.screenshot({ path: `${captures}/${variant.width}-${variant.theme}-${state}.png` });
     const input = await open(true);
     await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
-    await expect(input.locator('.message-mention-chip')).toHaveCount(1);
+    await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
     await capture('on');
     await toggle(page).click();
-    await expect(input.locator('.message-mention-chip')).toHaveCount(0);
+    await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
     await capture('off');
     await toggle(page).click();
     await input.getByRole('button', { name: /^Remove mention:/ }).click();
@@ -315,7 +315,7 @@ for (const variant of [
     await capture('removed');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(toggle(page)).toHaveAttribute('aria-pressed', 'true');
-    await expect(input.locator('.message-mention-chip')).toHaveCount(1);
+    await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
     await capture('fresh');
     await open(false);
     await expect(toggle(page)).toHaveCount(0);
@@ -334,7 +334,7 @@ test('a toggled seed alone is not a persisted draft; body edits are', async ({ p
 test('one page preference changes both mounted composers without publishing', async ({ page }) => {
   await mount(page, 'linked');
   const toggles = toggle(page);
-  const chips = page.locator('.message-mention-chip');
+  const chips = page.locator('.agent-chip[data-variant="chip"]');
   await expect(chips).toHaveCount(2);
   await toggles.first().click();
   await expect(toggles.nth(1)).toHaveAttribute('aria-pressed', 'false');
@@ -350,7 +350,7 @@ test('disabled talk or missing creation identity hides the control, with no hidd
   for (const options of [{ talk: false }, { creator: false }]) {
     const input = await mount(page, 'chat', options);
     await expect(toggle(page)).toHaveCount(0);
-    await expect(input.locator('.message-mention-chip')).toHaveCount(0);
+    await expect(input.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
     await input.fill('Plain comment');
     await input.press('Enter');
     await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0 });
@@ -399,7 +399,7 @@ for (const surface of ['chat', 'annotation']) {
       } else await action.click();
       await expect(input).toBeFocused();
       await expect(input).toHaveText('@alpha Typed before the directory', { useInnerText: true });
-      await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+      await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
       await expect(action).toHaveCount(0);
       await expect(page.locator('.annotation-hint').first()).toHaveText(
         surface === 'chat' ? '' : 'Asks @alpha.',
@@ -489,7 +489,7 @@ test('a fill taken before the seed lands ends up behind it; a fill after the dir
     document.getSelection()!.selectAllChildren(node);
   });
   await run(page, 'releaseDirectory');
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   await page.keyboard.insertText('@alpha Hello');
   await expect(input).toHaveText('@alpha @alpha Hello', { useInnerText: true });
 

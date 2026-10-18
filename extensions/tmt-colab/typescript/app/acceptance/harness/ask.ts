@@ -166,8 +166,8 @@ export async function composerText(field: Locator): Promise<string> {
     const read = (node: Node): string => {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
       if (!(node instanceof HTMLElement)) return '';
-      if (node.classList.contains('message-mention')) {
-        return node.querySelector('.message-mention-name')?.textContent ?? '';
+      if (node.classList.contains('agent-chip')) {
+        return node.querySelector('.agent-chip-name')?.textContent ?? '';
       }
       return Array.from(node.childNodes, read).join('');
     };

@@ -29,11 +29,10 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     async function capture(state: 'online' | 'offline') {
       if (!captures) return;
       mkdirSync(captures, { recursive: true });
-      const chip = input.locator('.message-mention');
+      const chip = input.locator('.agent-chip');
       await expect(chip).toHaveAttribute('data-state', state);
-      await expect(chip).toHaveAttribute('data-kind', 'agent');
-      await expect(chip.locator('.message-mention-icon.lucide-bot')).toBeVisible();
-      await expect(chip).toHaveCSS('border-top-width', '0px');
+      await expect(chip.locator('.agent-chip-icon.lucide-bot')).toBeVisible();
+      await expect(chip).toHaveCSS('border-top-width', '1px');
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 844 });
         for (const theme of ['light', 'dark']) {
@@ -45,7 +44,7 @@ test('visible mentions fan out one recorded Chat turn to live and offline saved 
     }
     await capture('online');
     await input.getByRole('button', { name: /^Remove mention:/ }).press('Enter');
-    await expect(input.locator('.message-mention')).toHaveCount(0);
+    await expect(input.locator('.agent-chip')).toHaveCount(0);
     await expect(input).toHaveText(' ', { useInnerText: true });
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,

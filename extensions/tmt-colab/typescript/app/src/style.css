@@ -899,6 +899,10 @@ body:has(.needs-you-header-menu) {
   font-size: var(--tmt-ui-caption-size);
   line-height: var(--tmt-ui-host-field-line-height);
 }
+.conversation-main .conversation-author {
+  min-width: 0;
+  max-width: 100%;
+}
 .conversation-body {
   margin-top: 0;
 }
@@ -1103,7 +1107,7 @@ body:has(.needs-you-header-menu) {
   background: transparent;
   color: var(--tmt-ui-color-text);
 }
-.comment-thread .conversation-driver {
+.comment-thread .conversation-author .agent-chip-driver {
   display: none;
 }
 .comment-thread .conversation-main .comment-byline {
@@ -1393,9 +1397,6 @@ body:has(.needs-you-header-menu) {
 .conversation-turn[data-running-driver] {
   border-left-color: var(--conversation-driver-color);
 }
-.conversation-turn[data-running-driver] .conversation-author {
-  font-weight: 700;
-}
 .conversation-avatar {
   display: inline-flex;
   width: 24px;
@@ -1406,10 +1407,6 @@ body:has(.needs-you-header-menu) {
   margin-right: 6px;
   background: var(--conversation-driver-color);
   color: var(--c-paper);
-}
-.conversation-driver {
-  margin-left: 6px;
-  color: var(--conversation-driver-color);
 }
 
 .question-card {

@@ -92,9 +92,7 @@ for (const width of [1440, 390])
       await expect(agent.locator('.conversation-agent-label')).toContainText('AGENT');
       await expect(agent).toHaveCSS('border-left-width', '0px');
       await expect(human).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      await expect(
-        human.locator('.conversation-body .message-mention[data-kind="agent"]'),
-      ).toHaveCount(2);
+      await expect(human.locator('.conversation-body .agent-chip')).toHaveCount(2);
       await page.screenshot({ path: `${captures}/annotation-thread-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
       const comments = await pageAction(app, 'Comments');
@@ -333,12 +331,12 @@ for (const width of [1440, 1024, 390])
       await (await pageAction(app, 'Chat')).click();
       const chat = page.getByTestId('chat-panel');
       await expect(chat.getByText(text.chatEmpty, { exact: true })).toBeVisible();
-      await expect(chat.locator('.message-mention-chip')).toHaveCount(0);
+      await expect(chat.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
       expect(await sharedComposer(chat)).toEqual(annotationComposer);
       await page.screenshot({ path: `${captures}/unified-chat-empty-${width}-${theme}.png` });
       await run(page, 'mount', options);
       await (await pageAction(app, 'Chat')).click();
-      await expect(chat.locator('.message-mention-chip')).toHaveCount(1);
+      await expect(chat.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
       await expect(chat.getByRole('button', { name: 'Send to @Atlas', exact: true })).toHaveCSS(
         'border-top-width',
         '0px',
