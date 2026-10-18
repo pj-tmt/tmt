@@ -9,8 +9,8 @@
   flex: 1 1 16em;
   min-width: 0;
 }
-.label-filters,
-.page-labels {
+.project-filters,
+.page-projects {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -19,19 +19,19 @@
   padding: 0;
   list-style: none;
 }
-.label-filters {
+.project-filters {
   margin-top: 12px;
 }
 /* A flex item's minimum width is its content: without this a long label keeps its list item (and
  * the button's own max-width: 100%, which has nothing definite to resolve against) wider than the
  * row, so the page scrolls sideways. The button then clips its name with an ellipsis. */
-.label-filters > li,
-.page-labels > li {
+.project-filters > li,
+.page-projects > li {
   min-width: 0;
   max-width: 100%;
 }
-.label-filter-button,
-.page-label {
+.project-filter-button,
+.page-project {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -48,30 +48,30 @@
   line-height: var(--tmt-ui-caption-line-height);
   cursor: pointer;
 }
-.label-filter-button > span:first-child,
-.page-label {
+.project-filter-button > span:first-child,
+.page-project {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.label-filter-button[aria-pressed='true'],
-.page-label[aria-pressed='true'] {
+.project-filter-button[aria-pressed='true'],
+.page-project[aria-pressed='true'] {
   border-color: var(--tmt-ui-color-text);
   box-shadow: inset 0 0 0 1px var(--tmt-ui-color-text);
 }
-.label-filter-button:focus-visible,
-.page-label:focus-visible {
+.project-filter-button:focus-visible,
+.page-project:focus-visible {
   outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
   outline-offset: 1px;
 }
-.label-count {
+.project-count {
   color: var(--tmt-ui-color-secondary);
 }
 /* Pressed is neutral like every selection; colour stays on the diamond alone. */
 .needs-filter-mark {
   color: var(--tmt-ui-color-waiting);
 }
-.page-labels {
+.page-projects {
   margin-top: 4px;
   white-space: normal;
 }

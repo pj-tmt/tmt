@@ -178,6 +178,6 @@ is the oracle.
 
 `project-name-v1.json` holds the project name grammar (colab-v1, "Projects"): `valid` and
 `invalid` names, written with `\u` escapes where the character is invisible. The owner store
-(`projects::valid`) and the browser (`labelNameError`) each read it, so the two cannot drift: the
+(`projects::valid`) and the browser (`projectNameError`) each read it, so the two cannot drift: the
 grammar is Unicode `White_Space` (not JavaScript `\s`, which also takes U+FEFF) and Unicode
 control characters. Edit the cases by hand and run both tests.

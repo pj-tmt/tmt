@@ -1,45 +1,45 @@
-.label-form {
+.project-form {
   display: grid;
   gap: 12px;
 }
-.label-pages {
+.project-pages {
   margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
 }
-.label-pages legend {
+.project-pages legend {
   padding: 0;
   font-weight: 600;
 }
-.label-hint {
+.project-hint {
   margin: 4px 0 8px;
   color: var(--tmt-ui-color-secondary);
 }
-.label-pages ul,
-.label-manage {
+.project-pages ul,
+.project-manage {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.label-pages ul {
+.project-pages ul {
   max-height: 40dvh;
   overflow-y: auto;
   border: 1px solid var(--tmt-ui-color-edge);
 }
-.label-pages li {
+.project-pages li {
   padding: 6px 8px;
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
-.label-pages .checkbox-label {
+.project-pages .checkbox-label {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
-.label-pages li:last-child {
+.project-pages li:last-child {
   border-bottom: 0;
 }
-.label-manage li {
+.project-manage li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -47,42 +47,42 @@
   padding: 8px 0;
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
-.label-manage-text {
+.project-manage-text {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 12px;
   min-width: 0;
 }
-.label-manage-name {
+.project-manage-name {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.label-manage-count {
+.project-manage-count {
   color: var(--tmt-ui-color-secondary);
 }
-.label-manage-actions {
+.project-manage-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 @media (max-width: 480px) {
-  .label-manage li {
+  .project-manage li {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.label-actions {
+.project-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
-.label-footer {
+.project-footer {
   margin-top: 16px;
 }
-.label-error {
+.project-error {
   margin: 0;
 }
-.label-error[data-tone='ok'] {
+.project-error[data-tone='ok'] {
   color: var(--tmt-ui-color-secondary);
 }

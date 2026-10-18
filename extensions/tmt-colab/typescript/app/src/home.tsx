@@ -4,17 +4,17 @@ import { BrowserAction, BrowserList, BrowserListRow, BrowserMenu } from '@tmt/br
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Settings, Tag } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { LabelWriting, ManageLabelsDialog, NewLabelDialog } from './label-dialogs.js';
+import { ProjectWriting, ManageProjectsDialog, NewProjectDialog } from './project-dialogs.js';
 import {
-  applyLabelChanges,
+  applyProjectChanges,
   authorCounts,
   waitingCount,
   filterPages,
-  labelCounts,
-  labelNameError,
-  withLabel,
+  projectCounts,
+  projectNameError,
+  withProject,
   type PageSort,
-} from './labels.js';
+} from './projects.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
 import { ManagementError } from './management.js';
 import { ManagePage } from './manage-page.js';
@@ -23,7 +23,7 @@ import {
   editFromSearch,
   PageListSearch,
   searchFromEdit,
-  toggleLabel,
+  toggleProject,
   type SearchEdit,
 } from './page-list-search.js';
 import { RetentionHint } from './retention-hint.js';
@@ -37,7 +37,7 @@ const homeRoute = getRouteApi('/');
 /** The query that may filter and order the list (and a copied URL), bounded and validated. */
 export interface HomeSearch {
   q?: string;
-  label?: string[];
+  project?: string[];
   by?: string[];
   sort?: 'title';
   archived?: true;
@@ -49,22 +49,23 @@ export interface HomeSearch {
 export function validateHomeSearch(search: Record<string, unknown>): HomeSearch {
   const out: HomeSearch = {
     q: undefined,
-    label: undefined,
+    project: undefined,
     by: undefined,
     sort: undefined,
     archived: undefined,
     needs: undefined,
   };
   if (typeof search.q === 'string' && search.q.trim()) out.q = search.q.trim().slice(0, 256);
-  if (Array.isArray(search.label)) {
+  if (Array.isArray(search.project)) {
     const names = [
       ...new Set(
-        search.label.filter(
-          (name): name is string => typeof name === 'string' && labelNameError(name) === undefined,
+        search.project.filter(
+          (name): name is string =>
+            typeof name === 'string' && projectNameError(name) === undefined,
         ),
       ),
     ].slice(0, 8);
-    if (names.length) out.label = names;
+    if (names.length) out.project = names;
   }
   if (Array.isArray(search.by)) {
     const names = [
@@ -114,7 +115,7 @@ function PageListActions({ page }: { page: PageSummary }) {
   );
 }
 
-function PageLabelsMenu({
+function PageProjectsMenu({
   page,
   names,
   toggle,
@@ -129,7 +130,7 @@ function PageLabelsMenu({
   const full = carried.size >= 8;
   return (
     <BrowserMenu
-      label={t.labelsFor(pageTitle(page))}
+      label={t.projectsFor(pageTitle(page))}
       icon={<Tag />}
       items={[
         ...names.map((name) => {
@@ -144,7 +145,7 @@ function PageLabelsMenu({
         }),
         {
           key: 'new',
-          label: t.newLabelItem,
+          label: t.newProjectItem,
           ...(full ? { disabled: true, disabledReason: t.pageFull } : {}),
         },
       ]}
@@ -201,18 +202,18 @@ export function Home() {
   const archived = !!port && search.archived === true;
   const sort: PageSort = search.sort ?? 'updated';
   const filter = {
-    labels: search.label ?? [],
+    projects: search.project ?? [],
     authors: search.by ?? [],
     text: search.q ?? '',
     needsYou: search.needs === true,
   };
   const shown = homePages.filter((p) => Boolean(p.archived) === archived);
   const pages = filterPages(shown, filter, sort);
-  const counts = labelCounts(shown);
+  const counts = projectCounts(shown);
   const waiting = waitingCount(shown);
   const showNeeds = waiting > 0 || filter.needsYou;
   const authors = authorCounts(shown);
-  const allNames = labelCounts(space.pages).map((label) => label.name);
+  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useSpaceTitle(space.title, text.product);
@@ -221,25 +222,25 @@ export function Home() {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
   }
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
-  const applied = JSON.stringify([filter.labels, filter.authors, filter.text]);
+  const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
   const lastApplied = useRef(applied);
   const [edit, setEdit] = useState(() =>
-    editFromSearch(filter.labels, filter.text, filter.authors),
+    editFromSearch(filter.projects, filter.text, filter.authors),
   );
   const [resetKey, setResetKey] = useState(0);
   useEffect(() => {
     if (applied === lastApplied.current) return;
     lastApplied.current = applied;
-    setEdit(editFromSearch(filter.labels, filter.text, filter.authors));
+    setEdit(editFromSearch(filter.projects, filter.text, filter.authors));
     setResetKey((key) => key + 1);
     // `applied` is the whole dependency: it is the serialized filter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applied]);
   function apply(next: SearchEdit) {
-    const { labels, authors, q } = searchFromEdit(next);
-    lastApplied.current = JSON.stringify([labels, authors, q]);
+    const { projects, authors, q } = searchFromEdit(next);
+    lastApplied.current = JSON.stringify([projects, authors, q]);
     setSearch({
-      label: labels.length ? labels : undefined,
+      project: projects.length ? projects : undefined,
       by: authors.length ? authors : undefined,
       q: q || undefined,
     });
@@ -254,11 +255,20 @@ export function Home() {
   const [dialog, setDialog] = useState<
     { kind: 'new'; initial: string[] } | { kind: 'manage' } | undefined
   >();
-  const writing: LabelWriting = {
+  const writing: ProjectWriting = {
     async save(changes) {
-      const outcome = await applyLabelChanges(port!, changes);
+      const outcome = await applyProjectChanges(port!, changes);
       if (outcome.updated) await router.invalidate();
       return outcome;
+    },
+    async manage(change) {
+      try {
+        await port!.manageProject(change);
+      } catch (failure) {
+        return { failure };
+      }
+      await router.invalidate();
+      return {};
     },
     failureText(failure) {
       const code = failure instanceof ManagementError ? failure.code : 'UNKNOWN';
@@ -266,7 +276,7 @@ export function Home() {
     },
   };
   async function toggleOnPage(page: PageSummary, name: string) {
-    const change = withLabel(page, name, !page.projects?.includes(name));
+    const change = withProject(page, name, !page.projects?.includes(name));
     if (change === 'capacity')
       return setStatus({ text: `${pageTitle(page)}: ${t.pageFull}`, failed: true });
     const outcome = await writing.save([change]);
@@ -278,7 +288,10 @@ export function Home() {
   }
   const sortLabel = t.sortOptions[sort];
   const filtered =
-    filter.labels.length > 0 || filter.authors.length > 0 || filter.text !== '' || filter.needsYou;
+    filter.projects.length > 0 ||
+    filter.authors.length > 0 ||
+    filter.text !== '' ||
+    filter.needsYou;
   return (
     <section className="home">
       <p className="eyebrow">{text.pages}</p>
@@ -290,7 +303,7 @@ export function Home() {
             edit={edit}
             onChange={setEdit}
             resetKey={resetKey}
-            labels={counts}
+            projects={counts}
             authors={authors}
             onApply={apply}
             onClear={() => {
@@ -321,7 +334,7 @@ export function Home() {
                 role: 'menuitemcheckbox' as const,
                 checked: archived,
               },
-              { key: 'labels', label: `${t.manageLabels}…` },
+              { key: 'projects', label: `${t.manageProjects}…` },
             ]}
             onSelect={(key) =>
               key === 'archived'
@@ -332,12 +345,12 @@ export function Home() {
         )}
       </div>
       {(counts.length > 0 || port || showNeeds) && (
-        <ul className="label-filters" aria-label={t.filters}>
+        <ul className="project-filters" aria-label={t.filters}>
           {showNeeds && (
             <li>
               <button
                 type="button"
-                className="label-filter-button needs-filter-button"
+                className="project-filter-button needs-filter-button"
                 data-needs-filter
                 aria-pressed={filter.needsYou}
                 aria-label={t.needsYouFilter(waiting)}
@@ -351,7 +364,7 @@ export function Home() {
                   </span>{' '}
                   {t.needsYou}
                 </span>
-                <span className="label-count" aria-hidden="true">
+                <span className="project-count" aria-hidden="true">
                   {waiting}
                 </span>
               </button>
@@ -361,15 +374,15 @@ export function Home() {
             <li key={name}>
               <button
                 type="button"
-                className="label-filter-button"
-                aria-pressed={filter.labels.includes(name)}
-                aria-label={t.labelFilter(name, count)}
+                className="project-filter-button"
+                aria-pressed={filter.projects.includes(name)}
+                aria-label={t.projectFilter(name, count)}
                 onClick={(event) => {
-                  if (event.isTrusted) replaceDraft(toggleLabel(edit, name));
+                  if (event.isTrusted) replaceDraft(toggleProject(edit, name));
                 }}
               >
                 <span>{name}</span>
-                <span className="label-count" aria-hidden="true">
+                <span className="project-count" aria-hidden="true">
                   {count}
                 </span>
               </button>
@@ -380,7 +393,7 @@ export function Home() {
               <BrowserAction
                 type="button"
                 variant="text"
-                label={`+ ${t.newLabel}`}
+                label={`+ ${t.newProject}`}
                 onActivate={() => setDialog({ kind: 'new', initial: [] })}
               />
             </li>
@@ -411,15 +424,15 @@ export function Home() {
                       </span>
                     ) : null}
                     {p.projects?.length ? (
-                      <ul className="page-labels" aria-label={t.labels}>
+                      <ul className="page-projects" aria-label={t.projects}>
                         {p.projects.map((name) => (
                           <li key={name}>
                             <button
                               type="button"
-                              className="page-label"
-                              aria-pressed={filter.labels.includes(name)}
+                              className="page-project"
+                              aria-pressed={filter.projects.includes(name)}
                               onClick={(event) => {
-                                if (event.isTrusted) replaceDraft(toggleLabel(edit, name));
+                                if (event.isTrusted) replaceDraft(toggleProject(edit, name));
                               }}
                             >
                               {name}
@@ -443,9 +456,9 @@ export function Home() {
                 actions={
                   port ? (
                     <>
-                      <PageLabelsMenu
+                      <PageProjectsMenu
                         page={p}
-                        names={allNames}
+                        names={projectNames}
                         toggle={(page, name) => void toggleOnPage(page, name)}
                         create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
                       />
@@ -483,18 +496,18 @@ export function Home() {
       )}
       {port && (
         <>
-          <NewLabelDialog
+          <NewProjectDialog
             open={dialog?.kind === 'new'}
             pages={space.pages}
+            existing={projectNames}
             initial={dialog?.kind === 'new' ? dialog.initial : []}
             writing={writing}
             onClose={() => setDialog(undefined)}
           />
-          <ManageLabelsDialog
+          <ManageProjectsDialog
             open={dialog?.kind === 'manage'}
             pages={space.pages}
-            labels={labelCounts(space.pages)}
-            readPages={async () => (await transport.spaceHome()).pages}
+            projects={projectCounts(space.pages, space.projects)}
             writing={writing}
             onClose={() => setDialog(undefined)}
           />

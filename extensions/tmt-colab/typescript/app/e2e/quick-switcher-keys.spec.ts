@@ -43,7 +43,7 @@ for (const width of [1440, 390]) {
     await mount(page);
     await expect(input(page)).toHaveAttribute(
       'data-placeholder',
-      'Search pages, labels or authors…',
+      'Search pages, projects or authors…',
     );
     await expectActive(page, 'Beta review');
     await page.keyboard.press('ArrowUp');
@@ -64,12 +64,12 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('label and author suggestions own the first Enter and active-descendant without replacing the editable', async ({
+test('project and author suggestions own the first Enter and active-descendant without replacing the editable', async ({
   page,
 }) => {
   await mount(page);
   await input(page).evaluate((node) => Object.assign(window, { originalSearchRoot: node }));
-  await page.keyboard.type('label:des');
+  await page.keyboard.type('project:des');
   const suggestions = dialog(page).getByRole('listbox', { name: 'Search pages', exact: true });
   await expect(suggestions.getByRole('option')).toHaveText(['design (2)']);
   await expect(input(page)).toHaveAttribute(
@@ -78,7 +78,7 @@ test('label and author suggestions own the first Enter and active-descendant wit
   );
   await page.keyboard.press('Enter');
   await expect(
-    dialog(page).getByRole('button', { name: 'Remove label filter design' }),
+    dialog(page).getByRole('button', { name: 'Remove project filter design' }),
   ).toBeVisible();
   await expect(list(page).getByRole('option')).toHaveCount(2);
   expect((await reads(page)).pageReads).toEqual([]);
@@ -105,9 +105,9 @@ test('chip Enter removes only its filter; Tab never opens a result and Escape re
   page,
 }) => {
   await mount(page);
-  await page.keyboard.type('label:des');
+  await page.keyboard.type('project:des');
   await page.keyboard.press('Enter');
-  const chip = dialog(page).getByRole('button', { name: 'Remove label filter design' });
+  const chip = dialog(page).getByRole('button', { name: 'Remove project filter design' });
   await chip.focus();
   await page.keyboard.press('Enter');
   await expect(chip).toHaveCount(0);
@@ -126,7 +126,7 @@ test('Escape closes suggestions first, then the dialog, and empty matches cannot
   page,
 }) => {
   await mount(page);
-  await page.keyboard.type('label:des');
+  await page.keyboard.type('project:des');
   const suggestions = dialog(page).getByRole('listbox', { name: 'Search pages', exact: true });
   await expect(suggestions).toBeVisible();
   await page.keyboard.press('Escape');

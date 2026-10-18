@@ -41,7 +41,7 @@ export function mount() {
     retentionDays: 30,
     expiresAtMs: null,
     warnings: [],
-    labels: [],
+    projects: [],
     source: `<h1>${title}</h1><p>Body of ${title}.</p>`,
   }));
   const base = localTransport('Studio pages', snapshots);

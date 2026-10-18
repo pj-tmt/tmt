@@ -74,6 +74,8 @@ export interface PageBinding {
 }
 export interface SpaceHome {
   readonly title: string;
+  /** Every project of the space, those with no page too; absent where a source has none. */
+  readonly projects?: readonly string[];
   readonly pages: readonly PageSummary[];
   readonly pageIds?: readonly PageId[];
 }

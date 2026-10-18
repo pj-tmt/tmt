@@ -158,7 +158,7 @@ focus, caret and selection. A caller without mentions uses
 `plainRichInputDocument`; it receives no recipient, transport or send capability.
 `rich-input-document.ts` also owns the token, caret and range helpers both callers use
 (`$richInputTokens`, `$richInputCaret`, `$selectRichInputRange`, `$replaceRichInput` with
-caller tokens), so the composer's mentions and the page list's `label:`/`by:` tokens share one
+caller tokens), so the composer's mentions and the page list's `project:`/`by:` tokens share one
 document model and no second editor exists. Exact 0.52.0
 `lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
 runtime dependencies; only plaintext/history extensions are imported. The source
@@ -563,32 +563,33 @@ owners report lifetime separately from stale-outcome presentation fences.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `label[]`, `by[]`, `sort`, `archived`, `needs`; the router merges its result
+(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `archived`, `needs`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
-rich input with one `FilterTokenNode` for `label:` and `by:`) holds only a draft until Enter
+rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
 applies it, and a chip click or token removal applies at once. A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it and holds `AUTHOR_BYTES` and
 `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
 `◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
 summary shows only what the list already knows, with no placeholder. The `Needs you N` chip beside
-the label chips sets `needs=true` in that search and keeps the pages whose summary is `waiting`
-(`needsYou > 0`; an unknown summary is never counted); it combines with the label, creator and
-text filters, and the list's clear action removes it. `labels.ts` is pure: label grammar (the owner
-store's), counts, filtering and sorting, the whole-set `withLabel` change and the
-`relabel` planner that rename and delete use over every page carrying the name, archived
-included, whatever the list shows. `applyLabelChanges` sends `LABEL_REQUEST_PAGES`
+the project chips sets `needs=true` in that search and keeps the pages whose summary is `waiting`
+(`needsYou > 0`; an unknown summary is never counted); it combines with the project, creator and
+text filters, and the list's clear action removes it. `projects.ts` is pure: project grammar (the owner
+store's), counts (`projectCounts` also lists the space's projects that no page is in), filtering and
+sorting, and the whole-set `withProject` change. `applyProjectChanges` sends `PROJECT_REQUEST_PAGES`
 (64) pages per request in ascending order, sequentially: each request is atomic on the owner,
-the batch is not, and a failed batch reports "Updated N of M" so a retry (which re-reads the
-space and plans only what remains) converges. `ManagementClient.setLabels` signs a
-`page.projects` request with an empty `expectedRevision` (no view, head or verification: projects
-are display-only and the reply is only checked for shape); the app's label vocabulary becomes
-project vocabulary in the follow-up browser slice of #3747. Management controls (the page
-menu, list options, label dialogs) render only when the transport has `management`; a reader
+the batch is not, and a failed batch reports "Updated N of M" so a retry converges. Creating,
+renaming and deleting a project are one `project.manage` request each, whatever the number of
+pages: the dialogs call `ManagementPort.manageProject`, so there is no batch to resume. `ManagementClient`
+signs `page.projects` and `project.manage` requests with an empty `expectedRevision` (no view, head or
+verification: projects are display-only and the reply is only checked for shape); a `project.manage`
+frame names `SPACE_SCOPE_PAGE`. The space's project names reach the list as `SpaceHome.projects`
+(the discovery reply's top-level `projects`), so an empty project shows in the page menu and the manager. Management controls (the page
+menu, list options, project dialogs) render only when the transport has `management`; a reader
 keeps search, sort and filters because `projects` arrive in `/api/pages`. The list-options gear is
 icon-only, so the shown set names itself in the `page-list-status` line ("Archived pages");
-the label chips count the pages shown, while the manage dialog counts every page carrying the
-name and says how many of them are archived.
+the project chips count the pages shown, while the manage dialog counts every page in the
+project and says how many of them are archived.
 `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
 its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
 from the verified complete catalog, including retained deleted IDs, before
