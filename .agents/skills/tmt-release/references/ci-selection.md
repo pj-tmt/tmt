@@ -24,8 +24,10 @@ excluding fences, inline code and HTML comments; it does not fetch URLs or valid
   empty selection. Include deletions and both sides of renames.
 - Ordered component-map rules select native work. Shared, unknown and unreadable
   inputs conservatively retain full native verification. Prose with no build or
-  runtime consumers selects only Code quality. The selector records owner, rule, selection and map digest
-  for each path in the run summary.
+  runtime consumers selects only Code quality. Selection is computed over every
+  changed path, and the selector records owner, rule, selection and map digest for
+  each; the run summary lists the first 100 paths in detail and groups the rest by
+  rule with counts.
 - If every native-selecting path is Ops-owned, scope is `ops`: retain its
   Cargo checks, architecture guard, native tests and E2E file under the existing
   job names, and skip unchanged CLI runtime builds, packed installs and tooling
