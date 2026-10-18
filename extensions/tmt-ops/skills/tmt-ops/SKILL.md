@@ -1073,8 +1073,8 @@ recipient. The quote carries the response/request identity and source byte
 range. Selecting text never acknowledges a request. If the source changes or the
 agent disappears, the retained text can still be read/copied but cannot be attached
 to another response. The composer shows a readable author/excerpt quote caption;
-its remove control or Alt-Backspace removes the most recent quote while keeping
-message text. Details shows bounded, frozen provenance only for quotes matching
+its remove control removes the most recent quote while keeping message text.
+Alt-Backspace deletes the word before the draft cursor. Details shows bounded, frozen provenance only for quotes matching
 both the selected source UUID and the draft's actual recipient UUID, including
 full request/identity and exact byte range.
 For terminal-native selection, use the terminal's mouse-capture bypass modifier

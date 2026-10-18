@@ -4244,7 +4244,7 @@ fn pasted_search_filters_immediately_without_starting_a_composer() {
     let before = app.search.clone();
     app.paste(&"x".repeat(crate::board::search_field::MAX_BYTES));
     assert_eq!(app.search, before);
-    assert_eq!(app.workspace.query, before);
+    assert_eq!(app.workspace.query, before.as_str());
 }
 
 #[test]
@@ -4331,7 +4331,7 @@ fn capture_search_notice_packet() {
                             "actions":format!("{:?}",app.workspace_action_hits.borrow()),
                             "conversationHeaderHits":app.conversation.borrow().header_hits.len(),
                             "hasComposer":app.input.is_some(),
-                            "searching":app.searching,"query":app.search}));
+                            "searching":app.searching,"query":app.search.as_str()}));
                     }
                 }
             }
@@ -4534,7 +4534,7 @@ fn capture_agent_pin_packet() {
                         captures.push(json!({ "tab":format!("{tab:?}"), "scene":scene, "width":width,"height":51,"theme":base,"depth":format!("{depth:?}"),"cells":cells,"lines":lines,
                             "selected":format!("{:?}",app.workspace.selected),"view":format!("{:?}",app.overview_view),"filter":format!("{:?}",app.workspace.filter),
                             "pinState":app.workspace_is_pinned(),"pinHint":crate::board::view::footer::hint_word(&app,&pin),"bindings":app.bindings().iter().map(|(key,action)| (key.clone(),action.text.clone())).collect::<std::collections::BTreeMap<_,_>>(),
-                            "rows":app.workspace_rows().iter().map(|row| format!("{:?}",row.target)).collect::<Vec<_>>(), "hits":format!("{:?}",app.hits.borrow()),"actions":format!("{:?}",app.workspace_action_hits.borrow()),"searching":app.searching,"query":app.search,"hasComposer":app.input.is_some() }));
+                            "rows":app.workspace_rows().iter().map(|row| format!("{:?}",row.target)).collect::<Vec<_>>(), "hits":format!("{:?}",app.hits.borrow()),"actions":format!("{:?}",app.workspace_action_hits.borrow()),"searching":app.searching,"query":app.search.as_str(),"hasComposer":app.input.is_some() }));
                     }
                 }
             }

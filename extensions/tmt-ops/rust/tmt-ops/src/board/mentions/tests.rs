@@ -277,7 +277,11 @@ fn cron_message_completes_plain_text_but_schedule_is_not_a_message_field() {
     )));
     assert_eq!(app.cron_key('E', Some(&id)), Effect::None);
     assert!(app.message_field());
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(
+        KeyCode::End,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
     key(&mut app, KeyCode::Backspace);
     for ch in "@product".chars() {
         key(&mut app, KeyCode::Char(ch));
@@ -345,7 +349,11 @@ fn message_surface(name: &str) -> App {
         }
         _ => unreachable!(),
     }
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+    app.key(KeyEvent::new(
+        KeyCode::End,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    ));
     key(&mut app, KeyCode::Backspace);
     app
 }
@@ -371,7 +379,11 @@ fn every_message_surface_owns_literal_keys_completion_escape_and_painted_mouse_c
         assert_eq!(key(&mut app, KeyCode::Esc), Effect::None);
         assert!(!app.mentions.completion.open() && app.input.is_some());
         assert_eq!(app.reference_editor().unwrap().as_str(), "@pxoj1");
-        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+        app.key(KeyEvent::new(
+            KeyCode::End,
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        ));
         key(&mut app, KeyCode::Backspace);
         for ch in "@docs".chars() {
             key(&mut app, KeyCode::Char(ch));

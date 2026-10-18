@@ -165,7 +165,11 @@ fn conversation_frame_timing() {
                 let payload = "x".repeat(kib * 1024);
                 let mut samples = Vec::new();
                 for _ in 0..100 {
-                    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+                    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+                    app.key(KeyEvent::new(
+                        KeyCode::End,
+                        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+                    ));
                     app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
                     measure(&mut app, &mut terminal, |_, _| {});
                     samples.push(measure(&mut app, &mut terminal, |app, _| {
@@ -389,7 +393,11 @@ fn workspace_ansi_phase_timing() {
                 let mut samples = Vec::new();
                 for index in 0..100 {
                     if action == "paste-100KiB" {
-                        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+                        app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+                        app.key(KeyEvent::new(
+                            KeyCode::End,
+                            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+                        ));
                         app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
                         ansi_measure(&mut app, &mut terminal, &sink, &mut previous, |_| {});
                     }

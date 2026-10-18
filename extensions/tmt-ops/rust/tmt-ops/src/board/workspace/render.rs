@@ -508,7 +508,7 @@ fn agents_controls(
         inside,
         &[("all", "All"), ("pinned", "Pinned")],
         usize::from(app.workspace.filter == AgentsFilter::Pinned),
-        &app.workspace.query,
+        &app.search,
         app,
     ) {
         let choice = match hit.id.as_str() {

@@ -247,12 +247,12 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("Enter", "while typing, send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
         ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced terminal key reporting"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
-        ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A selects all"),
+        ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A/E: line edges"),
         ("click / drag", "place the caret or select text; terminal IME commits arrive as ordinary input"),
         ("paste / Ctrl-P", "bracketed paste never sends; large pastes fold, Ctrl-P previews the range at the caret, Backspace/Delete removes a folded range"),
         ("@", "search agent and squad references; mentions are text only and never broadcast"),
         ("response: s", "select exact response source with Shift-arrows or drag; y copies, a attaches its request and byte range to a draft without acknowledging it"),
-        ("Alt-Backspace", "remove the last response quote from the draft"),
+        ("Alt-Backspace", "delete the word before the draft cursor"),
         ("native selection", "use the terminal emulator's selection override modifier, or use source selection inside the response reader"),
     ]));
     KeyHelp { sections }

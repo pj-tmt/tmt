@@ -495,7 +495,7 @@ fn layers_share_by_name_and_reset_only_the_selected_file() {
     first.workspace.filter = super::super::workspace::AgentsFilter::Pinned;
     first.overview_view = super::super::overview::monitor::View::Agents;
     first.search = "committed".into();
-    first.workspace.query = first.search.clone();
+    first.workspace.query = first.search.to_string();
     first.workspace.order = Some(Order {
         agents: crate::config::OpsSort::Members,
         reversed: true,
@@ -581,7 +581,7 @@ fn search_draft_and_invalid_controls_never_replace_a_good_hint() {
     session.tick(&mut app, Instant::now());
     app.searching = true;
     app.search = "draft".into();
-    app.workspace.query = app.search.clone();
+    app.workspace.query = app.search.to_string();
     session.flush(&mut app, Instant::now());
     assert_eq!(fs::read(scratch.file()).unwrap(), bytes);
     let value: Value = serde_json::from_slice(&bytes).unwrap();

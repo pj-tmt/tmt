@@ -91,7 +91,7 @@ impl App {
             follow: self.follow,
             scrolls: self.scrolls.offsets(),
             expanded: self.row_details.expanded.clone(),
-            search: self.search.clone(),
+            search: self.search.to_string(),
             tab,
         })
     }
@@ -119,7 +119,7 @@ impl App {
         let Some(resume) = self.pending_resume.take() else {
             return;
         };
-        self.search = resume.search;
+        self.search = resume.search.into();
         if let Some(controls) = resume.controls {
             controls.apply(self);
         }

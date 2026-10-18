@@ -115,7 +115,7 @@ Maintained module reference. Commands and admitted spellings are in [development
   and frame presentation stay with the application. NO_COLOR (`Depth::None`) uses
   steady `[busy]` text instead of animation. Rows and status can be composed into one
   completed buffer; collection replacement still computes its own geometry.
-- `Picker` owns bounded grapheme query editing and returns query changes,
+- `Picker` delegates its bounded query editing to `Editor` and returns query changes,
   selection changes, confirmation or cancellation. The application filters
   projected data, routes focused fields and owns previews, saves and rollback.
 - Rendering injects Theme/Depth and the selection policy, keeps semantic roles

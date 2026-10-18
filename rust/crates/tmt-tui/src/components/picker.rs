@@ -1,6 +1,6 @@
 //! Query editing and neutral picker outcomes. Filtering, preview, save and
 //! cancellation rollback are application-owned; Ctrl-C stays in app::route.
-use super::{ListEvent, ListFrame, ListRow, ListState};
+use super::{Editor, ListEvent, ListFrame, ListRow, ListState};
 use ratatui::crossterm::event::{
     Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
@@ -35,8 +35,7 @@ pub enum PickerField {
 #[derive(Debug, Default)]
 pub struct Picker {
     pub list: ListState,
-    query: Option<String>,
-    cursor: usize,
+    query: Option<Editor>,
 }
 impl Picker {
     /// None makes a selection-only picker; Some enables an editable query.
@@ -48,8 +47,7 @@ impl Picker {
             return Err("picker query exceeds 4096 bytes".into());
         }
         Ok(Self {
-            cursor: query.as_ref().map_or(0, String::len),
-            query,
+            query: query.map(Editor::from),
             list: ListState::default(),
         })
     }
@@ -66,14 +64,14 @@ impl Picker {
             .map(|id| PickerEvent::Changed(id.into())))
     }
     pub fn query(&self) -> Option<&str> {
-        self.query.as_deref()
+        self.query.as_ref().map(Editor::as_str)
     }
     /// Bind this display value to the query slot. Escaping and grapheme fitting
     /// still belong to the existing text owner, including the cursor mark.
     pub fn query_display(&self) -> Option<String> {
         self.query
             .as_ref()
-            .map(|query| format!("{}▏{}", &query[..self.cursor], &query[self.cursor..]))
+            .map(|query| format!("{}▏{}", &query[..query.cursor()], &query[query.cursor()..]))
     }
 
     /// Bind a horizontal query window when the input is narrower than its text.
@@ -85,8 +83,8 @@ impl Picker {
             return Some(String::new());
         }
         let mut budget = usize::from(width).saturating_sub(1);
-        let mut start = self.cursor;
-        for (index, part) in query[..self.cursor].grapheme_indices(true).rev() {
+        let mut start = query.cursor();
+        for (index, part) in query[..query.cursor()].grapheme_indices(true).rev() {
             let cells = escape(part).width();
             if cells > budget {
                 break;
@@ -94,8 +92,8 @@ impl Picker {
             start = index;
             budget -= cells;
         }
-        let mut end = self.cursor;
-        for part in query[self.cursor..].graphemes(true) {
+        let mut end = query.cursor();
+        for part in query[query.cursor()..].graphemes(true) {
             let cells = escape(part).width();
             if cells > budget {
                 break;
@@ -105,8 +103,8 @@ impl Picker {
         }
         Some(format!(
             "{}▏{}",
-            &query[start..self.cursor],
-            &query[self.cursor..end]
+            &query[start..query.cursor()],
+            &query[query.cursor()..end]
         ))
     }
     /// Convenience for a filter picker whose query remains focused. Consumers
@@ -125,12 +123,41 @@ impl Picker {
         frame: &ListFrame,
         field: PickerField,
     ) -> Option<PickerInput> {
+        if field == PickerField::Query
+            && let Some(query) = &mut self.query
+            && let Event::Key(key) = event
+            && !matches!(
+                key.code,
+                KeyCode::Esc
+                    | KeyCode::Enter
+                    | KeyCode::Tab
+                    | KeyCode::BackTab
+                    | KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::PageUp
+                    | KeyCode::PageDown
+            )
+        {
+            let before = query.as_str().to_owned();
+            if query.key(*key, u16::MAX, MAX_QUERY_BYTES) {
+                return Some(if query.as_str() == before {
+                    PickerInput::Captured
+                } else {
+                    PickerInput::Event(PickerEvent::QueryChanged(query.to_string()))
+                });
+            }
+            return None;
+        }
         let accepted = match event {
             Event::Key(key)
                 if key.kind != KeyEventKind::Release
-                    && !key
-                        .modifiers
-                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                    && !key.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::ALT
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::HYPER
+                            | KeyModifiers::META,
+                    ) =>
             {
                 matches!(
                     key.code,
@@ -183,9 +210,13 @@ impl Picker {
     ) -> Option<PickerEvent> {
         if let Event::Key(key) = event {
             if key.kind == KeyEventKind::Release
-                || key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                || key.modifiers.intersects(
+                    KeyModifiers::CONTROL
+                        | KeyModifiers::ALT
+                        | KeyModifiers::SUPER
+                        | KeyModifiers::HYPER
+                        | KeyModifiers::META,
+                )
             {
                 return None;
             }
@@ -194,46 +225,6 @@ impl Picker {
                     && key.code == KeyCode::Char('q'))
             {
                 return Some(PickerEvent::Cancel);
-            }
-            if self.query.is_some() && field == PickerField::Query {
-                match key.code {
-                    KeyCode::Char(ch) => return self.edit(&ch.to_string()),
-                    KeyCode::Backspace
-                    | KeyCode::Delete
-                    | KeyCode::Left
-                    | KeyCode::Right
-                    | KeyCode::Home
-                    | KeyCode::End => {
-                        let query = self.query.as_mut().expect("editable query");
-                        let previous = query[..self.cursor]
-                            .grapheme_indices(true)
-                            .next_back()
-                            .map_or(0, |(index, _)| index);
-                        let next = query[self.cursor..]
-                            .graphemes(true)
-                            .next()
-                            .map_or(self.cursor, |part| self.cursor + part.len());
-                        match key.code {
-                            KeyCode::Left => self.cursor = previous,
-                            KeyCode::Right => self.cursor = next,
-                            KeyCode::Home => self.cursor = 0,
-                            KeyCode::End => self.cursor = query.len(),
-                            KeyCode::Backspace if previous < self.cursor => {
-                                query.replace_range(previous..self.cursor, "");
-                                self.cursor = cursor_boundary(query, previous);
-                                return Some(PickerEvent::QueryChanged(query.clone()));
-                            }
-                            KeyCode::Delete if next > self.cursor => {
-                                query.replace_range(self.cursor..next, "");
-                                self.cursor = cursor_boundary(query, self.cursor);
-                                return Some(PickerEvent::QueryChanged(query.clone()));
-                            }
-                            _ => {}
-                        }
-                        return None;
-                    }
-                    _ => {}
-                }
             }
         }
         if let Event::Paste(value) = event {
@@ -250,25 +241,11 @@ impl Picker {
     }
     fn edit(&mut self, value: &str) -> Option<PickerEvent> {
         let query = self.query.as_mut()?;
-        if value.is_empty() || query.len().saturating_add(value.len()) > MAX_QUERY_BYTES {
+        if value.is_empty() || !query.insert(value, MAX_QUERY_BYTES) {
             return None;
         }
-        query.insert_str(self.cursor, value);
-        self.cursor += value.len();
-        // Combining input can join adjacent graphemes. Keep the edit cursor at
-        // the next valid boundary instead of splitting a grapheme on deletion.
-        self.cursor = cursor_boundary(query, self.cursor);
-        Some(PickerEvent::QueryChanged(query.clone()))
+        Some(PickerEvent::QueryChanged(query.to_string()))
     }
-}
-
-fn cursor_boundary(query: &str, cursor: usize) -> usize {
-    query
-        .grapheme_indices(true)
-        .map(|(index, _)| index)
-        .chain(std::iter::once(query.len()))
-        .find(|index| *index >= cursor)
-        .unwrap_or(query.len())
 }
 
 #[cfg(test)]

@@ -207,7 +207,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 slot,
                 &[("agents", "Agents"), ("squads", "Squads")],
                 usize::from(!agents),
-                &app.workspace.query,
+                &app.search,
                 app,
             ) {
                 let choice = match hit.id.as_str() {

@@ -166,7 +166,9 @@ impl super::app::App {
         event: &ratatui::crossterm::event::Event,
     ) -> super::app::Effect {
         use super::app::{Effect, Request};
-        use ratatui::crossterm::event::{Event, KeyCode, MouseButton, MouseEventKind};
+        use ratatui::crossterm::event::{
+            Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+        };
         if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'v')))
         {
             self.row_details.reader = None;
@@ -236,20 +238,37 @@ impl super::app::App {
             let area = reader.source_area.get().unwrap_or_default();
             match event {
                 Event::Key(key)
-                    if matches!(
-                        key.code,
-                        KeyCode::Left
-                            | KeyCode::Right
-                            | KeyCode::Up
-                            | KeyCode::Down
-                            | KeyCode::Home
-                            | KeyCode::End
-                            | KeyCode::Char('a')
-                    ) =>
+                    if key.kind != KeyEventKind::Release
+                        && matches!(
+                            key.code,
+                            KeyCode::Left
+                                | KeyCode::Right
+                                | KeyCode::Up
+                                | KeyCode::Down
+                                | KeyCode::Home
+                                | KeyCode::End
+                                | KeyCode::Char('a')
+                        ) =>
                 {
                     // Plain a is handled above; Ctrl-A selects all. No character
                     // insertion or deletion reaches a read-only response.
-                    selection.source.key(*key, area.width, usize::MAX);
+                    if key.code == KeyCode::Char('a') && key.modifiers == KeyModifiers::CONTROL {
+                        selection.source.key(
+                            KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL),
+                            area.width,
+                            usize::MAX,
+                        );
+                        selection.source.key(
+                            KeyEvent::new(
+                                KeyCode::End,
+                                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+                            ),
+                            area.width,
+                            usize::MAX,
+                        );
+                    } else if !matches!(key.code, KeyCode::Char(_)) {
+                        selection.source.key(*key, area.width, usize::MAX);
+                    }
                     let row = selection.source.layout(area.width).cursor.0;
                     reader.scroll.borrow_mut().reveal(row..row + 1);
                     return Effect::None;

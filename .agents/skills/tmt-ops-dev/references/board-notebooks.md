@@ -157,7 +157,7 @@ the inline tag precedes the comment; task previews are not quoted automatically.
 One body projection supplies delivery and outgoing matching; attaching a source
 keeps an already admitted composer's recipient. The composer shows
 a bounded author/excerpt caption with a whole
-remove control; Alt-Backspace removes the last quote. Details freezes bounded
+remove control. Alt-Backspace deletes the previous word in the draft. Details freezes bounded
 quote provenance from the draft only when both recipient and source UUID match,
 including the full request/identity and exact byte range. Common pool quotations
 open a Talk follow-up to the same UUID rather than inventing squad membership.

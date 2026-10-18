@@ -102,9 +102,14 @@ fn controls_and_bidi_are_inert_but_raw_payload_is_preserved() {
     assert_eq!(editor.as_str(), raw);
 }
 #[test]
-fn select_all_replace_and_application_keys_remain_separate() {
+fn text_selection_replace_and_application_keys_remain_separate() {
     let mut editor = Editor::from("a\nb");
-    key(&mut editor, KeyCode::Char('a'), KeyModifiers::CONTROL);
+    key(&mut editor, KeyCode::Home, KeyModifiers::CONTROL);
+    key(
+        &mut editor,
+        KeyCode::End,
+        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+    );
     editor.insert("hello", 1024);
     assert_eq!(editor.as_str(), "hello");
     for code in [KeyCode::Enter, KeyCode::Esc, KeyCode::Tab] {
@@ -184,4 +189,119 @@ fn geometry_is_reused_for_paint_and_caret_but_invalidated_by_edits_and_resize() 
     painted.insert("!", 100);
     assert!(!std::rc::Rc::ptr_eq(&first.lines, &painted.layout(8).lines));
     assert!(!std::rc::Rc::ptr_eq(&first.lines, &editor.layout(10).lines));
+}
+
+#[test]
+fn standard_motions_and_deletions_use_unicode_words_and_visual_lines() {
+    use KeyCode::*;
+    use KeyModifiers as M;
+    let starts = [(Home, M::NONE), (Char('a'), M::CONTROL), (Left, M::SUPER)];
+    let ends = [(End, M::NONE), (Char('e'), M::CONTROL), (Right, M::SUPER)];
+    let left = [(Left, M::ALT), (Left, M::CONTROL), (Char('b'), M::ALT)];
+    let right = [(Right, M::ALT), (Right, M::CONTROL), (Char('f'), M::ALT)];
+    let del_left = [(Backspace, M::ALT), (Char('w'), M::CONTROL)];
+    let del_right = [(Delete, M::ALT), (Char('d'), M::ALT)];
+    let del_start = [(Char('u'), M::CONTROL), (Backspace, M::SUPER)];
+    let del_end = [(Char('k'), M::CONTROL)];
+    for (text, cursor, line_start, line_end, word_start, word_end, width) in [
+        ("one two!", 5, 0, 8, 4, 7, 80),
+        ("你我他", 3, 0, 9, 0, 6, 80),
+        ("top\none two!", 9, 4, 12, 8, 11, 80),
+        ("one two! tail", 5, 4, 8, 4, 7, 4),
+    ] {
+        for (aliases, target, deleting) in [
+            (&starts[..], line_start, false),
+            (&ends[..], line_end, false),
+            (&left[..], word_start, false),
+            (&right[..], word_end, false),
+            (&[(Home, M::CONTROL)][..], 0, false),
+            (&[(End, M::CONTROL)][..], text.len(), false),
+            (&del_left[..], word_start, true),
+            (&del_right[..], word_end, true),
+            (&del_start[..], line_start, true),
+            (&del_end[..], line_end, true),
+        ] {
+            for &(code, modifiers) in aliases {
+                for shift in [M::NONE, M::SHIFT] {
+                    let mut editor = Editor::from(text);
+                    editor.move_to(cursor, false);
+                    assert!(editor.key(KeyEvent::new(code, modifiers | shift), width, 1024));
+                    if deleting {
+                        assert_eq!(
+                            editor.as_str(),
+                            format!(
+                                "{}{}",
+                                &text[..cursor.min(target)],
+                                &text[cursor.max(target)..]
+                            )
+                        );
+                        let mut editor = Editor::from(text);
+                        editor.move_to(0, false);
+                        editor.move_to(cursor, true);
+                        assert!(editor.key(KeyEvent::new(code, modifiers | shift), width, 1024));
+                        assert_eq!(
+                            editor.as_str(),
+                            &text[cursor..],
+                            "selection wins for {code:?}"
+                        );
+                        assert!(editor.selection().is_empty());
+                    } else {
+                        assert_eq!(editor.cursor(), target, "{text:?} {code:?} {modifiers:?}");
+                        assert_eq!(
+                            editor.selection(),
+                            if shift.is_empty() {
+                                target..target
+                            } else {
+                                cursor.min(target)..cursor.max(target)
+                            }
+                        );
+                        assert_eq!(editor.as_str(), text);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn word_motion_keeps_combining_boundaries_and_collapsed_sources_atomic() {
+    let mut editor = Editor::from("hi, e\u{301} 你我");
+    let mut visited = Vec::new();
+    while editor.cursor() > 0 {
+        key(&mut editor, KeyCode::Left, KeyModifiers::ALT);
+        visited.push(editor.cursor());
+        assert_eq!(
+            boundary_after(editor.as_str(), editor.cursor()),
+            editor.cursor()
+        );
+    }
+    assert_eq!(
+        visited,
+        vec!["hi, e\u{301} 你".len(), "hi, e\u{301} ".len(), 4, 0]
+    );
+    let mut editor = Editor::from("prefix ");
+    assert!(editor.insert_folded("two hidden words", "paste".into(), 1024));
+    key(&mut editor, KeyCode::Left, KeyModifiers::ALT);
+    assert_eq!(editor.cursor(), 7);
+    key(&mut editor, KeyCode::Right, KeyModifiers::ALT);
+    assert_eq!(editor.cursor(), editor.len());
+}
+
+#[test]
+fn release_and_unassigned_modified_keys_leave_the_editor_untouched() {
+    use ratatui::crossterm::event::KeyEventKind;
+    let mut editor = Editor::from("keep");
+    for event in [
+        KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT),
+        KeyEvent::new(KeyCode::Left, KeyModifiers::ALT | KeyModifiers::CONTROL),
+        KeyEvent::new_with_kind(
+            KeyCode::Backspace,
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        ),
+    ] {
+        let before = editor.clone();
+        assert!(!editor.key(event, 80, 1024));
+        assert_eq!(editor, before);
+    }
 }
