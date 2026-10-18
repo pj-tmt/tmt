@@ -74,6 +74,20 @@ export function finishStatusNotice() {
   releaseStatusNotice = undefined;
 }
 /** The next status action fails before it is published, like a lost connection. */
+let sourceSaves = 0;
+let pageLoads = 0;
+/** Page snapshots the route or a reopen asked the transport for. */
+export function pageLoadCount() {
+  return pageLoads;
+}
+/** Source saves the page asked the binding for. */
+export function sourceSaveCount() {
+  return sourceSaves;
+}
+/** The binding reports a stale epoch, so the page reopens the same page with a new binding. */
+export function staleEpoch() {
+  fail?.(new Error('STALE_EPOCH'));
+}
 export function failStatusOnce() {
   failNextStatus = true;
 }
@@ -722,6 +736,7 @@ export async function mount(
       };
     },
     async edit() {
+      sourceSaves++;
       return { merged: false };
     },
     async export() {
@@ -805,6 +820,7 @@ export async function mount(
       };
     },
     async page(pageId) {
+      pageLoads++;
       // The same review source on a different page, with its own discussion binding.
       if (pageId === 'review-b' || pageId === id(3))
         return {

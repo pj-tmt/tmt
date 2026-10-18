@@ -867,7 +867,8 @@ function Page() {
   }, [space, snapshot.id]);
   const latest = useRef(view),
     dirty = useRef(false),
-    base = useRef(snapshot.source);
+    base = useRef(snapshot.source),
+    draftPage = useRef(snapshot.id);
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<SaveProblem | null>(null);
@@ -909,9 +910,14 @@ function Page() {
     wasArchived.current = archived;
   }, [archived]);
   useEffect(() => {
-    dirty.current = false;
-    base.current = snapshot.source;
-    setDraft(snapshot.source);
+    // A replacement of the same page keeps a dirty Source draft with its frozen base and caret,
+    // never saving or retargeting it; a clean draft, or another page, adopts the snapshot.
+    if (!dirty.current || draftPage.current !== snapshot.id) {
+      dirty.current = false;
+      base.current = snapshot.source;
+      setDraft(snapshot.source);
+    }
+    draftPage.current = snapshot.id;
     setView({
       pageType: snapshot.pageType,
       shell: snapshot.shell,
