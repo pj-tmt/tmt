@@ -14,9 +14,11 @@ mod support;
 use serde_json::Value;
 use std::{
     fs,
+    io::Write,
     os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::{Output, Stdio},
+    time::Duration,
 };
 use tmt_adapters::{
     driver_protocol::registry,
@@ -473,6 +475,65 @@ fn a_pane_whose_shell_is_not_the_callers_ancestor_is_not_the_caller() {
     let failure: Value = serde_json::from_slice(&named.stdout).unwrap();
     assert_eq!(failure["error"]["code"], "PANE_NOT_FOUND", "{failure:#}");
     // Only asked, never published: the built-in choice (tmux) stands.
+    assert_eq!(fixture.calls(), ["caller"]);
+}
+
+#[test]
+fn a_durable_identity_selector_never_asks_the_driver_for_the_caller() {
+    register();
+    let fixture = Fixture::new("durable");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let _ = fs::remove_file(fixture.root.join("driver/calls"));
+
+    // An explicit name and the MCP server's pinned saved UUID read storage
+    // only, even from inside the driver's pane.
+    let explicit = fixture.tmt_in(Some("f1"), &["notes", "path", "--identity", "worker"]);
+    assert!(explicit.status.success(), "{explicit:?}");
+    let mut server = fixture
+        .command_in(Some("f1"), &["mcp", "--identity", "worker"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let frames = [
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tmt_list","arguments":{}}}"#,
+    ];
+    server
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{}\n", frames.join("\n")).as_bytes())
+        .unwrap();
+    let output = support::wait(&mut Some(server), Duration::from_secs(10))
+        .wait_with_output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let listed: Value = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|frame| frame["id"] == 2)
+        .unwrap();
+    assert_eq!(listed["result"]["isError"], false, "{listed:#}");
+    assert_eq!(fixture.calls(), Vec::<String>::new());
+
+    // The implicit pane selector still asks, and still refuses a pane whose
+    // shell is not the caller's ancestor.
+    let implicit = fixture.tmt_in(Some("f1"), &["notes", "path"]);
+    assert!(implicit.status.success(), "{implicit:?}");
+    assert_eq!(fixture.calls().first().map(String::as_str), Some("caller"));
+    fs::write(fixture.root.join("driver/shell"), "999999").unwrap();
+    let _ = fs::remove_file(fixture.root.join("driver/calls"));
+    let refused = fixture.tmt_in(Some("f1"), &["notes", "path"]);
+    assert!(!refused.status.success(), "{refused:?}");
+    assert_eq!(fixture.calls(), ["caller"]);
+    let explicit = fixture.tmt_in(Some("f1"), &["notes", "path", "--identity", "worker"]);
+    assert!(explicit.status.success(), "{explicit:?}");
     assert_eq!(fixture.calls(), ["caller"]);
 }
 

@@ -26,19 +26,25 @@ fn required_failure() -> Failure {
 }
 
 /// Reject an unavailable implicit caller before opening or migrating storage.
+/// A durable selector never discovers the caller's host.
 pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
+    if let Some(name) = explicit {
+        return Ok(Selector::Explicit(name.to_owned()));
+    }
     select(
         &Host::for_caller(&CallerEnvironment::current()),
-        explicit,
+        None,
         false,
     )?
     .ok_or_else(required_failure)
 }
 
+/// Only a pane selector discovers the caller's host; durable selectors read
+/// storage alone.
 pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Failure> {
     selected(
         storage,
-        &Host::for_caller(&CallerEnvironment::current()),
+        || Host::for_caller(&CallerEnvironment::current()),
         selector,
     )?
     .ok_or_else(required_failure)
@@ -50,7 +56,7 @@ pub fn optional(
     explicit: Option<&str>,
 ) -> Result<Option<Identity>, Failure> {
     match select(host, explicit, true)? {
-        Some(selector) => selected(storage, host, selector),
+        Some(selector) => selected(storage, || host, selector),
         None => Ok(None),
     }
 }
@@ -87,9 +93,9 @@ fn select(
         .map_err(endpoint_failure)
 }
 
-fn selected(
+fn selected<H: std::borrow::Borrow<Host>>(
     storage: &mut Storage,
-    host: &Host,
+    host: impl FnOnce() -> H,
     selector: Selector,
 ) -> Result<Option<Identity>, Failure> {
     match selector {
@@ -118,6 +124,8 @@ fn selected(
             selected.ok_or_else(|| identity_missing(&name)).map(Some)
         }
         Selector::Pane(pane) => {
+            let host = host();
+            let host = host.borrow();
             host.resolve_servers(storage).map_err(endpoint_failure)?;
             let observed = binding::pane_presence(storage, &mut host.session(), &pane)
                 .map_err(binding_failure)?;
