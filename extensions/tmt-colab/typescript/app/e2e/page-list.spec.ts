@@ -1,7 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
-async function mount(page: Page, size: 'few' | 'bulk' | 'none' | 'unmanaged' = 'few', hash = '/') {
+async function mount(
+  page: Page,
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' = 'few',
+  hash = '/',
+) {
   await page.goto('/');
   await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
   await page.evaluate(
@@ -521,4 +525,58 @@ for (const width of [1440, 390])
       await page.getByRole('menuitem', { name: 'Manage labels…' }).click();
       await expect(app(page).getByRole('dialog', { name: 'Manage labels' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
+    });
+
+/** Nothing on the page reaches past the viewport, and the filter rows stay inside their column. */
+async function insideViewport(page: Page) {
+  const report = await page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    const column = document
+      .querySelector('#list-fixture .page-list-controls')!
+      .getBoundingClientRect();
+    const outside = [...document.querySelectorAll('#list-fixture *, [role="listbox"]')]
+      .map((node) => ({ node, box: node.getBoundingClientRect() }))
+      .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
+      .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);
+    const rows = [
+      ...document.querySelectorAll('#list-fixture .label-filters, #list-fixture .page-labels'),
+    ]
+      .flatMap((row) => [...row.querySelectorAll('button')].map((b) => b.getBoundingClientRect()))
+      .filter((box) => box.right > column.right + 0.5 || box.left < column.left - 0.5).length;
+    return { outside, rows, scroll: document.documentElement.scrollWidth - width };
+  });
+  expect(report).toEqual({ outside: [], rows: 0, scroll: 0 });
+}
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    test(`the search field, its tokens and the label rows stay inside ${width}px ${theme} with the longest names`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'long');
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await expect(titles(page)).toHaveCount(5);
+      // The long labels are filter buttons and row chips before any filter is typed.
+      for (const name of ['W'.repeat(32), '漢'.repeat(32)])
+        await expect(app(page).getByRole('button', { name: `${name}, 1 page` })).toBeVisible();
+      await insideViewport(page);
+      await search(page).click();
+      for (const [typed, option] of [
+        ['by:W', 'W'.repeat(120)],
+        ['label:W', 'W'.repeat(32)],
+        ['label:漢', '漢'.repeat(32)],
+      ] as const) {
+        await page.keyboard.type(typed);
+        await expect(page.getByRole('option').filter({ hasText: option })).toBeVisible();
+        await insideViewport(page);
+        await page.keyboard.press('Enter');
+      }
+      await page.keyboard.type(` ${'z'.repeat(120)}`);
+      await expect(app(page).locator('[data-label-filter]')).toHaveCount(2);
+      await insideViewport(page);
+      await page.screenshot({ path: await capturePath(`3745-search-${width}-${theme}.png`) });
     });

@@ -22,6 +22,14 @@
 .label-filters {
   margin-top: 12px;
 }
+/* A flex item's minimum width is its content: without this a long label keeps its list item (and
+ * the button's own max-width: 100%, which has nothing definite to resolve against) wider than the
+ * row, so the page scrolls sideways. The button then clips its name with an ellipsis. */
+.label-filters > li,
+.page-labels > li {
+  min-width: 0;
+  max-width: 100%;
+}
 .label-filter-button,
 .page-label {
   display: inline-flex;
