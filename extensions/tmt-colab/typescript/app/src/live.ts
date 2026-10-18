@@ -77,8 +77,6 @@ export class Live implements PageBinding {
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #error: Error | null = null;
   #recovering: Promise<boolean> | null = null;
-  #joined?: Promise<void>;
-  #observed = Promise.resolve();
   constructor(
     readonly mount: URL,
     readonly bootstrap: Bootstrap,
@@ -87,8 +85,6 @@ export class Live implements PageBinding {
     readonly signal?: AbortSignal,
     remote: RemoteClient | null = null,
     private sessionOwner?: LiveSessionOwner,
-    /** Chapter catch-up follows local admitted updates without selecting the cloud active page. */
-    private purpose: 'page' | 'chapter' = 'page',
   ) {
     this.#remote = remote;
     this.#current = this.#startOpen();
@@ -247,7 +243,7 @@ export class Live implements PageBinding {
     const refreshOlder = this.#refreshOlderAsks;
     this.#refreshOlderAsks = false;
     this.#observation = controller;
-    this.#observed = this.ask
+    void this.ask
       .observe(controller.signal, refreshOlder)
       .catch(() => {
         if (!controller.signal.aborted && !this.#closed) {
@@ -346,7 +342,7 @@ export class Live implements PageBinding {
       this.#connection = open.connection = c;
       await c.ready;
       requireValue(this.#owns(open));
-      if (this.purpose === 'page') c.send('subscribe', { cursors: [] });
+      c.send('subscribe', { cursors: [] });
       this.#attempts = 0;
       ready = true;
       return c;
@@ -506,36 +502,6 @@ export class Live implements PageBinding {
     this.#writer.close();
     connection?.close(failure);
     this.#listeners.forEach((v) => v.failed(error));
-  }
-  get epoch() {
-    return this.page.epoch;
-  }
-  get closed() {
-    return this.#closed;
-  }
-  get blocked() {
-    return this.#error !== null;
-  }
-  /** The mounted owner calls this when foreground borrowing starts or ends. A cosmetic frame
-   * cannot select the active cloud page, and repeated borrowing sends no duplicate Subscribe. */
-  foreground(active: boolean) {
-    const purpose = active ? 'page' : 'chapter';
-    if (this.purpose === purpose) return;
-    this.purpose = purpose;
-    if (active && !this.#closed && !this.#error && !this.#opening?.pending)
-      this.#connection?.send('subscribe', { cursors: [] });
-  }
-  closeAndJoin(): Promise<void> {
-    if (this.#joined) return this.#joined;
-    const connection = this.#connection;
-    this.close();
-    this.#joined = Promise.all([
-      connection?.closeAndJoin(),
-      this.#current.catch(() => undefined),
-      this.#views.catch(() => undefined),
-      this.#observed,
-    ]).then(() => {});
-    return this.#joined;
   }
   async snapshot(): Promise<PageSnapshot> {
     await this.#current;
@@ -856,10 +822,9 @@ export class Live implements PageBinding {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
-  close(reason?: Error) {
+  close() {
     if (this.#closed) return;
     this.#closed = true;
-    if (reason) this.#listeners.forEach((listener) => listener.failed(reason));
     this.#opening = null;
     this.#observation?.abort();
     if (typeof document !== 'undefined')

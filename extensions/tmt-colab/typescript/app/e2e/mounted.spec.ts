@@ -1,6 +1,6 @@
 import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
-import { openAllPages, todayHeading } from '../test/all-pages.js';
+import { homeList } from '../test/home-list.js';
 import * as c from '@tmt/colab-client';
 
 // Keep only error diagnostics: other console levels can include fixture data.
@@ -208,7 +208,7 @@ test('mounted owner discovers a pinned space; registration failure stays blocked
 }) => {
   const f = await fixture(page);
   await page.goto(mount);
-  await expect(todayHeading(page)).toBeVisible();
+  await expect(homeList(page)).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`#space=${f.space}$`));
   await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
   await page.route(`**${mount}api/devices/register`, (route) =>
@@ -280,9 +280,8 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
   await page.goto(mount);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page.getByRole('alert')).toContainText('no verified page key');
-  // The mounted history keeps its route in the fragment; the chapter state rides in the entry.
+  // The mounted history keeps its route in the fragment.
   expect(new URL(page.url()).hash).toContain(encodeURIComponent(`/pages/${pageId}`));
-  expect(await page.evaluate(() => history.state?.chapter)).toEqual({ scroll: 0 });
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
   await expect(page.locator('.page-header-actions')).toHaveCount(0);
@@ -332,13 +331,13 @@ test('another tab opens while the first registration is still pending', async ({
     await page.goto(mount);
     await registered;
     await other.goto(mount);
-    await expect(todayHeading(other)).toBeVisible();
+    await expect(homeList(other)).toBeVisible();
     await expect(page.getByText('Opening space')).toBeVisible();
     expect(await reopens(page)).toBe(1);
     expect(await reopens(other)).toBe(1);
     release();
-    await expect(todayHeading(page)).toBeVisible();
-    await expect(todayHeading(other)).toBeVisible();
+    await expect(homeList(page)).toBeVisible();
+    await expect(homeList(other)).toBeVisible();
     expect(await reopens(page)).toBe(1);
     expect(await reopens(other)).toBe(1);
     expect(requests).toBe(2);
@@ -351,7 +350,7 @@ test('another tab opens while the first registration is still pending', async ({
 test('empty owner space names the product page-create command', async ({ page }) => {
   await fixture(page, false, true);
   await page.goto(mount);
-  await expect(todayHeading(page)).toBeVisible();
+  await expect(homeList(page)).toBeVisible();
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
     'tmt colab page create --title "Notes"',
   );
@@ -468,7 +467,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     } else await route.fulfill({ json: result });
   });
   await page.goto(mount);
-  await openAllPages(page);
+  await expect(homeList(page)).toBeVisible();
   await page
     .locator('.pages li')
     .getByRole('button', { name: /^Actions for/ })
@@ -692,7 +691,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
     });
   });
   await page.goto(mount);
-  await openAllPages(page);
+  await expect(homeList(page)).toBeVisible();
   const row = (id: string) => page.locator(`.pages li[data-page-id="${id}"]`);
   await row(pageId)
     .getByRole('button', { name: /^Actions for/ })
@@ -860,7 +859,7 @@ test.describe('relative retention evidence', () => {
       }),
     );
     await page.goto(mount);
-    await openAllPages(page);
+    await expect(homeList(page)).toBeVisible();
     const row = page.locator(`.pages li[data-page-id="${pageId}"]`);
     const hint = page.getByRole('menu').locator('.retention-hint');
     await row.getByRole('button', { name: /^Actions for/ }).click();

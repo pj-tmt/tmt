@@ -149,26 +149,20 @@ test('recommended reading records one person read and notification, survives rel
       agent.pane,
     );
     const first = await openPage(door, author, created);
-    const ownerReadings = async (unread: number) => {
-      await expect
-        .poll(async () => {
-          const response = await first
-            .context()
-            .request.get(new URL(`api/pages/${created.pageId}/summary-details`, first.url()).href);
-          expect(response.status()).toBe(200);
-          const details = await response.json();
-          if (details.state !== 'ready') return undefined;
-          expect(details.summary.needsYou).toBe(unread);
-          return details.readings.filter((row: { state: string }) => row.state === 'unread').length;
-        })
-        .toBe(unread);
+    const unread = (page: import('@playwright/test').Page, count: number) =>
+      expect(
+        page.locator('[data-inline-reading][data-reading-state="unread"]:not([data-detached])'),
+      ).toHaveCount(count);
+    // A reading hint in the owner URL opens the page at that reading; it only scrolls.
+    const openReading = async (page: import('@playwright/test').Page, read: string) => {
+      const url = new URL(page.url());
+      const fragment = new URLSearchParams(url.hash.slice(1));
+      fragment.set('read', read);
+      url.hash = fragment.toString();
+      await page.goto(url.href);
     };
-    await ownerReadings(2);
-    await first.getByRole('link', { name: 'Space home', exact: true }).click();
-    const chapter = first.locator(`[data-page-id="${created.pageId}"]`);
-    await expect(chapter.locator('.needs-you-bar')).toContainText('Needs you 2');
-    await expect(chapter.locator('.today-readings li')).toHaveCount(2);
-    await chapter.getByRole('link', { name: 'First decision', exact: true }).click();
+    await unread(first, 2);
+    await openReading(first, id);
     const band = first.locator(`[data-inline-reading="${id}"]`);
     await expect(band.getByRole('button', { name: 'Mark read', exact: true })).toBeEnabled();
     const highlighted = (page: import('@playwright/test').Page) =>
@@ -206,12 +200,8 @@ test('recommended reading records one person read and notification, survives rel
     expect(read.resolved).toBe(true);
     expect(read.comments).toHaveLength(1);
     expect(read.comments[0].body).toContain(`Reading: ${id}`);
-    await ownerReadings(1);
-    await first.getByRole('link', { name: 'Space home', exact: true }).click();
-    await expect(chapter.locator('.needs-you-bar')).toContainText('Needs you 1');
-    await expect(chapter.locator('.today-readings li')).toHaveCount(1);
-    await expect(chapter.getByRole('link', { name: 'First decision', exact: true })).toHaveCount(0);
-    await chapter.getByRole('link', { name: 'Next decision', exact: true }).click();
+    await unread(first, 1);
+    await openReading(first, next);
     await expect.poll(() => highlighted(first)).toBe(1);
     expect(listing().filter((thread) => thread.anchor?.exact === 'Next decision')).toHaveLength(0);
     expect(agent.received()).toHaveLength(1);
@@ -222,11 +212,7 @@ test('recommended reading records one person read and notification, survives rel
     );
     expect(agent.received()).toHaveLength(1);
     const second = await openPage(door, viewer, created);
-    const url = new URL(second.url());
-    const fragment = new URLSearchParams(url.hash.slice(1));
-    fragment.set('read', next);
-    url.hash = fragment.toString();
-    await second.goto(url.href);
+    await openReading(second, next);
     await expect(second.locator(`[data-inline-reading="${next}"]`)).toHaveAttribute(
       'data-reading-state',
       'unread',

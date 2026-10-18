@@ -14,6 +14,8 @@ export interface PageFilter {
   authors: readonly string[];
   /** Words that must each appear in the title, a label or the creator, ignoring case. */
   text: string;
+  /** Only the pages with an item waiting on the viewer (the owner's `waiting`, `needsYou > 0`). */
+  needsYou?: boolean;
 }
 export interface LabelChange {
   pageId: string;
@@ -72,6 +74,11 @@ export function labelCounts(pages: readonly PageSummary[]): { name: string; coun
     .sort((a, b) => compareLabels(a.name, b.name));
 }
 
+/** The pages with an item waiting on the viewer; an unknown summary is never counted. */
+export function waitingCount(pages: readonly PageSummary[]): number {
+  return pages.filter((page) => page.summary?.waiting).length;
+}
+
 export function filterPages(
   pages: readonly PageSummary[],
   filter: PageFilter,
@@ -79,6 +86,7 @@ export function filterPages(
 ): PageSummary[] {
   const words = filter.text.toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const kept = pages.filter((page) => {
+    if (filter.needsYou && !page.summary?.waiting) return false;
     const labels = page.labels ?? [];
     if (!filter.labels.every((name) => labels.includes(name))) return false;
     const author = page.summary?.author;

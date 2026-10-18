@@ -32,6 +32,7 @@ export const ACCEPTANCE_SHARDS: number;
 export const COMPONENT_SHARDS: number;
 export interface ComponentShardWeights extends ShardWeights {
   readonly jobOverheadSeconds: number;
+  readonly modelErrorSeconds: number;
 }
 export function listComponentFiles(): string[];
 export function loadComponentWeights(text?: string): ComponentShardWeights;

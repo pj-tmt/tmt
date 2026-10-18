@@ -112,6 +112,8 @@ export function loadComponentWeights(text = readFileSync(COMPONENT.weightsFile, 
   const weights = loadShardWeights(text);
   if (!Number.isFinite(weights.jobOverheadSeconds) || weights.jobOverheadSeconds < 0)
     throw new Error('Component job overhead must be a nonnegative number.');
+  if (!Number.isFinite(weights.modelErrorSeconds) || weights.modelErrorSeconds < 0)
+    throw new Error('Component model error must be a nonnegative number.');
   return weights;
 }
 

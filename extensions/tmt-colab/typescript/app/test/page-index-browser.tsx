@@ -99,7 +99,7 @@ export async function mountPageIndex(
     },
     spaceHome: async () => ({ title: 'Studio pages', pages }),
   });
-  location.hash = '/all';
+  location.hash = '/';
   const content = (
     <Profiler
       id="page-index"

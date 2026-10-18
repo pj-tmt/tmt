@@ -4274,7 +4274,7 @@ a full page or space is `COLAB_CAPACITY`. `label ls` lists each name with its pa
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-Today home and the All pages list show with its title: `{comments, waiting, needsYou, author?}`. Like labels it is **not signed**,
+The home page list shows with its title: `{comments, waiting, needsYou, author?}`. Like labels it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.
@@ -4305,13 +4305,11 @@ anchors the renderer can display, not any saved record or admission. An unresolv
 adopts another heading's answer or read; a text/match-budget failure or the 200 ms projection
 deadline leaves the summary unavailable, never a false zero. The decoder keeps its existing 2 s bound.
 
-Today sums pending items across active pages, not the number of waiting pages. Every chapter
-with a fresh, nonzero summary displays its page's count. Missing summaries are unknown: the hero/metric
-show a lower bound (`N+`) when known items exist, or neutral `Checking pages…` and a disabled dash
-when none are known. Only a complete active-page summary set can say `Nothing waits for you`.
-Navigation back to Home or a browser reload makes the existing owner-list read again; there is no
-new polling or refresh loop. Chapter reading descriptors use the separate bounded owner-only
-read below; they never enter discovery.
+The list's needs-you filter keeps the pages whose summary says `waiting`. A page without a
+summary is unknown, never a false zero, so the filter does not count it. Navigation back to Home
+or a browser reload makes the existing owner-list read again; there is no new polling or refresh
+loop. Chapter reading descriptors use the separate bounded owner-only read below; they never
+enter discovery.
 
 The values come from the owner fold, which is too slow for a list read, so the serving process
 keeps them in memory (no schema, no table), each valid for the page's _fingerprint_: its epoch,
@@ -4373,81 +4371,8 @@ uniqueness and states before rendering any descriptor as inert text. A malformed
 failed or stale result remains unknown, never an empty complete list. Discovery
 keeps its unchanged 1 MiB and 1,000-page bounds.
 
-One cancellable queue belongs to the current Home route/space generation. It reads
-only chapters currently displayed by Today whose known summary has `needsYou > 0`,
-in their displayed order, at most once per page per generation and with one request
-in flight. At most 20 such pages (2.5 MiB of complete replies) can be admitted per
-generation; later chapters keep their counts without details. Each request has a
-10 s deadline. Route/space change or unmount aborts the request, drops the queue and
-fences late results. Pending/unavailable results are not polled or retried in that
-generation. Existing Home navigation/reload creates a fresh generation and refetches;
-returning after an in-page read therefore removes the newly settled reading link.
-A changed chapter summary invalidates its held details rather than silently mixing
-counts. Counts remain visible even when details are unknown.
-
-The chapter's right column places a muted `Please read` kicker below its Needs-you
-band, followed by at most three unread reading titles as links. Each has one muted
-`<agent> · <why>` line, ellipsized without wrapping. More unread readings add a muted
-`+N more` link to the first unread reading. Pending/unavailable details show no list
-or empty-state statement; the existing count stays. The comment count follows the
-list. These links never offer Mark read or notify.
-
-### Live chapter passages (#3540)
-
-Owner/paired mounted Today chapters can borrow the existing admitted page binding
-for a live passage. Hosted and member adapters retain their counts and reading
-links; they gain no acquisition or write capability. A passive chapter catch-up
-omits the existing explicit Subscribe, so it does not select the active cloud
-page. Opening that page in the foreground reuses its Live/Writer owner and sends
-the normal foreground Subscribe. No protocol flag or new Remote operation is added.
-The existing chapter opener owns panel/full-page navigation. Its read-only open
-signal and held-Today flag suspend passive previews behind the opened chapter;
-returning to Today starts the visible acquisitions again.
-
-At most three intersecting chapters retain a source, each within the renderer's
-existing 2 MiB source bound. Acquisition/fold is serial. Leaving view, hiding the
-tab or replacing Home cancels acquisition and retires an idle frame immediately;
-replacement joins the previous release before acquiring a successor. An admitted
-parent action already in flight keeps its binding and admitted view until it
-settles, counting toward the three-surface bound. While its slot exists, its
-hidden, inert surface also retains its frame. Removing the slot retires that
-frame; an in-flight answer still records and notifies once, but does not attempt
-the follow-on review close. The full page keeps the review open for explicit
-Confirm, without an error. Draft text and selections remain parent-local when
-the frame retires. A failed or unconfirmed release prevents successor acquisition.
-
-Each chapter selects a waiting review first, then an unanswered question group
-(or standalone question), then an unread reading. Authored order within a kind
-and the ID break ties. Otherwise it shows the latest admitted agent reply, then
-the page opening. Proposals keep their count and full-page entry, without inline
-proposal actions. Existing review, question and reading layers own every action,
-ordinary record, notification and refusal; source HTML and cosmetic frame bounds
-cannot confirm, answer or mark read. Frame messages report only current-render,
-current-request bounds for the parent-selected passage.
-On the existing channel, the parent request has exactly
-`{type:"colab.render.passage",renderId,requestId,target}`. The target is exactly
-`{kind:"opening"}` or `{kind:"review"|"answer"|"reading",id}`, naming a parent-parsed
-UUID. The response has exactly
-`{type:"colab.render.passage",renderId,requestId,bounds}`; only the current render
-and request are accepted. Bounds are `null` or exactly `{top,height}` with finite
-numbers, `top >= 0`, `height > 0` and `top + height <= 1000000` CSS px. An unresolved
-target or inner-scroll fallback makes the preview unavailable, never actionable.
-
-The authored viewport clips at 420 CSS px on wide screens and 320 CSS px on narrow
-screens. Trusted controls remain outside and below the clip. Only actual clipping
-adds `Continue on the page →`. Finishing an action retains its done passage;
-`Next ›` explicitly chooses another pending target. Counts use the same admitted
-pending-target projection as the page header. A complete live count updates the
-chapter and Today total without moving that chapter; an unknown page still
-prevents a complete-zero claim. Home navigation/reload starts a new generation.
-Loading adds no spinner, beyond-cap chapters keep their links, and a refused,
-failed or unavailable acquisition shows `Preview unavailable · Open the page`.
-
-A reading link reuses the existing validated owner/paired reading-link builder and
-its `read=<UUID>` hint. It only opens the page and scrolls/highlights a resolved
-reading heading. Missing or stale headings are inert; no record, Ask or notification
-is created. These are display-only owner metadata, not signed page statements or
-new authority. The existing fold, cache and static-source limitations above apply.
+No browser consumer ships: Today and its chapter reading links are gone, so this route has no
+browser caller until the shell reading list adopts it or removes it.
 
 ## Root-local page creation
 

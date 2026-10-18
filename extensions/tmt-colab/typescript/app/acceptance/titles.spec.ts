@@ -1,4 +1,4 @@
-import { openAllPages } from '../test/all-pages.js';
+import { homeList } from '../test/home-list.js';
 import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { openColab, pairBrowser, startDoor } from './harness/browser.js';
@@ -65,7 +65,6 @@ test('native page titles fill missing visible home labels without opening the pa
     expect(sent).toContain('hello');
     expect(sent).not.toContain('subscribe');
     await row().getByRole('link').click();
-    // At 1440 the chapter opens beside Today, whose own headings repeat the title.
     await expect(
       page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
     ).toBeVisible();
@@ -105,7 +104,7 @@ test('native page titles fill missing visible home labels without opening the pa
         expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       }
     }
-    await openAllPages(page);
+    await expect(homeList(page)).toBeVisible();
     await row()
       .getByRole('button', { name: /^Actions for/ })
       .click();

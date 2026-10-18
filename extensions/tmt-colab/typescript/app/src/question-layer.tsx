@@ -42,13 +42,7 @@ export function useQuestionLayer({
   reviews,
   readings = [],
   onRecorded,
-  onWorking,
-  passage,
-  pageUrl,
 }: {
-  onWorking?(id: string, working: boolean): void;
-  passage?: { ids: readonly string[] };
-  pageUrl?: string;
   questions: readonly Question[];
   groups: readonly QuestionGroup[];
   /** Review sections ride the same handshake: their quotes come back with the questions'. */
@@ -98,11 +92,7 @@ export function useQuestionLayer({
   const renderedReviews = JSON.stringify(reviews);
   const renderedReadings = JSON.stringify(readings);
   const renderedGroups = JSON.stringify(
-    groups.map((group) => ({
-      ...group,
-      ...(passage ? { form: undefined } : {}),
-      active: selected(group),
-    })),
+    groups.map((group) => ({ ...group, active: selected(group) })),
   );
   const identity = JSON.stringify(
     threads.map((thread) => ({
@@ -183,9 +173,7 @@ export function useQuestionLayer({
       : rows.flatMap(({ group, members, pending }) => {
           const slot = slots.find((value) => value.id === group.id);
           const attached =
-            !passage && group.form === 'chip'
-              ? !!slot?.chip
-              : slot?.descriptionHeight !== undefined;
+            group.form === 'chip' ? !!slot?.chip : slot?.descriptionHeight !== undefined;
           if (
             !attached ||
             !members.every((member) => anchors.some((anchor) => anchor.id === member.id))
@@ -230,7 +218,7 @@ export function useQuestionLayer({
         !slots.some(
           (slot) =>
             slot.id === group.id &&
-            (!passage && group.form === 'chip'
+            (group.form === 'chip'
               ? slot.chip !== undefined
               : slot.descriptionHeight !== undefined),
         )
@@ -245,7 +233,7 @@ export function useQuestionLayer({
         {rows.map(({ group, members, pending }) => {
           const current = selected(group);
           const slot = slots.find((slot) => slot.id === group.id);
-          const chip = !passage && group.form === 'chip';
+          const chip = group.form === 'chip';
           const attached = chip ? !!slot?.chip : !!slot && slot.descriptionHeight !== undefined;
           const isOpen = opened.has(group.id);
           const panelId = `${panelPrefix}-panel-${group.id}`;
@@ -262,9 +250,7 @@ export function useQuestionLayer({
                 if (node) panels.current.set(group.id, node);
                 else panels.current.delete(group.id);
               }}
-              hidden={
-                (passage && !passage.ids.includes(group.id)) || (chip && !isOpen) || undefined
-              }
+              hidden={chip && !isOpen ? true : undefined}
               data-inline-question={current}
               data-question-group={group.id}
               data-inline-slot={group.id}
@@ -272,9 +258,9 @@ export function useQuestionLayer({
               data-detached={!attached || undefined}
               data-tab-placement={slot?.beforeTop !== undefined || undefined}
               style={{
-                top: passage ? 0 : chip ? (slot?.top ?? 0) : (slot?.beforeTop ?? slot?.top ?? 0),
-                left: passage ? 0 : slot?.left,
-                width: passage ? '100%' : slot?.width,
+                top: chip ? (slot?.top ?? 0) : (slot?.beforeTop ?? slot?.top ?? 0),
+                left: slot?.left,
+                width: slot?.width,
               }}
               onKeyDown={(event) => {
                 if (
@@ -370,8 +356,6 @@ export function useQuestionLayer({
                 chip={chip}
                 connectionPresentation={connectionPresentation}
                 onRecorded={onRecorded}
-                onWorking={onWorking}
-                pageUrl={pageUrl}
               />
             </div>
           );

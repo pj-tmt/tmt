@@ -1,6 +1,6 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
-import { PassageBar } from './passage-navigation.js';
+import { NeedsYouBar } from './components/needs-you-bar.js';
 import { focusNeedsYouTarget } from './needs-you.js';
 import { compactRelativeTime } from './display-time.js';
 import { text } from './strings.js';
@@ -30,14 +30,7 @@ export function useReadingLayer({
   hint,
   slotPositions,
   readingIds,
-  onWorking,
-  autoAdvance = true,
-  passage,
 }: {
-  onWorking?(id: string, working: boolean): void;
-  /** Chapter passages keep the completed reading until an explicit Next. */
-  autoAdvance?: boolean;
-  passage?: { id?: string };
   readings: readonly Reading[];
   snapshot: PageSnapshot;
   view: PageView;
@@ -71,28 +64,8 @@ export function useReadingLayer({
     );
     return { reading, anchor, thread, state: readingState(reading, thread) };
   });
-  const context = useRef({
-    snapshot,
-    view,
-    binding,
-    blocked,
-    status,
-    renderer,
-    rows,
-    onWorking,
-    autoAdvance,
-  });
-  context.current = {
-    snapshot,
-    view,
-    binding,
-    blocked,
-    status,
-    renderer,
-    rows,
-    onWorking,
-    autoAdvance,
-  };
+  const context = useRef({ snapshot, view, binding, blocked, status, renderer, rows });
+  context.current = { snapshot, view, binding, blocked, status, renderer, rows };
   const jump = useCallback((id: string, focus = false) => {
     if (context.current.rows.some((row) => row.reading.id === id && row.anchor)) {
       context.current.renderer.current?.scrollReading(id);
@@ -134,10 +107,9 @@ export function useReadingLayer({
         context.current.binding.current?.discussion === discussion,
       title: () => context.current.view.title || context.current.snapshot.title,
       admitted: admitted.current,
-      working: (id, working) => context.current.onWorking?.(id, working),
       changed: (id, outcome) => {
         setOutcomes((previous) => new Map(previous).set(id, outcome));
-        if (outcome.state === 'settled' && context.current.autoAdvance) next(id);
+        if (outcome.state === 'settled') next(id);
       },
     });
   }, [snapshot.id, next]);
@@ -229,7 +201,6 @@ export function useReadingLayer({
           if (node) targets.current.set(reading.id, node);
           else targets.current.delete(reading.id);
         }}
-        hidden={passage && passage.id !== reading.id}
         data-inline-reading={reading.id}
         data-inline-slot={reading.id}
         className="proposal-inline reading-inline"
@@ -239,8 +210,7 @@ export function useReadingLayer({
         aria-label={text.readingSection(reading.title)}
         style={{ top: slot?.top ?? 0 }}
       >
-        <PassageBar
-          complete={read}
+        <NeedsYouBar
           tone={read ? 'done' : 'needs'}
           word={read ? text.readingWord : text.readingPleaseRead}
           who={read ? time : reading.agent}
@@ -250,12 +220,11 @@ export function useReadingLayer({
             readOnly ? undefined : (
               <>
                 {!read && activate(text.readingMark, () => void actions.mark(reading))}
-                {!passage &&
-                  activate(
-                    text.readingNext,
-                    () => next(reading.id),
-                    !attached || !hasNext || outcome?.state === 'working',
-                  )}
+                {activate(
+                  text.readingNext,
+                  () => next(reading.id),
+                  !attached || !hasNext || outcome?.state === 'working',
+                )}
                 {warning && (
                   <button
                     type="button"
