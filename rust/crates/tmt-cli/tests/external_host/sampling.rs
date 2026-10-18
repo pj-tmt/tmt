@@ -88,6 +88,101 @@ impl Drop for HostServer {
     }
 }
 
+/// A direct sampler the test owns from its spawn: the leader of its own
+/// process group, with the attempt's budget. Until the leader is reaped its
+/// pid cannot name another process, so only then is its group signalled.
+/// `finish` and `Drop` both end the group, reap the leader and wait for the
+/// group to be empty, so no sampler or driver outlives the test's fixture.
+/// (The repository's bounded runner cannot be reused here: it takes no
+/// environment and writes the request itself, so there is no gate barrier.)
+struct DirectSampler {
+    child: Option<Child>,
+    budget: Instant,
+}
+
+impl DirectSampler {
+    fn spawn(mut command: std::process::Command, budget: Instant) -> Self {
+        let child = command.process_group(0).spawn().unwrap();
+        Self {
+            child: Some(child),
+            budget,
+        }
+    }
+
+    fn pid(&self) -> u32 {
+        self.child.as_ref().unwrap().id()
+    }
+
+    fn group(&self) -> nix::unistd::Pid {
+        nix::unistd::Pid::from_raw(i32::try_from(self.pid()).unwrap())
+    }
+
+    fn request(&mut self, request: &[u8]) {
+        let mut stdin = self.child.as_mut().unwrap().stdin.take().unwrap();
+        stdin.write_all(request).unwrap();
+    }
+
+    /// Waits until the leader exits, or kills its group when the budget
+    /// ends; then reaps it. Returns its status and whether it was killed.
+    fn finish(&mut self) -> (ExitStatus, bool) {
+        let pid = u64::from(self.pid());
+        let killed = loop {
+            if Instant::now() >= self.budget {
+                break true;
+            }
+            // An exited leader stays a zombie until it is reaped here, so
+            // its pid names no other process; the observation calls that
+            // zombie gone.
+            if let Ok(ProcessObservation::UnreapedZombie(_) | ProcessObservation::Gone) =
+                observe_runtime_process(&UnixCommandRunner, pid, self.budget)
+            {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let status = self.stop();
+        (status, killed)
+    }
+
+    /// Ends what is left of the group while its leader is unreaped, reaps
+    /// the leader within 3 s, then waits, read only, for the group to be
+    /// empty.
+    fn stop(&mut self) -> ExitStatus {
+        use nix::sys::signal::{Signal::SIGKILL, killpg};
+        let group = self.group();
+        let mut child = self.child.take().unwrap();
+        let _ = killpg(group, SIGKILL);
+        let reaped = Instant::now() + Duration::from_secs(3);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(Instant::now() < reaped, "the sampler was not reaped");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        let empty = Instant::now() + Duration::from_secs(3);
+        while !matches!(killpg(group, None), Err(nix::errno::Errno::ESRCH)) {
+            assert!(Instant::now() < empty, "the sampler's group is not empty");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        status
+    }
+}
+
+impl Drop for DirectSampler {
+    fn drop(&mut self) {
+        if self.child.is_none() {
+            return;
+        }
+        if std::thread::panicking() {
+            // The same cleanup; a second panic while unwinding would abort.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop()));
+        } else {
+            self.stop();
+        }
+    }
+}
+
 /// A run with consumption sampling: the server, the run and its admitted
 /// provider, with the transcript at its first request. Fields drop in
 /// order: the run, then the server, then the fixture's files.
@@ -280,52 +375,39 @@ impl Sampling {
     }
 
     /// Starts `tmt __consumption-sample` as the tick does, in its own
-    /// process group, with only this worker answered by the driver. It is
-    /// killed at the tick's 2 s budget; the rest of the bound is for reaping.
+    /// process group, with only this worker answered by the driver.
     fn sample(&self) -> Sampled {
+        self.sample_after(|_| {})
+    }
+
+    /// [`Self::sample`], with `before_request` run once the sampler is
+    /// spawned and named in the gate, before it gets its request. The tick's
+    /// 2 s budget governs the whole attempt, setup included. After it, the
+    /// cleanup has up to 3 s to reap the sampler and up to 3 s more for its
+    /// group to be empty, also when the attempt fails or unwinds.
+    fn sample_after(&self, before_request: impl FnOnce(u32)) -> Sampled {
         let mut command = self.fixture.command_in(None, &["__consumption-sample"]);
         command
-            .process_group(0)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        let started = Instant::now();
-        let mut child = command.spawn().unwrap();
-        let pid = child.id();
+        let mut sampler = DirectSampler::spawn(command, Instant::now() + Duration::from_secs(2));
+        let pid = sampler.pid();
         // It reads its request first, so it is live and has called no
         // driver yet.
         let observed =
-            observe_runtime_process(&UnixCommandRunner, u64::from(pid), deadline()).unwrap();
-        let ProcessObservation::Live(incarnation) = observed else {
-            panic!("the sampler {pid} is not live: {observed:?}");
-        };
-        let worker = Owned {
-            incarnation,
-            group: true,
-        };
+            observe_runtime_process(&UnixCommandRunner, u64::from(pid), sampler.budget).unwrap();
+        assert!(
+            matches!(observed, ProcessObservation::Live(_)),
+            "the sampler {pid} is not live: {observed:?}"
+        );
         let gate = self.fixture.root.join("driver/gate");
         fs::write(gate.with_extension("next"), pid.to_string()).unwrap();
         fs::rename(gate.with_extension("next"), &gate).unwrap();
-        let mut stdin = child.stdin.take().unwrap();
-        stdin
-            .write_all(self.request.to_string().as_bytes())
-            .unwrap();
-        drop(stdin);
-        let mut child = Some(child);
-        let mut killed = false;
-        while matches!(child.as_mut().unwrap().try_wait(), Ok(None)) {
-            if started.elapsed() >= Duration::from_secs(2) {
-                worker.kill();
-                killed = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let status = support::wait(&mut child, Duration::from_secs(3))
-            .wait()
-            .unwrap();
+        before_request(pid);
+        sampler.request(self.request.to_string().as_bytes());
+        let (status, killed) = sampler.finish();
         fs::write(&gate, "").unwrap();
-        wait_until("the sampler and its process group end", || worker.ended());
         Sampled {
             pid,
             status,
@@ -463,7 +545,7 @@ fn an_approved_external_host_samples_new_consumption_before_stop() {
     let mine = worker.calls(&snapshots[calls..]);
     assert_eq!(mine.len(), 1, "{snapshots:?}");
     assert!(
-        mine[0].ends_with(r#"answered panes=["fake-1"]"#),
+        mine[0].ends_with(r#"caller=sampler answered panes=["fake-1"]"#),
         "{mine:?}"
     );
     assert!(
@@ -490,6 +572,40 @@ fn an_approved_external_host_samples_new_consumption_before_stop() {
     sampling.append("msg_fixture0003");
     sampling.denied_tick(sampling.snapshots().len());
     assert_eq!(stored_rows(&sampling.fixture), baseline);
+    sampling.finish();
+}
+
+/// A failure after the sampler is spawned, before its normal end, still
+/// stops and reaps it: the test process is still running, and the
+/// sampler's pid names no process and its group is empty. The run and
+/// provider continue, and no consumption is observed.
+#[test]
+fn a_direct_sampler_is_stopped_and_reaped_when_its_attempt_fails() {
+    let sampling = Sampling::start("sampling-unwinds");
+    let baseline = stored_rows(&sampling.fixture);
+    sampling.append("msg_fixture0002");
+    let spawned = std::cell::Cell::new(0);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sampling.sample_after(|pid| {
+            spawned.set(pid);
+            panic!("injected failure after the sampler started");
+        })
+    }));
+    assert!(unwound.is_err());
+    let pid = spawned.get();
+    assert_ne!(pid, 0);
+    // Reaped: not even a zombie answers for the pid, and its group is empty.
+    let pid = nix::unistd::Pid::from_raw(i32::try_from(pid).unwrap());
+    assert_eq!(
+        nix::sys::signal::kill(pid, None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert_eq!(
+        nix::sys::signal::killpg(pid, None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert_eq!(stored_rows(&sampling.fixture), baseline);
+    sampling.assert_run_live();
     sampling.finish();
 }
 
@@ -568,7 +684,7 @@ fn a_missing_recorded_server_makes_no_consumption_observation() {
     let mine = worker.calls(&snapshots[calls..]);
     assert_eq!(mine.len(), 1, "{snapshots:?}");
     assert!(
-        mine[0].ends_with(r#"answered panes=["fake-1"]"#),
+        mine[0].ends_with(r#"caller=sampler answered panes=["fake-1"]"#),
         "{mine:?}"
     );
     sampling.finish();

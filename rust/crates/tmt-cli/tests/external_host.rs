@@ -94,8 +94,8 @@ case "$3" in
     esac ;;
   snapshot)
     # A sampling fixture logs each snapshot with its caller and requested
-    # panes. While `gate` exists, a consumption sampler other than the one
-    # pid it names, or a caller `ps` cannot classify, is refused.
+    # panes. While `gate` exists, a caller `ps` cannot classify, and a
+    # consumption sampler other than the one pid it names, are refused.
     if [ -f "$d/sampling" ]; then
       p=$(printf '%s' "$input" | sed -n 's/.*"panes":\(\[[^]]*\]\).*/\1/p')
       c=$(ps -o command= -p "$PPID" 2>/dev/null)
@@ -105,7 +105,9 @@ case "$3" in
         *) r=other ;;
       esac
       v=answered
-      if [ -f "$d/gate" ] && [ "$r" != other ] && [ "$PPID" != "$(cat "$d/gate")" ]; then v=denied; fi
+      if [ -f "$d/gate" ]; then
+        if [ "$r" = unknown ] || { [ "$r" = sampler ] && [ "$PPID" != "$(cat "$d/gate")" ]; }; then v=denied; fi
+      fi
       echo "pid=$$ ppid=$PPID caller=$r $v panes=${p:-null}" >> "$d/snapshots"
       if [ "$v" = denied ]; then printf '{"error":{"code":"failed","message":"gated"}}'; exit 0; fi
     fi
