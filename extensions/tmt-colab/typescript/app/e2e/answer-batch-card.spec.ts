@@ -17,17 +17,24 @@ async function mount(page: Page, group = {}, options = {}) {
   await run(page, 'questionGroup', group);
   const surface = page.locator('[data-question-group]').first();
   await expect(surface).not.toHaveAttribute('data-detached');
+  await surface.locator('.question-line').first().click();
   return surface;
 }
 const card = (page: Page) => page.locator('.question-card:visible').first();
 async function answerThree(page: Page, group: Locator) {
   await card(page).getByLabel('Keep it', { exact: true }).check();
-  await group.getByRole('tab').nth(1).click();
+  await group.locator('.question-line').nth(1).click();
   await card(page).getByLabel('Your answer', { exact: true }).fill('A clear introduction');
-  await group.getByRole('tab').nth(2).click();
+  await group.locator('.question-line').nth(2).click();
   await card(page).getByLabel('Your answer', { exact: true }).fill('Explain the tradeoffs');
-  await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('3 of 3 answered');
+  await expect(group.locator('.question-compact-heading')).toContainText('3 of 3 waiting');
 }
+async function openRecorded(group: Locator, index: number) {
+  const row = group.locator('.question-line').nth(index);
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await row.click();
+}
+
 async function recorded(page: Page, count: number) {
   await expect
     .poll(async () => {
@@ -55,6 +62,7 @@ test('an empty group keeps the lone label and omits a zero count; a recorded ans
     await expect(send).toBeEnabled();
     await send.click();
     await recorded(page, 1);
+    await openRecorded(group, 0);
     await expect(
       card(page).getByRole('button', { name: 'Change answer', exact: true }),
     ).toBeVisible();
@@ -85,7 +93,7 @@ test('a lone question folds to its answered line, without Send, while its public
   await expect(send).toHaveCount(0);
 });
 
-test('three comments make one Ask per distinct recipient; only the canonical tab renders replies, including after reload', async ({
+test('three comments make one Ask per distinct recipient; only the canonical question renders replies, including after reload', async ({
   page,
 }) => {
   const group = await mount(page, { count: 3, agents: ['Agent 1', 'Agent 2', 'Agent 1'] });
@@ -102,7 +110,7 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
     .click();
   await recorded(page, 3);
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
-  await expect(group.getByRole('tab').nth(2)).toHaveAttribute('aria-selected', 'true');
+  await openRecorded(group, 2);
   const threads: readonly ThreadView[] = await run(page, 'discussionProof');
   expect(threads).toHaveLength(3);
   expect(threads.map((thread) => thread.anchor?.exact)).toEqual([
@@ -151,7 +159,7 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   // The same admitted batch replies cannot enter the shared queue twice.
   await run(page, 'releaseQuestionView');
   await card(page).getByRole('button', { name: 'Open reply · Q1', exact: true }).click();
-  await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(group.locator('.question-line').nth(0)).toHaveAttribute('aria-expanded', 'true');
   await expect(card(page).getByTestId('ask-entry').first()).toBeFocused();
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(2);
   await card(page).getByTestId('ask-reply').last().scrollIntoViewIfNeeded();
@@ -170,7 +178,7 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   await expect(notifications).toHaveCount(0);
   await expect(live).toHaveText('');
   expect((await run(page, 'proof')).sends).toHaveLength(0);
-  await restored.getByRole('tab').nth(1).click();
+  await restored.locator('.question-line').nth(1).click();
   await expect(
     card(page).getByText('Asked Agent 1, Agent 2 with 3 answers.', { exact: true }),
   ).toBeVisible();
@@ -215,7 +223,7 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
   await expect(group.locator('.tmt-ui-chip .agent-chip')).toHaveCount(2);
   await expect(group.getByRole('group', { name: 'Answer recipients' })).toContainText('Review');
   await card(page).getByLabel('Keep it', { exact: true }).check();
-  await group.getByRole('tab').nth(1).click();
+  await group.locator('.question-line').nth(1).click();
   await card(page).getByLabel('Your answer', { exact: true }).fill('Ask both chosen identities');
   await group
     .getByRole('button', { name: 'Send 2 answers · to @Review, @Review', exact: true })
@@ -229,12 +237,13 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
         `${attempt.input.destination.machine}:${attempt.input.destination.agent}`,
     ),
   ).toEqual(agents.map((agent) => `${agent.machine}:${agent.agent}`));
+  await openRecorded(group, 1);
   await run(page, 'questionBatchAsk', 'replied');
   await expect(card(page).locator('.question-shared-ask')).toHaveText(
     'Asked Review, Review with 2 answers.',
   );
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(0);
-  await group.getByRole('tab').nth(0).click();
+  await group.locator('.question-line').nth(0).click();
   await expect(card(page).locator('.question-shared-ask')).toHaveText(
     'Asked Review, Review with 2 answers.',
   );
@@ -248,9 +257,9 @@ test('partial Send publishes only complete drafts; a later Send leaves earlier c
   await card(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send 1 answer/ }).click();
   await recorded(page, 1);
-  await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(group.locator('.question-line').nth(0)).toHaveAttribute('aria-expanded', 'false');
   const before: readonly ThreadView[] = await run(page, 'discussionProof');
-  await group.getByRole('tab').nth(2).click();
+  await group.locator('.question-line').nth(2).click();
   await card(page).getByLabel('Your answer', { exact: true }).fill('Only this next answer');
   await group.getByRole('button', { name: /^Send 1 answer/ }).click();
   await recorded(page, 2);
@@ -259,7 +268,7 @@ test('partial Send publishes only complete drafts; a later Send leaves earlier c
     before[0].comments,
   );
   expect(after).toHaveLength(2);
-  await group.getByRole('tab').nth(1).click();
+  await group.locator('.question-line').nth(1).click();
   await expect(card(page).getByLabel('Your answer', { exact: true })).toHaveValue('');
   await expect(group.getByRole('button', { name: /^Send answers · to/ })).toBeDisabled();
 });
@@ -272,6 +281,8 @@ for (const recordBeforeFail of [false, true]) {
     await answerThree(page, group);
     await group.getByRole('button', { name: /^Send 3 answers/ }).click();
     await recorded(page, recordBeforeFail ? 3 : 2);
+    await expect(group.locator('.question-line').nth(2)).toHaveAttribute('aria-expanded', 'false');
+    await group.locator('.question-line').first().click();
     await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toBeEnabled();
     const before: readonly ThreadView[] = await run(page, 'discussionProof');
     const successful = before.filter(
@@ -282,25 +293,25 @@ for (const recordBeforeFail of [false, true]) {
     expect(first[0].selection.messageIds).toHaveLength(2);
     expect(first[0].selection.thread).toBe(successful[0].threadId);
     expect(first[0].selection.comment).not.toContain('Which heading should we use?');
-    await group.getByRole('tab').nth(0).click();
     await expect(card(page).getByRole('alert')).toHaveText(
       'Could not confirm this answer. Your draft is kept for the next Send.',
     );
     await expect(card(page).getByLabel('Keep it', { exact: true })).toBeChecked();
     if (recordBeforeFail)
-      await expect(card(page).locator('.question-answer')).toHaveText('Keep it');
+      await expect(card(page).locator('.question-answer > p')).toHaveText('Keep it');
     else {
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(card(page).locator('.needs-you-bar')).toContainText('Please answer');
+      await expect(group.locator('.question-line').first()).toContainText('Waiting for you');
     }
     await group.getByRole('button', { name: /^Send 1 answer/ }).click();
     await recorded(page, recordBeforeFail ? 4 : 3);
+    await openRecorded(group, 0);
     const after: readonly ThreadView[] = await run(page, 'discussionProof');
     for (const thread of successful)
       expect(after.find((value) => value.ref.id === thread.ref.id)?.comments).toEqual(
         thread.comments,
       );
-    await expect(card(page).locator('.question-answer')).toHaveText('Keep it');
+    await expect(card(page).locator('.question-answer > p')).toHaveText('Keep it');
     await expect(card(page).getByRole('alert')).toHaveCount(0);
     const attempts = await run(page, 'answerBatchProof');
     expect(attempts).toHaveLength(2);
@@ -317,6 +328,7 @@ test('a failed recipient retries the same frozen batch once without republishing
   await group.getByRole('button', { name: /^Send 3 answers/ }).click();
   await recorded(page, 3);
   await expect(group.getByTestId('recipient-failure')).toHaveCount(1);
+  await openRecorded(group, 2);
   const before: readonly ThreadView[] = await run(page, 'discussionProof');
   await group
     .getByTestId('recipient-failure')
@@ -348,12 +360,13 @@ test('an admitted refused batch retries its original set for one recipient after
   const original = (await run(page, 'answerBatchProof'))[0];
   const before: readonly ThreadView[] = await run(page, 'discussionProof');
   await run(page, 'questionBatchAsk', 'refused');
-  await group.getByRole('tab').nth(0).click();
+  await group.locator('.question-line').nth(0).click();
   await expect(card(page).getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(2);
   await run(page, 'saveQuestionPage');
   await page.reload();
   await run(page, 'mount');
   await run(page, 'restoreQuestionPage');
+  await group.locator('.question-line').first().click();
   await expect(card(page).getByRole('button', { name: 'Ask again', exact: true })).toHaveCount(2);
   await card(page).getByRole('button', { name: 'Ask again', exact: true }).first().click();
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
@@ -382,7 +395,7 @@ test('no recipients posts answers only, and a removed default does not return', 
   await recorded(page, 3);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
   await expect(group.locator('.tmt-ui-chip')).toHaveCount(0);
-  await group.getByRole('tab').nth(0).click();
+  await group.locator('.question-line').nth(0).click();
   await card(page).getByRole('button', { name: 'Change answer', exact: true }).click();
   await card(page).getByLabel('Change it', { exact: true }).check();
   await expect(
@@ -426,7 +439,7 @@ test('the composed size refusal has no effects and keeps drafts for a smaller Se
   const group = await mount(page, { count: 10 });
   await card(page).getByLabel('Keep it', { exact: true }).check();
   for (let index = 1; index < 10; index++) {
-    await group.getByRole('tab').nth(index).click();
+    await group.locator('.question-line').nth(index).click();
     await card(page)
       .getByLabel('Your answer', { exact: true })
       .fill(index === 1 ? 'Short answer' : 'x'.repeat(8192));
@@ -478,7 +491,7 @@ for (const [width, theme] of [
         await expect(group).not.toHaveAttribute('data-detached');
         await expect
           .poll(() =>
-            group.locator('.question-group-card').evaluate((node) => {
+            group.locator('.question-compact-block').evaluate((node) => {
               const box = node.getBoundingClientRect();
               return (
                 box.left >= -1 &&
@@ -490,7 +503,7 @@ for (const [width, theme] of [
           .toBe(true);
         await expect
           .poll(async () => {
-            const box = await group.boundingBox(),
+            const box = await group.locator('.question-compact-block').boundingBox(),
               below = await page
                 .frameLocator('#ask-page-fixture iframe')
                 .locator('#after-question')
@@ -515,16 +528,16 @@ for (const [width, theme] of [
           });
         }
       };
-      await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('0 of 3 answered');
+      await expect(group.locator('.question-compact-heading')).toContainText('3 of 3 waiting');
       await capture('waiting');
       await card(page).getByLabel('Keep it', { exact: true }).check();
-      await group.getByRole('tab').nth(1).click();
-      await expect(group.locator('.tmt-ui-tabs-status')).toHaveText('1 of 3 answered');
+      await group.locator('.question-line').nth(1).click();
+      await expect(group.locator('.question-compact-heading')).toContainText('3 of 3 waiting');
       await capture('partial');
       await card(page)
         .getByLabel('Your answer', { exact: true })
         .fill('Make the purpose clear in the first paragraph.');
-      await group.getByRole('tab').nth(2).click();
+      await group.locator('.question-line').nth(2).click();
       await card(page)
         .getByLabel('Your answer', { exact: true })
         .fill('Explain the tradeoffs without repeating the introduction.');
@@ -545,11 +558,11 @@ for (const [width, theme] of [
       await recorded(page, 3);
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(3);
       await run(page, 'questionBatchAsk', 'uncertain');
-      await group.getByRole('tab').nth(0).click();
+      await group.locator('.question-line').nth(0).click();
       await expect(group.getByText('Delivery unconfirmed').first()).toBeVisible();
       await capture('ask-uncertain');
       await run(page, 'questionBatchAsk', 'replied');
-      await group.getByRole('tab').nth(2).click();
+      await group.locator('.question-line').nth(2).click();
       await expect(
         card(page).getByRole('button', { name: 'Open reply · Q1', exact: true }),
       ).toBeVisible();
@@ -557,10 +570,10 @@ for (const [width, theme] of [
       await card(page).getByRole('button', { name: 'Open reply · Q1', exact: true }).click();
       await expect(card(page).getByTestId('ask-entry').first()).toBeFocused();
       await capture('canonical-replied');
-      await group.getByRole('tab').nth(1).click();
+      await group.locator('.question-line').nth(1).click();
       await card(page).getByRole('button', { name: 'Change answer', exact: true }).click();
       await expect(card(page).getByLabel('Your answer', { exact: true })).toBeFocused();
-      await expect(card(page).locator('.question-answer')).toHaveText(
+      await expect(card(page).locator('.question-answer > p')).toHaveText(
         'Make the purpose clear in the first paragraph.',
       );
       await card(page).getByLabel('Your answer', { exact: true }).fill('A revised introduction');
@@ -570,17 +583,18 @@ for (const [width, theme] of [
       await answerThree(page, group);
       await group.getByRole('button', { name: /^Send 3 answers/ }).click();
       await recorded(page, 2);
-      await group.getByRole('tab').nth(0).click();
+      await group.locator('.question-line').nth(0).click();
       await expect(card(page).getByRole('alert')).toHaveText(
         'Could not confirm this answer. Your draft is kept for the next Send.',
       );
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
-      await expect(card(page).locator('.needs-you-bar')).toContainText('Please answer');
+      await expect(group.locator('.question-line').first()).toContainText('Waiting for you');
       await capture('comment-unconfirmed');
       await remount({ count: 3, darkPage }, { prepareFailures: 1 });
       await answerThree(page, group);
       await group.getByRole('button', { name: /^Send 3 answers/ }).click();
       await expect(group.getByTestId('recipient-failure')).toHaveCount(1);
+      await openRecorded(group, 2);
       await capture('ask-failed');
       await group
         .getByTestId('recipient-failure')
@@ -607,7 +621,8 @@ for (const [width, theme] of [
       ).toBeEnabled();
       await capture('no-recipients');
       await remount({ count: 1, darkPage });
-      await expect(group.getByRole('tab')).toHaveCount(0);
+      await expect(group.locator('.question-line')).toHaveCount(1);
+      await expect(group.locator('.question-compact-heading')).toHaveCount(0);
       await card(page).getByLabel('Keep it', { exact: true }).check();
       await expect(group.getByRole('button', { name: /^Send answer/ })).toBeEnabled();
       await capture('one-question');

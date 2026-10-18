@@ -14,6 +14,7 @@ async function mount(page: Page, question = {}, options = {}) {
   await run(page, 'question', question);
   await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
   const card = page.locator('.question-group-card');
+  await card.locator('.question-line').click();
   await expect(
     card.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }),
   ).toBeVisible();
@@ -22,13 +23,16 @@ async function mount(page: Page, question = {}, options = {}) {
 async function send(page: Page) {
   const card = page.locator('.question-group-card');
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
-  await expect(card.locator('.needs-you-bar')).toContainText('Answered');
+  const line = card.locator('.question-line');
+  await expect(line).toContainText('Answered:');
+  await expect(line).toHaveAttribute('aria-expanded', 'false');
+  await line.click();
   await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
 }
 for (const kind of ['single', 'multiple', 'short', 'long']) {
   test(`${kind} creates a normal quote thread and changing answers appends`, async ({ page }) => {
     const card = await mount(page, { kind, other: kind === 'single' || kind === 'multiple' });
-    await expect(card.locator('.needs-you-bar')).toContainText('Please answer');
+    await expect(card.locator('.question-line')).toContainText('Waiting for you');
     if (kind === 'single' || kind === 'multiple') {
       await card.getByLabel('Change it', { exact: true }).check();
       if (kind === 'multiple') await card.getByLabel('Keep it', { exact: true }).check();
@@ -79,6 +83,7 @@ test('question/choice mentions never add destinations; unknown asking agent uses
   await page.goto('/');
   await run(page, 'mount');
   await run(page, 'question', { agent: 'Missing agent' });
+  await page.locator('.question-line').click();
   await expect(
     page.getByRole('group', { name: 'Answer recipients' }).locator('.tmt-ui-chip'),
   ).toHaveCount(0);
@@ -128,7 +133,7 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 0,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
+  await expect(card.locator('.question-line')).toContainText('Answered:');
   await run(page, 'questionSibling', {
     body: `${prefix}Other reader answer\nPage: Live shared page`,
     sequence: '10',
@@ -144,12 +149,12 @@ test('answered canonical threads resist empty siblings and agent provenance pres
     index: 2,
   });
   await expect(card.locator('.question-answer')).toContainText('Keep it');
-  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
+  await expect(card.locator('.question-line')).toContainText('Answered:');
   await card.getByRole('button', { name: 'Change answer', exact: true }).click();
   await card.getByLabel('Change it', { exact: true }).check();
   await send(page);
   await expect(card.locator('.question-answer')).toContainText('Change it');
-  await expect(card.locator('.needs-you-bar')).toContainText('Answered · You');
+  await expect(card.locator('.question-line')).toContainText('Answered:');
   const threads = await run(page, 'discussionProof');
   expect(
     threads.find((thread: { ref: { writer: string } }) => thread.ref.writer.endsWith('000002'))
@@ -161,22 +166,23 @@ test('answered canonical threads resist empty siblings and agent provenance pres
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
 });
 
-test('an answered question folds to one line, focus moves to Change answer, and Send returns with it', async ({
+test('an answered question closes to its focused line and Change answer restores Send', async ({
   page,
 }) => {
   const card = await mount(page);
   await card.getByLabel('Keep it', { exact: true }).check();
   await card.getByRole('button', { name: /^Send answer/ }).press('Enter');
-  const bar = card.locator('.needs-you-bar');
-  await expect(bar).toContainText('Answered · You');
-  await expect(bar.locator('.question-answer')).toHaveText('Keep it');
-  const change = bar.getByRole('button', { name: 'Change answer', exact: true });
-  await expect(change).toBeFocused();
+  const line = card.locator('.question-line');
+  await expect(line).toContainText('Answered: Keep it');
+  await expect(line).toHaveAttribute('aria-expanded', 'false');
+  await expect(line).toBeFocused();
   // Nothing of the answer being written stays next to the folded line.
   await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
   await expect(card.getByRole('group', { name: 'Choose one' })).toHaveCount(0);
   await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toHaveCount(0);
-  await change.click();
+  await line.click();
+  await expect(card.locator('.question-answer > p')).toHaveText('Keep it');
+  await card.getByRole('button', { name: 'Change answer', exact: true }).click();
   await expect(card.getByRole('group', { name: 'Choose one' })).toBeVisible();
   await expect(card.getByRole('button', { name: /^Send answer/ })).toBeVisible();
   await expect(card.getByRole('button', { name: 'Remove @Agent 1' })).toBeVisible();
@@ -195,7 +201,7 @@ for (const change of [false, true]) {
     }
     await run(page, 'pausePrepare');
     await card.getByRole('button', { name: /^Send answer/ }).click();
-    await expect(card.locator('.question-answer')).toHaveText(change ? 'Change it' : 'Keep it');
+    await expect(card.locator('.question-answer > p')).toHaveText(change ? 'Change it' : 'Keep it');
     await expect(card.getByText('Sending…', { exact: true })).toBeVisible();
     const recorded = await run(page, 'discussionProof');
     expect(recorded).toHaveLength(1);
@@ -203,6 +209,8 @@ for (const change of [false, true]) {
     expect((await run(page, 'proof')).sends).toHaveLength(change ? 1 : 0);
     await run(page, 'resumePrepare');
     await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(change ? 2 : 1);
+    await expect(card.locator('.question-line')).toHaveAttribute('aria-expanded', 'false');
+    await card.locator('.question-line').click();
     await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
     expect(await run(page, 'discussionProof')).toEqual(recorded);
     await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCount(0);
@@ -234,6 +242,9 @@ test('ordinary answer history growth keeps the inline card in window scrolling',
   const frame = page.locator('#ask-page-fixture iframe');
   for (let index = 0; index < 6; index++) {
     const oldHeight = await frame.evaluate((node) => node.getBoundingClientRect().height);
+    const block = card.locator('.question-compact-block');
+    const oldContent = await block.evaluate((node) => node.scrollHeight);
+    const oldBox = (await block.boundingBox())!.height;
     await run(page, 'questionSibling', {
       body: `Ordinary follow-up ${index}:\n` + 'Details about the requested revision.\n'.repeat(12),
       sequence: String(index + 1),
@@ -242,13 +253,19 @@ test('ordinary answer history growth keeps the inline card in window scrolling',
     });
     await expect(card.locator('.question-history article')).toHaveCount(index + 2);
     await expect
-      .poll(() => frame.evaluate((node) => node.getBoundingClientRect().height))
-      .toBeGreaterThan(oldHeight);
+      .poll(() => block.evaluate((node) => node.scrollHeight))
+      .toBeGreaterThan(oldContent);
+    if (oldBox < 1900)
+      await expect
+        .poll(() => frame.evaluate((node) => node.getBoundingClientRect().height))
+        .toBeGreaterThan(oldHeight);
+    else await expect(frame).toHaveJSProperty('clientHeight', oldHeight);
+    expect((await block.boundingBox())!.height).toBeLessThanOrEqual(1900);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
     await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
     await expect(page.locator('[data-inline-question]')).not.toHaveAttribute('data-detached');
   }
-  await expect(card.locator('.question-answer')).toHaveText('Keep it');
+  await expect(card.locator('.question-answer > p')).toHaveText('Keep it');
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
 
@@ -357,7 +374,7 @@ for (const width of [1440, 390])
         await expect(proposal).not.toHaveAttribute('data-detached');
         await expect
           .poll(async () => {
-            const questionBox = await card.boundingBox();
+            const questionBox = await card.locator('.question-compact-block').boundingBox();
             const proposalBox = await proposal.locator('.proposal-card').boundingBox();
             if (!questionBox || !proposalBox) return null;
             return {
@@ -370,7 +387,7 @@ for (const width of [1440, 390])
           .toEqual({ left: 0, right: 0 });
         const frame = page.frameLocator('#ask-page-fixture iframe');
         await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
-        const question = frame.locator('[data-colab-question]');
+        const question = card.locator('.question-compact-block');
         await expect(question).toHaveCSS(
           'background-color',
           theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
@@ -395,15 +412,12 @@ for (const width of [1440, 390])
           await expect(surface).toHaveCSS('color-scheme', theme);
           await expect(surface).toHaveCSS('box-shadow', 'none');
         }
-        // The state line is the shared light band, not the sheet.
-        await expect(card.locator('.needs-you-bar')).toHaveCSS(
-          'background-color',
-          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
+        // Compact disclosure text stays neutral; only its mark carries attention.
+        await expect(card.locator('.question-line')).toHaveCSS(
+          'color',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
-        await expect(card.locator('.question-group-footer')).toHaveCSS(
-          'border-top-color',
-          theme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)',
-        );
+        await expect(card.locator('.question-group-footer')).toHaveCSS('border-top-width', '0px');
         // Sibling agent cards follow the same effective Colab theme.
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'background-color',
@@ -452,7 +466,7 @@ for (const width of [1440, 390])
         };
         await expect
           .poll(async () => {
-            const box = await card.boundingBox(),
+            const box = await card.locator('.question-compact-block').boundingBox(),
               below = await after.boundingBox();
             return !!box && !!below && below.y >= box.y + box.height - 1;
           })
@@ -549,7 +563,7 @@ test('cosmetic frame claims cannot supply an answer or send authority', async ({
         ),
     )
     .toBeGreaterThan(0);
-  await expect(card.locator('.needs-you-bar')).toContainText('Please answer');
+  await expect(card.locator('.question-line')).toContainText('Waiting for you');
   await expect(card.locator('.question-answer')).toHaveCount(0);
   await card.getByLabel('Keep it', { exact: true }).check();
   await expect(

@@ -161,7 +161,22 @@ export function NeedsYouHeader({
                           }}
                         >
                           <span className="needs-you-header-row" title={item.title}>
-                            {item.title}
+                            {item.kind === 'answer' && item.questionCount ? (
+                              <>
+                                <span
+                                  className="question-line-mark"
+                                  data-state="waiting"
+                                  aria-hidden="true"
+                                >
+                                  ◆
+                                </span>{' '}
+                                {item.questionCount.waiting} of {item.questionCount.total} questions
+                                waiting
+                                <span className="needs-you-header-agent"> · {item.title}</span>
+                              </>
+                            ) : (
+                              item.title
+                            )}
                             {item.agents.length > 0 && (
                               <span className="needs-you-header-agent">
                                 {' · '}

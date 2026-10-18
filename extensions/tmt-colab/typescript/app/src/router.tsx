@@ -138,7 +138,9 @@ function PageFloatingActions({
       const left = right - margin - (fab?.width ?? 0);
       const cards = [...(host?.parentElement?.querySelectorAll<HTMLElement>(AVOIDED_CARDS) ?? [])]
         .filter((footer) => !footer.closest('[data-detached],[hidden]'))
-        .map((footer) => (footer.closest('.question-group-card') ?? footer).getBoundingClientRect())
+        .map((footer) =>
+          (footer.closest('.question-compact-block') ?? footer).getBoundingClientRect(),
+        )
         .filter(
           (footer) =>
             footer.width > 0 && footer.height > 0 && footer.bottom > 0 && footer.top < innerHeight,

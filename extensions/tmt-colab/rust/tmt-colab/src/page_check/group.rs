@@ -124,7 +124,13 @@ pub(super) struct Survey {
 }
 
 impl Survey {
-    pub(super) fn new(tree: &Tree, groups: &[Id], questions: &[Id], reviews: &[Id]) -> Survey {
+    pub(super) fn new(
+        tree: &Tree,
+        groups: &[Id],
+        questions: &[Id],
+        reviews: &[Id],
+        split: &HashMap<String, usize>,
+    ) -> Survey {
         let mut candidates: Vec<(Id, GroupCandidate)> = groups
             .iter()
             .map(|group| {
@@ -156,7 +162,7 @@ impl Survey {
         // Pass 1: every group holds its own ID wherever it sits; the structural rules other than a
         // duplicate ID fix whose direct questions hold theirs.
         let mut open = HashSet::new();
-        let mut holders: HashMap<String, usize> = HashMap::new();
+        let mut holders: HashMap<String, usize> = split.keys().map(|id| (id.clone(), 1)).collect();
         for (group, candidate) in &candidates {
             *holders.entry(candidate.id.clone()).or_insert(0) += 1;
             if failure(candidate, false).is_none() {

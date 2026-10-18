@@ -82,6 +82,8 @@ pub struct QuestionGroup {
     pub questions: Vec<String>,
     /// The author opted into the compact inline form (`data-form="chip"`); otherwise the block.
     pub chip: bool,
+    /// Standalone questions share a logical group across separate placements.
+    pub split: bool,
 }
 
 /// A review section the page shows: its heading is the thread anchor, and `questions` are the

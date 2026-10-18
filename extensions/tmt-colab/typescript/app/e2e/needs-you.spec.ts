@@ -31,7 +31,9 @@ test('one unanswered group counts once and menu navigation only scrolls and focu
   await expect(menu.getByText('Please read · 0')).toHaveCount(0);
   await menu.getByRole('menuitem', { name: 'Two questions · Agent 1' }).click();
   await expect(menu).toHaveCount(0);
-  await expect(page.locator('[data-question-group] button').first()).toBeFocused();
+  await expect(
+    page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+  ).toBeFocused();
   expect(await run(page, 'proof')).toEqual(before);
   expect(await run(page, 'discussionProof')).toEqual(threads);
   await trigger.press('Enter');
@@ -69,7 +71,7 @@ test('confirmed and waiting-for-agent sections leave the count; zero is a stable
   expect((await zero.boundingBox())!.width).toBe(before!.width);
 });
 
-test('a chip opens on the next unanswered question without changing its retained draft', async ({
+test('the header opens the next unanswered question without changing its retained draft', async ({
   page,
 }) => {
   await page.goto('/');
@@ -83,25 +85,27 @@ test('a chip opens on the next unanswered question without changing its retained
   await trigger.press('Enter');
   await page.getByRole('menuitem', { name: 'Two list decisions · Agent 1' }).click();
   const panel = page.locator('[data-question-group]');
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Collapse', exact: true })).toBeFocused();
+  await expect(panel.locator('.question-compact-block')).toBeVisible();
+  await expect(panel.locator('.question-card:visible').getByRole('radio').first()).toBeFocused();
   await panel.getByLabel('One column', { exact: true }).check();
   await panel.getByRole('button', { name: /^Send/ }).click();
-  await expect(panel.locator('.question-card:visible')).toContainText('Answered');
+  await expect(panel.locator('.question-line').first()).toContainText('Answered: One column');
   await expect(trigger).toBeVisible();
   // Group Send includes every prepared answer: start the retained draft only after Q1 is stored.
-  await panel.getByRole('tab', { name: /Q2/ }).click();
+  await panel.locator('.question-line').nth(1).click();
   await panel.getByLabel('Your answer', { exact: true }).fill('Keep this unsent draft.');
-  await panel.getByRole('tab', { name: /Q1/ }).click();
+  await panel.locator('.question-line').first().click();
   const before = await run(page, 'proof');
   const records = await run(page, 'discussionProof');
   await trigger.click();
   await page.getByRole('menuitem', { name: 'Two list decisions · Agent 1' }).click();
-  await expect(panel.getByRole('tab', { name: /Q2/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(panel.locator('.question-line').nth(1)).toHaveAttribute('aria-expanded', 'true');
   await expect(panel.getByLabel('Your answer', { exact: true })).toHaveValue(
     'Keep this unsent draft.',
   );
-  await expect(panel.getByRole('button', { name: 'Collapse', exact: true })).toBeFocused();
+  await expect(
+    panel.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+  ).toBeFocused();
   expect(await run(page, 'proof')).toEqual(before);
   expect(await run(page, 'discussionProof')).toEqual(records);
 });
@@ -171,7 +175,7 @@ for (const width of [1440, 390])
       await expect(trigger).toBeVisible();
       await expect(root.locator('[data-inline-reading]')).not.toHaveAttribute('data-detached');
       await expect(root.locator('[data-inline-review]')).not.toHaveAttribute('data-detached');
-      await expect(root.locator('.question-chip')).toBeVisible();
+      await expect(root.locator('.question-line')).toBeVisible();
       const initialWidth = (await root.locator('.needs-you-header').boundingBox())!.width;
       await expect
         .poll(async () => (await trigger.innerText()).replace(/\s+/g, ''))
@@ -221,11 +225,13 @@ for (const width of [1440, 390])
       await root.getByRole('button', { name: 'Needs you: 2', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Choose the layout · Agent 1' }).click();
       const panel = root.locator('[data-question-group]');
-      await expect(panel.getByRole('button', { name: 'Collapse', exact: true })).toBeFocused();
+      await expect(
+        panel.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+      ).toBeFocused();
       await panel.getByLabel('Your answer', { exact: true }).fill('Use the compact layout.');
       await panel.getByRole('button', { name: /^Send/ }).click();
       await expect(root.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
-      await panel.getByRole('button', { name: 'Collapse', exact: true }).click();
+      await expect(panel.locator('.question-line')).toHaveAttribute('aria-expanded', 'false');
       await root.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
       await page.getByRole('menuitem', { name: 'Confirm the scope · Agent 1' }).click();
       const confirm = root
@@ -358,6 +364,37 @@ test('Needs-you entries are links and modified activation leaves this page uncha
   expect(await run(page, 'discussionProof')).toEqual(threads);
   await link.press('Enter');
   await expect(menu).toHaveCount(0);
-  await expect(page.locator('[data-question-group] button').first()).toBeFocused();
+  await expect(
+    page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+  ).toBeFocused();
   expect(await run(page, 'proof')).toEqual(before);
+});
+
+test('separate placements count as one pending group and the menu names its remaining questions', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'questionGroup', { split: true });
+  const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  const item = page.getByRole('menuitem', { name: /2 of 2 questions waiting/ });
+  await expect(item).toHaveCount(1);
+  await item.click();
+  const rows = page.locator('.question-line');
+  await expect(rows.first()).toHaveAttribute('aria-expanded', 'true');
+  await page.getByLabel('Keep it', { exact: true }).check();
+  await page.getByRole('button', { name: 'Send answer · to @Agent 1', exact: true }).click();
+  await expect(rows.first()).toContainText('Answered: Keep it');
+  await expect(trigger).toBeVisible();
+  const records = await run(page, 'discussionProof');
+  await trigger.click();
+  await expect(page.getByRole('menuitem', { name: /1 of 2 questions waiting/ })).toHaveCount(1);
+  await page.getByRole('menuitem', { name: /1 of 2 questions waiting/ }).click();
+  await expect(rows.nth(1)).toHaveAttribute('aria-expanded', 'true');
+  await expect(
+    page.locator('.question-card:visible').getByLabel('Your answer', { exact: true }),
+  ).toBeFocused();
+  expect(await run(page, 'discussionProof')).toEqual(records);
 });

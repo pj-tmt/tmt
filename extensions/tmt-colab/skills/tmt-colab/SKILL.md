@@ -213,6 +213,7 @@ writer wins); `changed:false` means no change. `ls` and `show --json` list each 
 `projects`; `ls --project NAME` shows that project's pages.
 
 After page create/update, add reading anchors for passages the reader must not miss.
+Place compact questions by their passages; `data-group` links them. Send covers its block.
 Markup: [questions](references/questions.md) (`tmt colab skill questions`),
 [reviews](references/reviews.md) (`tmt colab skill reviews`),
 [reading](references/reading.md) (`tmt colab skill reading`).

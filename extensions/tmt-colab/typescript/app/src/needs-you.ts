@@ -6,7 +6,11 @@ export type NeedsYouCandidate = Target &
   (
     | { kind: 'proposal'; state: 'waiting' | 'settled' }
     | { kind: 'reading'; state: 'unread' | 'read' }
-    | { kind: 'answer'; state: 'unanswered' | 'answered' }
+    | {
+        kind: 'answer';
+        state: 'unanswered' | 'answered';
+        questionCount?: { waiting: number; total: number };
+      }
     | { kind: 'review'; state: 'waiting' | 'changes' | 'closed' }
   );
 

@@ -589,12 +589,18 @@
                   : document.querySelectorAll(`tmt-read[data-id="${slot.id}"]`);
               const group = questionGroups.find((group) => group.id === slot.id);
               if (group?.form === 'chip') {
-                // The block collapses to an inline placeholder the parent draws its chip over; the
-                // open panel's spacer follows the placeholder's containing block, so the text
-                // below reflows and nothing is overlaid.
+                // Keep each compact block's spacer beside its own authored target.
+                // Sharing a containing block's trailing edge with a review or another
+                // question would make their adjacency checks displace each other.
                 const target = matches[0];
                 const chip = slot.chip;
-                if (innerScroll || matches.length !== 1 || !target || !chip) {
+                if (
+                  innerScroll ||
+                  matches.length !== 1 ||
+                  !target ||
+                  target.closest('[hidden]') ||
+                  !chip
+                ) {
                   chipSpacers.get(slot.id)?.remove();
                   chipSpacers.delete(slot.id);
                   spacers.get(slot.id)?.remove();
@@ -624,10 +630,7 @@
                   /^(inline|contents)/.test(getComputedStyle(block).display)
                 )
                   block = block.parentElement;
-                const edge =
-                  block && block !== document.body && block !== document.documentElement
-                    ? block
-                    : marker;
+                const edge = target;
                 let panel = spacers.get(slot.id);
                 if (panel && (!panel.isConnected || panel.previousElementSibling !== edge)) {
                   panel.remove();
@@ -645,8 +648,11 @@
                 if (panel.style.minHeight !== panelHeight) panel.style.minHeight = panelHeight;
                 panel.style.display = 'block';
                 const box = marker.getBoundingClientRect();
-                const column = edge.getBoundingClientRect();
-                const style = edge === marker ? null : getComputedStyle(edge);
+                // Even a direct body child uses the authored column, not the tiny
+                // inline marker's width. The after spacer owns the trusted block.
+                const container = block ?? marker;
+                const column = container.getBoundingClientRect();
+                const style = getComputedStyle(container);
                 const inset = style
                   ? [parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0]
                   : [0, 0];

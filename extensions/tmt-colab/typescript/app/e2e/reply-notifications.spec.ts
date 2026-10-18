@@ -604,6 +604,7 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
 }) => {
   await page.goto('/test/reply-notifications.html');
   await run(page, 'mountBlocks');
+  await page.locator('.question-line').click();
   const answer = page.locator('.question-card');
   await answer.scrollIntoViewIfNeeded();
   await run(page, 'arrive', {
@@ -636,7 +637,7 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
   await expect(fallback).toContainText('Detached folded follow-up');
 });
 
-test('Answer activation selects its inactive tab; a covering modal holds the arrival instead of suppressing it', async ({
+test('Answer activation opens its closed question; a covering modal holds the arrival instead of suppressing it', async ({
   page,
 }) => {
   await page.goto('/test/reply-notifications.html');
