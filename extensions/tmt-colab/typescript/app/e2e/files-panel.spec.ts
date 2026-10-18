@@ -142,6 +142,29 @@ test('a page that changed while uploading asks to add again; a failed save keeps
   await expect(panel.getByTestId('file-row')).toHaveCount(2);
 });
 
+test('a same-page owner replacement keeps the picked chip and Add uploads through the new owner', async ({
+  page,
+}) => {
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [note('kept.txt')]);
+  const chip = panel.getByTestId('attachment-chip');
+  await expect(chip).toHaveCount(1);
+  await page.evaluate(async (path) => (await import(path)).replaceFilesOwner(), fixture);
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await expect(chip).toHaveCount(1);
+  await add(panel).click();
+  await expect(panel.getByTestId('file-row')).toHaveCount(1);
+  await expect(chip).toHaveCount(0);
+  const log = await actions(page);
+  expect(log).toContain('files-b:target');
+  expect(log.filter((entry) => entry.endsWith('upload:kept.txt'))).toEqual([
+    'files-b:upload:kept.txt',
+    'attach:upload:kept.txt',
+  ]);
+  expect(log).toContain('files:add:kept.txt');
+});
+
 test('an epoch or admission change disposes shown previews and failures, and a later read starts clean', async ({
   page,
 }) => {
