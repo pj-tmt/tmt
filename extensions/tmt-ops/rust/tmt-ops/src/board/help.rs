@@ -191,6 +191,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "pane focus",
                     "use the effective next-pane binding to move between visible list and conversation panes",
                 ),
+                (
+                    "unread",
+                    "moving the selection onto an agent never marks its replies read; they turn read when the reader holds focus on the shown reply or after a successful jump",
+                ),
             ],
         ),
     ];

@@ -90,8 +90,10 @@ question-only presentation and does not acquire or paint these captures.
 
 Unread markers are separate from Core acknowledgments. After a successful draw,
 App admits only the exact actor/member/request submission of an acquired displayed
-reply in Agents conversation. Loading, hidden, modal-covered or paused newer text
-cannot mark unseen output. A guarded `j` seals the actor/member and newest observed
+reply in the Agents conversation while the reader holds focus; moving the list
+selection onto a row never reads it, and leaving the reader makes the next opening
+a fresh one. Loading, hidden, modal-covered or paused newer text cannot mark
+unseen output. A guarded `j` seals the actor/member and newest observed
 submission before leaving the UI; only successful focus publishes that marker.
 The existing ordered lane max-merges shared Config markers. Quiet coalesced writes
 own no action-progress overlay; visible unread clears only after successful

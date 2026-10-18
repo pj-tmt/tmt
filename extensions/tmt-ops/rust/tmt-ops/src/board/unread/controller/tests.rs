@@ -1,5 +1,6 @@
 //! Real frame admission and private Config files; no host tmux, browser or store.
 use super::*;
+use crate::config::Pane;
 use crate::{
     board::{
         ActionOutcome, BoardEvent,
@@ -9,6 +10,7 @@ use crate::{
     config::Config,
     core::Core,
 };
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use serde_json::json;
 use std::{fs, path::PathBuf};
@@ -58,6 +60,9 @@ fn unread_app() -> App {
     app.overview_rows.borrow_mut().clear();
     app
 }
+fn press(app: &mut App, code: KeyCode) {
+    app.key(KeyEvent::new(code, KeyModifiers::NONE));
+}
 fn draw(app: &App) -> String {
     let mut terminal = Terminal::new(TestBackend::new(148, 51)).unwrap();
     terminal
@@ -77,6 +82,8 @@ fn unread_opening_requires_a_drawn_acquired_reply_and_a_successful_durable_save(
     let fixture = Fixture::new();
     let mut app = unread_app();
     assert_eq!(app.unread_count(MEMBER).total, 1);
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
     draw(&app);
     app.unread_drawn();
     assert!(
@@ -116,7 +123,15 @@ fn unread_opening_requires_a_drawn_acquired_reply_and_a_successful_durable_save(
     );
     assert!(app.unread.writer.offer().is_none(), "no automatic retry");
     fs::write(fixture.0.join("ops.toml"), "# authored preferences\n").unwrap();
-    app.unread.displayed = None; // Explicit reopen; the ordinary unchanged frame cannot retry.
+    // Leave the reader and open it again: the ordinary unchanged frame cannot retry.
+    press(&mut app, KeyCode::Esc);
+    draw(&app);
+    app.unread_drawn();
+    assert!(
+        app.unread.writer.offer().is_none(),
+        "a closed reader marks nothing"
+    );
+    press(&mut app, KeyCode::Tab);
     draw(&app);
     app.unread_drawn();
     let result = app.unread.writer.offer().unwrap().publish(&fixture.core());
@@ -549,4 +564,36 @@ fn unread_popup_paints_a_failed_marker_save_after_successful_focus_instead_of_cl
     );
     assert_eq!(app.unread_count(MEMBER).total, 1);
     assert!(app.unread.writer.finish(&fixture.core()).is_err());
+}
+
+#[test]
+fn moving_onto_an_unread_row_never_marks_it_read() {
+    let mut app = unread_app();
+    draw(&app);
+    let key = app.detail_read().unwrap();
+    app.apply_message(&key, Ok("Exact answer".into()));
+    assert_eq!(app.unread_count(MEMBER).total, 1);
+    assert_eq!(app.focused_pane(), Some(Pane::Rows));
+    // Move off the row and back onto it; the conversation shows the reply on
+    // every frame, but the list still owns the keyboard.
+    for code in [KeyCode::Up, KeyCode::Down, KeyCode::Up, KeyCode::Down] {
+        press(&mut app, code);
+        assert!(!draw(&app).is_empty());
+        app.unread_drawn();
+    }
+    assert!(
+        matches!(app.workspace.selected, Some(OpsTarget::Member { .. })),
+        "the cursor is back on the unread row"
+    );
+    assert!(draw(&app).contains("Exact answer"));
+    app.unread_drawn();
+    assert_eq!(app.unread_count(MEMBER).total, 1, "the count is stable");
+    assert!(app.unread.displayed.is_none(), "nothing is admitted");
+    assert!(app.unread.writer.offer().is_none(), "nothing is queued");
+    assert_eq!(app.unread.writer.confirmed(ACTOR, MEMBER), 0);
+    // Only opening the reader reads it.
+    press(&mut app, KeyCode::Tab);
+    draw(&app);
+    app.unread_drawn();
+    assert!(app.unread.writer.offer().is_some());
 }
