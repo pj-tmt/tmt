@@ -95,6 +95,22 @@ describe('presentation contracts', () => {
     expect(defaults).not.toContain('>/</span>');
     expect(defaults).toContain('tmt-ui-mark');
   });
+  it('places an optional heading suffix after the title and before the caption', () => {
+    const html = renderToStaticMarkup(
+      <BrowserHeader
+        productLabel="Colab"
+        title="Pages"
+        caption="Caption"
+        captionId="caption"
+        headingSuffix={<span>Project crumb</span>}
+      />,
+    );
+    expect(html.indexOf('</h1>')).toBeLessThan(html.indexOf('tmt-ui-heading-suffix'));
+    expect(html.indexOf('Project crumb')).toBeLessThan(html.indexOf('tmt-ui-caption'));
+    expect(html.match(/<h1/g)).toHaveLength(1);
+    const defaults = renderToStaticMarkup(<BrowserHeader productLabel="Colab" title="Pages" />);
+    expect(defaults).not.toContain('tmt-ui-heading-suffix');
+  });
   it('keeps tone, announcement and visible state independently supplied', () => {
     const html = renderToStaticMarkup(
       <BrowserNotice

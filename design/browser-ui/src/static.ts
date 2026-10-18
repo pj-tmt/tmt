@@ -35,6 +35,7 @@ export const browserUiClasses = Object.freeze({
   mark: 'tmt-ui-mark',
   wordmark: 'tmt-ui-wordmark',
   heading: 'tmt-ui-heading',
+  headingSuffix: 'tmt-ui-heading-suffix',
   title: 'tmt-ui-title',
   caption: 'tmt-ui-caption',
   status: 'tmt-ui-status',

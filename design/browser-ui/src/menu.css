@@ -12,6 +12,25 @@
   font: inherit;
   cursor: pointer;
 }
+.tmt-ui-menu:has(> .tmt-ui-menu-trigger[data-variant='crumb']) {
+  min-width: 0;
+}
+/* A crumb trigger is text in the surrounding font: no border or padding, the value truncates and
+   the chevron stays. */
+.tmt-ui-menu-trigger[data-variant='crumb'] {
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+}
+.tmt-ui-menu-trigger[data-variant='crumb'] > .tmt-ui-menu-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tmt-ui-menu-field-label {
   color: var(--tmt-ui-color-muted);
 }
@@ -46,6 +65,9 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.tmt-ui-menu-item[data-separated] {
+  border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-menu-item:hover:not(:disabled),
 .tmt-ui-menu-item:focus-visible {

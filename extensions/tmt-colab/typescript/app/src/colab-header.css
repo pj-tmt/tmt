@@ -242,3 +242,44 @@ body {
   overflow-wrap: anywhere;
   white-space: normal;
 }
+
+/* The project crumbs: the home list's scope control after the title, and in a page the project the
+   reader came from before it. Both read as the title's siblings and truncate before the chevron. */
+.header-project-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+}
+/* The crumb and its divider go together: the crumb shrinks before the title does, and a heading too
+   narrow for both leaves it out (the brand link still returns to the remembered scope). */
+.tmt-ui-heading:has(> .colab-crumb-group) {
+  container-type: inline-size;
+}
+.colab-crumb-group {
+  display: flex;
+  flex: 0 20 auto;
+  align-items: center;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+}
+@container (max-width: 200px) {
+  .colab-crumb-group {
+    display: none;
+  }
+}
+.colab-scope-crumb {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 24ch;
+  overflow: hidden;
+  color: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-header-title-weight) var(--tmt-ui-header-title-size) /
+    var(--tmt-ui-header-title-line-height) var(--tmt-ui-font-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.colab-scope-crumb:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: var(--tmt-ui-host-focus-offset);
+}

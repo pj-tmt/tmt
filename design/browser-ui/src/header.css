@@ -46,6 +46,25 @@ svg.tmt-ui-mark {
   flex: 1;
   min-width: 0;
 }
+/* A suffix turns the heading into one row: the title shrinks first, the suffix after it. */
+.tmt-ui-heading:has(> .tmt-ui-heading-suffix) {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-header-gap);
+}
+.tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
+  flex: 0 8 auto;
+}
+.tmt-ui-heading-suffix {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+  font: var(--tmt-ui-header-title-weight)
+    var(--tmt-ui-header-title-size)/var(--tmt-ui-header-title-line-height)
+    var(--tmt-ui-font-display);
+}
 .tmt-ui-title {
   margin: 0;
   overflow: hidden;

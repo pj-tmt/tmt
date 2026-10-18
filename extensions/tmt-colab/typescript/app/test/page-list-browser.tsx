@@ -149,6 +149,8 @@ export async function mountPageList(
       }
     },
   };
+  // Set before the router reads its history, so a redirect in the first load is not overwritten.
+  location.hash = hash;
   const router = createAppRouter({
     ...transport,
     ...(size === 'unmanaged' ? {} : { management }),
@@ -158,6 +160,5 @@ export async function mountPageList(
       pages: state.pages,
     }),
   });
-  location.hash = hash;
   root.render(<RouterProvider router={router} />);
 }
