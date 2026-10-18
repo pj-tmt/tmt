@@ -123,6 +123,7 @@ async function fixture(
         spaceId: space,
         ownerKey: c.encodeBinary(ownerKey),
         revision: '2',
+        projects: [],
         pageIds: empty ? [] : [{ pageId, deleted: false }],
         pages: empty
           ? []
@@ -137,7 +138,7 @@ async function fixture(
                 lastUpdateAtMs: null,
                 expiresAtMs: null,
                 warnings: [],
-                labels: [],
+                projects: [],
               },
             ],
       },
@@ -373,6 +374,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
         spaceId: f.space,
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
+        projects: [],
         pageIds: [{ pageId, deleted: false }],
         pages: [
           {
@@ -385,7 +387,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
             lastUpdateAtMs: null,
             expiresAtMs: null,
             warnings: [],
-            labels: [],
+            projects: [],
           },
         ],
       },
@@ -609,7 +611,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
         lastUpdateAtMs: null,
         expiresAtMs: null,
         warnings: [],
-        labels: [],
+        projects: [],
       },
     ]),
   );
@@ -622,6 +624,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
         spaceId: f.space,
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
+        projects: [],
         pageIds: [pageId, other].sort().map((id) => ({ pageId: id, deleted: !states.has(id) })),
         pages: [...states.values()],
       },
@@ -840,6 +843,7 @@ test.describe('relative retention evidence', () => {
           spaceId: f.space,
           ownerKey: c.encodeBinary(f.ownerKey),
           revision: '2',
+          projects: [],
           pageIds: [{ pageId, deleted: false }],
           pages: [
             {
@@ -852,7 +856,7 @@ test.describe('relative retention evidence', () => {
               lastUpdateAtMs: updated,
               expiresAtMs: expires,
               warnings: warning ? [warning] : [],
-              labels: [],
+              projects: [],
             },
           ],
         },

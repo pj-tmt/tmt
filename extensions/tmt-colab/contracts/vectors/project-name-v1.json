@@ -1,5 +1,5 @@
 {
-  "description": "Label name grammar shared by the owner store (labels.rs valid) and the browser (labels.ts labelNameError): 1 to 32 code points, no control character (Unicode Cc), no Unicode White_Space other than single interior U+0020, no leading, trailing or doubled space. U+FEFF and U+200B are not White_Space, so they are valid.",
+  "description": "Project name grammar shared by the owner store (projects.rs valid) and the browser (labels.ts labelNameError): 1 to 32 code points, no control character (Unicode Cc), no Unicode White_Space other than single interior U+0020, no leading, trailing or doubled space. U+FEFF and U+200B are not White_Space, so they are valid.",
   "valid": [
     "a",
     "Q4 plan",

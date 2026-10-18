@@ -176,8 +176,8 @@ alone, as the DOM has none. The `limits` block must equal each side's named cons
 cases by hand and run both runners: the file has no independent generator, because the browser
 is the oracle.
 
-`label-name-v1.json` holds the page label name grammar (colab-v1, "Page labels"): `valid` and
+`project-name-v1.json` holds the project name grammar (colab-v1, "Projects"): `valid` and
 `invalid` names, written with `\u` escapes where the character is invisible. The owner store
-(`labels::valid`) and the browser (`labelNameError`) each read it, so the two cannot drift: the
+(`projects::valid`) and the browser (`labelNameError`) each read it, so the two cannot drift: the
 grammar is Unicode `White_Space` (not JavaScript `\s`, which also takes U+FEFF) and Unicode
 control characters. Edit the cases by hand and run both tests.

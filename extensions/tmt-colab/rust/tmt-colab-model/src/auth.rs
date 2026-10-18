@@ -77,16 +77,24 @@ pub fn operation(value: &str) -> Result<()> {
             | "page.delete"
     ))
 }
+/// The page a space-level management request names in its signed `page` field. The frame binds one
+/// page and a project change has none, so `project.manage` names this fixed value and no other
+/// management request may.
+pub const SPACE_SCOPE_PAGE: &str = "00000000-0000-4000-8000-000000000000";
+/// The management operations that change owner-store state without a log statement.
+fn display_only(operation: &str) -> bool {
+    matches!(operation, "page.projects" | "project.manage")
+}
 /// A device-signed management request names a log operation or one of the display-only operations
 /// that change owner-store state without a log statement. Statements never use the second kind.
 pub fn management_operation(value: &str) -> Result<()> {
-    require(operation(value).is_ok() || value == "page.labels")
+    require(operation(value).is_ok() || display_only(value))
 }
 /// The signed revision field of a management request. A log operation names the membership head it
 /// was prepared against, a positive decimal. A display-only operation changes no membership head, so
 /// its field is empty and nothing can be read into it.
 pub fn management_revision(operation: &str, value: &str) -> Result<Option<u64>> {
-    if operation == "page.labels" {
+    if display_only(operation) {
         require(value.is_empty())?;
         return Ok(None);
     }
@@ -111,6 +119,7 @@ pub fn management_input(v: &Management<'_>) -> Result<Vec<u8>> {
     }
     management_operation(v.operation)?;
     management_revision(v.operation, v.expected_revision)?;
+    require((v.operation == "project.manage") == (v.page == SPACE_SCOPE_PAGE))?;
     values::time(v.issued_at)?;
     values::time(v.expires_at)?;
     require(

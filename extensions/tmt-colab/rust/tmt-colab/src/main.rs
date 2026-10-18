@@ -1,10 +1,10 @@
 mod cli_attachments;
 mod cli_compact;
 mod cli_grammar;
-mod cli_labels;
 mod cli_management;
 mod cli_page_check;
 mod cli_patch;
+mod cli_projects;
 mod cli_proposal;
 mod cli_read;
 mod cli_shell;
@@ -338,7 +338,7 @@ fn grammar() -> Command {
             .subcommand(cli_threads::command())
             .subcommand(cli_proposal::command())
             .subcommand(cli_attachments::command())
-            .subcommand(cli_labels::command())
+            .subcommand(cli_projects::command())
             .subcommand(cli_shell::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
@@ -453,8 +453,8 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
     if command == "attachment" {
         return cli_attachments::run(&root, args);
     }
-    if command == "label" {
-        return cli_labels::run(&root, args);
+    if command == "project" {
+        return cli_projects::run(&root, args);
     }
     if command == "shell" {
         return cli_shell::run(&root, args);

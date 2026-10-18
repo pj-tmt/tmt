@@ -154,21 +154,39 @@ impl Engine {
             decoders: BTreeMap::new(),
         })
     }
-    /// Display-only label writes (contract: Page labels): whole-set replacements for the named
-    /// pages in one store transaction, no statement, no receipt and no head change. Returns the
-    /// unchanged head for the reply. Last writer wins per page; an over-limit write refuses whole.
-    pub fn set_labels(
+    /// Display-only project writes (contract: Projects) in one store transaction, no statement, no
+    /// receipt and no head change; returns the unchanged head for the reply. An over-limit or
+    /// refused write leaves everything as it was.
+    fn change_projects(
+        &self,
+        store: &mut Store,
+        key: &Keyring,
+        apply: impl FnOnce(&mut crate::store::owner::OwnerTransaction<'_>) -> crate::Result<()>,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
+        store
+            .project_transaction(&key.space_id, &key.owner_public(), |tx| {
+                apply(tx)?;
+                tx.head().cloned().ok_or_else(|| OwnerFault::Invalid.into())
+            })
+            .map_err(TransitionError::from_error)
+    }
+    /// Whole-set replacements of the named pages' projects. Last writer wins per page.
+    pub fn set_projects(
         &self,
         store: &mut Store,
         key: &Keyring,
         changes: &[(String, Vec<String>)],
     ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
-        store
-            .label_transaction(&key.space_id, &key.owner_public(), |tx| {
-                tx.set_labels(changes)?;
-                tx.head().cloned().ok_or_else(|| OwnerFault::Invalid.into())
-            })
-            .map_err(TransitionError::from_error)
+        self.change_projects(store, key, |tx| tx.set_projects(changes))
+    }
+    /// Create, rename or delete one project.
+    pub fn manage_project(
+        &self,
+        store: &mut Store,
+        key: &Keyring,
+        change: &crate::projects::Change,
+    ) -> std::result::Result<tmt_colab_model::statement::Head, TransitionError> {
+        self.change_projects(store, key, |tx| tx.manage_project(change))
     }
     pub fn advance_epoch(
         &mut self,

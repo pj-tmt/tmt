@@ -144,11 +144,17 @@ pub const PROPOSAL_TITLE_POINTS: usize = 200;
 pub const PROPOSAL_BODY_BYTES: usize = 4 * 1024;
 pub const PROPOSAL_LABEL_POINTS: usize = 64;
 pub const PAGE_PROPOSALS: usize = 200;
-/// Page labels (contract: Page labels): display-only names in the owner store. `LABEL_POINTS` bounds
-/// one name, `PAGE_LABELS` the names on one page and `SPACE_LABELS` every assignment in the space, so
-/// the `/api/pages` reply stays under its 1 MiB cap with 1,000 pages.
-pub const LABEL_POINTS: usize = 32;
-pub const PAGE_LABELS: usize = 8;
+/// Projects (contract: Projects): display-only names in the owner store. `PROJECT_POINTS` bounds one
+/// name, `PAGE_PROJECTS` the names on one page, `SPACE_PROJECTS` the names in the space and
+/// `SPACE_PROJECT_PAGES` every page-in-project assignment, so the `/api/pages` reply stays under its
+/// 1 MiB cap with 1,000 pages.
+pub const PROJECT_POINTS: usize = 32;
+pub const PAGE_PROJECTS: usize = 8;
+pub const SPACE_PROJECTS: usize = 256;
+pub const SPACE_PROJECT_PAGES: usize = 1000;
+/// Pages one `page.projects` request may change, in one store transaction (the payload stays under
+/// the 16 KiB management cap for ordinary names; a larger batch is several requests).
+pub const PROJECT_REQUEST_PAGES: usize = 64;
 /// Structured shell value and reference bounds (contract: Shell pages).
 pub const SHELL_ITEMS: usize = 256;
 pub const SHELL_BYTES: usize = 128 * 1024;
@@ -156,10 +162,6 @@ pub const SHELL_NOTE_BYTES: usize = 512;
 pub const SHELL_AUDIENCE_BYTES: usize = 128;
 pub const SHELL_SUMMARY_LINE1_POINTS: usize = 24;
 pub const SHELL_SUMMARY_LINE2_POINTS: usize = 60;
-pub const SPACE_LABELS: usize = 1000;
-/// Pages one `page.labels` request may change, in one store transaction (the payload stays under
-/// the 16 KiB management cap for ordinary names; a larger batch is several requests).
-pub const LABEL_REQUEST_PAGES: usize = 64;
 /// Page markup the browser admits (`questions.ts` holds the same numbers; the shared vectors in
 /// `contracts/vectors/page-markup-v1.json` fail when they differ).
 /// Elements a page may nest. A browser's parser stops nesting at the same depth (512), and the

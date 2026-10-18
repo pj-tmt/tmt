@@ -275,9 +275,9 @@ impl Store {
         tx.commit()?;
         Ok(outcome)
     }
-    /// Display-only page labels are projection state, not membership authority: one immediate
+    /// Display-only projects are projection state, not membership authority: one immediate
     /// transaction, no statement, no head change and no receipt. An error rolls every change back.
-    pub fn label_transaction<T>(
+    pub fn project_transaction<T>(
         &mut self,
         space: &str,
         root: &[u8; 32],
@@ -347,22 +347,50 @@ impl Store {
     }
 }
 impl OwnerTransaction<'_> {
-    /// One page's labels, sorted by code point.
-    pub fn page_labels(&self, page: &str) -> Result<Vec<String>> {
+    /// One page's projects, sorted by code point.
+    pub fn page_projects(&self, page: &str) -> Result<Vec<String>> {
         let mut query = self
             .tx
-            .prepare("SELECT label FROM page_labels WHERE page=? ORDER BY label")?;
+            .prepare("SELECT project FROM page_projects WHERE page=? ORDER BY project")?;
         Ok(query
             .query_map([page], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?)
     }
-    /// Replace the whole label set of every named page, all or nothing. A page must be open (not
-    /// unknown, not deleted) and named once; a refused set, a bad name or the space limit leaves
-    /// every page as it was because the caller's transaction ends without a commit.
-    pub fn set_labels(&mut self, changes: &[(String, Vec<String>)]) -> Result<()> {
-        use crate::labels::{Refusal, canonical};
+    /// Every project of the space, sorted by code point, including those with no page.
+    pub fn projects(&self) -> Result<Vec<String>> {
+        let mut query = self.tx.prepare("SELECT name FROM projects ORDER BY name")?;
+        Ok(query
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?)
+    }
+    /// A project of this name exists, or the write names a new one: counts against `SPACE_PROJECTS`.
+    fn add_project(&self, name: &str) -> Result<bool> {
+        let added = self
+            .tx
+            .execute("INSERT OR IGNORE INTO projects(name) VALUES (?)", [name])?
+            == 1;
+        Ok(added)
+    }
+    /// A write that added a name leaves the space within `SPACE_PROJECTS`. A space that already
+    /// holds more (migrated labels) keeps its names and refuses only a new one.
+    fn check_project_names(&self) -> Result<()> {
+        let total: i64 = self
+            .tx
+            .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))?;
+        if usize::try_from(total).map_or(true, |total| total > crate::limits::SPACE_PROJECTS) {
+            return Err(OwnerFault::Capacity.into());
+        }
+        Ok(())
+    }
+    /// Replace the whole project set of every named page, all or nothing; a name no project has yet
+    /// creates it. A page must be open (not unknown, not deleted) and named once; a refused set, a
+    /// bad name or a space limit leaves every page as it was because the caller's transaction ends
+    /// without a commit.
+    pub fn set_projects(&mut self, changes: &[(String, Vec<String>)]) -> Result<()> {
+        use crate::projects::{Refusal, canonical};
         let mut named = std::collections::BTreeSet::new();
-        for (page, labels) in changes {
+        let mut created = false;
+        for (page, projects) in changes {
             values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
             let open: bool = self.tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM epoch_secrets WHERE page=?)",
@@ -372,25 +400,78 @@ impl OwnerTransaction<'_> {
             if !open || !named.insert(page.as_str()) {
                 return Err(OwnerFault::Invalid.into());
             }
-            let labels = canonical(labels).map_err(|refusal| match refusal {
+            let projects = canonical(projects).map_err(|refusal| match refusal {
                 Refusal::Invalid => OwnerFault::Invalid,
                 Refusal::Capacity => OwnerFault::Capacity,
             })?;
             self.tx
-                .execute("DELETE FROM page_labels WHERE page=?", [page])?;
-            for label in &labels {
+                .execute("DELETE FROM page_projects WHERE page=?", [page])?;
+            for project in &projects {
+                created |= self.add_project(project)?;
                 self.tx.execute(
-                    "INSERT INTO page_labels(page,label) VALUES (?,?)",
-                    params![page, label],
+                    "INSERT INTO page_projects(page,project) VALUES (?,?)",
+                    params![page, project],
                 )?;
             }
         }
         let total: i64 = self
             .tx
-            .query_row("SELECT COUNT(*) FROM page_labels", [], |r| r.get(0))?;
-        if usize::try_from(total).map_or(true, |total| total > crate::limits::SPACE_LABELS) {
+            .query_row("SELECT COUNT(*) FROM page_projects", [], |r| r.get(0))?;
+        if usize::try_from(total).map_or(true, |total| total > crate::limits::SPACE_PROJECT_PAGES) {
             return Err(OwnerFault::Capacity.into());
         }
+        if created {
+            self.check_project_names()?;
+        }
+        Ok(())
+    }
+    /// Create, rename or delete one project in the transaction. Create is idempotent; renaming onto
+    /// an existing name merges the two; deleting removes the grouping and never a page. A project
+    /// that does not exist cannot be renamed or deleted.
+    pub fn manage_project(&mut self, change: &crate::projects::Change) -> Result<()> {
+        use crate::projects::{Change, valid};
+        let exists = |name: &str| -> Result<bool> {
+            Ok(self.tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM projects WHERE name=?)",
+                [name],
+                |r| r.get(0),
+            )?)
+        };
+        match change {
+            Change::Create(name) => {
+                if !valid(name) {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                if self.add_project(name)? {
+                    self.check_project_names()?;
+                }
+            }
+            Change::Rename { from, to } => {
+                if !valid(to) || from == to || !exists(from)? {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.add_project(to)?;
+                self.tx.execute(
+                    "INSERT OR IGNORE INTO page_projects(page,project)
+                        SELECT page,? FROM page_projects WHERE project=?",
+                    params![to, from],
+                )?;
+                self.remove_project(from)?;
+            }
+            Change::Delete(name) => {
+                if !exists(name)? {
+                    return Err(OwnerFault::Invalid.into());
+                }
+                self.remove_project(name)?;
+            }
+        }
+        Ok(())
+    }
+    fn remove_project(&self, name: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM page_projects WHERE project=?", [name])?;
+        self.tx
+            .execute("DELETE FROM projects WHERE name=?", [name])?;
         Ok(())
     }
     /// Create-only page identity, committed with its authority, secret and content.

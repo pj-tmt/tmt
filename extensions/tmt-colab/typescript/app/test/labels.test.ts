@@ -23,7 +23,7 @@ function page(n: number, labels: string[], changes: Partial<PageSummary> = {}): 
     title: `Page ${n}`,
     sharing: 'private',
     lastUpdateAtMs: 1000 - n,
-    labels,
+    projects: labels,
     ...changes,
   };
 }
@@ -39,12 +39,12 @@ describe('label names', () => {
     for (const name of [' a', 'a ', 'a  b', 'a\tb', 'a\nb', 'a b', 'a\u0000b', '　'])
       expect(labelNameError(name), JSON.stringify(name)).toBe('form');
   });
-  // The owner store reads the same file (labels.rs): the two grammars cannot drift. U+FEFF and
+  // The owner store reads the same file (projects.rs): the two grammars cannot drift. U+FEFF and
   // U+200B are not White_Space, so a CLI label carrying one must stay editable here.
   it('agree with the shared vector the owner store reads', () => {
     const vector = JSON.parse(
       readFileSync(
-        new URL('../../../contracts/vectors/label-name-v1.json', import.meta.url),
+        new URL('../../../contracts/vectors/project-name-v1.json', import.meta.url),
         'utf8',
       ),
     ) as { valid: string[]; invalid: string[] };
@@ -201,7 +201,7 @@ describe('label changes', () => {
     const pages = Array.from({ length: 130 }, (_, n) => page(n + 1, ['old']));
     const plan = relabel(pages, 'old', 'new');
     const done = new Map(plan.slice(0, 64).map((c) => [c.pageId, c.labels]));
-    const reread = pages.map((p) => (done.has(p.id) ? { ...p, labels: done.get(p.id)! } : p));
+    const reread = pages.map((p) => (done.has(p.id) ? { ...p, projects: done.get(p.id)! } : p));
     expect(relabel(reread, 'old', 'new')).toHaveLength(66);
   });
 });

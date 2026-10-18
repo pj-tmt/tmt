@@ -829,16 +829,27 @@ try {
             legacyAccepted = true;
           } catch {}
           assert(!legacyAccepted, 'legacy management operation accepted');
-          // Display-only labels sign an empty revision field; no log operation may.
-          const labels = {
+          // Display-only project requests sign an empty revision field; no log operation may.
+          const projects = {
             ...management,
             expectedRevision: '',
-            operation: 'page.labels',
-            payload: hex(fixture.labelsPayload),
+            operation: 'page.projects',
+            payload: hex(fixture.projectsPayload),
           };
-          assert(same(await c.managementInput(labels), fixture.managementLabels));
+          assert(same(await c.managementInput(projects), fixture.managementProjects));
+          const manage = {
+            ...management,
+            page: c.SPACE_SCOPE_PAGE,
+            expectedRevision: '',
+            operation: 'project.manage',
+            payload: hex(fixture.projectManagePayload),
+          };
+          assert(same(await c.managementInput(manage), fixture.managementProjectManage));
           for (const bad of [
-            { ...labels, expectedRevision: '1' },
+            { ...projects, expectedRevision: '1' },
+            { ...manage, expectedRevision: '1' },
+            { ...manage, page: management.page },
+            { ...projects, page: c.SPACE_SCOPE_PAGE },
             { ...management, expectedRevision: '' },
           ]) {
             let accepted = false;

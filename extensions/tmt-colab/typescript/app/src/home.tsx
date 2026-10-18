@@ -125,7 +125,7 @@ function PageLabelsMenu({
   toggle(page: PageSummary, name: string): void;
   create(page: PageSummary): void;
 }) {
-  const carried = new Set(page.labels ?? []);
+  const carried = new Set(page.projects ?? []);
   const full = carried.size >= 8;
   return (
     <BrowserMenu
@@ -266,7 +266,7 @@ export function Home() {
     },
   };
   async function toggleOnPage(page: PageSummary, name: string) {
-    const change = withLabel(page, name, !page.labels?.includes(name));
+    const change = withLabel(page, name, !page.projects?.includes(name));
     if (change === 'capacity')
       return setStatus({ text: `${pageTitle(page)}: ${t.pageFull}`, failed: true });
     const outcome = await writing.save([change]);
@@ -410,9 +410,9 @@ export function Home() {
                         <span aria-hidden="true">◆</span> {t.waitingForYou}
                       </span>
                     ) : null}
-                    {p.labels?.length ? (
+                    {p.projects?.length ? (
                       <ul className="page-labels" aria-label={t.labels}>
-                        {p.labels.map((name) => (
+                        {p.projects.map((name) => (
                           <li key={name}>
                             <button
                               type="button"

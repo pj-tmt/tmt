@@ -20,7 +20,7 @@ const page = (
   title,
   sharing: 'private',
   ...(extra.archived ? { archived: true } : {}),
-  ...(extra.labels ? { labels: extra.labels } : {}),
+  ...(extra.labels ? { projects: extra.labels } : {}),
   ...(extra.updated === undefined ? {} : { lastUpdateAtMs: extra.updated }),
   ...(extra.author !== undefined || extra.waiting !== undefined
     ? {

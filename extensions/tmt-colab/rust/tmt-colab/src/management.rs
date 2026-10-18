@@ -69,8 +69,10 @@ enum Action {
     Share(payload::ShareMode),
     History(payload::HistoryMode),
     Retention(payload::Days),
-    /// Display-only labels: whole-set replacements, applied with no statement (contract: Page labels).
-    Labels(Vec<(String, Vec<String>)>),
+    /// Display-only projects, applied with no statement (contract: Projects): whole-set replacements
+    /// of the named pages' projects, or one change to the space's projects.
+    Projects(Vec<(String, Vec<String>)>),
+    Project(crate::projects::Change),
     Archive,
     Delete,
     MemberAdd(payload::MemberAdd),
@@ -117,14 +119,14 @@ fn required_option<'de, D: serde::Deserializer<'de>>(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Create {
-    #[serde(default, deserialize_with = "publisher_label")]
+    #[serde(default, deserialize_with = "present_text")]
     page_type: Option<String>,
     #[serde(default, deserialize_with = "creation_recipient")]
     creation_recipient: Option<crate::decoder::CreationRecipient>,
     page_id: String,
     title: String,
     source: String,
-    #[serde(default, deserialize_with = "publisher_label")]
+    #[serde(default, deserialize_with = "present_text")]
     publisher_agent: Option<String>,
 }
 fn creation_recipient<'de, D: serde::Deserializer<'de>>(
@@ -136,22 +138,31 @@ fn creation_recipient<'de, D: serde::Deserializer<'de>>(
     }
     Ok(Some(value))
 }
-fn publisher_label<'de, D: serde::Deserializer<'de>>(
+fn present_text<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> std::result::Result<Option<String>, D::Error> {
-    // Missing is optional; a present null or wrong type is not a label.
+    // Missing is optional; a present null or wrong type is not text.
     String::deserialize(d).map(Some)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct LabelChange {
+struct PageProjects {
     page_id: String,
-    labels: Vec<String>,
+    projects: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LabelChanges {
-    pages: List<LabelChange, { crate::limits::LABEL_REQUEST_PAGES }>,
+struct ProjectChanges {
+    pages: List<PageProjects, { crate::limits::PROJECT_REQUEST_PAGES }>,
+}
+/// The payload of `project.manage`: `to` belongs to a rename and to nothing else.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectManage {
+    action: String,
+    name: String,
+    #[serde(default, deserialize_with = "present_text")]
+    to: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -226,8 +237,8 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
             }
             Action::Retention(value.days)
         }
-        "page.labels" => {
-            let value: LabelChanges = typed(bytes)?;
+        "page.projects" => {
+            let value: ProjectChanges = typed(bytes)?;
             let ids: Vec<String> = value
                 .pages
                 .as_slice()
@@ -239,19 +250,37 @@ fn action(operation: &str, bytes: &[u8], page: &str) -> Syntax<Action> {
                 .pages
                 .as_slice()
                 .iter()
-                .flat_map(|change| &change.labels)
-                .any(|name| !crate::labels::valid(name))
+                .flat_map(|change| &change.projects)
+                .any(|name| !crate::projects::valid(name))
             {
                 return Err(tmt_colab_model::Invalid);
             }
-            Action::Labels(
+            Action::Projects(
                 value
                     .pages
                     .as_slice()
                     .iter()
-                    .map(|change| (change.page_id.clone(), change.labels.clone()))
+                    .map(|change| (change.page_id.clone(), change.projects.clone()))
                     .collect(),
             )
+        }
+        "project.manage" => {
+            use crate::projects::{Change, valid};
+            if page != auth::SPACE_SCOPE_PAGE {
+                return Err(tmt_colab_model::Invalid);
+            }
+            let value: ProjectManage = typed(bytes)?;
+            let named = |name: &String| valid(name).then(|| name.clone());
+            let name = named(&value.name).ok_or(tmt_colab_model::Invalid)?;
+            Action::Project(match (value.action.as_str(), value.to.as_ref()) {
+                ("create", None) => Change::Create(name),
+                ("delete", None) => Change::Delete(name),
+                ("rename", Some(to)) if *to != name => Change::Rename {
+                    to: named(to).ok_or(tmt_colab_model::Invalid)?,
+                    from: name,
+                },
+                _ => return Err(tmt_colab_model::Invalid),
+            })
         }
         "member.add" => {
             let value: payload::MemberAdd = typed(bytes)?;
@@ -362,7 +391,8 @@ impl Command {
             values::generated_id(&value.page)?;
             values::generated_id(&value.operation_id)?;
             let creating = value.operation == "page.create";
-            let revision = if value.operation == "page.labels" {
+            let revision = if matches!(value.operation.as_str(), "page.projects" | "project.manage")
+            {
                 auth::management_revision(&value.operation, &value.expected_revision)?.unwrap_or(0)
             } else {
                 values::decimal(&value.expected_revision, creating)?
@@ -496,9 +526,13 @@ fn apply(
         HistoryMode, LinkAction, MemberAction, OwnerAction, OwnerRequest, Publication,
         RequestScope, ShareMode,
     };
-    // Labels are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
-    if let Action::Labels(changes) = &command.action {
-        let head = service.set_labels(changes).map_err(|error| error.code)?;
+    // Projects are display-only owner-store state: no statement, no revision (the signed field is empty), no receipt.
+    if let Some(head) = match &command.action {
+        Action::Projects(changes) => Some(service.set_projects(changes)),
+        Action::Project(change) => Some(service.manage_project(change)),
+        _ => None,
+    } {
+        let head = head.map_err(|error| error.code)?;
         let reply = serde_json::json!({"operationId":command.operation_id,
             "membershipHead":{"revision":head.revision.to_string(),"statementHash":values::encode_binary(&head.hash)}});
         return Ok(Applied {
@@ -580,7 +614,7 @@ fn apply(
                 payload::Days::Count(n) => Some(*n),
             },
         },
-        Action::Labels(_) => return Err(Code::Invalid),
+        Action::Projects(_) | Action::Project(_) => return Err(Code::Invalid),
         Action::MemberAdd(v) => {
             OwnerAction::Member(MemberAction::Add(crate::store::owner::Recipient {
                 kind: "member".into(),
@@ -658,14 +692,26 @@ mod tests {
     const DEVICE: &str = "20000000-0000-4000-8000-000000000001";
     const OTHER: &str = "20000000-0000-4000-8000-000000000002";
     const OP: &str = "30000000-0000-4000-8000-000000000001";
-    /// Labels carry an empty revision field; every other operation names a membership head.
+    /// Projects carry an empty revision field; every other operation names a membership head.
     fn revision(operation: &str) -> &'static str {
-        if operation == "page.labels" { "" } else { "1" }
+        if matches!(operation, "page.projects" | "project.manage") {
+            ""
+        } else {
+            "1"
+        }
+    }
+    /// A space-level change names the space scope page; every other operation names a page.
+    fn page_of(operation: &str) -> &'static str {
+        if operation == "project.manage" {
+            auth::SPACE_SCOPE_PAGE
+        } else {
+            PAGE
+        }
     }
     fn signed(operation: &str, payload: &[u8], sender: &str, issued: u64) -> Vec<u8> {
         let input = auth::management_input(&auth::Management {
             space: SPACE,
-            page: PAGE,
+            page: page_of(operation),
             operation_id: OP,
             expected_revision: revision(operation),
             operation,
@@ -689,7 +735,7 @@ mod tests {
         )
     }
     fn local(operation: &str, payload: Value) -> Vec<u8> {
-        serde_json::to_vec(&json!({"space":SPACE,"page":PAGE,"operationId":OP,"expectedRevision":revision(operation),
+        serde_json::to_vec(&json!({"space":SPACE,"page":page_of(operation),"operationId":OP,"expectedRevision":revision(operation),
             "operation":operation,"payload":values::encode_binary(&serde_json::to_vec(&payload).unwrap())})).unwrap()
     }
     #[test]
@@ -763,83 +809,86 @@ mod tests {
         assert_eq!(browser(body.as_bytes(), 100).err(), Some(Code::Invalid));
     }
     #[test]
-    fn page_labels_name_each_page_once_in_canonical_order_with_valid_names() {
-        let labels = |pages: Value| local("page.labels", json!({"pages":pages}));
-        let one = json!([{"pageId":PAGE,"labels":["b","a b"]}]);
-        match Command::local(&labels(one.clone()), SPACE).unwrap().action {
-            Action::Labels(changes) => assert_eq!(
+    fn page_projects_name_each_page_once_in_canonical_order_with_valid_names() {
+        let projects = |pages: Value| local("page.projects", json!({"pages":pages}));
+        let one = json!([{"pageId":PAGE,"projects":["b","a b"]}]);
+        match Command::local(&projects(one.clone()), SPACE)
+            .unwrap()
+            .action
+        {
+            Action::Projects(changes) => assert_eq!(
                 changes,
                 vec![(PAGE.to_owned(), vec!["b".to_owned(), "a b".to_owned()])]
             ),
-            _ => panic!("page.labels is a label change"),
+            _ => panic!("page.projects is a project change"),
         }
         // The device-signed browser request carries the same payload.
         let payload = serde_json::to_vec(&json!({"pages":one})).unwrap();
         assert!(matches!(
-            browser(&signed("page.labels", &payload, DEVICE, 100), 100)
+            browser(&signed("page.projects", &payload, DEVICE, 100), 100)
                 .unwrap()
                 .action,
-            Action::Labels(_)
+            Action::Projects(_)
         ));
         // Another page in the batch, and an empty set, are fine.
-        let two = json!([{"pageId":PAGE,"labels":[]},{"pageId":OTHER,"labels":["x"]}]);
-        assert!(Command::local(&labels(two), SPACE).is_ok());
+        let two = json!([{"pageId":PAGE,"projects":[]},{"pageId":OTHER,"projects":["x"]}]);
+        assert!(Command::local(&projects(two), SPACE).is_ok());
         // The request names its initiating page, once, in ascending order, and no more than the cap.
-        let many: Vec<Value> = (0..=crate::limits::LABEL_REQUEST_PAGES)
-            .map(|n| json!({"pageId":format!("10000000-0000-4000-8000-{n:012}"),"labels":[]}))
+        let many: Vec<Value> = (0..=crate::limits::PROJECT_REQUEST_PAGES)
+            .map(|n| json!({"pageId":format!("10000000-0000-4000-8000-{n:012}"),"projects":[]}))
             .collect();
         for pages in [
             json!([]),
-            json!([{"pageId":OTHER,"labels":[]}]),
-            json!([{"pageId":PAGE,"labels":[]},{"pageId":PAGE,"labels":[]}]),
-            json!([{"pageId":OTHER,"labels":[]},{"pageId":PAGE,"labels":[]}]),
+            json!([{"pageId":OTHER,"projects":[]}]),
+            json!([{"pageId":PAGE,"projects":[]},{"pageId":PAGE,"projects":[]}]),
+            json!([{"pageId":OTHER,"projects":[]},{"pageId":PAGE,"projects":[]}]),
             json!(many),
         ] {
             assert_eq!(
-                Command::local(&labels(pages), SPACE).err(),
+                Command::local(&projects(pages), SPACE).err(),
                 Some(Code::Invalid)
             );
         }
         // Names obey the grammar here too; counts and the space limit are the store's refusal.
         for bad in [
-            json!([{"pageId":PAGE,"labels":[" lead"]}]),
-            json!([{"pageId":PAGE,"labels":[""]}]),
-            json!([{"pageId":PAGE,"labels":[1]}]),
-            json!([{"pageId":PAGE,"labels":["a"],"extra":true}]),
-            json!([{"pageId":"nope","labels":[]}]),
+            json!([{"pageId":PAGE,"projects":[" lead"]}]),
+            json!([{"pageId":PAGE,"projects":[""]}]),
+            json!([{"pageId":PAGE,"projects":[1]}]),
+            json!([{"pageId":PAGE,"projects":["a"],"extra":true}]),
+            json!([{"pageId":"nope","projects":[]}]),
             json!([{"pageId":PAGE}]),
         ] {
             assert_eq!(
-                Command::local(&labels(bad), SPACE).err(),
+                Command::local(&projects(bad), SPACE).err(),
                 Some(Code::Invalid)
             );
         }
-        let over: Vec<String> = (0..=crate::limits::PAGE_LABELS)
+        let over: Vec<String> = (0..=crate::limits::PAGE_PROJECTS)
             .map(|n| format!("l{n}"))
             .collect();
         assert!(
-            Command::local(&labels(json!([{"pageId":PAGE,"labels":over}])), SPACE).is_ok(),
+            Command::local(&projects(json!([{"pageId":PAGE,"projects":over}])), SPACE).is_ok(),
             "an over-limit set reaches the store, which refuses it as capacity"
         );
         let top = local(
-            "page.labels",
-            json!({"pages":[{"pageId":PAGE,"labels":[]}],"extra":1}),
+            "page.projects",
+            json!({"pages":[{"pageId":PAGE,"projects":[]}],"extra":1}),
         );
         assert_eq!(Command::local(&top, SPACE).err(), Some(Code::Invalid));
     }
     #[test]
-    fn labels_carry_an_empty_revision_and_log_operations_a_positive_one() {
+    fn projects_carry_an_empty_revision_and_log_operations_a_positive_one() {
         let payload =
-            serde_json::to_vec(&json!({"pages":[{"pageId":PAGE,"labels":["a"]}]})).unwrap();
+            serde_json::to_vec(&json!({"pages":[{"pageId":PAGE,"projects":["a"]}]})).unwrap();
         let history = serde_json::to_vec(&json!({"pageId":PAGE,"mode":"all"})).unwrap();
-        // A revision on a label request is refused, signed in the browser frame or local.
+        // A revision on a project request is refused, signed in the browser frame or local.
         let with_revision = |value: &str| {
             let input = auth::Management {
                 space: SPACE,
                 page: PAGE,
                 operation_id: OP,
                 expected_revision: value,
-                operation: "page.labels",
+                operation: "page.projects",
                 payload: &payload,
                 sender_device: DEVICE,
                 issued_at: 100,
@@ -851,7 +900,7 @@ mod tests {
         let local_with = |value: &str| {
             serde_json::to_vec(
                 &json!({"space":SPACE,"page":PAGE,"operationId":OP,"expectedRevision":value,
-                "operation":"page.labels","payload":values::encode_binary(&payload)}),
+                "operation":"page.projects","payload":values::encode_binary(&payload)}),
             )
             .unwrap()
         };
@@ -876,6 +925,70 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Command::local(&empty, SPACE).err(), Some(Code::Invalid));
+    }
+    #[test]
+    fn project_manage_names_the_space_scope_and_one_valid_change() {
+        use crate::projects::Change;
+        let manage = |payload: Value| local("project.manage", payload);
+        let change = |payload: Value| Command::local(&manage(payload), SPACE).map(|c| c.action);
+        assert!(matches!(
+            change(json!({"action":"create","name":"launch"})),
+            Ok(Action::Project(Change::Create(name))) if name == "launch"
+        ));
+        assert!(matches!(
+            change(json!({"action":"delete","name":"a b"})),
+            Ok(Action::Project(Change::Delete(name))) if name == "a b"
+        ));
+        assert!(matches!(
+            change(json!({"action":"rename","name":"launch","to":"release"})),
+            Ok(Action::Project(Change::Rename { from, to })) if from == "launch" && to == "release"
+        ));
+        // The device-signed browser request carries the same payload.
+        let payload = serde_json::to_vec(&json!({"action":"create","name":"launch"})).unwrap();
+        assert!(matches!(
+            browser(&signed("project.manage", &payload, DEVICE, 100), 100)
+                .unwrap()
+                .action,
+            Action::Project(Change::Create(_))
+        ));
+        // `to` belongs to a rename and to nothing else; names obey the grammar; the shape is strict.
+        for bad in [
+            json!({"action":"rename","name":"launch"}),
+            json!({"action":"rename","name":"launch","to":"launch"}),
+            json!({"action":"rename","name":"launch","to":" lead"}),
+            json!({"action":"create","name":"launch","to":"release"}),
+            json!({"action":"delete","name":"launch","to":null}),
+            json!({"action":"create","name":""}),
+            json!({"action":"create","name":"two  spaces"}),
+            json!({"action":"merge","name":"launch"}),
+            json!({"action":"create"}),
+            json!({"action":"create","name":"launch","extra":true}),
+        ] {
+            assert_eq!(change(bad.clone()).err(), Some(Code::Invalid), "{bad}");
+        }
+        // The request names the space scope page: a real page is refused, here and in the frame.
+        let body = serde_json::to_vec(&json!({"space":SPACE,"page":PAGE,"operationId":OP,
+            "expectedRevision":"","operation":"project.manage",
+            "payload":values::encode_binary(&payload)}))
+        .unwrap();
+        assert_eq!(Command::local(&body, SPACE).err(), Some(Code::Invalid));
+        // A page request cannot borrow the space scope page, and a project change keeps the empty field.
+        let projects =
+            serde_json::to_vec(&json!({"pages":[{"pageId":PAGE,"projects":[]}]})).unwrap();
+        let body = serde_json::to_vec(
+            &json!({"space":SPACE,"page":auth::SPACE_SCOPE_PAGE,"operationId":OP,
+            "expectedRevision":"","operation":"page.projects",
+            "payload":values::encode_binary(&projects)}),
+        )
+        .unwrap();
+        assert_eq!(Command::local(&body, SPACE).err(), Some(Code::Invalid));
+        let body = serde_json::to_vec(
+            &json!({"space":SPACE,"page":auth::SPACE_SCOPE_PAGE,"operationId":OP,
+            "expectedRevision":"1","operation":"project.manage",
+            "payload":values::encode_binary(&payload)}),
+        )
+        .unwrap();
+        assert_eq!(Command::local(&body, SPACE).err(), Some(Code::Invalid));
     }
     #[test]
     fn local_dto_is_purpose_separated_and_canonical_scope_is_bounded() {

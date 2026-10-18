@@ -151,7 +151,8 @@ pub fn extend(root: Command) -> Command {
         ),
     );
     root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Expiry never deletes your local copy. Expiry is when the cloud copy ends; a page this machine never put in the cloud shows local only.")
-        .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue)))
+        .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue))
+        .arg(Arg::new("project").long("project").value_name("NAME").help("Only the pages in this project")))
         .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry never deletes your local copy.").arg(page()))
         .subcommand(share)
         .subcommand(mutation(cmd!("retention", "Read or set local retention", "tmt colab retention 10000000-0000-4000-8000-000000000001 forever", "Omit the value to read verified policy. Days must be a positive safe integer; forever has no expiry. Expiry never deletes your local copy. Expiry is when the cloud copy ends; a page this machine never put in the cloud shows local only.")

@@ -25,8 +25,8 @@ export interface Recipient {
   role: payload.Role;
   pages: string[];
 }
-/** Policy is what the signed log decides; display-only labels are not part of it. */
-export interface Policy extends Omit<PageInfo, 'labels'> {
+/** Policy is what the signed log decides; display-only projects are not part of it. */
+export interface Policy extends Omit<PageInfo, 'projects'> {
   retentionDays: number | null;
   deleted: boolean;
 }
@@ -78,7 +78,7 @@ export interface ManagementPort {
   prepare(view: ManagementView, selection: Selection): Promise<Pending>;
   send(pending: Pending): Promise<Acknowledgment>;
   verify(pending: Pending, ack: Acknowledgment, signal?: AbortSignal): Promise<ManagementView>;
-  /** One display-only `page.labels` request: no view, revision or verification (contract: Page labels). */
+  /** One display-only `page.projects` request: no view, revision or verification (contract: Projects). */
   setLabels(changes: readonly LabelChange[]): Promise<void>;
 }
 export class ManagementError extends Error {
@@ -105,7 +105,7 @@ export function managementFailure(error: unknown, prepared: boolean): Management
 
 /** Only an admitted contiguous owner chain supplies policy and assignments. */
 export function project(
-  page: Omit<PageInfo, 'labels'>,
+  page: Omit<PageInfo, 'projects'>,
   log: readonly statement.Verified[],
 ): ManagementView {
   requireValue(log.length > 0);
@@ -403,7 +403,7 @@ function labelPages(changes: readonly LabelChange[]) {
       new Set(change.labels).size === change.labels.length &&
         change.labels.every((name) => labelNameError(name) === undefined),
     );
-    return { pageId: change.pageId, labels: [...change.labels] };
+    return { pageId: change.pageId, projects: [...change.labels] };
   });
   requireValue(pages.every((page, index) => !index || pages[index - 1].pageId < page.pageId));
   return pages;
@@ -476,7 +476,7 @@ export class ManagementClient implements ManagementPort {
       ...(link ? { artifact: Object.freeze({ linkId: link.linkId, seed: link.seed }) } : {}),
     });
   }
-  /** A signed label request: the owner applies the named pages in one store transaction. */
+  /** A signed project request: the owner applies the named pages in one store transaction. */
   async setLabels(changes: readonly LabelChange[]): Promise<void> {
     const pages = labelPages(changes);
     const bytes = text(JSON.stringify({ pages }));
@@ -490,7 +490,7 @@ export class ManagementClient implements ManagementPort {
       page: pages[0].pageId,
       expectedRevision: '',
       operationId: id,
-      operation: 'page.labels',
+      operation: 'page.projects',
       payload: bytes,
       senderDevice: this.registration.deviceId,
       issuedAt,

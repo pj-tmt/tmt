@@ -477,8 +477,8 @@ follows the page's `page.history` mode, never possession of a new key.
 | `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                       |
 | `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
 
-`page.labels` is not in this table: it is a management request that changes display-only
-owner-store state and appends no statement (see [Page labels](#page-labels-2588)).
+`page.projects` and `project.manage` are not in this table: they are management requests that change
+display-only owner-store state and append no statement (see [Projects](#projects-3747)).
 
 The root owner is implicit, not an assignable member role; v1 has no co-owner
 or signing delegation. Every log statement is produced and signed by the owner's
@@ -490,7 +490,7 @@ and baseline through the owner; `create` imports source without executing it.
 **Channel boundary: stays,** carried over the relay with the remote device context as sender.
 
 The owner's enrolled browser never receives the root key. To request sharing,
-member/link changes, epoch advance, script policy, retention or display-only page labels, it submits a
+member/link changes, epoch advance, script policy, retention or display-only projects, it submits a
 device-signed typed management request to the owner's `tmt colab`. Canonical
 input is LP("tmt-colab-management-v1", "1", space, page, expectedRevision,
 operationId, operation, SHA256(payloadBytes), senderDevice, issuedAt, expiresAt).
@@ -3154,7 +3154,8 @@ Owner discovery on the mounted socket uses read-only `GET /api/session` and
 `GET /api/pages`. Missing or non-owner context returns 403 JSON `{code:"DENIED"}`.
 Session returns exactly `{deviceId, publicKey, grantRevision, name}`; revision
 is decimal text. It works before Colab extension-key registration and forwards
-no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages, pageIds}`;
+no credential. Pages returns exactly `{spaceId, ownerKey, revision, projects, pages, pageIds}`;
+`projects` is the space's [project names](#projects-3747), sorted by code point;
 `pageIds` is sorted, at most 1,000 entries, each exactly `{pageId, deleted}`. It includes
 the existing retained deleted-page IDs solely to prevent historical prefixes rebinding;
 no title/content of deleted pages is exposed. Its non-deleted IDs exactly match `pages`.
@@ -3188,7 +3189,7 @@ name the selected release and manual recovery, and the service exits unsuccessfu
 An older serve that predates this behavior still needs the named manual restart. Browser
 reload remains explicit and follows the existing draft rules.
 `pages`is sorted by page ID, at most 1,000 entries, each exactly`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
-expiresAtMs, warnings, labels}`; `labels`is the page's [display-only label set](#page-labels-2588). These time/expiry hints use the same verified projection
+expiresAtMs, warnings, projects}`; `projects`is the page's [display-only project set](#projects-3747). These time/expiry hints use the same verified projection
 as`ls/show`, defined in [Local management CLI](#local-management-cli-1307).
 Local creation/epoch records own
 existence; sharing/history/archive/delete derive from verified owner statements.
@@ -4103,7 +4104,7 @@ recover authority by retrying. New operations fence the expected owner revision.
 
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
-positive decimal text (the empty string for `page.labels`, see [Page labels](#page-labels-2588))
+positive decimal text (the empty string for `page.projects` and `project.manage`, see [Projects](#projects-3747))
 and payload is canonical base64url of the same typed JSON.
 The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent` and optional complete `creationRecipient` as defined
 in the content-root definition above; it accepts
@@ -4315,7 +4316,7 @@ map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`, `COLAB_CONFIRMATION_CHANGED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
-`COLAB_LABEL_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+`COLAB_PROJECT_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
 their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "The running Colab service is
 older than this CLI." Its next action is "Run tmt colab stop, then tmt colab serve --background."
@@ -4335,53 +4336,73 @@ management code with its corresponding HTTP status. The CLI maps that existing
 wire directly; malformed, mismatched or interrupted replies are unknown outcomes,
 with captured correlation and no offline fallback.
 
-### Page labels (#2588)
+### Projects (#3747)
 
-Labels are display-only names the owner uses to organize the page list. They carry no
-authority and are **not signed**: a label never changes who can read or write a page, is
-never an owner-log statement and never enters a page's content or any stream. They live in
-the owner store (`page_labels`, schema 7: one row per page and name, removed with the page's
-data when it is deleted; the page's tombstone row keeps none) and reach browsers only in the
-owner-served `GET /api/pages` entries and the CLI's `ls`/`show --json` pages as `labels`:
-an array sorted by code point, empty when a page has none. Their integrity is the Remote
-session's, like the other owner-served reads; a client treats them as untrusted text.
+Projects are display-only names the owner uses to organize the page list; a page can be in
+several. They carry no authority and are **not signed**: a project never changes who can read
+or write a page, is never an owner-log statement and never enters a page's content or any
+stream. A project exists on its own, so a new one may hold no page. They live in the owner store
+(`projects`, one row per name, and `page_projects`, one row per page and name, schema 13; the
+assignments are removed with a page's data when it is deleted, the page's tombstone row keeps
+none, and the project stays). They reach browsers only in the owner-served `GET /api/pages`
+reply, as `projects` on each entry and at the top level, and in the CLI's `ls`/`show --json`
+pages: arrays sorted by code point, empty when a page is in none; the top-level array names
+every project of the space, those with no page too. Their integrity is the Remote session's, like
+the other owner-served reads; a client treats them as untrusted text. Schema 13 turns every
+page label (the earlier name for this feature) into a project of the same name with the same
+pages; no label command or field remains.
 
-A name is 1 to 32 code points (`LABEL_POINTS`) with no control character, no whitespace
+A name is 1 to 32 code points (`PROJECT_POINTS`) with no control character, no whitespace
 (Unicode `White_Space`) other than single interior spaces and no leading, trailing or doubled
-space; case is part of the name and two spellings are two labels. `vectors/label-name-v1.json`
-pins the grammar for the owner store and the browser. A page holds at most 8 names (`PAGE_LABELS`)
-and the space at most 1,000 assignments (`SPACE_LABELS`), so the discovery reply stays
-within its 1 MiB cap. The constants live in `limits.rs`; the app's `bootstrap.ts` and its
-test hold the same numbers.
+space; case is part of the name and two spellings are two projects. `vectors/project-name-v1.json`
+pins the grammar for the owner store and the browser. A page is in at most 8 projects
+(`PAGE_PROJECTS`), the space holds at most 256 names (`SPACE_PROJECTS`) and 1,000
+page-in-project assignments (`SPACE_PROJECT_PAGES`), so the discovery reply stays within its
+1 MiB cap. A write that would add a name beyond 256 is `CAPACITY`; a space migrated from labels
+that already holds more keeps its names and refuses only a new one. The constants live in
+`limits.rs`; the app's `bootstrap.ts` and its test hold the same numbers (it accepts up to 1,000
+names, which a migrated space can hold).
 
-The one write is the management operation `page.labels`, available to a device-signed
-browser request from an admitted owner device and to the local CLI over the same local
-management path as every other command. It is not a log operation: it appends no statement,
-changes no membership head and records no operation receipt. It carries no revision: its
-signed `expectedRevision` field is the empty string, any other value is `INVALID`, and a log
-operation with an empty field is `INVALID` too. Its payload is exactly
-`{pages:[{pageId, labels}]}`: at most 64 entries (`LABEL_REQUEST_PAGES`), page IDs
-strictly ascending, the request's own page among them, every `labels` array the complete
-new set for that page. Last writer wins per page; the request applies in one store
-transaction, so it applies to every named page or to none. A malformed name, a repeated
-name, an unknown or deleted page, or a repeated page is `INVALID`; more than 8 names on a
-page, or more than 1,000 assignments in the space, is `CAPACITY`; both refuse the whole
-request with no partial effect. A read-only reader link has no write path and cannot
-label, and there is no owner-only gate beyond the paired owner device or local CLI that
-every management write already requires.
+There are two writes, both management operations available to a device-signed browser request
+from an admitted owner device and to the local CLI over the same local management path as every
+other command. Neither is a log operation: they append no statement, change no membership head
+and record no operation receipt. Neither carries a revision: the signed `expectedRevision` field
+is the empty string, any other value is `INVALID`, and a log operation with an empty field is
+`INVALID` too. Each applies in one store transaction, so it applies fully or not at all. A
+read-only reader link has no write path and cannot change projects, and there is no owner-only
+gate beyond the paired owner device or local CLI that every management write already requires.
 
-The CLI keeps the commands above to that one operation. `label add` and `label remove`
-read a page's set and replace it, and report `changed:false` without writing when nothing
-differs. `label rename <name> <new>` and `label delete <name>` change every page that
-carries the name, archived pages included, one request per 64 pages; a page that already
-has the new name keeps one label, and no page is deleted. A name that no page carries is
-`COLAB_LABEL_NOT_FOUND`; a name outside the grammar is `COLAB_INPUT_INVALID`;
-a full page or space is `COLAB_CAPACITY`. `label ls` lists each name with its page count.
+- `page.projects` replaces the projects of the pages it names. Its payload is exactly
+  `{pages:[{pageId, projects}]}`: at most 64 entries (`PROJECT_REQUEST_PAGES`), page IDs
+  strictly ascending, the request's own `page` among them, every `projects` array the complete
+  new set for that page. Last writer wins per page. A name no project has yet creates that
+  project. A malformed name, a repeated name, an unknown or deleted page, or a repeated page is
+  `INVALID`; more than 8 names on a page, more than 1,000 assignments in the space or a name
+  beyond 256 is `CAPACITY`; both refuse the whole request with no partial effect.
+- `project.manage` changes the space's projects without naming a page. The signed frame binds
+  one page, so this request names the space scope page
+  `00000000-0000-4000-8000-000000000000` in `page` and no other request may; any other value is
+  `INVALID`. Its payload is exactly `{action, name}` with `action` `"create"` or `"delete"`, or
+  `{action:"rename", name, to}`; `to` is present for a rename and for nothing else, and `null`
+  is not an absent `to`. `create` is idempotent. `rename` moves every page that is in `name`
+  (archived pages included) to `to`; if `to` already exists the two merge and a page in both
+  keeps one entry, and no page is deleted. `delete` removes the project and its assignments
+  only, never a page. An unknown project for `rename` or `delete`, an invalid name or
+  `to == name` is `INVALID`.
+
+The CLI keeps the commands below to those two operations. `project create <name>` is
+idempotent and reports `changed:false` for an existing name. `project add <page> <name>…` and
+`project remove <page> <name>…` read a page's set and replace it, and report `changed:false`
+without writing when nothing differs. `project rename <name> <new>` and `project delete <name>`
+are one request each. A name that is not a project is `COLAB_PROJECT_NOT_FOUND` for `rename`,
+`delete` and `ls --project`; a name outside the grammar is `COLAB_INPUT_INVALID`; a full page or
+space is `COLAB_CAPACITY`. `project ls` lists each name with its page count, including projects
+with none, and `ls --project <name>` lists only the pages in it.
 
 ### Page summary (#2588)
 
 Each page in the owner-served `GET /api/pages` list may carry a display-only `summary` the
-The home page list shows with its title: `{comments, waiting, needsYou, author?}`. Like labels it is **not signed**,
+The home page list shows with its title: `{comments, waiting, needsYou, author?}`. Like projects it is **not signed**,
 is never an owner-log statement and never enters a page's content or any stream, and it
 appears only in this owner list: not in a reader link's or a member's views, and not in the
 CLI's `ls`/`show`. A client treats it as untrusted text.
