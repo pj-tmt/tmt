@@ -108,11 +108,11 @@ for (const width of [1440, 390])
               state === 'default'
                 ? surface === 'chat'
                   ? ''
-                  : 'Asks @Agent 1.'
+                  : 'Asks Agent 1.'
                 : state === 'multi'
                   ? surface === 'chat'
                     ? ''
-                    : 'Asks @Agent 1, @Agent 2.'
+                    : 'Asks Agent 1, Agent 2.'
                   : 'No agent named @missing. This posts as a comment.',
             );
             if (surface === 'chat' && state !== 'unknown') await expect(status).toBeHidden();

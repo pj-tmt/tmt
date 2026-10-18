@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AgentChip } from './components/agent-chip.js';
 import type { LedgerState } from './ask-records.js';
 import type { FrozenAsk } from './ask-intent.js';
 
@@ -87,7 +88,7 @@ export function AskPreview({
         </dd>
         <dt>{text.askAgent}</dt>
         <dd>
-          {view.agentName}
+          <AgentChip name={view.agentName} />
           <br />
           <code>{view.agent}</code>
         </dd>

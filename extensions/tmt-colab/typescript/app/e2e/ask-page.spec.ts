@@ -106,23 +106,21 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
   const state = (tone: string) =>
     page.getByTestId('ask-state').first().locator(`.ask-state[data-tone="${tone}"]`);
   await expect(page.getByTestId('ask-state').first()).toContainText('Waiting for approval');
-  await expect(state('held').locator('svg.lucide')).toBeVisible();
+  await expect(state('held').locator('.ask-state-mark svg.lucide')).toBeVisible();
   await page.screenshot({ path: '/tmp/1730-390-dark-held.png' });
   await run(page, 'pending');
   await expect(page.getByTestId('ask-state').first()).toContainText('Waiting for Agent 1');
-  await expect(state('waiting').locator('svg.lucide')).toBeVisible();
+  await expect(state('waiting').locator('.ask-state-mark svg.lucide')).toBeVisible();
   await page.screenshot({ path: '/tmp/1730-390-dark-waiting.png' });
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
   await expect(page.getByTestId('ask-state').first()).toContainText('No reply yet from Agent 1');
-  await expect(state('waiting').locator('svg.lucide')).toBeVisible();
+  await expect(state('waiting').locator('.ask-state-mark svg.lucide')).toBeVisible();
   await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
   await page.screenshot({ path: '/tmp/1645-chromium-390-dark-timeout.png' });
   await run(page, 'syncRecords', 'accepted');
   await expect(page.getByTestId('ask-state')).toHaveCount(0);
   await expect(page.getByTestId('ask-reply')).toHaveCount(2);
-  await expect(page.getByTestId('ask-reply-attribution').first()).toContainText(
-    `Agent 1 ${text.conversationAgent}`,
-  );
+  await expect(page.getByTestId('ask-reply-attribution').first()).toContainText('Agent 1');
   await page.screenshot({ path: '/tmp/1730-390-dark-replied.png' });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));

@@ -68,7 +68,7 @@ test('one Send fans out once per UUID, including offline, with one recorded comm
   const input = await mount(page);
   await input.pressSequentially('@alpha @beta @alpha explain');
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Asks @alpha, @beta (offline).',
+    'Asks alpha, beta (offline).',
   );
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(2);
@@ -155,7 +155,7 @@ test('loading and failed directory fence mention sends, retaining a draft throug
   );
   await run(page, 'setDirectory', 'ok');
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
-  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks alpha.');
   await expect(input).toHaveText('@alpha note', { useInnerText: true });
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
@@ -219,7 +219,7 @@ test('a preparation failure leaves the sibling delivered once and never retries 
   await input.pressSequentially('@alpha @beta explain');
   await input.press('Enter');
   await expect(page.getByTestId('recipient-failure')).toHaveCount(1);
-  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  await expect(page.getByTestId('recipient-failure')).toContainText('alpha · Not delivered');
   await expect(
     page.getByTestId('recipient-failure').getByRole('button', { name: 'Ask again', exact: true }),
   ).toBeVisible();
@@ -242,7 +242,7 @@ test('an ambiguous token in the middle is replaced in place without losing surro
   await expect
     .poll(async () => (await run(page, 'editingProof')).draft)
     .toBe('Before @alpha  after.');
-  await expect(input.locator('.message-mention-machine')).toHaveText(' · My machine');
+  await expect(input.locator('.agent-chip-machine')).toHaveText(' · My machine');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
 });
@@ -253,7 +253,7 @@ test('removing and undoing multiple tokens changes the visible recipients withou
   const input = await mount(page);
   await input.pressSequentially('@alpha @beta note');
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Asks @alpha, @beta (offline).',
+    'Asks alpha, beta (offline).',
   );
   await input.press('ControlOrMeta+A');
   await input.press('Backspace');
@@ -263,7 +263,7 @@ test('removing and undoing multiple tokens changes the visible recipients withou
   await input.press('ControlOrMeta+Z');
   await expect(input).toHaveText('@alpha @beta note', { useInnerText: true });
   await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-    'Asks @alpha, @beta (offline).',
+    'Asks alpha, beta (offline).',
   );
   await input.press('Escape');
   expect((await run(page, 'proof')).writes).toBe(0);
@@ -304,10 +304,10 @@ test('directory retry keeps keyboard focus and ignores a late result from the re
   await retry.press('Enter');
   await run(page, 'setDirectory', 'ok');
   await run(page, 'reconnectAsk');
-  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks alpha.');
   await expect(input).toBeFocused();
   await run(page, 'releaseDirectory', 'fail');
-  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks @alpha.');
+  await expect(page.locator('.annotation-hint[role="status"]')).toContainText('Asks alpha.');
   await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
   expect((await run(page, 'directoryProof')).reads).toBe(4);
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
@@ -363,7 +363,7 @@ for (const mode of ['partial-refusal', 'core-refusal'])
     const entries = page.getByTestId('ask-entry');
     await expect(entries).toHaveCount(2);
     await expect(entries.nth(0)).toHaveAttribute('data-ledger-state', 'refused');
-    await expect(entries.nth(0)).toContainText('Mention @alpha in a new message to ask again.');
+    await expect(entries.nth(0)).toContainText('Mention alpha in a new message to ask again.');
     await expect(entries.nth(1)).toHaveAttribute('data-ledger-state', 'accepted');
     await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
     expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 2, commits: 1 });
@@ -377,7 +377,7 @@ test('a pre-adoption Send failure has a local Not delivered label and no invente
   const input = await mount(page, { mode: 'no-adoption' });
   await input.fill('@alpha Explain.');
   await input.press('Enter');
-  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  await expect(page.getByTestId('recipient-failure')).toContainText('alpha · Not delivered');
   await expect(
     page.getByTestId('recipient-failure').getByRole('button', { name: 'Ask again', exact: true }),
   ).toBeVisible();
@@ -413,7 +413,7 @@ test('unknown adoption shows per-recipient uncertainty without claiming Not deli
   await input.fill('@alpha Explain.');
   await input.press('Enter');
   const failure = page.getByTestId('recipient-failure');
-  await expect(failure).toContainText('@alpha · Delivery unconfirmed');
+  await expect(failure).toContainText('alpha · Delivery unconfirmed');
   await expect(failure).not.toContainText('Not delivered');
   await expect(failure).not.toContainText('new message');
   await expect(page.getByTestId('ask-entry')).toHaveCount(0);
@@ -429,7 +429,7 @@ test('a new Chat Send clears local failures from the prior message', async ({ pa
   const input = await mount(page, { surface: 'chat', mode: 'partial-preparation' });
   await input.fill('@alpha First question.');
   await input.press('Enter');
-  await expect(page.getByTestId('recipient-failure')).toContainText('@alpha · Not delivered');
+  await expect(page.getByTestId('recipient-failure')).toContainText('alpha · Not delivered');
   expect(await run(page, 'proof')).toMatchObject({
     writes: 1,
     preparations: 1,
@@ -542,7 +542,7 @@ test('an open ambiguous-name list accepts the highlighted UUID without sending',
   await input.press('ArrowDown');
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'editingProof')).draft).toBe('@alpha ');
-  await expect(input.locator('.message-mention-machine')).toHaveText(' · My machine');
+  await expect(input.locator('.agent-chip-machine')).toHaveText(' · My machine');
   await expect(input).toHaveAttribute('aria-expanded', 'false');
   expect(await run(page, 'proof')).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await input.press('Enter');
@@ -557,14 +557,14 @@ for (const phase of ['reconnecting', 'ended'] as const) {
     const input = await mount(page, { mode: 'write-failure' });
     await input.fill('@beta note');
     await expect(page.locator('.annotation-hint[role="status"]')).toContainText(
-      'Asks @beta (offline).',
+      'Asks beta (offline).',
     );
     await run(page, 'setConnection', phase);
     const message =
       phase === 'reconnecting' ? 'Reconnecting…' : 'Access to this page has ended. Pair again.';
     await expect(page.locator('.annotation-hint[role="status"]')).toContainText(message);
     await expect(page.locator('.annotation-hint[role="status"]')).not.toContainText(
-      'Asks @beta (offline).',
+      'Asks beta (offline).',
     );
     await expect(
       page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),

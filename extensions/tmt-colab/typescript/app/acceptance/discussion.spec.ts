@@ -336,7 +336,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t2.getByRole('button', { name: text.threadResolve, exact: true })).toBeEnabled();
     await expect(t1.getByTestId('ask-reply')).toBeVisible();
     await expect(t2.getByTestId('ask-reply')).toBeVisible();
-    await expect(t1.getByTestId('ask-reply-attribution')).toContainText(`${agent.name} AGENT`);
+    await expect(t1.getByTestId('ask-reply-attribution')).toContainText(agent.name);
     await expect(t1.getByTestId('ask-reply-attribution')).not.toContainText('discussion-replier');
     await expect(t1.getByTestId('ask-state')).toHaveCount(0);
     await expect(t2.getByTestId('ask-state')).toHaveCount(0);
@@ -645,6 +645,8 @@ test('composer records plain annotations and replies without a recipient, then s
     );
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
     const question = `@${agent.name} Explain this exact quote.\n  Keep these spaces and this line.  `;
+    // Sent text draws the mention as the chip, whose icon takes the place of the typed @.
+    const shown = question.replace(`@${agent.name}`, agent.name);
     await reply.fill(question);
     await inputFor(thread, agent.name);
     await expect.poll(() => composerText(reply)).toBe(question);
@@ -689,7 +691,7 @@ test('composer records plain annotations and replies without a recipient, then s
       .getByTestId('comment-entry')
       .filter({ hasText: 'Explain this exact quote.' });
     const askMessageId = (await askComment.getAttribute('data-message-id'))!;
-    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(question);
+    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(shown);
     expect(agent.received()[0].message).toContain('Frozen original quote.');
     expect(agent.received()[0].message).toContain(`@${agent.name}`);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
@@ -725,7 +727,7 @@ test('composer records plain annotations and replies without a recipient, then s
       .poll(() =>
         restored.locator(`[data-message-id="${askMessageId}"] .comment-body`).textContent(),
       )
-      .toBe(question);
+      .toBe(shown);
     await expect
       .poll(() => restored.locator('.thread-state').first().getAttribute('title'))
       .toBe('Frozen original quote.');
@@ -1094,7 +1096,7 @@ test('a served question group records three answers and asks each recipient once
     // Admitted Ask projection does not promise recipient ordering. Pin both identities
     // and the shared count without treating their arrival order as a UI contract.
     await expect(current().locator('.question-shared-ask')).toHaveText(
-      /^Asked @(?:batch-alpha, @batch-beta|batch-beta, @batch-alpha) with 3 answers\.$/,
+      /^Asked (?:batch-alpha, batch-beta|batch-beta, batch-alpha) with 3 answers\.$/,
     );
     await current().getByRole('button', { name: 'Open reply · Q1', exact: true }).click();
     await expect(current().getByTestId('ask-entry').first()).toBeFocused();

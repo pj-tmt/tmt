@@ -134,7 +134,7 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   });
   await run(page, 'questionBatchAsk', 'replied');
   await expect(
-    card(page).getByText('Asked @Agent 1, @Agent 2 with 3 answers.', { exact: true }),
+    card(page).getByText('Asked Agent 1, Agent 2 with 3 answers.', { exact: true }),
   ).toBeVisible();
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(0);
   // One reply per recipient is present in the canonical panel, never once per answer.
@@ -172,7 +172,7 @@ test('three comments make one Ask per distinct recipient; only the canonical tab
   expect((await run(page, 'proof')).sends).toHaveLength(0);
   await restored.getByRole('tab').nth(1).click();
   await expect(
-    card(page).getByText('Asked @Agent 1, @Agent 2 with 3 answers.', { exact: true }),
+    card(page).getByText('Asked Agent 1, Agent 2 with 3 answers.', { exact: true }),
   ).toBeVisible();
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(0);
   await card(page).getByRole('button', { name: 'Change answer', exact: true }).click();
@@ -211,6 +211,9 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
   await expect(page.getByRole('option')).toHaveCount(1);
   await page.getByRole('option').filter({ hasText: 'Second machine' }).click();
   await expect(group.locator('.tmt-ui-chip')).toHaveCount(2);
+  // Every recipient is the shared agent chip inside the design-system frame, and the option list too.
+  await expect(group.locator('.tmt-ui-chip .agent-chip')).toHaveCount(2);
+  await expect(group.getByRole('group', { name: 'Answer recipients' })).toContainText('Review');
   await card(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('tab').nth(1).click();
   await card(page).getByLabel('Your answer', { exact: true }).fill('Ask both chosen identities');
@@ -228,12 +231,12 @@ test('same-named agents have no ambiguous default; explicit chip keys stay disti
   ).toEqual(agents.map((agent) => `${agent.machine}:${agent.agent}`));
   await run(page, 'questionBatchAsk', 'replied');
   await expect(card(page).locator('.question-shared-ask')).toHaveText(
-    'Asked @Review, @Review with 2 answers.',
+    'Asked Review, Review with 2 answers.',
   );
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(0);
   await group.getByRole('tab').nth(0).click();
   await expect(card(page).locator('.question-shared-ask')).toHaveText(
-    'Asked @Review, @Review with 2 answers.',
+    'Asked Review, Review with 2 answers.',
   );
   await expect(card(page).getByTestId('ask-reply')).toHaveCount(2);
 });

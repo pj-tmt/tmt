@@ -11,7 +11,7 @@ async function mount(page: Page, state: State) {
     const path = '/test/message-composer-browser.tsx';
     (await import(path)).mountMentions(state);
   }, state);
-  const chip = page.locator('.message-mention-chip');
+  const chip = page.locator('.agent-chip[data-variant="chip"]');
   await expect(chip).toHaveCount(1);
   await expect(chip).toHaveAttribute('data-state', state === 'same-name' ? 'online' : state);
   return page.getByRole('combobox', { name: 'Message', exact: true });
@@ -44,7 +44,7 @@ for (const width of [1440, 390])
         const app = page.locator('#ask-page-fixture');
         const toggle = await pageAction(app, 'Chat');
         await toggle.click();
-        const chip = page.getByTestId('chat-panel').locator('.message-mention');
+        const chip = page.getByTestId('chat-panel').locator('.agent-chip');
         if (state === 'not-found') await expect(chip).toHaveCount(0);
         else
           await expect(chip).toHaveAttribute(
@@ -72,12 +72,12 @@ for (const width of [1440, 390])
           document.documentElement.dataset.theme = theme;
         }, theme);
         const input = await mount(page, state);
-        const chip = page.locator('.message-mention-chip');
+        const chip = page.locator('.agent-chip[data-variant="chip"]');
         const name = state === 'not-found' ? '@Creator' : '@astra';
         expect((await proof(page)).draft).toBe(`${name} `);
-        await expect(chip.locator('.message-mention-name')).toHaveText(name);
+        await expect(chip.locator('.agent-chip-name')).toHaveText(name);
         if (state === 'same-name')
-          await expect(chip.locator('.message-mention-machine')).toHaveText(' · My machine');
+          await expect(chip.locator('.agent-chip-machine')).toHaveText(' · My machine');
         const geometry = await chip.evaluate((node) => {
           const style = getComputedStyle(node);
           const dot = node.firstElementChild!.getBoundingClientRect();
@@ -95,14 +95,14 @@ for (const width of [1440, 390])
           };
         });
         expect(geometry).toMatchObject({
-          border: '0px',
+          border: '1px',
           radius: '0px',
           shadow: 'none',
           ordered: true,
-          markWidth: 14,
-          markHeight: 14,
+          markWidth: 16,
+          markHeight: 16,
           inside: true,
-          borderStyle: 'none',
+          borderStyle: state === 'not-found' ? 'dashed' : 'solid',
         });
         const remove = chip.getByRole('button', { name: /^Remove mention:/ });
         await remove.focus();
@@ -148,7 +148,7 @@ test('removing the creator preserves surrounding text, undo UUID binding and no 
   await page.getByRole('button', { name: /^Remove mention:/ }).click();
   await expect.poll(async () => (await proof(page)).draft).toBe(' Keep exact café.');
   await input.press('ControlOrMeta+Z');
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   expect((await proof(page)).draft).toBe('@astra Keep exact café.');
   await page.getByRole('button', { name: /^Remove mention:/ }).click();
   await page.evaluate(async () => {
@@ -156,7 +156,7 @@ test('removing the creator preserves surrounding text, undo UUID binding and no 
     (await import(path)).reconnectAsk();
   });
   await expect.poll(async () => (await proof(page)).draft).toBe(' Keep exact café.');
-  await expect(page.locator('.message-mention-chip')).toHaveCount(0);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
 });
 
@@ -182,7 +182,10 @@ test('keyboard activation removes a chip without sending, and a missing director
     module.setAgents([]);
     module.reconnectAsk();
   });
-  await expect(page.locator('.message-mention-chip')).toHaveAttribute('data-state', 'not-found');
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveAttribute(
+    'data-state',
+    'not-found',
+  );
   await expect(
     page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
   ).toBeDisabled();
@@ -190,7 +193,7 @@ test('keyboard activation removes a chip without sending, and a missing director
   await remove.focus();
   await expect(remove).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.message-mention-chip')).toHaveCount(0);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
   expect((await proof(page)).draft).toBe(' ');
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await expect(input).toBeFocused();
@@ -204,7 +207,7 @@ test('same-name choices keep the chosen machine UUID; chip controls do not enter
   await input.press('Backspace');
   await input.pressSequentially('@astra');
   await page.getByRole('option', { name: '@astra · Office desktop', exact: true }).click();
-  await expect(input.locator('.message-mention-machine')).toHaveText(' · Office desktop');
+  await expect(input.locator('.agent-chip-machine')).toHaveText(' · Office desktop');
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await input.press('ControlOrMeta+A');
   await input.press('ControlOrMeta+C');
@@ -234,7 +237,7 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
     module.mount();
   });
   const input = page.getByRole('combobox', { name: 'Message', exact: true });
-  await expect(input.locator('.message-mention')).toHaveCount(0);
+  await expect(input.locator('.agent-chip')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send to @astra', exact: true })).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }),
@@ -249,11 +252,11 @@ test('a failed first directory read seeds nothing; retry admits the toggle witho
   const toggle = page.getByRole('button', { name: 'Send to @astra', exact: true });
   await expect(toggle).toBeVisible();
   await expect(input).toHaveText('Kept draft', { useInnerText: true });
-  await expect(input.locator('.message-mention')).toHaveCount(0);
+  await expect(input.locator('.agent-chip')).toHaveCount(0);
   await toggle.click();
   await toggle.click();
-  await expect(input.locator('.message-mention')).toHaveAttribute('data-state', 'online');
-  await expect(input.locator('.message-mention')).toHaveAttribute(
+  await expect(input.locator('.agent-chip')).toHaveAttribute('data-state', 'online');
+  await expect(input.locator('.agent-chip')).toHaveAttribute(
     'title',
     '@astra · My machine · Online',
   );
@@ -316,7 +319,7 @@ test('IME composition with the list open neither navigates, chooses nor sends', 
       await expect(input).toHaveAttribute('aria-activedescendant', active!);
       await expect(page.getByRole('listbox')).toBeVisible();
     }
-    await expect(page.locator('.message-mention-chip')).toHaveCount(0);
+    await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
     expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
     await client.detach();
   }
@@ -331,7 +334,7 @@ test('IME composition with the list open neither navigates, chooses nor sends', 
   await expect(input).not.toHaveAttribute('aria-activedescendant', active!);
   await input.press('Enter');
   await expect(page.getByRole('listbox')).toBeHidden();
-  await expect(page.locator('.message-mention-chip')).toHaveCount(1);
+  await expect(page.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
   expect(await proof(page)).toMatchObject({ writes: 0, preparations: 0, sends: [] });
   await input.press('Enter');
   await expect.poll(async () => (await proof(page)).writes).toBe(1);

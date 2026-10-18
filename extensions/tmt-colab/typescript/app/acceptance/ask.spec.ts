@@ -134,11 +134,11 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         const turn = entry.locator('.conversation-turn[data-turn-role="agent"]');
         if (driver) {
           await expect(turn).toHaveAttribute('data-running-driver', driver);
-          await expect(turn.locator('.conversation-driver')).toHaveText(driver);
-          await expect(turn.locator('.conversation-avatar')).toHaveCount(1);
+          await expect(turn.locator('.agent-chip-driver')).toHaveText(`· ${driver}`);
+          await expect(turn.locator('.agent-chip .lucide-bot')).toHaveCount(1);
         } else {
           await expect(turn).not.toHaveAttribute('data-running-driver');
-          await expect(turn.locator('.conversation-driver, .conversation-avatar')).toHaveCount(0);
+          await expect(turn.locator('.agent-chip-driver')).toHaveCount(0);
         }
         await captureResponsive(page, `real-driver-${driver ?? 'absent'}`);
         await page.reload();
@@ -151,9 +151,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
             askEntry(page, ask.operationId).locator('.conversation-turn[data-turn-role="agent"]'),
           ).toHaveAttribute('data-running-driver', driver);
         else
-          await expect(
-            askEntry(page, ask.operationId).locator('.conversation-driver, .conversation-avatar'),
-          ).toHaveCount(0);
+          await expect(askEntry(page, ask.operationId).locator('.agent-chip-driver')).toHaveCount(
+            0,
+          );
         expect(recipient.received()).toHaveLength(1);
         expect(dispatches(world)).toHaveLength(1);
       });
@@ -429,7 +429,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
           });
           await expect(action).toBeEnabled();
           await expect(container.locator('.annotation-hint[role="status"]')).toHaveText(
-            surface === 'Chat' ? '' : `Asks @${s.recipient.name}.`,
+            surface === 'Chat' ? '' : `Asks ${s.recipient.name}.`,
           );
           await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
           await expect(entry.getByTestId('ask-reply')).toHaveText(replyBody(initial.delivered()));

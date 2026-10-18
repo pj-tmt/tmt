@@ -1,4 +1,5 @@
 import { useContext } from 'react';
+import { AgentChip } from './components/agent-chip.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import { AskAgainAction } from './ask-again.js';
 import type { AskBinding } from './ask-panel.js';
@@ -28,7 +29,8 @@ export function CommentSendFailures({
           key={index}
         >
           <p>
-            {chat && !failure.uncertain && <span aria-hidden="true">✗ </span>}@{failure.agent} ·{' '}
+            {chat && !failure.uncertain && <span aria-hidden="true">✗ </span>}
+            <AgentChip name={failure.agent} /> ·{' '}
             {failure.uncertain ? text.askUnconfirmed : text.askNotDelivered}{' '}
             {!failure.uncertain && (
               <AskAgainAction

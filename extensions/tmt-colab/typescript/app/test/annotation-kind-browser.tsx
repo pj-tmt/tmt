@@ -2,7 +2,7 @@ import '@tmt/browser-ui/static.css';
 import '../src/style.css';
 import '../src/components/message-composer.css';
 import { createRoot } from 'react-dom/client';
-import { MentionChip } from '../src/components/mention-chip.js';
+import { AgentChip } from '../src/components/agent-chip.js';
 
 /** Explicit cosmetic kind fixtures only; no editor keys, directory or recipient effects. */
 export function mount() {
@@ -20,9 +20,9 @@ export function mount() {
           </header>
           <div className="conversation-composer">
             <p className="rich-input-field">
-              Could <MentionChip token="@reviewer" /> check 390px?
+              Could <AgentChip name="@reviewer" /> check 390px?
               <br />
-              <MentionChip token="@Ben" kind="person" /> review copy?
+              <AgentChip name="@Ben" variant="chip" /> review copy?
             </p>
           </div>
         </section>

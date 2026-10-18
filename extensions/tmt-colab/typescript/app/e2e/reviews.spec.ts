@@ -37,7 +37,7 @@ test('a waiting section offers Confirm and Needs change, and the head counts it'
   await expect(card.getByText('Please confirm')).toBeVisible();
   await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeEnabled();
   await expect(card.getByRole('button', { name: 'Needs change…', exact: true })).toBeEnabled();
-  await expect(card.getByText('Goes to @Agent 1')).toBeVisible();
+  await expect(card.getByText('Goes to Agent 1')).toBeVisible();
   const chip = page.getByRole('button', { name: 'Needs you: 2', exact: true });
   await expect(chip).toContainText('Needs you 2');
   await expect(section(page)).toHaveAttribute('data-colab-review-closed', 'false');
@@ -291,7 +291,7 @@ test('the controls wait for the asking agent to resolve, then name it', async ({
   await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeDisabled();
   await run(page, 'finishQuestionDirectory');
   await expect(card.getByRole('button', { name: 'Confirm and close', exact: true })).toBeEnabled();
-  await expect(card.getByText('Goes to @Agent 1')).toBeVisible();
+  await expect(card.getByText('Goes to Agent 1')).toBeVisible();
 });
 
 test('an unknown asking agent keeps the comment on the page and says so', async ({ page }) => {

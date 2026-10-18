@@ -2,7 +2,7 @@ import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $getNodeByKey, HISTORY_PUSH_TAG, type NodeKey } from 'lexical';
 import { X } from 'lucide-react';
-import { MentionLabel } from './mention-chip.js';
+import { AgentChip } from './agent-chip.js';
 import { createContext, useContext } from 'react';
 import type { AgentDestination } from '../live-ask.js';
 import { text } from '../strings.js';
@@ -46,14 +46,13 @@ export function MessageMentionChip({
     text.messageMentionState[state],
   );
   return (
-    <span
-      className="message-mention message-mention-chip"
-      data-kind="agent"
-      data-state={state}
+    <AgentChip
+      name={token}
+      machine={sameName ? agent.machineName : undefined}
+      state={state}
+      variant="chip"
       title={description}
     >
-      <MentionLabel token={token} />
-      {sameName && <span className="message-mention-machine"> · {agent.machineName}</span>}
       <BrowserIconAction
         type="button"
         variant="text"
@@ -74,6 +73,6 @@ export function MessageMentionChip({
           editor.focus();
         }}
       />
-    </span>
+    </AgentChip>
   );
 }

@@ -17,6 +17,7 @@ import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
+import { agentSentence } from './components/agent-chip.js';
 import { MessageText } from './components/message-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { conversationRecordKey } from './conversation-record-key.js';
@@ -193,10 +194,10 @@ export function AskPanel({
     const agent = record.agentName || text.askAgentLabel;
     const waitingForAgent =
       ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable;
-    const deliveryState: { mark: ReactNode; tone: string; label: string } = timedOut
-      ? { mark: <Clock />, tone: 'waiting', label: text.askNoReply(agent) }
+    const deliveryState: { mark: ReactNode; tone: string; label: ReactNode } = timedOut
+      ? { mark: <Clock />, tone: 'waiting', label: agentSentence(text.askNoReply, agent) }
       : waitingForAgent
-        ? { mark: <Clock />, tone: 'waiting', label: text.askWaiting(agent) }
+        ? { mark: <Clock />, tone: 'waiting', label: agentSentence(text.askWaiting, agent) }
         : record.state === 'held'
           ? { mark: <Pause />, tone: 'held', label: text.askApproval }
           : {
@@ -239,7 +240,7 @@ export function AskPanel({
               {chat && deliveryState.label === text.askNotDelivered ? '✗' : deliveryState.mark}
             </span>
             {records.length > 1 && !timedOut && !waitingForAgent
-              ? text.askRecipientPrefix(agent)
+              ? agentSentence(text.askRecipientPrefix, agent)
               : ''}
             {deliveryState.label}
           </span>
@@ -309,14 +310,16 @@ export function AskPanel({
       <>
         {supporting && (
           <p className="ask-supporting">
-            {records.length > 1 ? text.askRecipientPrefix(agent) : ''}
+            {records.length > 1 ? agentSentence(text.askRecipientPrefix, agent) : ''}
             {supporting}
           </p>
         )}
         {record.reply === undefined &&
           record.state === 'refused' &&
           REMOTE_REFUSAL_CODES.some((code) => code === record.reason) &&
-          !retryable && <p className="ask-supporting">{text.messageAskAgain(agent)}</p>}
+          !retryable && (
+            <p className="ask-supporting">{agentSentence(text.messageAskAgain, agent)}</p>
+          )}
         {record.state === 'uncertain' &&
           ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(record.reason ?? '') && (
             <p className="ask-supporting">{text.askSessionEnded}</p>

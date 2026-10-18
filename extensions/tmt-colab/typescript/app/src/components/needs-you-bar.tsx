@@ -20,8 +20,8 @@ export function NeedsYouBar({
 }: {
   tone: NeedsYouTone;
   word: string;
-  who?: string;
-  why?: string;
+  who?: ReactNode;
+  why?: ReactNode;
   /** The settled line's own content, such as the answer, after the facts. */
   detail?: ReactNode;
   actions?: ReactNode;
@@ -40,7 +40,12 @@ export function NeedsYouBar({
             <span className="needs-you-who">{who}</span>
           </>
         )}
-        {why && (tone === 'done' || !who ? ` · ${why}` : `: ${why}`)}
+        {why && (
+          <>
+            {tone === 'done' || !who ? ' · ' : ': '}
+            {why}
+          </>
+        )}
         {detail && (
           <>
             {' · '}

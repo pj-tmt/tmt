@@ -1563,7 +1563,9 @@ function Page() {
                     .map((item) => ({
                       ...item,
                       kind: 'reading' as const,
-                      agent: readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                      agents: [
+                        readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                      ].filter(Boolean),
                     })),
                   ...questionLayer.navigation,
                   ...reviewLayer.navigation,

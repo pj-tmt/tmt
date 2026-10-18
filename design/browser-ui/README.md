@@ -135,6 +135,8 @@ field label spacing retains its existing host metrics.
 
 Toggle is controlled: fixed label, `aria-pressed`, independent visible checked
 indicator and original activation event. It never changes its own pressed value.
+The label is text or a host node; an optional `ariaLabel` is the accessible name when the
+visible label is a node or abbreviates a longer name.
 The leaf owns the symmetric 8px toggle inset through `toggle-gap`; hosts only
 supply the focus offset. Disabled styling cannot inherit hover/selected styling. Static hosts perform the
 same native semantics and ID associations themselves; CSS owns no effects.
@@ -395,6 +397,12 @@ placement/cleanup; outside presses dismiss only. Optional `onOpenChange` reports
 real transitions only, including native close, replacement, anchor removal and
 unmount; StrictMode replay owes no false transition. `test/fixtures/chips.html`
 provides isolated keyboard, cap, empty, status and long-name examples.
+
+A chip or option may carry an optional `content` node that the host draws instead of the
+label text, such as an agent mark and name. The required string `label` stays the fallback
+text when `content` is absent and the accessible name of an option (`label`, plus its
+description when it has one); a chip's remove control keeps its own `removeLabel`.
+`content` never changes ordering, filtering, caps or events; the host owns what it draws.
 
 ## Isolated shadcn foundation (Slice1)
 

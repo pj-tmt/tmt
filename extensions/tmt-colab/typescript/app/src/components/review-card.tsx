@@ -6,6 +6,7 @@ import type { ReviewState } from '../reviews.js';
 import { REVIEW_CHANGE_NOTE_BYTES, REVIEW_CONFIRM_NOTE_POINTS } from '../reviews.js';
 import { compactRelativeTime } from '../display-time.js';
 import { text } from '../strings.js';
+import { AgentChip, AgentList, agentSentence } from './agent-chip.js';
 import { NeedsYouBar } from './needs-you-bar.js';
 
 /** Authenticated parent presentation of one review section. The callbacks own every effect; the
@@ -115,14 +116,14 @@ export function ReviewCard({
         <NeedsYouBar
           tone="agent"
           word={text.reviewChanges}
-          why={text.reviewWaitingFor(review.agent)}
+          why={agentSentence(text.reviewWaitingFor, review.agent)}
           actions={actions}
         />
       ) : (
         <NeedsYouBar
           tone="needs"
           word={text.reviewAsk}
-          who={review.agent}
+          who={<AgentChip name={review.agent} />}
           why={review.title}
           actions={actions}
         />
@@ -156,7 +157,7 @@ export function ReviewCard({
         )}
         {!readOnly && !closed && (
           <p className="review-recipient">
-            {recipient ? text.reviewTo(recipient) : text.reviewNoRecipient}
+            {recipient ? agentSentence(text.reviewTo, recipient) : text.reviewNoRecipient}
           </p>
         )}
         {outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
@@ -172,7 +173,7 @@ export function ReviewCard({
         {outcome?.state === 'uncertain' && !closed && <p role="status">{text.reviewUncertain}</p>}
         {outcome?.state === 'settled' && outcome.warnings && outcome.warnings.length > 0 && (
           <p role="status">
-            {text.threadNotNotified(outcome.warnings.map((name) => `@${name}`).join(', '))}
+            {text.threadNotNotified} <AgentList names={outcome.warnings} />
           </p>
         )}
         {children}

@@ -20,7 +20,7 @@ for (const width of [1440, 390])
         await expect(window.getByRole('combobox', { name: 'Message', exact: true })).toContainText(
           'Please check the spacing.',
         );
-        await expect(window.locator('.message-mention-chip')).toHaveCount(1);
+        await expect(window.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
         await expect(window.locator('[data-turn-role="agent"]')).toHaveCount(1);
         await page.evaluate(() => document.fonts.ready);
         const metrics = await window.evaluate((window) => {
@@ -34,7 +34,7 @@ for (const width of [1440, 390])
             byline: '.comment-byline',
             composer: '.conversation-composer',
             editor: '.rich-input-field',
-            mention: '.message-mention-chip',
+            mention: '.agent-chip[data-variant="chip"]',
             status: '.annotation-status-row',
             hint: '.annotation-hint',
             anchor: '.annotation-anchor-note',
@@ -88,7 +88,11 @@ for (const width of [1440, 390])
             'font-size',
             '14px',
           );
-          await expect(window.locator('.message-mention-chip')).toHaveCSS('font-size', '14px');
+          // The bordered chip is caption size; its text beside it stays at the message size.
+          await expect(window.locator('.agent-chip[data-variant="chip"]')).toHaveCSS(
+            'font-size',
+            '11px',
+          );
           await expect(window.locator('.comment-byline').first()).toHaveCSS('font-size', '11px');
           await expect(window.locator('.comment-byline').first()).toHaveCSS(
             'line-height',

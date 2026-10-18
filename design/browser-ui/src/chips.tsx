@@ -1,15 +1,28 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, MouseEvent, Ref } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react';
 import { X } from 'lucide-react';
 import { BrowserIconAction } from './icon-action.js';
 import { admitsOverlayEscape, outsideOverlay, restoreOverlayFocus } from './overlay.js';
 import { claimBrowserPopup, placeBrowserPopup } from './popup.js';
 import { browserUiClasses as c } from './static.js';
-import type { BrowserChipItem, BrowserChipOption } from './static.js';
-export type { BrowserChipItem, BrowserChipOption } from './static.js';
+import type {
+  BrowserChipItem as StaticChipItem,
+  BrowserChipOption as StaticChipOption,
+} from './static.js';
+
+/** A chip value. `content` replaces the label text on screen; `label` stays the fallback. */
+export interface BrowserChipItem extends StaticChipItem {
+  content?: ReactNode;
+}
+/** An option value. `content` replaces the label on screen; `label` stays its accessible name. */
+export interface BrowserChipOption extends StaticChipOption {
+  content?: ReactNode;
+}
 
 export interface BrowserChipProps {
   label: string;
+  /** Shown instead of `label` when given, such as a host's agent mark and name. */
+  content?: ReactNode;
   removeLabel: string;
   disabled?: boolean;
   buttonRef?: Ref<HTMLButtonElement>;
@@ -19,6 +32,7 @@ export interface BrowserChipProps {
 /** The same item can sit in a controlled list or a host-owned rich editor. */
 export function BrowserChip({
   label,
+  content,
   removeLabel,
   disabled,
   buttonRef,
@@ -38,7 +52,7 @@ export function BrowserChip({
           event.stopPropagation();
       }}
     >
-      <span className={c.chipLabel}>{label}</span>
+      <span className={c.chipLabel}>{content ?? label}</span>
       <BrowserIconAction
         type="button"
         variant="text"
@@ -230,6 +244,7 @@ export function BrowserChips({
         <BrowserChip
           key={item.id}
           label={item.label}
+          content={item.content}
           removeLabel={item.removeLabel}
           disabled={disabled || item.disabled}
           buttonRef={(node) => {
@@ -352,10 +367,17 @@ export function BrowserChips({
                 aria-selected={chosen?.id === option.id}
                 disabled={option.disabled}
                 tabIndex={-1}
+                aria-label={
+                  option.content === undefined
+                    ? undefined
+                    : option.description
+                      ? `${option.label} ${option.description}`
+                      : option.label
+                }
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => add(option, event)}
               >
-                <span>{option.label}</span>
+                <span>{option.content ?? option.label}</span>
                 {option.description && <span>{option.description}</span>}
               </button>
             ))}

@@ -182,9 +182,7 @@ for (const width of [1440, 390]) {
             await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
             await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '13px' : '8px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
-            await expect(agent.getByTestId('ask-reply-attribution')).toHaveText(
-              `Atlas ${text.conversationAgent} · 5m ago`,
-            );
+            await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
             computed[`${surface}-agent`] = await styles(agent);
             await expect(window.getByTestId('ask-state')).toHaveCount(0);
             await expect(user.locator('.conversation-turn-status')).toHaveCount(0);
@@ -197,7 +195,7 @@ for (const width of [1440, 390]) {
             );
             if (surface === 'chat' && state === 'failed')
               await expect(status.locator('.ask-state-mark')).toHaveText('✗');
-            else await expect(status.locator('svg.lucide')).toBeVisible();
+            else await expect(status.locator('.ask-state-mark svg.lucide')).toBeVisible();
             await expect(user.locator('header').getByTestId('ask-state')).toHaveCount(0);
             const placement = await user.evaluate((node) => {
               const main = node.querySelector('.conversation-main')!;
@@ -235,9 +233,13 @@ for (const width of [1440, 390]) {
               await expect(user.locator('.ask-supporting')).toHaveText(text.askUncertain);
           }
           await expect(window.locator('script,img')).toHaveCount(0);
+          // The person's avatar is the only one left; an agent turn shows its chip.
           await expect(window.locator('.conversation-avatar')).toHaveCount(
-            surface === 'chat' ? 0 : state === 'replied' ? 2 : 1,
+            surface === 'chat' ? 0 : 1,
           );
+          await expect(
+            window.locator('[data-turn-role="agent"] .conversation-author .agent-chip'),
+          ).toHaveCount(state === 'replied' ? 1 : 0);
           expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
           await capture(page, window, `${surface}-${width}-${theme}-${state}`);
         }
@@ -428,7 +430,9 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
   ]) {
     await run(page, 'conversation', { surface: 'thread', state });
     await expect(window.getByTestId('ask-state')).toHaveText(label);
-    await expect(window.getByTestId('ask-state').locator('svg.lucide')).toBeVisible();
+    await expect(
+      window.getByTestId('ask-state').locator('.ask-state-mark svg.lucide'),
+    ).toBeVisible();
     if (supporting) await expect(window.locator('.ask-supporting')).toHaveText(supporting);
     else await expect(window.locator('.ask-supporting')).toHaveCount(0);
     await expect(window.getByRole('button', { name: text.askRecheck })).toHaveCount(
@@ -456,10 +460,10 @@ test('editable mention chips send only their original text; annotation keeps its
   await page.getByRole('option').first().click();
   await input.press('End');
   await page.keyboard.type('Explain this. @someone');
-  const token = input.locator('.message-mention');
-  await expect(token.locator('.message-mention-name')).toHaveText('@Agent 1');
+  const token = input.locator('.agent-chip');
+  await expect(token.locator('.agent-chip-name')).toHaveText('@Agent 1');
   await expect(token.getByRole('button', { name: /^Remove mention:/ })).toBeVisible();
-  await expect(token).toHaveCSS('border-top-width', '0px');
+  await expect(token).toHaveCSS('border-top-width', '1px');
   await expect(token).toHaveCSS('border-radius', '0px');
   await input.press('Enter');
   // The double publishes the admitted Ask attribution separately, like the signed own stream.
@@ -467,10 +471,10 @@ test('editable mention chips send only their original text; annotation keeps its
   const thread = page.getByTestId('comment-thread');
   await expect(thread).toHaveAttribute('data-layout', 'anchored');
   await expect(input).toHaveAttribute('id', id!);
-  await expect(thread.locator('.comment-body')).toHaveText('@Agent 1 Explain this. @someone');
-  const sent = thread.locator('.comment-body .message-mention');
+  await expect(thread.locator('.comment-body')).toHaveText('Agent 1 Explain this. someone');
+  const sent = thread.locator('.comment-body .agent-chip');
   await expect(sent).toHaveCount(2);
-  await expect(sent).toHaveText(['@Agent 1', '@someone']);
+  await expect(sent).toHaveText(['Agent 1', 'someone']);
   await expect(sent.getByRole('button')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toHaveLength(1);
 });
@@ -753,8 +757,8 @@ for (const width of [1440, 390]) {
         const editor = window.locator('[contenteditable="true"]');
         const retained = await agent.elementHandle();
         await expect(agent).not.toHaveAttribute('data-running-driver');
-        await expect(agent.locator('.conversation-driver')).toHaveCount(0);
-        await expect(agent.locator('.conversation-avatar')).toHaveCount(surface === 'chat' ? 0 : 1);
+        await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
+        await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(1);
         await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
         await editor.focus();
         await capture(page, window, `driver-${surface}-neutral-${width}-${theme}`);
@@ -763,9 +767,9 @@ for (const width of [1440, 390]) {
           await expect(agent).not.toHaveAttribute('data-running-driver');
           await run(page, 'settleDriverObservation');
           await expect(agent).toHaveAttribute('data-running-driver', driver);
-          await expect(agent.locator('.conversation-driver')).toHaveText(driver);
-          await expect(agent.locator('.conversation-avatar svg')).toHaveCount(1);
-          await expect(agent.locator('.conversation-author')).toHaveCSS('font-weight', '700');
+          await expect(agent.locator('.agent-chip-driver')).toHaveText(`· ${driver}`);
+          await expect(agent.locator('.agent-chip svg')).toHaveCount(1);
+          await expect(agent.locator('.agent-chip-name')).toHaveCSS('font-weight', '500');
           const roleColor = await agent.evaluate(
             (node, driver) =>
               getComputedStyle(node)
@@ -811,10 +815,8 @@ for (const width of [1440, 390]) {
         ]) {
           await run(page, 'driverObservation', options);
           await expect(agent).not.toHaveAttribute('data-running-driver');
-          await expect(agent.locator('.conversation-driver')).toHaveCount(0);
-          await expect(agent.locator('.conversation-avatar')).toHaveCount(
-            surface === 'chat' ? 0 : 1,
-          );
+          await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
+          await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(1);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
         }
@@ -928,7 +930,7 @@ for (const [width, theme] of [
     await expect(input).toHaveText('');
     await input.pressSequentially('@A');
     await page.getByRole('option').first().click();
-    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks @');
+    await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks ');
     await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText(
       text.messageComment,
     );

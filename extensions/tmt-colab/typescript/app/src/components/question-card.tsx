@@ -1,6 +1,6 @@
 import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   canonicalQuestionThread,
   currentAnswer,
@@ -16,6 +16,7 @@ import { ArchivedDraft } from '../annotation-input.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
 import { compactRelativeTime } from '../display-time.js';
+import { AgentChip } from './agent-chip.js';
 import { NeedsYouBar } from './needs-you-bar.js';
 
 export interface QuestionDraft {
@@ -69,7 +70,7 @@ export function QuestionCard({
   recorded?: boolean;
   error?: string;
   body?: string;
-  sharedAsk?: string;
+  sharedAsk?: ReactNode;
   replyLabel?: string;
   onOpenReply?(): void;
   onSend?(): void;
@@ -121,7 +122,7 @@ export function QuestionCard({
           role="status"
           tone={answer ? 'done' : 'needs'}
           word={answer ? 'Answered' : 'Please answer'}
-          who={answer ? answer.deviceName : question.agent}
+          who={answer ? answer.deviceName : <AgentChip name={question.agent} />}
           why={
             answer
               ? Number(answer.at) > 0 && Number.isFinite(Number(answer.at))

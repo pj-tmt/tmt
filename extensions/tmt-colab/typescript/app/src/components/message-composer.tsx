@@ -14,7 +14,7 @@ import { resolveMessageMentions } from '../message-recipient.js';
 import { Listbox } from './listbox.js';
 import type { MessageComposerProps } from './message-composer-edit.js';
 import { MessageMentionContext } from './message-mention-chip.js';
-import { MentionChip } from './mention-chip.js';
+import { AgentChip } from './agent-chip.js';
 import {
   $bindMessageMentions,
   $messageCaret,
@@ -176,7 +176,7 @@ function MessageField(props: MessageComposerProps) {
     const chipKeys = editor.registerCommand(
       KEY_DOWN_COMMAND,
       (event) =>
-        event.target instanceof HTMLElement && !!event.target.closest('.message-mention-chip'),
+        event.target instanceof HTMLElement && !!event.target.closest("[data-variant='chip']"),
       COMMAND_PRIORITY_HIGH,
     );
     const bind = editor.registerNodeTransform(TextNode, () => {
@@ -258,12 +258,10 @@ function MessageField(props: MessageComposerProps) {
           );
           return agent ? (
             <>
-              <MentionChip token={`@${agent.agentName}`} />
-              <span>
-                {' '}
-                · {agent.machineName}
-                {agent.presence === 'offline' ? ' · offline' : ''}
-              </span>
+              <AgentChip
+                name={`@${agent.agentName}`}
+                machine={`${agent.machineName}${agent.presence === 'offline' ? ' · offline' : ''}`}
+              />
             </>
           ) : (
             option.label
@@ -283,7 +281,7 @@ function MessageField(props: MessageComposerProps) {
               onKeyDownCapture={(event) => {
                 const native = event.nativeEvent;
                 // Chip actions keep their native keyboard activation; Enter here must not Send.
-                if ((event.target as HTMLElement).closest('.message-mention')) {
+                if ((event.target as HTMLElement).closest('.agent-chip')) {
                   return;
                 }
                 if (trigger['aria-expanded'] === true) {

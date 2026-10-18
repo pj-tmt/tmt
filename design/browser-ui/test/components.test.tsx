@@ -360,6 +360,12 @@ describe('presentation contracts', () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-hidden="true">✓');
     expect(html).toContain('Enabled');
+    const named = renderToStaticMarkup(
+      <BrowserToggle {...props} label={<b>Atlas</b>} ariaLabel="Send to Atlas" />,
+    );
+    expect(named).toContain('aria-label="Send to Atlas"');
+    expect(named).toContain('<b>Atlas</b>');
+    expect(html).not.toContain('aria-label=');
     const disabled = BrowserToggle({ ...props, disabled: true });
     (disabled.props as { onClick: (event: MouseEvent<HTMLButtonElement>) => void }).onClick(event);
     expect(calls).toHaveLength(1);

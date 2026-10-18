@@ -16,7 +16,7 @@ for (const width of [1440, 390]) {
       await input.pressSequentially('@agent');
       await expect(input).toHaveText('@agent');
       await expect(page.getByRole('listbox')).toHaveCount(0);
-      await expect(input.locator('.message-mention')).toHaveCount(0);
+      await expect(input.locator('.agent-chip')).toHaveCount(0);
       await input.press('Shift+Enter');
       await input.pressSequentially('second line');
       await input.press('Enter');

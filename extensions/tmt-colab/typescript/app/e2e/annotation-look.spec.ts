@@ -89,12 +89,10 @@ for (const width of [1440, 390])
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
       await expect(human.locator('.lucide-user-round')).toBeVisible();
       await expect(agent.locator('.lucide-bot')).toBeVisible();
-      await expect(agent.locator('.conversation-agent-label')).toContainText('AGENT');
+      await expect(agent.locator('.conversation-agent-label')).toHaveCount(0);
       await expect(agent).toHaveCSS('border-left-width', '0px');
       await expect(human).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      await expect(
-        human.locator('.conversation-body .message-mention[data-kind="agent"]'),
-      ).toHaveCount(2);
+      await expect(human.locator('.conversation-body .agent-chip')).toHaveCount(2);
       await page.screenshot({ path: `${captures}/annotation-thread-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
       const comments = await pageAction(app, 'Comments');
@@ -254,33 +252,28 @@ async function sharedComposer(window: Locator) {
   });
   return geometry;
 }
-async function sharedAgentTag(window: Locator) {
+/** The agent byline is the shared chip, icon then name, with no boxed role badge. */
+async function sharedAgentByline(window: Locator) {
   const byline = window.locator('[data-turn-role="agent"] .comment-byline');
-  const tag = byline.locator('.conversation-agent-label');
-  await expect(tag).toHaveCount(1);
-  await expect(tag).toHaveText('AGENT');
-  await expect(tag).toHaveCSS('border-top-width', '1px');
-  const gap = await byline.evaluate((node) => {
-    const name = node.querySelector('.conversation-author')!.getBoundingClientRect();
-    const tag = node.querySelector('.conversation-agent-label')!.getBoundingClientRect();
+  await expect(byline.locator('.conversation-agent-label')).toHaveCount(0);
+  const chip = byline.locator('.conversation-author .agent-chip');
+  await expect(chip).toHaveCount(1);
+  await expect(chip.locator('.lucide-bot')).toBeVisible();
+  await expect(chip).toHaveCSS('border-top-width', '0px');
+  const geometry = await byline.evaluate((node) => {
+    const chip = node.querySelector('.conversation-author')!.getBoundingClientRect();
     const time = node.querySelector('time')!.getBoundingClientRect();
-    return { gap: tag.left - name.right, tagRight: tag.right, timeLeft: time.left };
+    return { chipRight: chip.right, timeLeft: time.left };
   });
-  expect(gap.gap).toBeCloseTo(6, 0);
-  expect(gap.timeLeft).toBeGreaterThan(gap.tagRight);
-  return tag.evaluate((node) => {
+  expect(geometry.timeLeft).toBeGreaterThan(geometry.chipRight);
+  return chip.locator('.agent-chip-name').evaluate((node) => {
     const style = getComputedStyle(node);
-    return {
-      font: style.font,
-      padding: style.padding,
-      border: style.borderTopWidth,
-      letterSpacing: style.letterSpacing,
-    };
+    return { weight: style.fontWeight, size: style.fontSize, letterSpacing: style.letterSpacing };
   });
 }
 for (const width of [1440, 1024, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`annotation and Chat share circles composer and AGENT tag ${width} ${theme}`, async ({
+    test(`annotation and Chat share circles composer and agent byline ${width} ${theme}`, async ({
       page,
     }) => {
       mkdirSync(captures, { recursive: true });
@@ -325,7 +318,7 @@ for (const width of [1440, 1024, 390])
         'none',
       );
       const annotationComposer = await sharedComposer(thread);
-      const annotationTag = await sharedAgentTag(thread);
+      const annotationByline = await sharedAgentByline(thread);
       await page.screenshot({ path: `${captures}/unified-annotation-${width}-${theme}.png` });
       await page.keyboard.press('Escape');
       await run(page, 'mount', { ...options, creator: false });
@@ -333,19 +326,19 @@ for (const width of [1440, 1024, 390])
       await (await pageAction(app, 'Chat')).click();
       const chat = page.getByTestId('chat-panel');
       await expect(chat.getByText(text.chatEmpty, { exact: true })).toBeVisible();
-      await expect(chat.locator('.message-mention-chip')).toHaveCount(0);
+      await expect(chat.locator('.agent-chip[data-variant="chip"]')).toHaveCount(0);
       expect(await sharedComposer(chat)).toEqual(annotationComposer);
       await page.screenshot({ path: `${captures}/unified-chat-empty-${width}-${theme}.png` });
       await run(page, 'mount', options);
       await (await pageAction(app, 'Chat')).click();
-      await expect(chat.locator('.message-mention-chip')).toHaveCount(1);
+      await expect(chat.locator('.agent-chip[data-variant="chip"]')).toHaveCount(1);
       await expect(chat.getByRole('button', { name: 'Send to @Atlas', exact: true })).toHaveCSS(
         'border-top-width',
         '0px',
       );
       await page.screenshot({ path: `${captures}/unified-chat-recipient-${width}-${theme}.png` });
       await run(page, 'conversation', { surface: 'chat', state: 'replied' });
-      expect(await sharedAgentTag(chat)).toEqual(annotationTag);
+      expect(await sharedAgentByline(chat)).toEqual(annotationByline);
       await page.screenshot({ path: `${captures}/unified-chat-agent-${width}-${theme}.png` });
       expect(await run(page, 'proof')).toMatchObject({ sends: [], actions: [] });
     });

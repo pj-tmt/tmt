@@ -7,7 +7,7 @@ const candidate = (
   id: string,
   state: NeedsYouCandidate['state'],
   kind: NeedsYouCandidate['kind'],
-) => ({ id, title: id, agent: 'Agent 1', kind, state }) as NeedsYouCandidate;
+) => ({ id, title: id, agents: ['Agent 1'], kind, state }) as NeedsYouCandidate;
 
 it('counts only unread readings, unanswered blocks and reviews waiting for the reader', () => {
   expect(

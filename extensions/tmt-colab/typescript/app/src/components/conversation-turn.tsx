@@ -7,8 +7,8 @@ import {
   type ReactNode,
 } from 'react';
 import { compactRelativeTime } from '../display-time.js';
-import { text } from '../strings.js';
-import { Bot, UserRound } from 'lucide-react';
+import { UserRound } from 'lucide-react';
+import { AgentChip } from './agent-chip.js';
 import type { RunningDriver } from '../ask-remote.js';
 
 /** Presentation only: callers supply admitted labels, text and trusted actions. */
@@ -39,7 +39,6 @@ export function ConversationTurn({
   delivery?: ReactNode;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
-  const Icon = role === 'agent' ? Bot : UserRound;
   const driver =
     role === 'agent' && (runningDriver === 'claude' || runningDriver === 'codex')
       ? runningDriver
@@ -56,20 +55,20 @@ export function ConversationTurn({
       <div className="comment-main conversation-main">
         <header>
           <p className="comment-byline" title={authorTitle} data-testid={bylineTestId}>
-            {(driver || !chat) && (
-              <span className="conversation-avatar" aria-hidden="true">
-                <Icon size={16} />
-              </span>
-            )}
-            <span className="conversation-author">{author}</span>{' '}
-            {role === 'agent' && (
+            {role === 'agent' ? (
               <>
-                <span className="conversation-agent-label">{text.conversationAgent}</span>{' '}
+                <span className="conversation-author">
+                  <AgentChip name={author} driver={driver} />
+                </span>{' '}
               </>
-            )}
-            {driver && (
+            ) : (
               <>
-                <span className="conversation-driver">{driver}</span>{' '}
+                {!chat && (
+                  <span className="conversation-avatar" aria-hidden="true">
+                    <UserRound size={16} />
+                  </span>
+                )}
+                <span className="conversation-author">{author}</span>{' '}
               </>
             )}
             <span className="conversation-time-separator">· </span>

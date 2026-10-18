@@ -37,7 +37,7 @@ async function changeWhileTyping(
   await input.evaluate((node, caret) => {
     const walker = node.ownerDocument.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
       acceptNode: (text) =>
-        text.parentElement?.closest('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+        text.parentElement?.closest('.tmt-ui-icon-action-tooltip,.agent-chip-machine')
           ? NodeFilter.FILTER_REJECT
           : NodeFilter.FILTER_ACCEPT,
     });
@@ -77,7 +77,7 @@ async function changeWhileTyping(
         before.setEnd(selection.focusNode!, selection.focusOffset);
         const message = before.cloneContents();
         message
-          .querySelectorAll('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          .querySelectorAll('.tmt-ui-icon-action-tooltip,.agent-chip-machine')
           .forEach((node) => node.remove());
         return message.textContent!.length;
       }),
@@ -100,7 +100,7 @@ async function changeWhileTyping(
         before.setEnd(selection.focusNode!, selection.focusOffset);
         const message = before.cloneContents();
         message
-          .querySelectorAll('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          .querySelectorAll('.tmt-ui-icon-action-tooltip,.agent-chip-machine')
           .forEach((node) => node.remove());
         return message.textContent!.length;
       }),
@@ -118,7 +118,7 @@ async function messageText(input: Locator) {
       .map((paragraph) => {
         const message = paragraph.cloneNode(true) as Element;
         message
-          .querySelectorAll('.tmt-ui-icon-action-tooltip,.message-mention-machine')
+          .querySelectorAll('.tmt-ui-icon-action-tooltip,.agent-chip-machine')
           .forEach((node) => node.remove());
         return message.textContent ?? '';
       })
@@ -381,7 +381,7 @@ for (const width of [1440, 390]) {
       await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       await expect(
-        thread.getByText('@Agent 1 Second turn from the same window.', { exact: true }),
+        thread.getByText('Agent 1 Second turn from the same window.', { exact: true }),
       ).toBeInViewport({ ratio: 1 });
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;
@@ -464,7 +464,7 @@ for (const width of [1440, 390]) {
         useInnerText: true,
       });
       await expect(dialog.locator('.annotation-hint[role="status"]')).toContainText(
-        'Asks @Agent 1.',
+        'Asks Agent 1.',
       );
       await expect
         .poll(() =>

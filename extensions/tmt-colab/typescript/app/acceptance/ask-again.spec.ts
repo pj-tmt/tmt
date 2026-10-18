@@ -52,12 +52,14 @@ for (const surface of ['chat', 'thread'])
       await expect(input).toBeVisible();
       await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Checking');
       const body = `@${alpha.name} @${beta.name} Explain the original comment.\n  Keep these bytes.  `;
+      // Sent text draws each mention as the chip, whose icon takes the place of the typed @.
+      const shown = body.replace(`@${alpha.name} @${beta.name}`, `${alpha.name} ${beta.name}`);
       await input.fill(body);
       if (surface === 'chat') {
-        await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks @');
+        await expect(panel.locator('.annotation-hint[role="status"]')).not.toContainText('Asks ');
       } else {
         await expect(panel.locator('.annotation-hint[role="status"]')).toContainText(
-          `Asks @${alpha.name}, @${beta.name}.`,
+          `Asks ${alpha.name}, ${beta.name}.`,
         );
       }
       // Lose one ordinary context GET before adoption; no signed Remote outcome,
@@ -71,7 +73,7 @@ for (const surface of ['chat', 'thread'])
       });
       await input.press('Enter');
       await expect(panel.getByTestId('recipient-failure')).toContainText(
-        `@${alpha.name} · Not delivered`,
+        `${alpha.name} · Not delivered`,
       );
       const again = panel.getByRole('button', {
         name: surface === 'chat' ? 'Retry' : 'Ask again',
@@ -89,7 +91,7 @@ for (const surface of ['chat', 'thread'])
           ? panel.locator('[data-thread-id]').first()
           : panel.getByTestId('comment-thread')
       ).getAttribute('data-thread-id');
-      await expect(comment.locator('.comment-body')).toHaveText(body, { useInnerText: true });
+      await expect(comment.locator('.comment-body')).toHaveText(shown, { useInnerText: true });
       const siblingOperation = await panel
         .getByTestId('ask-entry')
         .getAttribute('data-operation-id');
@@ -108,7 +110,7 @@ for (const surface of ['chat', 'thread'])
       expect(operations).toContain(siblingOperation);
       await expect(comment).toHaveCount(1);
       await expect(comment).toHaveAttribute('data-message-id', messageId!);
-      await expect(comment.locator('.comment-body')).toHaveText(body, { useInnerText: true });
+      await expect(comment.locator('.comment-body')).toHaveText(shown, { useInnerText: true });
       await expect(panel.locator('[data-ledger-state=accepted]')).toHaveCount(2);
       expect(beta.received()).toHaveLength(1);
       expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
