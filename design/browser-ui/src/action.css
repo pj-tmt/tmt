@@ -23,6 +23,14 @@
   text-decoration: underline;
   text-underline-offset: var(--tmt-ui-host-action-underline-offset);
 }
+/* With a mark slot, only the label is underlined, so a busy mark never sits on the rule. */
+.tmt-ui-action[data-variant='text']:has(> .tmt-ui-action-mark) {
+  text-decoration: none;
+}
+.tmt-ui-action[data-variant='text']:has(> .tmt-ui-action-mark) > .tmt-ui-action-label {
+  text-decoration: underline;
+  text-underline-offset: var(--tmt-ui-host-action-underline-offset);
+}
 .tmt-ui-action[data-variant='destructive'] .tmt-ui-action-label {
   color: var(--tmt-ui-color-blocked);
 }

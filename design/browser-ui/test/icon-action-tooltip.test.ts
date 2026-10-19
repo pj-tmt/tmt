@@ -17,6 +17,8 @@ vi.mock('react', async (importOriginal) => ({
     hooks.effect = effect;
   },
 }));
+// The hook mocks above are positional for the tooltip; the busy mark has its own tests.
+vi.mock('../src/busy-mark.js', () => ({ useBusyMark: () => false }));
 
 it('centers below the action and clamps long labels and both viewport edges', () => {
   const viewport = { left: 0, top: 0, width: 390, height: 844 };

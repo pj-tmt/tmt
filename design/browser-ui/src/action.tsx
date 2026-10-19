@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from 'react';
+import { useBusyMark } from './busy-mark';
 import { browserUiClasses as c } from './static';
 import type { BrowserActionVariant } from './static';
 export interface BrowserActionProps {
@@ -27,6 +28,7 @@ export function BrowserAction({
 }: BrowserActionProps) {
   if (disabledReason !== undefined && !disabledReasonId)
     throw new Error('Disabled reason requires a stable ID');
+  const marked = useBusyMark(busy && !disabled);
   return (
     <>
       <button
@@ -34,15 +36,19 @@ export function BrowserAction({
         type={type}
         aria-label={visibleLabel === undefined ? undefined : label}
         data-variant={variant}
-        disabled={disabled || busy}
+        disabled={disabled}
+        aria-disabled={(busy && !disabled) || undefined}
         aria-busy={busy || undefined}
         aria-describedby={disabledReason !== undefined ? disabledReasonId : undefined}
         onClick={(event) => {
-          if (!disabled && !busy) onActivate(event);
+          // Busy stays focusable and readable, so its activation, including a
+          // form submission, is fenced here rather than by native disabled.
+          if (busy) event.preventDefault();
+          else if (!disabled) onActivate(event);
         }}
       >
         {busyMark !== undefined && (
-          <span className={c.actionMark} aria-hidden="true" data-busy={busy}>
+          <span className={c.actionMark} aria-hidden="true" data-busy={marked}>
             {busyMark}
           </span>
         )}

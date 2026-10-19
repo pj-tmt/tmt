@@ -120,7 +120,13 @@ busy mark. Keep the same optional `busyMark` supplied in ready and busy states;
 its leading slot remains in flow while visibility changes, with an equal trailing
 reservation that centers the label in both states and preserves button geometry
 without changing host padding or typography. Without a mark, both
-states retain label-only geometry. Disabled/busy blocks callback delivery. A supplied disabled reason
+states retain label-only geometry. The mark is delay-gated: busy shorter than
+400 ms shows nothing, and a mark once shown stays at least 400 ms after busy ends
+(`busy-mark.ts`). Busy keeps the control's appearance, focus and readable label:
+it sets `aria-busy` and `aria-disabled`, not native `disabled`, and the click
+handler fences activation and cancels a busy submit's form submission. `disabled`
+keeps the native disabled styling and wins over busy, without a mark.
+Disabled/busy blocks callback delivery. A supplied disabled reason
 requires its stable ID and remains visible. `onActivate` receives the original
 React MouseEvent from native button click, including keyboard-generated click;
 there is no extra key handler or command DTO. Trusted-event admission remains
@@ -162,7 +168,8 @@ controlled `pressed`. The nonempty `label` is the button's `aria-label` and
 the default visual tooltip copy; icon and tooltip are `aria-hidden`, so the name is
 announced once. `pressed` is omitted when absent; supplied false/true becomes
 `aria-pressed`, and activation never changes it. Pressed uses selection colors
-and a 1px text-colored edge; disabled/busy styling and event fences take priority.
+and a 1px text-colored edge; disabled styling and the busy/disabled event fences take priority.
+Busy follows Action's delay-gated mark and focusable `aria-disabled` state.
 The icon and busy mark share one fixed square target without changing geometry.
 Keyboard-only `:focus-visible` uses a flush 1px focus-token ring; pointer activation
 adds no focus ring. Header action groups and a nested navigation landmark share
