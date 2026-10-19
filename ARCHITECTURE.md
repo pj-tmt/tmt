@@ -567,15 +567,15 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 Remote owns listener/state/[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
 Pages/CSS/SDK/wordlist; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
-[Contract](contracts/remote-channel-v1.md) owns wire, pairing, sessions, operations, settings authority,
-mounts, serve lifecycle, discovery shapes and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; shared components supply presentation only.
-`message`: signed envelopes/grants/scope/allowlist/hold/uncertainty/audit.
+[Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
+settings/mounts/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
+Remote owns authority; UI grants none. Local: device keys/grants/signatures.
+Firestore: Auth/Rules only; Core never uses Remote trust.
+`message`: local envelopes/grants/scope/allowlist/hold/uncertainty/audit.
 Target design (proposed, #3290): `talk` → Remote interface → target host → driver.
-Receive: `transport` driver (`routes`) → shared `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
-Door: `remote-v1.js` ([SDK README](extensions/tmt-remote/typescript/remote-client/README.md))
-and owner-installed extensions. [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`;
-else public CLI/SDK/`tmt-extension-objects`, never Remote state files.
+Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
+Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
+owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.
 
 `object_service`: leased object/v3 carrier; `firebase_auth`: credentials/HTTP.
 Serve: Auth/runtime/factory/tick/joins/flush; v3 opt-in.

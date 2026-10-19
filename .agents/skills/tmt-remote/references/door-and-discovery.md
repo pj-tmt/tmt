@@ -3,7 +3,7 @@
 The exact public documents, remembered-port and busy-port behavior, route-prefix
 format, `stop` semantics and the browser-opening rules belong to the
 [channel contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery);
-this page holds how to run the door and what its implementation tests prove.
+this page covers the local driver's door and implementation checks; its device trust is not a Firestore gate.
 
 ## Run the door
 
@@ -161,7 +161,8 @@ Restart requires a new current-window open; it does not revive sessions or grant
 
 ## Native Firestore sign-in and transport
 
-The native `firebase_auth` library is separate from deployment login. It uses injected
+The native `firebase_auth` library is separate from deployment login and local device pairing.
+The [host-driver contract](../../../../contracts/remote-channel-v1.md#host-driver-authentication) owns that boundary. `firebase_auth` uses injected
 HTTP, clock, jitter, cancellation and credential-store ports. `tmt remote sync sign-in`
 and `sync revoke` compose them with the verified public selector; nothing opens. An active
 sign-in is reused without a network request. The space owner admits a new identity in Colab.

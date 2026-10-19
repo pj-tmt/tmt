@@ -81,7 +81,7 @@ The `deploy_firestore` adapter checks live plus missing planned single-field con
 composite indexes against their separate 200-entry free-plan ceilings, including unrelated indexes.
 It preserves existing indexes and TTL policies; bounded inventory failure refuses allocation.
 Declaration-derived stream composites, index merging for discovery/page interests, digest binding and
-READY-only verification are owned by the [composition contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules).
+READY-only verification are owned by the [composition contract](../../../../contracts/remote-channel-v1.md#shipped-layer-1-composition).
 A building index leaves deployment partial; rerun the same authorized command to observe it, not recreate it.
 A lost mutation reply stays unknown. These checks neither measure daily traffic nor prove the project's tier.
 Installed Colab acceptance and real-project proof still require separate owner authorization.

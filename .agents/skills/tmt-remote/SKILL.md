@@ -7,7 +7,9 @@ description: Build, run and verify the Remote door (`tmt-remote`, `tmt remote ..
 
 Behavior lives in [`contracts/remote-channel-v1.md`](../../../contracts/remote-channel-v1.md)
 and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill holds module ownership
-and how to build, run and verify. Shared Rust, native and Docker gates are in
+and how to build, run and verify. The [host-driver contract](../../../contracts/remote-channel-v1.md#host-driver-authentication)
+scopes pairing/grants/signed messages to the local driver; Firestore uses Firebase Auth and Rules.
+Shared Rust, native and Docker gates are in
 [DEVELOPMENT.md](../../../DEVELOPMENT.md). The `tmt-extension-state` leaf is shared
 with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
 

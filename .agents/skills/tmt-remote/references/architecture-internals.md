@@ -9,7 +9,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `http`, `routes`, `site`, `limits`               | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                                                            |
 | `wire`, `canonical`, `crypto`                    | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                                                         |
 | `session`, `admission`                           | `session.open`, one normal message in flight per session, durable sequence consumption and admitted permits                                                                                                                                         |
-| `message`                                        | Shared signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                     |
+| `message`                                        | Local signed-message receive service: session admission, operation/journal hand-off and signed refusal/audit responses; foreground composition owns the service, not a backend                                                                      |
 | `transport`                                      | Pure envelope/result driver port (`append`, finite `subscribe`, explicit `ack`); loopback `routes` forwards to the injected common service, never owns admission/effects                                                                            |
 | `journal`, `budgets`, `audit`                    | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                                                 |
 | `operations`, `approval`                         | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                                                          |
@@ -37,6 +37,10 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
+
+Local device trust belongs to the [loopback driver](../../../../contracts/remote-channel-v1.md#transport-binding-loopback-http),
+not a base authentication layer ahead of Firestore. The implementation below remains unchanged;
+provider Auth/Rules and Colab content admission keep their separate owners.
 
 Rules that are easy to get wrong:
 
@@ -216,7 +220,7 @@ The offline Hosting view includes the declaration file without another input. Fo
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
 relative PATH entries. The embedded helper's compatibility gate still precedes credentials.
 No-declaration output touches neither provider nor deployment record. The
-[composition contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules) owns bounded
+[composition contract](../../../../contracts/remote-channel-v1.md#shipped-layer-1-composition) owns bounded
 index inventory/allocation; live evidence is not quota usage. Only an admitted Field indexConfig
 may omit its indexes as empty; malformed configurations refuse.
 `DeployRecordEvidence` takes one bounded lock-free snapshot per request. Pure
