@@ -419,6 +419,8 @@ export function AnnotationInput({
         echoHost?.show(failed);
         unsentRef.current = { edit: current, echo: failed };
         setUnsent(unsentRef.current);
+        // Reported directly: a composer closed mid-send never runs the draft effect again.
+        onDraft?.(current.value, current);
       }
     }
   }
