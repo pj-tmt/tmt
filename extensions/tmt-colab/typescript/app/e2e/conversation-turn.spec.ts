@@ -993,7 +993,7 @@ for (const surface of ['chat', 'thread'] as const)
           surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
         const status = window.getByTestId('ask-state');
         await expect(status).toHaveText('Sent');
-        await expect(status.locator('.agent-activity-spinner')).toHaveCount(0);
+        await expect(status.locator('.agent-chip-spinner')).toHaveCount(0);
         const before = await run(page, 'proof');
         for (const [kind, label] of [
           ['working', /Atlas is working · 3:0[5-9]/],
@@ -1003,23 +1003,34 @@ for (const surface of ['chat', 'thread'] as const)
         ] as const) {
           await run(page, 'conversationActivity', { kind });
           await expect(status).toContainText(label);
-          await expect(status.locator('.agent-activity-spinner')).toHaveCount(
+          const colours = await status.locator('.agent-activity').evaluate((line) => {
+            const name = line.querySelector('.agent-chip-name')!;
+            const spinner = line.querySelector('.agent-chip-spinner');
+            const mark = spinner ?? line.querySelector('.agent-activity-mark')!;
+            return {
+              line: getComputedStyle(line).color,
+              name: getComputedStyle(name).color,
+              mark: spinner ? getComputedStyle(mark).borderTopColor : getComputedStyle(mark).color,
+            };
+          });
+          expect(colours.name).toBe(colours.line);
+          if (kind === 'working' || kind === 'finished')
+            expect(colours.mark).not.toBe(colours.line);
+          else expect(colours.mark).toBe(colours.line);
+          await expect(status.locator('.agent-chip-spinner')).toHaveCount(
             kind === 'working' ? 1 : 0,
           );
           if (kind === 'working') {
-            await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
+            await expect(status.locator('.agent-chip-spinner')).toHaveCSS(
               'animation-name',
-              'agent-working',
+              'agent-chip-spin',
             );
             await page.emulateMedia({ reducedMotion: 'reduce' });
-            await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
-              'animation-name',
-              'none',
-            );
+            await expect(status.locator('.agent-chip-spinner')).toHaveCSS('animation-name', 'none');
             await expect(status).toContainText('Atlas is working');
             await page.emulateMedia({ reducedMotion: 'no-preference' });
             await page.emulateMedia({ forcedColors: 'active' });
-            await expect(status.locator('.agent-activity-spinner')).toBeVisible();
+            await expect(status.locator('.agent-chip-spinner')).toBeVisible();
             await expect(status.locator('.agent-activity')).toContainText('Atlas is working');
             await page.emulateMedia({ forcedColors: 'none' });
           }
@@ -1029,9 +1040,9 @@ for (const surface of ['chat', 'thread'] as const)
             await page.screenshot({ path: `${captures}/${surface}-${width}-${theme}-${kind}.png` });
           }
         }
-        await run(page, 'conversationActivity', { kind: 'working', ageMs: 6000 });
+        await run(page, 'conversationActivity', { kind: 'working', ageMs: 120_000 });
         await expect(status).toContainText("sent · Atlas's activity is not reported");
-        await expect(status.locator('.agent-activity-spinner')).toHaveCount(0);
+        await expect(status.locator('.agent-chip-spinner')).toHaveCount(0);
         await run(page, 'conversationActivity', { kind: 'working', active: false });
         await expect(status).toHaveText('Sent');
         expect(await run(page, 'proof')).toEqual(before);

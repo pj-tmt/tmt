@@ -1881,22 +1881,8 @@ body:has(.needs-you-header-menu) {
 }
 
 .agent-activity {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--c-muted);
+  color: var(--tmt-ui-color-secondary);
 }
-.agent-activity-spinner {
-  display: inline-block;
-  animation: agent-working 1s steps(8) infinite;
-}
-@keyframes agent-working {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .agent-activity-spinner {
-    animation: none;
-  }
+.agent-activity[data-activity='finished'] > .agent-activity-mark {
+  color: var(--tmt-ui-color-working);
 }

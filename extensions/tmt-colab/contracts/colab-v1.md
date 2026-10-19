@@ -2027,13 +2027,28 @@ telemetry shows `✓ sent · <name>'s activity is not reported`. Durations use o
 owner/viewer wall-clock subtraction. No elapsed time claims that work is stuck.
 Anchors and observed transitions are page/controller-local, never persisted or sent.
 
-One page-owned inventory read runs on the existing visible Ask receipt cadence,
-shared across recipients and surfaces, only while an owned Ask awaits a reply
-within its two-hour horizon. There is at most one inventory read in flight. Hidden,
-closed, replaced or no-longer-admitted generations discard late results; visible
-return reads once. Working animation and elapsed updates require a successful read
-younger than twice its interval. Stopping observation leaves plain `Sent` or the last
-non-working state, never animation. Reduced motion keeps working text static. Words carry every state and all activity colours are neutral; the text and mark remain visible under forced colours. `NO_COLOR` is a terminal convention, not a browser setting.
+Optional activity acquisition shares the existing visible Ask observer, across all
+recipients and surfaces, but runs at most once per 60 seconds and at most 12 times
+in one page/controller incarnation. Attempts, including refused or failed reads,
+consume that allowance before acquisition starts. New Sends, observer restarts
+and visibility changes never reset it. There is at most one inventory read in
+flight. Explicit Send destination/admission and fresh owner-anchor reads are
+independent of the optional allowance; it never refuses or delays Send.
+
+Only an owned Ask awaiting a reply within its two-hour horizon permits activity
+acquisition. Hidden, closed, replaced or no-longer-admitted generations discard
+late results. A visible return reads only if the interval and allowance permit.
+Fresh activity is younger than 120 seconds; without another acquisition it becomes
+static unknown, never an indefinitely working animation. Stopping observation
+leaves plain `Sent` or the last non-working state. This is a controller-local bound,
+not a cross-tab or per-device daily quota. Remote's current observational reads
+are not journal-adopted; its separate call limits still apply.
+
+The agent uses the existing shared chip, whose icon becomes its working spinner.
+Only that spinner and the finished check use the working/success colour; all text,
+queued and unknown marks stay neutral. Reduced motion keeps working text static;
+words carry every state, and text and marks remain visible under forced colours.
+`NO_COLOR` is a terminal convention, not a browser setting.
 
 Hosted currently has no `agents.list` operation and adds no call or native fallback;
 missing observation stays `Sent`. A future hosted inventory cadence is no faster

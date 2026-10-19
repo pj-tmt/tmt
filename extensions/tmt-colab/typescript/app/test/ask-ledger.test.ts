@@ -1454,7 +1454,60 @@ describe('active Ask observation', () => {
       },
     };
   }
-  it('shares one inventory read on each existing Ask tick and makes an aborted generation static', async () => {
+  it('bounds optional directory reads over two hours without consuming explicit Send admission reads', async () => {
+    const inventoryReads: number[] = [];
+    const activityRead = vi.fn(async () => {
+      inventoryReads.push(performance.now());
+      return {
+        kind: 'unavailable' as const,
+        phase: 'directory' as const,
+        failure: 'unavailable' as const,
+      };
+    });
+    const f = await pendingObservation({ activityRead });
+    await advanceObservation(f.clock, ASK_OBSERVATION_MS - 1);
+    expect(activityRead).toHaveBeenCalledTimes(12);
+    expect(
+      inventoryReads.slice(1).every((at, index) => at - inventoryReads[index]! >= 60_000),
+    ).toBe(true);
+    const directory = vi.spyOn(f.remote, 'listAgents');
+    await expect(f.controller.destinations()).resolves.toMatchObject({
+      machines: expect.any(Array),
+    });
+    expect(directory).toHaveBeenCalledTimes(1);
+    expect(f.remote.sends).toHaveLength(1);
+    f.stop.abort();
+    await f.observing;
+    expect(vi.getTimerCount()).toBe(0);
+  }, 15_000);
+  it('keeps the activity allowance across Send wakes and observer replacement', async () => {
+    const activityRead = vi.fn(async () => ({
+      kind: 'unavailable' as const,
+      phase: 'directory' as const,
+      failure: 'unavailable' as const,
+    }));
+    const f = await pendingObservation({ activityRead });
+    await advanceObservation(f.clock, 13 * 60_000);
+    expect(activityRead).toHaveBeenCalledTimes(12);
+    await f.controller.send(f.controller.prepare(destination()));
+    await observationSleep();
+    expect(activityRead).toHaveBeenCalledTimes(12);
+    expect(f.remote.sends).toHaveLength(2);
+    f.stop.abort();
+    await f.observing;
+    const replacement = new AbortController();
+    const observing = f.controller.observe(replacement.signal);
+    try {
+      await observationSleep();
+      await advanceObservation(f.clock, 60_000);
+      expect(activityRead).toHaveBeenCalledTimes(12);
+    } finally {
+      replacement.abort();
+      await observing;
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  }, 15_000);
+  it('shares minute-bounded inventory reads across Ask ticks and makes an aborted generation static', async () => {
     const activityRead = vi.fn(async () => ({
       kind: 'unavailable' as const,
       phase: 'directory' as const,
@@ -1465,12 +1518,13 @@ describe('active Ask observation', () => {
     expect(activityRead).toHaveBeenCalledTimes(1);
     expect(activityObserved.mock.calls.at(-1)![0]).toMatchObject({
       active: true,
-      intervalMs: 2000,
+      intervalMs: 60_000,
       entries: [{ kind: 'unknown' }],
     });
     expect(f.controller.observe(f.stop.signal)).toBe(f.observing);
-    await vi.advanceTimersByTimeAsync(2000);
-    await observationSleep();
+    await advanceObservation(f.clock, 59_000);
+    expect(activityRead).toHaveBeenCalledTimes(1);
+    await advanceObservation(f.clock, 4_000);
     expect(activityRead).toHaveBeenCalledTimes(2);
     f.stop.abort();
     await f.observing;
@@ -1500,7 +1554,8 @@ describe('active Ask observation', () => {
       return { kind: 'unavailable', phase: 'directory', failure: 'unavailable' };
     });
     f.releaseReadOnClose(release);
-    await vi.advanceTimersByTimeAsync(2000);
+    await advanceObservation(f.clock, 59_000);
+    await vi.advanceTimersByTimeAsync(4_000);
     await reading;
     const before = activityObserved.mock.calls.length;
     f.stop.abort();

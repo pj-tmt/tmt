@@ -384,12 +384,10 @@ export const text = {
   askNoReply: 'No reply yet from {agent}',
   agentSent: 'Sent',
   agentSending: 'sending…',
-  agentActivityWorking: (name: string, elapsed: string) => `${name} is working · ${elapsed}`,
-  agentQueued: (name: string, elapsed: string) =>
-    `${name} is finishing an earlier turn · ${elapsed}`,
-  agentFinished: (name: string, elapsed: string) =>
-    `${name} finished without replying · ${elapsed} ago`,
-  agentActivityUnknown: (name: string) => `sent · ${name}'s activity is not reported`,
+  agentActivityWorking: (elapsed: string) => `is working · ${elapsed}`,
+  agentQueued: (elapsed: string) => `is finishing an earlier turn · ${elapsed}`,
+  agentFinished: (elapsed: string) => `finished without replying · ${elapsed} ago`,
+  agentActivityUnknown: "'s activity is not reported",
   askApproval: 'Waiting for approval',
   askNotDelivered: 'Not delivered',
   askUnconfirmed: 'Delivery unconfirmed',

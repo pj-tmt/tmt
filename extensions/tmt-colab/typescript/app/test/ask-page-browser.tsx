@@ -1109,7 +1109,7 @@ export function conversationActivity(options: {
     agentActivity: {
       active: options.active ?? true,
       receivedAt: performance.now() - (options.ageMs ?? 0),
-      intervalMs: 3000,
+      intervalMs: 60_000,
       entries: [
         {
           operationId: record.operationId,

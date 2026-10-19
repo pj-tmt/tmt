@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { activityAt, type ActivityObservation } from '../agent-activity.js';
 import type { PageAsk } from '../ask-panel.js';
 import { text } from '../strings.js';
+import { AgentChip } from './agent-chip.js';
 
 const ActivityPresentation = createContext<{ observation?: ActivityObservation; now: number }>({
   now: 0,
@@ -58,26 +59,36 @@ export function AgentActivityLine({ record }: { record: PageAsk }) {
   const name = record.agentName || text.askAgentLabel;
   const kind = activity?.kind ?? 'sent';
   const elapsed = activity?.elapsedMs ?? 0;
-  const label =
+  const detail =
     kind === 'working'
-      ? text.agentActivityWorking(name, duration(elapsed, true))
+      ? text.agentActivityWorking(duration(elapsed, true))
       : kind === 'queued'
-        ? text.agentQueued(name, duration(elapsed, false))
+        ? text.agentQueued(duration(elapsed, false))
         : kind === 'finished'
-          ? text.agentFinished(name, duration(elapsed, false))
-          : kind === 'unknown'
-            ? text.agentActivityUnknown(name)
-            : text.agentSent;
+          ? text.agentFinished(duration(elapsed, false))
+          : text.agentActivityUnknown;
   return (
     <span className="agent-activity" data-activity={kind}>
-      {kind === 'working' && (
-        <span className="agent-activity-spinner" aria-hidden>
-          ⠹
+      {kind === 'queued' && (
+        <span className="agent-activity-mark" aria-hidden>
+          ◌{' '}
         </span>
       )}
-      {kind === 'queued' && <span aria-hidden>◌</span>}
-      {(kind === 'finished' || kind === 'unknown') && <span aria-hidden>✓</span>}
-      {label}
+      {(kind === 'finished' || kind === 'unknown') && (
+        <span className="agent-activity-mark" aria-hidden>
+          ✓{' '}
+        </span>
+      )}
+      {kind === 'sent' ? (
+        text.agentSent
+      ) : (
+        <>
+          {kind === 'unknown' && 'sent · '}
+          <AgentChip name={name} activity={kind === 'working' ? 'working' : undefined} />
+          {kind !== 'unknown' && ' '}
+          {detail}
+        </>
+      )}
     </span>
   );
 }

@@ -189,8 +189,9 @@ and ordinary recipients; fixture observations alone do not prove that boundary.
 
 `agent-activity.ts` validates optional activity, tracks only this controller's pre-Send
 owner-clock anchor and observed working-to-idle transition, and projects freshness.
-`AskController.observe` shares one inventory acquisition across all recipients on
-its existing visible receipt cadence. `LiveAsk` fences that read against current
+`AskController.observe` shares optional inventory acquisition across recipients:
+at most 12 attempts per controller incarnation, at least 60 seconds apart, without
+reset on Send or re-observation. Explicit Send admission reads remain independent. `LiveAsk` fences that read against current
 page admission and connection before and after; `Live` publishes the ephemeral
 `agentActivity` projection without changing signed records. `AgentActivityProvider`
 owns one page rendering clock, and the shared `AskPanel` renders the same line in
