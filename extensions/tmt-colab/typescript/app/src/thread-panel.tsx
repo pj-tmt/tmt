@@ -2,7 +2,14 @@ import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
-import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserIconAction,
+  BrowserToggle,
+  busyMarkDelayMs,
+  busyMarkHoldMs,
+  useBusyMark,
+} from '@tmt/browser-ui/react';
 import { AgentChip, AgentList } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -34,9 +41,13 @@ import {
   type ThreadStatusOutcome,
 } from './thread-status-presentation.js';
 
-/** Host-owned echoes, in send order; each clears itself once its verified record is in view. */
+/**
+ * Host-owned echoes, in send order. A landed echo stays, and its verified record stays hidden,
+ * until a mark that has shown has had its hold (`busyMarkHoldMs`); then the record takes its place.
+ */
 export function useMessageEcho(comments: readonly CommentView[]) {
   const [echoes, setEchoes] = useState<readonly MessageEcho[]>([]);
+  const [released, setReleased] = useState<ReadonlySet<string>>(() => new Set());
   const [host] = useState<MessageEchoHost>(() => ({
     show: (echo) =>
       setEchoes((previous) =>
@@ -46,15 +57,34 @@ export function useMessageEcho(comments: readonly CommentView[]) {
       ),
     remove: (local) => setEchoes((previous) => previous.filter((value) => value.local !== local)),
   }));
-  const shown = echoes.filter((echo) => !echoLanded(echo, comments));
-  const landed = shown.length !== echoes.length;
+  const landed = echoes.filter((echo) => echoLanded(echo, comments));
+  const landedKey = landed.map((echo) => echo.local).join(' ');
   useEffect(() => {
-    if (landed) setEchoes((previous) => previous.filter((echo) => !echoLanded(echo, comments)));
-  }, [landed, comments]);
-  return [shown, host] as const;
+    const timers = landed.map((echo) => {
+      const now = Date.now();
+      // A mark shows from busyMarkDelayMs after the echo; once shown it keeps its hold.
+      const markShown = now - echo.at >= busyMarkDelayMs;
+      const wait = markShown ? Math.max(0, echo.at + busyMarkDelayMs + busyMarkHoldMs - now) : 0;
+      return setTimeout(() => {
+        setEchoes((previous) => previous.filter((value) => value.local !== echo.local));
+        setReleased((previous) => new Set(previous).add(echo.local));
+      }, wait);
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [landedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** A verified record whose echo still holds its place is hidden until the swap. */
+  const held = (comment: CommentView) =>
+    echoes.some(
+      (echo) =>
+        !released.has(echo.local) &&
+        echo.message?.writer === comment.ref.writer &&
+        echo.message.id === comment.messageId,
+    );
+  return [echoes, host, held] as const;
 }
 
 export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: string }) {
+  const marked = useBusyMark(!echo.failure);
   return (
     <ConversationTurn
       role="user"
@@ -68,8 +98,8 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
       actions={<span className="comment-echo-actions" aria-hidden="true" />}
       meta={
         !echo.failure && (
-          // The mark has no words and shows only once a send has taken 400 ms.
-          <span className="comment-echo-mark" aria-hidden="true">
+          // The mark has no words and follows the shared busy-mark delay.
+          <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
             {' '}
             <LoaderCircle />
           </span>
@@ -485,7 +515,7 @@ export function ThreadWindow({
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
   const [showResolved, setShowResolved] = useState(false);
-  const [echoes, echoHost] = useMessageEcho(thread?.comments ?? []);
+  const [echoes, echoHost, held] = useMessageEcho(thread?.comments ?? []);
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
   const collapsed = !!thread?.resolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
@@ -698,20 +728,22 @@ export function ThreadWindow({
         {tracked && anchorsChecked && !attached && (
           <p className="annotation-hint">{text.commentQuoteChanged}</p>
         )}
-        {thread?.comments.map((comment) => (
-          <CommentExchange
-            key={`${comment.ref.writer}:${comment.messageId}`}
-            readOnly={archived}
-            allowEdit={!archived}
-            comment={comment}
-            thread={thread}
-            binding={binding}
-            ask={ask}
-            asks={asks}
-            blocked={blocked || busy}
-            title={title}
-          />
-        ))}
+        {thread?.comments
+          .filter((comment) => !held(comment))
+          .map((comment) => (
+            <CommentExchange
+              key={`${comment.ref.writer}:${comment.messageId}`}
+              readOnly={archived}
+              allowEdit={!archived}
+              comment={comment}
+              thread={thread}
+              binding={binding}
+              ask={ask}
+              asks={asks}
+              blocked={blocked || busy}
+              title={title}
+            />
+          ))}
         {echoes.map((echo) => (
           <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />
         ))}

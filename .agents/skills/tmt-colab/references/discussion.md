@@ -142,9 +142,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   it back into the composer. While a failed row exists the composer is empty, inert (not grey)
   and its hint says to retry or edit first; its kept draft is the row's, so closing keeps it.
   Thread windows and Chat render echoes as `MessageEchoTurn` where the verified record will
-  appear, holding that row's geometry, until the record is in view. The echo is display only:
+  appear, holding that row's geometry, until the record is in view; once its mark has shown,
+  the echo (and its hidden record) waits out the mark's hold first. The echo is display only:
   it is never counted, exported or treated as verified; send, ledger and verification are
-  unchanged. Its delayed, wordless pending mark follows the
+  unchanged. Its wordless pending mark uses the browser-ui `useBusyMark` timing and follows the
   [GUI style](../../../../design/gui-style.md) transient rules.
   Checks: `e2e/message-echo.spec.ts`.
 - `components/conversation-window.tsx` owns one header, full-width history and bottom

@@ -91,6 +91,14 @@ for (const surface of ['reply', 'chat']) {
     page,
   }) => {
     const input = await mount(page, surface, 'write-failure');
+    const look = () =>
+      page.locator('.annotation-compose').evaluate((compose) =>
+        ['.rich-input-surface', '.rich-input-field'].map((selector) => {
+          const style = getComputedStyle(compose.querySelector(selector)!);
+          return [style.color, style.backgroundColor, style.borderTopColor];
+        }),
+      );
+    const empty = await look();
     await input.pressSequentially('@alpha Kept draft.');
     const draft = (await run(page, 'editingProof')).edit;
     expect(draft.mentions).toHaveLength(1);
@@ -107,6 +115,12 @@ for (const surface of ['reply', 'chat']) {
     await expect(input).toHaveAttribute('aria-disabled', 'true');
     await expect(page.getByText(text.messageUnsentFirst)).toBeVisible();
     await expect(send(page)).toBeDisabled();
+    // Inert, not grey: the composer looks exactly as when empty; only the hint changed.
+    expect(await look()).toEqual(empty);
+    await input.pressSequentially('typed while unsent');
+    await expect(input).toHaveText('', { useInnerText: true });
+    await send(page).click({ force: true });
+    await expect(page.getByText(text.messageUnsentFirst)).toBeVisible();
     // The kept draft is the row's: closing now would keep text and chip.
     expect((await run(page, 'editingProof')).edit).toMatchObject({
       value: draft.value,
@@ -162,6 +176,40 @@ for (const surface of ['reply', 'chat']) {
       await expect(input).toHaveText('Kept attachment draft.', { useInnerText: true });
       expect(await run(page, 'proof')).toMatchObject({ writes: 0, sends: [] });
     });
+
+  test(`${surface}: a record landing just after the mark shows keeps the mark for its hold`, async ({
+    page,
+  }) => {
+    const input = await mount(page, surface);
+    await input.fill('Landing at 450 ms.');
+    await run(page, 'holdWrite');
+    const sentAt = await page.evaluate(() => performance.now());
+    await input.press('Enter');
+    const mark = echo(page).locator('.comment-echo-mark');
+    await expect(mark).toHaveAttribute('data-shown');
+    await page.waitForFunction((at) => performance.now() - at >= 450, sentAt);
+    await run(page, 'releaseWrite');
+    await expect.poll(async () => (await run(page, 'editingProof')).captured).toHaveLength(1);
+    // Record the moment the echo gives way, and that the record never shows beside it.
+    await page.evaluate(() => {
+      const seen = new MutationObserver(() => {
+        const entry = document.querySelector('[data-testid="comment-entry"]');
+        const echoRow = document.querySelector('[data-testid="comment-echo"]');
+        if (entry && echoRow) document.body.dataset.echoBoth = 'true';
+        if (echoRow) return;
+        seen.disconnect();
+        document.body.dataset.echoGone = String(performance.now());
+      });
+      seen.observe(document.body, { childList: true, subtree: true });
+    });
+    await run(page, 'publishRecorded');
+    await expect(echo(page)).toHaveCount(0);
+    await expect(page.getByTestId('comment-entry')).toContainText('Landing at 450 ms.');
+    const gone = Number(await page.evaluate(() => document.body.dataset.echoGone));
+    // Shown at 400 ms, the mark holds 400 ms: the echo stays until at least 800 ms.
+    expect(gone - sentAt).toBeGreaterThanOrEqual(800);
+    expect(await page.evaluate(() => document.body.dataset.echoBoth)).toBeUndefined();
+  });
 
   test(`${surface}: a failure after the record keeps the echo for the verified record`, async ({
     page,
@@ -302,4 +350,25 @@ test('chat: a failed message survives closing and reopening Chat', async ({ page
   await echo(page).getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(input).toHaveText('Keep this unsent message.', { useInnerText: true });
   await expect(echo(page)).toHaveCount(0);
+});
+
+test('anchored dialog: a failed reply survives closing the thread as the composer draft', async ({
+  page,
+}) => {
+  const { dialog, input, page_ } = await openAnchoredThread(page);
+  await input.pressSequentially('Keep this unsent reply.');
+  await page_('failNextReply');
+  await input.press('Enter');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await page.getByRole('button', { name: 'Collapse thread', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await (await pageAction(page.locator('#ask-page-fixture'), 'Comments')).click();
+  await page.getByTestId('annotation-row').first().click();
+  // The thread's composer remounts, so the row's draft comes back in it.
+  const reopened = page.getByRole('dialog', { name: 'Comments' });
+  const composer = reopened.getByRole('combobox', { name: 'Message', exact: true });
+  await expect(composer).toHaveText('Keep this unsent reply.', { useInnerText: true });
+  await expect(echo(page)).toHaveCount(0);
+  await expect(reopened.getByTestId('comment-entry')).toHaveCount(1);
 });

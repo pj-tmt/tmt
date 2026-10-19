@@ -58,7 +58,7 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
-  const [echoes, echoHost] = useMessageEcho(own?.comments ?? []);
+  const [echoes, echoHost, held] = useMessageEcho(own?.comments ?? []);
   // Called where the verified record will render, so it takes the same day heading.
   const echoTurn = () =>
     echoes.map((echo) => (
@@ -110,23 +110,25 @@ export function ChatPanel({
       data-thread-id={thread.threadId}
       data-writer={thread.ref.writer}
     >
-      {thread.comments.map((comment) => (
-        <Fragment key={`${comment.ref.writer}:${comment.messageId}`}>
-          {dayHeading(comment.at)}
-          <CommentExchange
-            readOnly={archived}
-            key={`${comment.ref.writer}:${comment.messageId}`}
-            comment={comment}
-            thread={thread}
-            binding={discussion}
-            ask={binding}
-            asks={asks}
-            blocked={blocked || archived}
-            allowEdit={false}
-            title={title}
-          />
-        </Fragment>
-      ))}
+      {thread.comments
+        .filter((comment) => !held(comment))
+        .map((comment) => (
+          <Fragment key={`${comment.ref.writer}:${comment.messageId}`}>
+            {dayHeading(comment.at)}
+            <CommentExchange
+              readOnly={archived}
+              key={`${comment.ref.writer}:${comment.messageId}`}
+              comment={comment}
+              thread={thread}
+              binding={discussion}
+              ask={binding}
+              asks={asks}
+              blocked={blocked || archived}
+              allowEdit={false}
+              title={title}
+            />
+          </Fragment>
+        ))}
       {thread === own && echoTurn()}
     </section>
   ));
