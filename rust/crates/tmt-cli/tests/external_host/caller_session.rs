@@ -146,7 +146,7 @@ fn owned_rows(fixture: &Fixture, pane: &str) -> Vec<String> {
 }
 
 /// The refusal hints the precheck kept: each entry's layer, read only.
-fn hints(fixture: &Fixture) -> Vec<String> {
+pub(super) fn hints(fixture: &Fixture) -> Vec<String> {
     let Ok(text) = fs::read_to_string(fixture.state().join("caller-session-refusals.json")) else {
         return Vec::new();
     };
@@ -165,7 +165,7 @@ fn hints(fixture: &Fixture) -> Vec<String> {
 /// own hint is `budget`, it asserts only what load cannot change and reports
 /// it; then the whole scenario runs again in a fresh fixture, at most five
 /// times, and each such attempt is reported. Cleanup runs in every attempt.
-fn within_budget(name: &str, scenario: impl Fn(&Fixture) -> bool) {
+pub(super) fn within_budget(name: &str, scenario: impl Fn(&Fixture) -> bool) {
     for attempt in 1..=5 {
         let fixture = Fixture::new(&format!("{name}-{attempt}"));
         if !scenario(&fixture) {
@@ -177,26 +177,26 @@ fn within_budget(name: &str, scenario: impl Fn(&Fixture) -> bool) {
 }
 
 /// The driver calls and refusal hints a fixture had before one command.
-struct Before {
+pub(super) struct Before {
     calls: usize,
     hints: usize,
 }
 
 /// What one command added: its own driver calls and its own refusal hint.
-struct Own {
-    calls: Vec<String>,
-    hints: Vec<String>,
+pub(super) struct Own {
+    pub(super) calls: Vec<String>,
+    pub(super) hints: Vec<String>,
 }
 
 impl Before {
-    fn of(fixture: &Fixture) -> Self {
+    pub(super) fn of(fixture: &Fixture) -> Self {
         Self {
             calls: fixture.calls().len(),
             hints: hints(fixture).len(),
         }
     }
 
-    fn own(&self, fixture: &Fixture) -> Own {
+    pub(super) fn own(&self, fixture: &Fixture) -> Own {
         Own {
             calls: fixture.calls()[self.calls..].to_vec(),
             hints: hints(fixture)[self.hints..].to_vec(),
@@ -250,7 +250,7 @@ fn change_cursor(fixture: &Fixture) -> i64 {
 /// The one admission an admissible command can commit, from the stored
 /// state just before it: the pane's binding, its identity's preferences
 /// and the change cursor.
-struct Admission {
+pub(super) struct Admission {
     session: String,
     pid: u64,
     start: String,
@@ -260,7 +260,7 @@ struct Admission {
 }
 
 impl Admission {
-    fn expect(fixture: &Fixture, pane: &str, session: &str, provider: &Owned) -> Self {
+    pub(super) fn expect(fixture: &Fixture, pane: &str, session: &str, provider: &Owned) -> Self {
         let binding = named_row(fixture, "bindings", "pane_id", pane).unwrap();
         let identity = Self::text(&binding, "identity_id");
         Self {
@@ -293,7 +293,7 @@ impl Admission {
     ///   default mode, with no driver state;
     /// - every other row is unchanged, and the change cursor advances once
     ///   for each of the two rows.
-    fn check(&self, fixture: &Fixture, rows: &[String]) -> Result<(), String> {
+    pub(super) fn check(&self, fixture: &Fixture, rows: &[String]) -> Result<(), String> {
         use rusqlite::types::Value;
         let binding_id = Self::text(&self.binding, "id");
         let identity = Self::text(&self.binding, "identity_id");
@@ -375,7 +375,12 @@ impl Own {
     /// admissible: the supervisor's deadline can pass after its worker's
     /// commit, so the hint can follow that commit. Then the stored state
     /// must be exactly that admission.
-    fn budget(&self, fixture: &Fixture, rows: &[String], admitted: Option<&Admission>) -> bool {
+    pub(super) fn budget(
+        &self,
+        fixture: &Fixture,
+        rows: &[String],
+        admitted: Option<&Admission>,
+    ) -> bool {
         let load = self.hints == ["budget"];
         if !load {
             return false;

@@ -132,15 +132,22 @@ fn observe_candidate(
         return Ok(());
     }
     let (caller, records) = caller_environment();
-    let key = if caller.pane_locators().is_empty() {
-        external_caller_key(database, harness, coordinates, &caller, &records)?
-    } else {
-        let Some(binding) =
-            Storage::caller_session_binding(database, &caller).map_err(|_| "storage")?
-        else {
-            return Err("binding");
-        };
-        Key::new(harness, coordinates, &binding)
+    let key = match caller.named_host(&records) {
+        NamedHost::Nested(record) => {
+            nested_caller_key(database, harness, coordinates, &caller, record)?
+        }
+        NamedHost::External(record) if caller.pane_locators().is_empty() => {
+            external_caller_key(database, harness, coordinates, &caller, record)?
+        }
+        _ if caller.pane_locators().is_empty() => return Err("binding"),
+        _ => {
+            let Some(binding) =
+                Storage::caller_session_binding(database, &caller).map_err(|_| "storage")?
+            else {
+                return Err("binding");
+            };
+            Key::new(harness, coordinates, &binding)
+        }
     };
     let refusals = Refusals::in_directory(global_dir);
     if let Some(layer) = refusals.lookup(&key, now_ms)
@@ -221,19 +228,58 @@ fn external_caller_key(
     harness: &HarnessId,
     coordinates: &CallerSession,
     caller: &CallerEnvironment,
-    records: &[DriverRecord],
+    record: &DriverRecord,
 ) -> Result<Key, &'static str> {
-    let NamedHost::External(record) = caller.named_host(records) else {
-        return Err("binding");
-    };
-    let Some(host @ HostKind::External(_)) = HostKind::parse(&record.name) else {
-        return Err("binding");
-    };
-    let bindings = Storage::caller_session_host_bindings(database, host).map_err(|_| "storage")?;
+    let bindings = external_host_bindings(database, record)?;
     if bindings.is_empty() {
         return Err("binding");
     }
     Ok(Key::caller(harness, coordinates, record, caller, &bindings))
+}
+
+/// tmux variables beside exactly one external host's: either pane can own
+/// the caller, and only the worker's nested proof tells which. So the worker
+/// runs when the tmux pane or that host has a binding, and the key holds
+/// both sides. The tmux binding is read through the tmux locator alone, so a
+/// host variable shaped like a pane ID cannot stand in for it. This precheck
+/// runs no driver and no tmux command.
+fn nested_caller_key(
+    database: &std::path::Path,
+    harness: &HarnessId,
+    coordinates: &CallerSession,
+    caller: &CallerEnvironment,
+    record: &DriverRecord,
+) -> Result<Key, &'static str> {
+    let tmux_caller = CallerEnvironment {
+        tmux: caller.tmux.clone(),
+        pane: caller.pane.clone(),
+        process_id: caller.process_id,
+        driver_env: Default::default(),
+    };
+    let tmux = Storage::caller_session_binding(database, &tmux_caller).map_err(|_| "storage")?;
+    let bindings = external_host_bindings(database, record)?;
+    if tmux.is_none() && bindings.is_empty() {
+        return Err("binding");
+    }
+    Ok(Key::nested(
+        harness,
+        coordinates,
+        record,
+        caller,
+        tmux.as_ref(),
+        &bindings,
+    ))
+}
+
+/// The stored bindings of non-retired identities on `record`'s host.
+fn external_host_bindings(
+    database: &std::path::Path,
+    record: &DriverRecord,
+) -> Result<Vec<String>, &'static str> {
+    let Some(host @ HostKind::External(_)) = HostKind::parse(&record.name) else {
+        return Err("binding");
+    };
+    Storage::caller_session_host_bindings(database, host).map_err(|_| "storage")
 }
 
 pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {

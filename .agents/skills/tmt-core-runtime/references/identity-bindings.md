@@ -109,17 +109,24 @@ delivery. They install and launch nothing.
   hold a target): when its variables name exactly one approved external host and
   no tmux, the precheck only checks that the host has a stored binding of a
   non-retired identity, and the worker resolves the pane through the driver. So
-  a caller in an unbound pane on that host can start one refused attempt. The
-  approvals are read once, after the remembered-session shortcut, through the
-  normal approval owner, which may resolve or adopt a first-party companion; the
-  precheck itself runs no host driver operation.
+  a caller in an unbound pane on that host can start one refused attempt. tmux
+  variables beside exactly one approved external host's (nested) run the worker
+  when the tmux pane (read through the tmux locator alone) or that host has such a
+  binding: either pane can own the caller, and only the worker's nested proof tells
+  which. So a nested caller that neither binding is for can also start a refused
+  attempt. The approvals are read once, after the remembered-session shortcut,
+  through the normal approval owner, which may resolve or adopt a first-party
+  companion; the precheck itself runs no host driver operation.
   Private `caller-session-refusals.json` keeps at most 32 refusal hints
   for 10 minutes; hits do no optional host/provider work and never extend expiry.
   Keys include harness/session, binding, pane PID/incarnation and server locator;
   Claude adds `CLAUDE_PID`. Missing Codex PID uses the stored pane partition. An
   external caller's key has the host and a SHA-256 digest of the host's declared
   caller variables (raw bytes, set or not) and its binding IDs, with no raw value.
-  A bind, unbind or rebind on that host changes it; a rename does not.
+  A bind, unbind or rebind on that host changes it; a rename does not. A nested
+  caller's key holds both sides: the tmux pane's binding fields when it is bound,
+  and a digest with its own tag over the external host's coordinates and the raw
+  `TMUX` and `TMUX_PANE` (set or not). It is never the tmux binding alone.
   Changed coordinates or expiry re-run native admission. Hints are best effort:
   eviction, a lost concurrent write or an unwritable file runs admission again.
   Neither env locators nor cache contents grant authority; corrupt/missing cache
