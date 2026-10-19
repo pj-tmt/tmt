@@ -34,7 +34,7 @@ use tmt_core::{
 };
 
 /// When each attempt is due, counted from the thread's start. Herdr takes a
-/// few seconds to recognize a new agent; these are provisional (#3238).
+/// few seconds to recognize a new agent; these are measured (#3341).
 pub(super) const ATTEMPTS: [Duration; 5] = [
     Duration::from_secs(1),
     Duration::from_secs(3),
