@@ -82,7 +82,7 @@ describe('event-driven workspace recovery snapshots', () => {
   it('previews current durable resume state without changing layout, snapshot or identity data', async () => {
     await withE2EFixture(async (fixture) => {
       const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Preview Old Name', '-s']);
-      expect(bound.code, bound.stderr).toBe(0);
+      expect(bound.code, bound.stderr + bound.stdout).toBe(0);
       const original = JSON.parse(fs.readFileSync(snapshotPath(fixture), 'utf8')) as Snapshot;
       const synthetic = {
         ...original,
@@ -129,7 +129,7 @@ describe('event-driven workspace recovery snapshots', () => {
             resume: { session: string; resumePendingAtMs: number };
           }>;
         }>(['workspace', 'show', '--socket', fixture.socketPath], { outsideTmux: true });
-        expect(result.code, result.stderr).toBe(0);
+        expect(result.code, result.stderr + result.stdout).toBe(0);
         expect(result.json!.snapshot).toEqual(synthetic);
         expect(result.json!.sessions).toEqual([
           ...original.sessions.map((session) => ({ session: session.id, action: 'skip_existing' })),
@@ -152,7 +152,7 @@ describe('event-driven workspace recovery snapshots', () => {
           .prepare('UPDATE identity_session_preferences SET stale_at_ms=3 WHERE identity_id=?')
           .run(bound.json!.id);
         const human = await fixture.runCli(['workspace', 'show', '--socket', fixture.socketPath]);
-        expect(human.code, human.stderr).toBe(0);
+        expect(human.code, human.stderr + human.stdout).toBe(0);
         expect(human.stdout).toContain('stale remembered session');
         expect(human.stdout).not.toContain('--retry');
         expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
@@ -189,7 +189,7 @@ describe('event-driven workspace recovery snapshots', () => {
       const bound = await fixture.runJsonCli<{ id: string }>(['name', 'C Locale Seat 雪', '-s'], {
         locale: 'C',
       });
-      expect(bound.code, bound.stderr).toBe(0);
+      expect(bound.code, bound.stderr + bound.stdout).toBe(0);
       const snapshot = readSnapshot(fixture);
       expect(snapshot.panes.find((value) => value.id === fixture.pane)?.identity).toMatchObject({
         id: bound.json!.id,
@@ -220,7 +220,7 @@ describe('event-driven workspace recovery snapshots', () => {
           outsideTmux: true,
           locale: 'C',
         });
-        expect(preview.code, preview.stderr).toBe(0);
+        expect(preview.code, preview.stderr + preview.stdout).toBe(0);
         expect(preview.json!.sessions).toEqual(
           snapshot.sessions.map((value) => ({ session: value.id, action: 'skip_existing' }))
         );
@@ -234,7 +234,7 @@ describe('event-driven workspace recovery snapshots', () => {
         const repeated = await fixture.runJsonCli(['name', 'C Locale Seat 雪', '-s'], {
           locale: 'C',
         });
-        expect(repeated.code, repeated.stderr).toBe(0);
+        expect(repeated.code, repeated.stderr + repeated.stdout).toBe(0);
         expect(fs.readFileSync(snapshotPath(fixture))).toEqual(bytes);
         const after = durable();
         expect(after.identities).toEqual(before.identities);
@@ -260,7 +260,7 @@ describe('event-driven workspace recovery snapshots', () => {
       fixture.tmux(['new-session', '-d', '-s', 'linked']);
       fixture.tmux(['link-window', '-s', 'e2e:0', '-t', 'linked:9']);
       const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Snapshot Seat', '-s']);
-      expect(bound.code, bound.stderr).toBe(0);
+      expect(bound.code, bound.stderr + bound.stdout).toBe(0);
       const snapshot = readSnapshot(fixture);
       expect(snapshot.version).toBe(1);
       expect(snapshot.server.socket).toBe(fixture.socketPath);
@@ -605,7 +605,7 @@ server.listen(${JSON.stringify(gate)}, () => {
       const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Snapshot Failure', '-s'], {
         pane,
       });
-      expect(bound.code, bound.stderr).toBe(0);
+      expect(bound.code, bound.stderr + bound.stdout).toBe(0);
       const directory = path.join(fixture.root, 'broken-extension');
       fs.mkdirSync(directory);
       writeExecutable(
@@ -845,7 +845,7 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
           'create',
           name,
         ]);
-        expect(created.code, created.stderr).toBe(0);
+        expect(created.code, created.stderr + created.stdout).toBe(0);
         records.set(name, created.json!.identity.id);
       }
       const session = '33333333-3333-4333-8333-333333333333';
@@ -994,7 +994,7 @@ server.listen(${JSON.stringify(gates[index])}, () => {
           ['workspace', 'restore', '--socket', fixture.socketPath],
           { outsideTmux: true }
         );
-        expect(repeat.code, repeat.stderr).toBe(0);
+        expect(repeat.code, repeat.stderr + repeat.stdout).toBe(0);
         expect(repeat.json!.panes).toEqual([]);
         expect(
           repeat.json!.revival.every((pane) => pane.message === 'skipped (existing session)')
@@ -1568,7 +1568,7 @@ describe('named workspace selection and digest admission', () => {
         'work',
         ...selected,
       ]);
-      expect(saved.code, saved.stderr).toBe(0);
+      expect(saved.code, saved.stderr + saved.stdout).toBe(0);
       const digest = createHash('sha256').update(bytes).digest('hex');
       expect(saved.json!.digest).toBe(digest);
       const named = path.join(path.dirname(snapshotPath(fixture)), 'saved-work.json');
