@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
+import { useBusyMark } from './busy-mark.js';
 import { claimIconActionTooltip, placeIconActionTooltip } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
 
@@ -47,6 +48,7 @@ export function BrowserIconAction({
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const open = (hovered || focused) && !dismissed && !expanded;
+  const marked = useBusyMark(busy && !disabled);
   useImperativeHandle(buttonRef, () => button.current!, []);
   useEffect(() => {
     const node = tooltip.current;
@@ -103,7 +105,8 @@ export function BrowserIconAction({
           className={`${c.action} ${c.iconActionControl}`}
           type={type}
           data-variant={variant}
-          disabled={disabled || busy}
+          disabled={disabled}
+          aria-disabled={(busy && !disabled) || undefined}
           aria-label={label}
           aria-keyshortcuts={ariaKeyShortcuts}
           aria-haspopup={hasPopup}
@@ -122,7 +125,9 @@ export function BrowserIconAction({
           onBlur={() => setFocused(false)}
           onKeyDown={onKeyDown}
           onClick={(event) => {
-            if (!disabled && !busy) {
+            // Busy stays focusable; fence its activation and form submission here.
+            if (busy) event.preventDefault();
+            else if (!disabled) {
               const node = tooltip.current;
               if (node?.matches(':popover-open')) node.hidePopover();
               setDismissed(true);
@@ -134,7 +139,7 @@ export function BrowserIconAction({
             {icon}
           </span>
           {busyMark !== undefined && (
-            <span className={c.actionMark} aria-hidden="true" data-busy={busy}>
+            <span className={c.actionMark} aria-hidden="true" data-busy={marked}>
               {busyMark}
             </span>
           )}

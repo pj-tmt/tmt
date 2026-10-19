@@ -170,6 +170,8 @@ marker/action. Only an admitted resolution response marks the check complete;
 pending checks do not show the stale-quote hint. Annotation/Chat submits and recipient selection use `BrowserAction`: the existing
 Enter intent selects the one primary submit, while other submits and recipient selection
 remain text actions. The ready primary Send is solid; disabled Send stays outlined and muted.
+Busy, echo and page-open timing follow the shared
+[transient states](../../../../design/gui-style.md#transient-states).
 Export downloads use the shared Action inside the drawer, with its header providing the single close action.
 `MessageComposer` configures its retained mention-aware combobox on the shared
 `RichInput` editing boundary and `BrowserField`. The caller owns popup ARIA and

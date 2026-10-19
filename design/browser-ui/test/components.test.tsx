@@ -47,10 +47,12 @@ describe('presentation contracts', () => {
           if (busyMark === undefined) expect(html).not.toContain('tmt-ui-action-mark');
           else
             expect(html).toContain(
-              `tmt-ui-action-mark" aria-hidden="true" data-busy="${busy}">◌</span><span class="tmt-ui-action-label"`,
+              // The first busy frame shows no mark; the delay gate reveals it later.
+              `tmt-ui-action-mark" aria-hidden="true" data-busy="false">◌</span><span class="tmt-ui-action-label"`,
             );
           if (busy) {
-            expect(html).toContain('disabled=""');
+            expect(html).not.toContain('disabled=""');
+            expect(html).toContain('aria-disabled="true"');
             expect(html).toContain('aria-busy="true"');
           } else {
             expect(html).not.toContain('disabled=');
@@ -318,19 +320,29 @@ describe('presentation contracts', () => {
   });
   it('forwards the original native-button activation object and fences busy and disabled', () => {
     const calls: unknown[] = [];
-    const event = { nativeEvent: { type: 'click', detail: 0 } } as MouseEvent<HTMLButtonElement>;
+    const event = {
+      preventDefault: () => {},
+      nativeEvent: { type: 'click', detail: 0 },
+    } as MouseEvent<HTMLButtonElement>;
     const onActivate = (value: MouseEvent<HTMLButtonElement>) => calls.push(value);
-    for (const state of [{}, { busy: true }, { disabled: true }]) {
-      const element = BrowserAction({
-        type: 'button',
-        label: 'Save',
-        variant: 'primary',
-        onActivate,
-        ...state,
-      });
-      const button = (element.props as { children: ReactElement[] }).children[0];
-      (button.props as { onClick: (event: MouseEvent<HTMLButtonElement>) => void }).onClick(event);
+    // Call the component inside a render so its busy-mark hook has a dispatcher.
+    function Probe() {
+      for (const state of [{}, { busy: true }, { disabled: true }]) {
+        const element = BrowserAction({
+          type: 'button',
+          label: 'Save',
+          variant: 'primary',
+          onActivate,
+          ...state,
+        });
+        const button = (element.props as { children: ReactElement[] }).children[0];
+        (button.props as { onClick: (event: MouseEvent<HTMLButtonElement>) => void }).onClick(
+          event,
+        );
+      }
+      return null;
     }
+    renderToStaticMarkup(<Probe />);
     expect(calls).toEqual([event]);
     expect(calls[0]).toBe(event);
     const html = renderToStaticMarkup(

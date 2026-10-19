@@ -227,8 +227,9 @@ Not shipped. Basis: own.
 - States follow the leaf
   [Action contract](browser-ui/README.md#controlled-input-contracts): selection
   colors on enabled hover/focus, visible focus, opaque muted disabled controls
-  and a retained label with a caller-supplied mark while busy. Hosts supply
-  disabled reasons.
+  and a retained label with a caller-supplied mark while busy. Busy is not
+  disabled: see [Transient states](#transient-states). Hosts supply disabled
+  reasons.
 - Basis: own.
 
 ### Toggle
@@ -529,6 +530,38 @@ days`); exact time on hover.
   zero.
 - **Motion:** none except the LoaderCircle spin, which stops under
   `prefers-reduced-motion`.
+
+## Transient states
+
+A send or save never flashes an in-between state. The
+[Action contract](browser-ui/README.md#controlled-input-contracts) implements
+the busy mark and busy state for every Action and IconAction.
+
+- **Delayed busy mark:** nothing changes for the first 400 ms of busy. After
+  that the action's reserved busy mark shows, and once shown it stays at least
+  400 ms. Errors show at once. No label swaps (`Saving…`) and no inserted
+  status paragraphs.
+- **Busy is not disabled:** a busy control keeps its look, focus and readable
+  text; it is `aria-disabled` with an activation guard. Only an unavailable
+  control uses the muted disabled style.
+- **Echo in place:** a sent Chat message, reply or answer appears at once in its
+  final position and layout, and the composer clears in the same frame. The
+  echo is display only: its pending mark follows the same 400 ms delay, the
+  verified record replaces it in place under the same key, and a failure turns
+  it into the error row with Retry while the draft is kept. An echo is never
+  counted in Needs-you or other counts and never exported.
+- **One busy signal:** when an echo exists it is the only busy signal; Send
+  shows no Action busy mark. The Action busy mark is for actions without an
+  echo: save, confirm, remove, check.
+- **No remount:** a composer clears through its editor; it is not remounted, so
+  height, editor state and focus stay.
+- **Reserved status line:** a multi-step card keeps one status line of fixed
+  height instead of inserting and removing paragraphs.
+- **Page open:** navigation is immediate. A load longer than 150 ms shows the
+  page frame, kept at least 300 ms: the header, the title when it is already
+  known, and four muted skeleton lines. No shimmer or other motion.
+- **Local updates:** an update re-renders only what changed, not the whole
+  page.
 
 ## Accessibility
 
