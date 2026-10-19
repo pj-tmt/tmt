@@ -70,6 +70,106 @@ impl FinalsKey {
     }
 }
 
+/// How many of the user's own sends to one agent are restored, newest first.
+pub(super) const SENT: usize = 20;
+/// Full prompts fetched per read, newest first; the rest keep their preview
+/// until a later read reaches them.
+const SENT_SHOWS: usize = 5;
+/// The recipient-history page that holds those sends among other senders'.
+/// `requests.list` refuses a larger limit, so an agent with more than this many
+/// recent requests from anyone restores only the own sends inside that page.
+const SENT_PAGE: usize = 50;
+const SENT_CACHE_ENTRIES: usize = 256;
+const SENT_CACHE_BYTES: usize = 2 * 1024 * 1024;
+
+/// Prompt texts already read, by request ID: `Some` is the full text and
+/// `None` a prompt that is gone. A prepared prompt never changes, so neither
+/// is read twice.
+#[derive(Default)]
+pub(super) struct SentTexts {
+    known: BTreeMap<String, Option<String>>,
+    bytes: usize,
+}
+
+impl SentTexts {
+    fn remember(&mut self, request: &str, text: Option<String>) {
+        if self.known.len() >= SENT_CACHE_ENTRIES || self.bytes >= SENT_CACHE_BYTES {
+            *self = Self::default();
+        }
+        self.bytes += text.as_ref().map_or(0, String::len);
+        self.known.insert(request.to_owned(), text);
+    }
+}
+
+/// One agent's durable requests from this user, read from storage so they
+/// survive a restart and are not bounded by the session's own sends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SentKey {
+    pub(super) sender: String,
+    pub(super) agent: String,
+}
+
+impl SentKey {
+    /// The newest requests this user sent to the agent as `{requestId,
+    /// preparedAtMs, text, truncated}`, oldest first. One `requests.list`, then
+    /// `requests.show` for at most `SENT_SHOWS` full prompts the cache does not
+    /// hold yet, newest first. A prompt not read (yet) or no longer retained
+    /// keeps the listed preview, marked truncated. A failed list is an error; a
+    /// failed show only keeps the preview.
+    pub(super) fn read(
+        &self,
+        core: &Core,
+        texts: &mut SentTexts,
+    ) -> Result<Vec<Value>, SquadError> {
+        let document = core.api(
+            "requests.list",
+            json!({"recipientId":self.agent,"limit":SENT_PAGE}),
+        )?;
+        let mut own: Vec<Value> = page(document)?
+            .into_iter()
+            .filter(|item| {
+                item["kind"] == "request"
+                    && item["sender"]["identityId"].as_str() == Some(self.sender.as_str())
+                    && item["recipientId"].as_str() == Some(self.agent.as_str())
+                    && item["preparedAtMs"].is_u64()
+            })
+            .collect();
+        own.sort_by_key(|item| item["preparedAtMs"].as_u64());
+        let skip = own.len().saturating_sub(SENT);
+        let kept: Vec<Value> = own.into_iter().skip(skip).collect();
+        let mut budget = SENT_SHOWS;
+        for item in kept.iter().rev() {
+            let request = item["requestId"].as_str().unwrap_or_default();
+            if budget == 0 {
+                break;
+            }
+            if texts.known.contains_key(request) {
+                continue;
+            }
+            budget -= 1;
+            if let Ok(detail) = crate::requests::show_request(core, request) {
+                let full = (detail["prompt"]["status"] == "retained")
+                    .then(|| detail["prompt"]["message"].as_str().map(str::to_owned))
+                    .flatten();
+                texts.remember(request, full);
+            }
+        }
+        Ok(kept
+            .into_iter()
+            .map(|item| {
+                let request = item["requestId"].as_str().unwrap_or_default();
+                let full = texts.known.get(request).cloned().flatten();
+                json!({
+                    "requestId": request,
+                    "preparedAtMs": item["preparedAtMs"],
+                    "truncated": full.is_none(),
+                    "text": full.unwrap_or_else(|| item["preview"].as_str().unwrap_or_default().to_owned()),
+                })
+            })
+            .collect())
+    }
+}
+
 /// A full-body read is anchored to the exact user, lead and latest exchange.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageKey {

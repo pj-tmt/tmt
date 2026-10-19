@@ -176,6 +176,12 @@ pub(super) enum BoardEvent {
         revision: u64,
         result: Result<Vec<serde_json::Value>, String>,
     },
+    Sent {
+        cancellation: crate::runner::Cancellation,
+        key: home_leads::SentKey,
+        revision: u64,
+        result: Result<Vec<serde_json::Value>, String>,
+    },
     PaneOutput {
         cancellation: crate::runner::Cancellation,
         key: conversation::ConversationKey,
@@ -721,6 +727,21 @@ fn session(
                     && app.selected_read() == Some(refresh::SelectedRead::Finals(key.clone()))
                 {
                     app.apply_finals(key, result);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Sent {
+                cancellation,
+                key,
+                revision: read_revision,
+                result,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read() == Some(refresh::SelectedRead::Sent(key.clone()))
+                {
+                    app.apply_sent(key, result);
                     dirty = true;
                 }
                 Effect::None
@@ -1482,6 +1503,18 @@ mod tests {
             .unwrap();
     }
 
+    /// A worker whose per-agent sends read finds none.
+    fn answer_sent(events: &Sender<BoardEvent>, key: home_leads::SentKey, revision: u64) {
+        events
+            .send(BoardEvent::Sent {
+                cancellation: Default::default(),
+                key,
+                revision,
+                result: Ok(Vec::new()),
+            })
+            .unwrap();
+    }
+
     #[test]
     fn selected_responses_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
         use workspace::OpsTarget;
@@ -1538,6 +1571,10 @@ mod tests {
             |revision, selected| {
                 if let Some(refresh::SelectedRead::Finals(key)) = selected {
                     answer_finals(&events, key, revision);
+                    return;
+                }
+                if let Some(refresh::SelectedRead::Sent(key)) = selected {
+                    answer_sent(&events, key, revision);
                     return;
                 }
                 let Some(refresh::SelectedRead::Message(key)) = selected else {
@@ -1656,6 +1693,10 @@ mod tests {
             |revision, selected| {
                 if let Some(refresh::SelectedRead::Finals(key)) = selected {
                     answer_finals(&events, key, revision);
+                    return;
+                }
+                if let Some(refresh::SelectedRead::Sent(key)) = selected {
+                    answer_sent(&events, key, revision);
                     return;
                 }
                 let Some(refresh::SelectedRead::PaneOutput(key)) = selected else {

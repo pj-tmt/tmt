@@ -706,7 +706,7 @@ fn an_agents_older_finals_come_from_its_own_read_once_and_join_the_windows() {
             own_final("old1", MEMBER, now - 3_000_000),
         ]),
     );
-    draw(&app, 148, 51);
+    answer_sent(&mut app);
     assert!(app.finals_read().is_none(), "read once per activation");
     assert!(matches!(
         app.selected_read(),
@@ -765,7 +765,7 @@ fn a_failed_or_stale_finals_read_is_not_retried_and_never_hides_the_windows() {
     assert!(app.row_details.agent_finals.is_empty());
     // An older core refuses the recipient form: no retry loop, windows intact.
     app.apply_finals(key, Err("API_INPUT_INVALID".into()));
-    draw(&app, 148, 51);
+    answer_sent(&mut app);
     assert!(app.finals_read().is_none());
     assert!(matches!(
         app.selected_read(),
@@ -823,4 +823,127 @@ fn the_agents_own_read_asks_core_for_that_originators_finals_to_that_recipient_o
     );
     assert!(key.read(&core).is_err());
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+/// The agent's own sends, found empty: the lane after finals and before bodies.
+fn answer_sent(app: &mut App) {
+    draw(app, 148, 51);
+    if let Some(crate::board::refresh::SelectedRead::Sent(key)) = app.selected_read() {
+        app.apply_sent(key, Ok(vec![]));
+    }
+    draw(app, 148, 51);
+}
+
+fn own_send(request: &str, at: u64, text: &str, truncated: bool) -> Value {
+    json!({"requestId":request,"preparedAtMs":at,"text":text,"truncated":truncated})
+}
+
+/// After a restart the session has no sends of its own: the agent's own read
+/// restores them from storage once its finals are in, ahead of any body read,
+/// as "you" blocks interleaved with the finals by time.
+#[test]
+fn a_restart_restores_the_users_own_sends_between_the_agents_finals() {
+    use crate::board::app::workspace::tests::{MEMBER, board};
+    use crate::board::refresh::SelectedRead;
+    let mut app = board();
+    let now = crate::status::now_ms();
+    app.home_leads.test_results(
+        ACTOR,
+        json!({"items":[final_item("answer", MEMBER, now - 60_000)],"nextBefore":null}),
+    );
+    draw(&app, 148, 51);
+    let Some(SelectedRead::Finals(finals)) = app.selected_read() else {
+        panic!("finals are read first");
+    };
+    assert!(app.sent_read().is_none(), "sends wait for the finals");
+    app.apply_finals(finals, Ok(vec![]));
+    draw(&app, 148, 51);
+    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+        panic!("the user's own sends are read before any body");
+    };
+    assert_eq!((key.sender.as_str(), key.agent.as_str()), (ACTOR, MEMBER));
+    app.apply_sent(
+        key,
+        Ok(vec![
+            own_send("first", now - 300_000, "Please check the retry loop", false),
+            own_send("second", now - 120_000, "Also the backoff curve", false),
+        ]),
+    );
+    assert!(app.sent_read().is_none(), "read once per activation");
+    assert!(matches!(
+        app.selected_read(),
+        Some(SelectedRead::Message(_))
+    ));
+    read_all(&mut app, |request| format!("body {request}"));
+    let screen = text(&draw(&app, 148, 51));
+    let at = |needle: &str| {
+        screen
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {screen}"))
+    };
+    assert!(
+        at("Please check the retry loop") < at("Also the backoff curve")
+            && at("Also the backoff curve") < at("body answer"),
+        "time order: {screen}"
+    );
+    assert!(!screen.contains("truncated"));
+}
+
+#[test]
+fn a_restored_send_whose_record_is_gone_says_it_is_truncated_and_how_to_open_it() {
+    use crate::board::app::workspace::tests::board;
+    use crate::board::refresh::SelectedRead;
+    let mut app = board();
+    draw(&app, 148, 51);
+    if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+        app.apply_finals(finals, Ok(vec![]));
+        draw(&app, 148, 51);
+    }
+    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+        panic!("sends are read");
+    };
+    let now = crate::status::now_ms();
+    app.apply_sent(
+        key,
+        Ok(vec![own_send(
+            "req_gone",
+            now - 5_000,
+            "A long message cut to its",
+            true,
+        )]),
+    );
+    let screen = text(&draw(&app, 148, 51));
+    assert!(screen.contains("A long message cut to its"), "{screen}");
+    assert!(
+        screen.contains("truncated · tmt x show req_gone"),
+        "{screen}"
+    );
+}
+
+#[test]
+fn a_failed_or_stale_sent_read_is_not_retried_and_hides_nothing() {
+    use crate::board::app::workspace::tests::board;
+    use crate::board::home_leads::SentKey;
+    use crate::board::refresh::SelectedRead;
+    let mut app = board();
+    draw(&app, 148, 51);
+    if let Some(SelectedRead::Finals(finals)) = app.selected_read() {
+        app.apply_finals(finals, Ok(vec![]));
+        draw(&app, 148, 51);
+    }
+    let Some(SelectedRead::Sent(key)) = app.selected_read() else {
+        panic!("sends are read");
+    };
+    // An answer for an agent that is not on screen is dropped.
+    app.apply_sent(
+        SentKey {
+            sender: ACTOR.into(),
+            agent: "99999999-9999-4999-8999-999999999999".into(),
+        },
+        Ok(vec![own_send("other", 1, "elsewhere", false)]),
+    );
+    assert!(matches!(app.selected_read(), Some(SelectedRead::Sent(_))));
+    app.apply_sent(key, Err("storage unavailable".into()));
+    assert!(app.sent_read().is_none(), "a failed read is kept as empty");
+    assert!(!text(&draw(&app, 148, 51)).contains("elsewhere"));
 }

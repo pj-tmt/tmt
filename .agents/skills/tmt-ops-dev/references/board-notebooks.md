@@ -68,7 +68,17 @@ across room and global observations; `Detail.reply` is the newest of them. Those
 bounded and shared, so the painted conversation (`pane_output_enabled`, Replies pane visible)
 also reads its agent's own newest eight once per activation (`SelectedRead::Finals`,
 `requests.list` with `originatorId`, `recipientId`, `view:"results"`); a core that refuses
-that form leaves the windows as the only source. Request bodies
+that form leaves the windows as the only source. Once the finals are in, the same
+conversation reads the user's own sends to that agent once per activation
+(`SelectedRead::Sent`): one `requests.list` of the agent's recipient history filtered to this
+sender (newest 20 of core's newest-50 page), then `requests.show` for at most five full prompts the
+worker has not read yet, newest first; the worker caches texts (and gone prompts) by request ID, so
+a later read of the same agent fetches the next unseen ones and a settled selection costs one list.
+A prompt not read yet or no longer retained keeps its listed preview, marked truncated with
+`tmt x show <request>`. They are
+`Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
+with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
+capped by the session's own list. Request bodies
 load off the UI thread, newest first, one selected read at a time. Finals come from storage
 alone (`requests.list` and `requests.show`): the originator notification, which is
 `unavailable` for a person with no live pane, and pane output never supply one. A header

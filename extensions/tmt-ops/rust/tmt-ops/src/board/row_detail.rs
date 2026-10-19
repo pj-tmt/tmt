@@ -2,7 +2,7 @@
 //! Acquisition remains on the refresh worker; this module only consumes snapshots.
 use super::{
     app::{App, Effect, RowTarget},
-    home_leads::{FinalsKey, Kind, MessageKey},
+    home_leads::{FinalsKey, Kind, MessageKey, SentKey},
 };
 use crate::look::Look;
 use ratatui::{
@@ -28,6 +28,8 @@ pub(super) struct State {
     /// Each active agent's own finals, read once per activation. A failed read
     /// is kept as empty so it is not retried in a loop; the windows still show.
     agent_finals: Vec<(FinalsKey, Vec<Value>)>,
+    /// The same agent's durable sends from this user, read after its finals.
+    agent_sent: Vec<(SentKey, Vec<Value>)>,
     pub reader: Option<Reader>,
 }
 
@@ -95,7 +97,20 @@ pub(super) struct Detail {
     pub finals: Vec<Reply>,
     /// Whose finals these are, when they can be read from storage by agent.
     pub(super) agent: Option<FinalsKey>,
+    /// This user's durable sends to the agent, oldest first (restored after a
+    /// restart; sends made in this session are shown from the session itself).
+    pub sent: Vec<Sent>,
     pub show_reply: bool,
+}
+
+/// One of the user's own sends, restored from the request record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Sent {
+    pub request: String,
+    pub at_ms: u64,
+    pub text: String,
+    /// Only the listed preview survives: the full prompt is no longer retained.
+    pub truncated: bool,
 }
 
 /// A collapsed field suppresses detail only if its complete text survives the
@@ -165,6 +180,13 @@ impl Detail {
 
 /// How many settled finals a conversation holds per agent.
 pub(super) const FINALS: usize = 8;
+
+fn sent_key(key: &FinalsKey) -> SentKey {
+    SentKey {
+        sender: key.sender.clone(),
+        agent: key.agent.clone(),
+    }
+}
 
 fn age(at: Option<u64>, now: u64) -> String {
     at.filter(|at| *at > 0 && *at <= now)
@@ -258,11 +280,30 @@ impl App {
         }
         detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
         detail.reply = detail.finals.last().cloned();
+        detail.sent = self.sent(id, sender.as_deref());
         detail.agent = sender.map(|sender| FinalsKey {
             sender,
             agent: id.into(),
         });
         Some(detail.additional(visible))
+    }
+
+    /// The user's durable sends to this agent that storage returned.
+    fn sent(&self, id: &str, sender: Option<&str>) -> Vec<Sent> {
+        self.row_details
+            .agent_sent
+            .iter()
+            .filter(|(key, _)| Some(key.sender.as_str()) == sender && key.agent == id)
+            .flat_map(|(_, sends)| sends)
+            .filter_map(|send| {
+                Some(Sent {
+                    request: send["requestId"].as_str()?.into(),
+                    at_ms: send["preparedAtMs"].as_u64()?,
+                    text: send["text"].as_str()?.into(),
+                    truncated: send["truncated"].as_bool().unwrap_or(false),
+                })
+            })
+            .collect()
     }
 
     /// The newest settled finals to this user's requests, oldest first. They come
@@ -487,6 +528,10 @@ impl App {
         self.row_details
             .agent_finals
             .retain(|(key, _)| Some(key) == owner.as_ref());
+        let sent_owner = owner.as_ref().map(sent_key);
+        self.row_details
+            .agent_sent
+            .retain(|(key, _)| Some(key) == sent_owner.as_ref());
     }
     /// Whose finals the painted conversation shows. Only that conversation reads
     /// an agent's whole run of finals; other details show the newest alone.
@@ -509,6 +554,33 @@ impl App {
                 .iter()
                 .any(|(read, _)| read == key)
         })
+    }
+    /// The conversation's agent, once its finals are in and its sends are not.
+    pub(super) fn sent_read(&self) -> Option<SentKey> {
+        let key = sent_key(&self.conversation_finals()?);
+        let finals_in = self
+            .row_details
+            .agent_finals
+            .iter()
+            .any(|(read, _)| sent_key(read) == key);
+        (finals_in
+            && !self
+                .row_details
+                .agent_sent
+                .iter()
+                .any(|(read, _)| read == &key))
+        .then_some(key)
+    }
+    pub(super) fn apply_sent(&mut self, key: SentKey, result: Result<Vec<Value>, String>) {
+        if self.conversation_finals().as_ref().map(sent_key).as_ref() != Some(&key) {
+            return;
+        }
+        self.row_details
+            .agent_sent
+            .retain(|(current, _)| current != &key);
+        self.row_details
+            .agent_sent
+            .push((key, result.unwrap_or_default()));
     }
     pub(super) fn apply_finals(&mut self, key: FinalsKey, result: Result<Vec<Value>, String>) {
         if self.conversation_finals().as_ref() != Some(&key) {

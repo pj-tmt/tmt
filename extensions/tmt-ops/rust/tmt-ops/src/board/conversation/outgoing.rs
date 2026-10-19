@@ -220,6 +220,16 @@ impl Entry {
 }
 
 impl Session {
+    /// Durable sends from storage that this session has no live entry for.
+    pub(super) fn restored_sends(&self) -> impl Iterator<Item = &crate::board::row_detail::Sent> {
+        self.sent.iter().filter(|send| {
+            !self
+                .outgoing
+                .iter()
+                .any(|entry| entry.request() == Some(send.request.as_str()))
+        })
+    }
+
     pub(super) fn local_finals(&self) -> impl Iterator<Item = &Reply> {
         self.outgoing
             .iter()

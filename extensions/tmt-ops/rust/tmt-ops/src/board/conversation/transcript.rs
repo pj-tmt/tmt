@@ -10,6 +10,7 @@ pub(super) struct Context {
     pub exchanges_observed: bool,
     pub output_ages: Vec<String>,
     pub final_ages: Vec<String>,
+    pub sent_ages: Vec<String>,
     pub reader: String,
 }
 
@@ -157,6 +158,15 @@ impl Session {
                     }
                 })
                 .collect(),
+            sent_ages: self
+                .restored_sends()
+                .map(|send| {
+                    super::exchange::age_stamp(&crate::requests::age(
+                        crate::status::now_ms(),
+                        send.at_ms,
+                    ))
+                })
+                .collect(),
             reader: app
                 .view
                 .as_ref()
@@ -186,9 +196,12 @@ impl Session {
             exchanges_observed,
             output_ages,
             final_ages,
+            sent_ages,
             reader,
         } = &self.transcript_context;
+        let sends: Vec<_> = self.restored_sends().collect();
         if self.finals.is_empty()
+            && sends.is_empty()
             && (!enabled
                 || (matches!(&self.pane_output, Observation::Pending)
                     || matches!(&self.pane_output, Observation::Observed(items) if items.is_empty()))
@@ -259,6 +272,12 @@ impl Session {
                     )
                 }),
         );
+        messages.extend(
+            sends
+                .iter()
+                .enumerate()
+                .map(|(index, send)| (send.at_ms, super::history::Block::Sent(index))),
+        );
         messages.sort_by_key(|(time, _)| *time);
         let times: Vec<_> = messages.iter().map(|(time, _)| *time).collect();
         let items = match &self.pane_output {
@@ -299,6 +318,45 @@ impl Session {
             first = false;
             match source {
                 Source::Exchange(block) => {
+                    if let super::history::Block::Sent(index) = messages[block].1 {
+                        let send = sends[index];
+                        let header = append(
+                            super::super::exchange_view::header(
+                                super::super::exchange_view::Sender::You(reader),
+                                name,
+                                sent_ages.get(index).map_or("—", String::as_str),
+                                false,
+                                width,
+                                look,
+                            ),
+                            vec![],
+                            None,
+                        );
+                        header_anchors.insert(header, format!("sent request {}", send.request));
+                        let body = markdown::render_conversation_with_members(
+                            &sanitize(&send.text),
+                            width.saturating_sub(3).max(1),
+                            look,
+                            None,
+                        );
+                        for line in body.lines {
+                            append(super::super::exchange_view::body(line, look), vec![], None);
+                        }
+                        if send.truncated {
+                            append(
+                                Line::styled(
+                                    super::super::view::fit(
+                                        &format!("… truncated · tmt x show {}", send.request),
+                                        width,
+                                    ),
+                                    look.role(Role::Muted),
+                                ),
+                                vec![],
+                                None,
+                            );
+                        }
+                        continue;
+                    }
                     if let super::history::Block::Final(index) = messages[block].1 {
                         let reply = &self.finals[index];
                         let header = append(

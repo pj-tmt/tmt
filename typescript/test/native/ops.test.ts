@@ -5370,6 +5370,117 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
+  it('restores the sends of the user to an agent after an Ops restart without touching delivery state', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+      if (found.status !== 0) throw new Error('Build/install tmux for isolated restore tests');
+      const executable = found.stdout.trim();
+      const socket = path.join(sandbox.root, 'restore.sock');
+      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const tmux = (args: string[]) => {
+        const result = spawnSync(executable, ['-S', socket, ...args], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+        return result.stdout.trimEnd();
+      };
+      await identity(sandbox, 'Ben');
+      await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const text = 'Please look at the retry loop before Friday';
+      const sent = await runCli(sandbox, [
+        'talk',
+        'worker',
+        text,
+        '--identity',
+        'Ben',
+        '--room',
+        'squad-product',
+        '--inbox',
+        '--detach',
+        '--json',
+      ]);
+      expect(sent.status).toBe(0);
+      const request = JSON.parse(sent.stdout).requestId;
+      const durable = async () =>
+        (await runCli(sandbox, ['inbox', '--identity', 'worker', '--json'])).stdout;
+      const before = await durable();
+      expect(before).toContain(request);
+      tmux([
+        '-f',
+        '/dev/null',
+        'new-session',
+        '-d',
+        '-s',
+        'restore',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '36',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      try {
+        // Two separate Ops processes: the second knows nothing of the first.
+        for (const launch of [1, 2]) {
+          tmux([
+            'send-keys',
+            '-t',
+            pane,
+            '-l',
+            `${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+          ]);
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await vi.waitFor(() => expect(screen()).toContain('room product'), {
+            timeout: 30_000,
+            interval: 50,
+          });
+          tmux(['send-keys', '-t', pane, 'Right']);
+          await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
+            timeout: 10_000,
+            interval: 25,
+          });
+          tmux(['send-keys', '-t', pane, 'End']);
+          await vi.waitFor(
+            () => {
+              const shown = screen();
+              expect(shown, `launch ${launch}`).toContain(text);
+              expect(shown).toContain('Ben');
+            },
+            { timeout: 30_000, interval: 50 }
+          );
+          tmux(['send-keys', '-t', pane, 'q']);
+          await vi.waitFor(
+            () =>
+              expect(
+                tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])
+              ).not.toBe('tmt-ops'),
+            { timeout: 10_000, interval: 25 }
+          );
+        }
+        // Reading history changed no delivery or acknowledgement state.
+        expect(await durable()).toBe(before);
+      } finally {
+        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 120_000);
+
   it('named view layers restore independently, reset one layer and retain controls through reload', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

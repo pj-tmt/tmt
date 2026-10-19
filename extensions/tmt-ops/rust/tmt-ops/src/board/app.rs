@@ -4220,6 +4220,9 @@ impl App {
         if let Some(key) = self.finals_read() {
             return Some(super::refresh::SelectedRead::Finals(key));
         }
+        if let Some(key) = self.sent_read() {
+            return Some(super::refresh::SelectedRead::Sent(key));
+        }
         if let Some(key) = self.detail_read() {
             return Some(super::refresh::SelectedRead::Message(key));
         }
