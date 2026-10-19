@@ -26,7 +26,11 @@ pub fn blockquote(passage: &str) -> String {
 /// The compact selection gesture: one quoted line, at most 200 source
 /// characters including a final ellipsis. Ordinary row notes keep `blockquote`.
 pub fn inline_quote(passage: &str) -> String {
-    let flattened = passage.replace("\r\n", " ").replace(['\r', '\n'], " ");
+    // A passage that ends at a line break would otherwise leave a trailing space.
+    let flattened = passage
+        .trim_end_matches(['\r', '\n'])
+        .replace("\r\n", " ")
+        .replace(['\r', '\n'], " ");
     let mut chars = flattened.chars();
     let mut text: String = chars.by_ref().take(200).collect();
     if chars.next().is_some() {
@@ -104,8 +108,10 @@ mod tests {
     fn compact_chat_quotes_flatten_lines_and_bound_unicode_without_an_author() {
         assert_eq!(
             inline_quote("first \"line\"\r\n漢字\nlast\r"),
-            "> \"first \"line\" 漢字 last \""
+            "> \"first \"line\" 漢字 last\""
         );
+        assert_eq!(inline_quote("ends\n\n"), "> \"ends\"");
+        assert_eq!(inline_quote("keeps trailing "), "> \"keeps trailing \"");
         assert_eq!(inline_quote(""), "> \"\"");
         assert_eq!(
             inline_quote(&"漢".repeat(200)),
