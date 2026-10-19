@@ -20,7 +20,7 @@ import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
 import { text } from './strings.js';
-import { echoLanded, type MessageEcho } from './message-echo.js';
+import { echoLanded, MessageEchoContext, type MessageEcho } from './message-echo.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
 import {
@@ -636,31 +636,33 @@ export function ThreadWindow({
         ownWriter={binding?.deviceId}
         historyClassName="thread-messages"
         composer={
-          composer !== undefined
-            ? composer
-            : thread &&
-              !thread.deleted &&
-              binding && (
-                <AnnotationInput
-                  connectionPresentation={connectionPresentation}
-                  recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
-                  archived={archived}
-                  creationRecipient={creationRecipient}
-                  binding={ask}
-                  discussion={binding}
-                  anchor={thread.anchor}
-                  thread={thread}
-                  asks={asks}
-                  title={title}
-                  blocked={blocked || busy}
-                  initialEdit={initialEdit}
-                  onDraft={(_value, edit) => onDraft?.(edit)}
-                  onBusy={onBusy}
-                  onEcho={setEcho}
-                  cancel={close}
-                  committed={() => {}}
-                />
-              )
+          // One echo seam for the built-in composer and a parent's (the anchored dialog).
+          <MessageEchoContext value={setEcho}>
+            {composer !== undefined
+              ? composer
+              : thread &&
+                !thread.deleted &&
+                binding && (
+                  <AnnotationInput
+                    connectionPresentation={connectionPresentation}
+                    recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
+                    archived={archived}
+                    creationRecipient={creationRecipient}
+                    binding={ask}
+                    discussion={binding}
+                    anchor={thread.anchor}
+                    thread={thread}
+                    asks={asks}
+                    title={title}
+                    blocked={blocked || busy}
+                    initialEdit={initialEdit}
+                    onDraft={(_value, edit) => onDraft?.(edit)}
+                    onBusy={onBusy}
+                    cancel={close}
+                    committed={() => {}}
+                  />
+                )}
+          </MessageEchoContext>
         }
       >
         {tracked && anchorsChecked && !attached && (

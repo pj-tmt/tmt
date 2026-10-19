@@ -1,3 +1,4 @@
+import { createContext } from 'react';
 import type { CommentView, DiscussionRef } from './thread-records.js';
 
 /**
@@ -14,6 +15,14 @@ export type MessageEcho = {
   /** Present when the send failed before it was recorded. */
   retry?(): void;
 };
+
+/**
+ * Provided by a host that shows sent replies and Chat messages at once (a thread window, Chat).
+ * A composer inside it reports its echo here; without a host it keeps today's send flow.
+ */
+export const MessageEchoContext = createContext<
+  ((echo: MessageEcho | undefined) => void) | undefined
+>(undefined);
 
 /** A new echo for a message the composer is sending now. */
 export function messageEcho(body: string): MessageEcho {

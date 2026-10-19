@@ -9,6 +9,7 @@ import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { CommentExchange, MessageEchoTurn, useMessageEcho } from './thread-panel.js';
+import { MessageEchoContext } from './message-echo.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
 import { conversationAsks, type ThreadBinding } from './thread-store.js';
 
@@ -159,26 +160,27 @@ export function ChatPanel({
           </>
         }
         composer={
-          <AnnotationInput
-            connectionPresentation={connectionPresentation}
-            archived={archived}
-            onBusy={onBusy}
-            onEcho={setEcho}
-            binding={binding}
-            discussion={discussion}
-            anchor={null}
-            thread={own}
-            asks={asks}
-            title={title}
-            creationRecipient={creationRecipient}
-            initialEdit={initialEdit}
-            activation={activation}
-            onDraft={(_value, edit) => onDraft?.(edit)}
-            blocked={blocked || !!own?.deleted}
-            recoveryRequired={recoveryRequired && !own?.deleted}
-            cancel={escape}
-            committed={() => {}}
-          />
+          <MessageEchoContext value={setEcho}>
+            <AnnotationInput
+              connectionPresentation={connectionPresentation}
+              archived={archived}
+              onBusy={onBusy}
+              binding={binding}
+              discussion={discussion}
+              anchor={null}
+              thread={own}
+              asks={asks}
+              title={title}
+              creationRecipient={creationRecipient}
+              initialEdit={initialEdit}
+              activation={activation}
+              onDraft={(_value, edit) => onDraft?.(edit)}
+              blocked={blocked || !!own?.deleted}
+              recoveryRequired={recoveryRequired && !own?.deleted}
+              cancel={escape}
+              committed={() => {}}
+            />
+          </MessageEchoContext>
         }
       >
         {!chats.length && !legacy.length && !echo && (

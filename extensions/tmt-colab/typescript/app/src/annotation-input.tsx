@@ -41,7 +41,7 @@ import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
-import { messageEcho, type MessageEcho } from './message-echo.js';
+import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
 import { captureConversation } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
@@ -62,7 +62,6 @@ export function AnnotationInput({
   activation,
   onDraft,
   onBusy,
-  onEcho,
   onFailure,
   blocked,
   recoveryRequired = false,
@@ -88,11 +87,6 @@ export function AnnotationInput({
   onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports a send in flight, which nothing outside may interrupt. */
   onBusy?(busy: boolean): void;
-  /**
-   * A host that shows sent replies and Chat messages at once. With it, the composer clears
-   * as the echo appears and a send that fails before it is recorded restores the draft.
-   */
-  onEcho?(echo: MessageEcho | undefined): void;
   /** A closing owner retains delivery recovery outside the composer. */
   onFailure?(failure: MessageSendFailure): void;
   blocked: boolean;
@@ -105,6 +99,9 @@ export function AnnotationInput({
   committed(ref: DiscussionRef): void;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
+  // With an echo host, the composer clears as the echo appears and a send that fails before
+  // it is recorded restores the draft.
+  const onEcho = useContext(MessageEchoContext);
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
   const [prependMention, setPrependMention] = useState<ComposerMentionRequest>();

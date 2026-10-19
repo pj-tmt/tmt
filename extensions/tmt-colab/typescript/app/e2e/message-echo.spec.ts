@@ -185,3 +185,70 @@ for (const surface of ['reply', 'chat']) {
     await expect(input).toHaveText('Second message.', { useInnerText: true });
   });
 }
+
+/** The anchored annotation dialog passes its own composer to the thread window. */
+async function openAnchoredThread(page: Page) {
+  const page_ = (method: string) =>
+    page.evaluate(async (method) => {
+      const path = '/test/ask-page-browser.tsx';
+      return (await import(path))[method]();
+    }, method);
+  await page.goto('/');
+  await page_('mount');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await page
+    .frameLocator('#ask-page-fixture iframe')
+    .locator('#selected')
+    .evaluate((node) => {
+      const range = node.ownerDocument.createRange();
+      range.selectNodeContents(node);
+      const selection = node.ownerDocument.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+  await page.getByTestId('selection-ask').click();
+  const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+  const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+  await input.pressSequentially('The first comment.');
+  await input.press('Enter');
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
+  return { dialog, input, page_ };
+}
+
+test('anchored dialog: a reply shows at once and its verified record takes its place', async ({
+  page,
+}) => {
+  const { dialog, input, page_ } = await openAnchoredThread(page);
+  await input.pressSequentially('A held reply.');
+  await page_('holdReply');
+  await input.press('Enter');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'pending');
+  await expect(echo(page)).toContainText('A held reply.');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(input).toHaveAttribute('contenteditable', 'true');
+  const before = (await echo(page).boundingBox())!;
+  await page_('releaseReply');
+  await expect(echo(page)).toHaveCount(0);
+  const entry = dialog.getByTestId('comment-entry').last();
+  await expect(entry).toContainText('A held reply.');
+  const after = (await entry.boundingBox())!;
+  expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
+});
+
+test('anchored dialog: a refused reply becomes the failed row and restores the draft', async ({
+  page,
+}) => {
+  const { dialog, input, page_ } = await openAnchoredThread(page);
+  await input.pressSequentially('A refused reply.');
+  await page_('failNextReply');
+  await input.press('Enter');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(echo(page)).toContainText(text.commentFailed);
+  await expect(input).toHaveText('A refused reply.', { useInnerText: true });
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
+  await echo(page).getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(echo(page)).toHaveCount(0);
+  await expect(dialog.getByTestId('comment-entry')).toHaveCount(2);
+  await expect(dialog.getByTestId('comment-entry').last()).toContainText('A refused reply.');
+});

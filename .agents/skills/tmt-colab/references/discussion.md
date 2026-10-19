@@ -133,8 +133,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   `AnnotationInput` and its composer stylesheet present both Chat and annotations;
   editor, recipient and Send ownership stays unchanged. The [GUI rule](../../../../design/gui-style.md#conversation-turn)
   owns their appearance.
-- `message-echo.ts` is the sent-message echo seam. For replies and Chat, `AnnotationInput`
-  reports an echo through `onEcho`, clears its composer as the echo appears and, when a
+- `message-echo.ts` is the sent-message echo seam. Thread windows (including a parent's
+  composer slot, as in the anchored dialog) and Chat provide `MessageEchoContext`; inside it,
+  for replies and Chat, `AnnotationInput` reports an echo, clears its composer as the echo
+  appears and, when a
   send fails before it is recorded, restores the full draft (text, recipient chips,
   attachments) and turns the echo into a failed row with Retry. Thread windows and Chat
   render it as `MessageEchoTurn` where the verified record will appear, holding that row's

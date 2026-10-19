@@ -305,7 +305,12 @@ for (const width of [1440, 390]) {
       await capture('reply-agent');
       await run('pausePrepare');
       await dialog.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(input).toHaveAttribute('contenteditable', 'false');
+      // The pending reply shows as the sent message; the composer is cleared and stays editable.
+      await expect(
+        dialog.locator('[data-testid="comment-echo"], [data-testid="comment-entry"]').last(),
+      ).toContainText('A reply to the original comment.');
+      await expect(input).toHaveText('', { useInnerText: true });
+      await expect(input).toHaveAttribute('contenteditable', 'true');
       await capture('reply-busy');
       await run('resumePrepare');
       await expect(input).toHaveAttribute('contenteditable', 'true');
@@ -320,7 +325,12 @@ for (const width of [1440, 390]) {
       await capture('chat-ready');
       await run('pausePrepare');
       await chat.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(chatInput).toHaveAttribute('contenteditable', 'false');
+      // The pending Chat message shows in place; the composer is cleared and stays editable.
+      await expect(
+        chat.locator('[data-testid="comment-echo"], [data-testid="comment-entry"]').last(),
+      ).toContainText('Ask about the complete page.');
+      await expect(chatInput).toHaveText('', { useInnerText: true });
+      await expect(chatInput).toHaveAttribute('contenteditable', 'true');
       await capture('chat-busy');
       await run('resumePrepare');
       await expect(chatInput).toHaveAttribute('contenteditable', 'true');
