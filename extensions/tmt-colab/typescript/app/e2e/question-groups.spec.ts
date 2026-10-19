@@ -371,7 +371,10 @@ test('an echo is replaced in place by the verified answer, with nothing inserted
   const answer = card.locator('.question-answer');
   await expect(answer).toHaveAttribute('data-echo', 'true');
   // Unconfirmed past 0.4 s, the echo gains a mark with no words; no button turns busy.
-  await expect(card.getByRole('img', { name: 'Sending' })).toBeVisible();
+  const mark = card.locator('.question-pending .comment-echo-mark');
+  await expect(mark).toHaveCSS('visibility', 'visible');
+  await expect(mark).toHaveText('');
+  await expect(card.locator('.question-pending')).toHaveAttribute('aria-hidden', 'true');
   const measure = () =>
     page.evaluate(() => {
       const box = (selector: string) => {
@@ -392,7 +395,7 @@ test('an echo is replaced in place by the verified answer, with nothing inserted
   await expect(rows.first()).toContainText('Answered: Keep it');
   await rows.first().click();
   await expect(answer).not.toHaveAttribute('data-echo');
-  await expect(card.getByRole('img', { name: 'Sending' })).toHaveCount(0);
+  await expect(card.locator('.question-pending .comment-echo-mark')).toHaveCount(0);
   await expect(answer.locator('> p')).toHaveText('Keep it');
   const verified = await measure();
   expect(verified.answer).toEqual(echoed.answer);
@@ -410,8 +413,8 @@ test('an answer verified within 0.4 s never shows the pending mark', async ({ pa
     const seen = { mark: false };
     (window as unknown as { markSeen: typeof seen }).markSeen = seen;
     new MutationObserver(() => {
-      if (document.querySelector('.question-card [aria-label="Sending"]')) seen.mark = true;
-    }).observe(document.body, { subtree: true, childList: true });
+      if (document.querySelector('.question-card .comment-echo-mark[data-shown]')) seen.mark = true;
+    }).observe(document.body, { subtree: true, childList: true, attributes: true });
   });
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();

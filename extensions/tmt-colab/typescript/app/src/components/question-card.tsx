@@ -1,6 +1,7 @@
 import type { ComposerConnectionPresentation } from '../router.js';
-import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
+import { LoaderCircle } from 'lucide-react';
+import { useId, useRef, type ReactNode } from 'react';
 import {
   answerOf,
   canonicalQuestionThread,
@@ -16,27 +17,6 @@ import type { ThreadView } from '../thread-records.js';
 import { ArchivedDraft } from '../annotation-input.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
-
-/** A send unconfirmed for this long gets the pending mark; one that ends sooner shows nothing. */
-const PENDING_MARK_MS = 400;
-
-/** True once `active` has lasted `PENDING_MARK_MS`, and then for at least as long, so it never flickers. */
-function usePendingMark(active: boolean) {
-  const [shown, setShown] = useState(false);
-  const since = useRef(0);
-  useEffect(() => {
-    if (active === shown) return;
-    const wait = active
-      ? PENDING_MARK_MS
-      : Math.max(0, PENDING_MARK_MS - (Date.now() - since.current));
-    const timer = setTimeout(() => {
-      since.current = Date.now();
-      setShown(active);
-    }, wait);
-    return () => clearTimeout(timer);
-  }, [active, shown]);
-  return shown;
-}
 
 export interface QuestionDraft {
   choices: string[];
@@ -105,7 +85,7 @@ export function QuestionCard({
   // verified one will stand. It is display only: nothing here is a record, and a failure drops it.
   const echoing = !readOnly && (busy || recorded) && body !== undefined;
   const echo = echoing ? answerOf(question, body) : undefined;
-  const pendingMark = usePendingMark(echoing);
+  const pendingMark = useBusyMark(echoing);
   const compose = !echoing && (!answer || changing);
   const changeAction =
     !readOnly && (echoing || (answer && !changing)) ? (
@@ -158,10 +138,11 @@ export function QuestionCard({
           <div className="question-answer" data-echo={echoing || undefined}>
             <p>{echo ?? (pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText)}</p>
             {changeAction}
-            <span className="question-pending" role="status">
-              {pendingMark && (
-                <span role="img" aria-label="Sending">
-                  ◌
+            <span className="question-pending" aria-hidden="true">
+              {echoing && (
+                // The same wordless mark as a sent message's echo, on the shared busy-mark delay.
+                <span className="comment-echo-mark" data-shown={pendingMark || undefined}>
+                  <LoaderCircle />
                 </span>
               )}
             </span>
