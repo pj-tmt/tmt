@@ -12,8 +12,8 @@ function cases(report) {
   return found;
 }
 
-/** A successful exit alone can mean every native test skipped. Require the complete listed run. */
-export function validateServedReport(list, result) {
+/** A successful exit alone can mean every native test skipped. Require the complete listed run (served and chrome lanes). */
+export function validateNativeSpecReport(list, result) {
   const expected = cases(list)
     .map((row) => row.id)
     .sort();
@@ -31,7 +31,7 @@ export function validateServedReport(list, result) {
     !actual.every(({ test }) => test.results?.length === 1 && test.results[0].status === 'passed')
   )
     throw new Error(
-      'Served coverage must be nonempty, complete, and pass without skips or retries.'
+      'Native spec coverage must be nonempty, complete, and pass without skips or retries.'
     );
   return { expected: expected.length, passed: actual.length, skipped: 0 };
 }
@@ -40,7 +40,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const [list, result] = process.argv.slice(2);
   process.stdout.write(
     JSON.stringify(
-      validateServedReport(
+      validateNativeSpecReport(
         JSON.parse(readFileSync(list, 'utf8')),
         JSON.parse(readFileSync(result, 'utf8'))
       )

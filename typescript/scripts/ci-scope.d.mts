@@ -108,6 +108,7 @@ export function selectCiAreas(paths: readonly string[], map?: ComponentMap): CiA
 export function selectColabHarness(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabApp(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectColabHosted(paths: readonly string[]): boolean;
+export function selectColabChrome(paths: readonly string[], map?: ComponentMap): boolean;
 export function selectRemoteFirestore(paths: readonly string[]): boolean;
 export function selectColabFirestore(paths: readonly string[]): boolean;
 export function selectNativeSyncEmulator(paths: readonly string[]): boolean;

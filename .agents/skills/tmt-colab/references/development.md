@@ -337,6 +337,8 @@ embedded assets; restart serve to adopt disk builds.
   `rust/target/debug/tmt-colab`), so a run without them proves only the other specs.
   Design-review screenshots go to `COLAB_CAPTURE_DIR` (default
   `<tmpdir>/colab-app-captures`); never hard-code a host path in a spec.
+- `ci.yml`'s gating `colab-chrome` job runs `e2e/chrome.spec.ts` with the built socket fixture
+  and `COLAB_CHROME_REQUIRED=1`, so there a missing fixture fails instead of skipping.
 - The PR-selected `colab-hosted` job also runs `e2e/served.spec.ts` last with its
   embedded executable and a task-owned expected-byte copy. `COLAB_SERVE_REQUIRED=1`
   makes missing-native a failure; the list/result JSON guard refuses empty, incomplete

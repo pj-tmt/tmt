@@ -42,6 +42,7 @@ jobs:
       remote_firestore: ${{ steps.mainfull.outputs.remote_firestore || steps.scope.outputs.remote_firestore || steps.queue.outputs.remote_firestore || 'false' }}
       colab_firestore: ${{ steps.mainfull.outputs.colab_firestore || steps.scope.outputs.colab_firestore || steps.queue.outputs.colab_firestore || 'false' }}
       native_sync_emulator: ${{ steps.mainfull.outputs.native_sync_emulator || steps.scope.outputs.native_sync_emulator || steps.queue.outputs.native_sync_emulator || 'false' }}
+      colab_chrome: ${{ steps.mainfull.outputs.colab_chrome || steps.scope.outputs.colab_chrome || steps.queue.outputs.colab_chrome || 'false' }}
       scoped_native_tests: ${{ steps.mainfull.outputs.scoped_native_tests || steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.mainfull.outputs.e2e_shard_1 || steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.mainfull.outputs.e2e_shard_2 || steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
@@ -242,6 +243,90 @@ jobs:
         with:
           name: native-dependency-notices
           path: rust/target/native-notices/verified/
+          retention-days: 7
+
+  # The cross-screen chrome spec needs the native socket test executable that renders the fallback
+  # chrome. It gates through `Native package matrix`: selected means success, a missing fixture fails.
+  colab-chrome:
+    name: Colab chrome spec (Chromium)
+    needs: changes
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.colab_chrome == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - name: Install frozen app tooling
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app... --fail-if-no-match install --frozen-lockfile --ignore-scripts
+      - name: Point Playwright at a restorable browser directory
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/colab-chrome-browsers" >> "$GITHUB_ENV"
+      - name: Read pinned Playwright version
+        id: playwright
+        working-directory: extensions/tmt-colab/typescript/app
+        run: node -p '"version=" + require("@playwright/test/package.json").version' >> "$GITHUB_OUTPUT"
+      - name: Restore Chromium
+        id: browsers
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium and Linux dependencies
+        working-directory: typescript
+        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+      - name: Save Chromium on main only
+        if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: ${{ steps.browsers.outputs.cache-primary-key }}
+      - name: Install pinned Rust toolchain
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
+      - name: Restore shared Rust dependencies without saving
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Build the native chrome fixture
+        id: fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --manifest-path rust/Cargo.toml -j 2 -p tmt-colab --test socket --no-run --message-format=json > "$RUNNER_TEMP/chrome-fixture-build.json"
+          executable="$(jq -r 'select(.reason == "compiler-artifact" and .target.name == "socket" and .executable != null) | .executable' "$RUNNER_TEMP/chrome-fixture-build.json")"
+          test -x "$executable"
+          echo "executable=$executable" >> "$GITHUB_OUTPUT"
+      - name: Run the cross-screen chrome spec without skips
+        env:
+          COLAB_CHROME_REQUIRED: '1'
+          COLAB_CHROME_FIXTURE_EXECUTABLE: ${{ steps.fixture.outputs.executable }}
+          COLAB_CHROME_CAPTURE_DIR: ${{ runner.temp }}/colab-chrome-results/captures
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-chrome-results/results.json
+        working-directory: typescript
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/colab-chrome-results"
+          PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/colab-chrome-results/list.json" \
+            pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --list --reporter=json
+          pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/chrome.spec.ts --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-chrome-results/traces"
+          node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-chrome-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
+      # Fixture data only (synthetic pages, no account or device state); traces are kept for seven days.
+      - name: Upload failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colab-chrome-results
+          path: ${{ runner.temp }}/colab-chrome-results/traces
+          if-no-files-found: ignore
           retention-days: 7
 
   native-clippy:
@@ -851,6 +936,7 @@ jobs:
       [
         changes,
         native-notices,
+        colab-chrome,
         release-rehearsal,
         native-rust,
         unit-tests,
@@ -888,6 +974,11 @@ jobs:
           NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}
           NOTICES_RESULT: ${{ needs.native-notices.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$NOTICES_SELECTED" "$NOTICES_RESULT"
+      - name: Require the selected Colab chrome spec
+        env:
+          CHROME_SELECTED: ${{ needs.changes.outputs.colab_chrome }}
+          CHROME_RESULT: ${{ needs.colab-chrome.result }}
+        run: node typescript/scripts/ci-scope.mjs gate "$CHROME_SELECTED" "$CHROME_RESULT"
       - name: Require the selected release rehearsal
         env:
           REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}
@@ -900,6 +991,7 @@ jobs:
       - changes
       - code-quality
       - native-notices
+      - colab-chrome
       - native-clippy
       - native-workspace-tests
       - native-process-tests

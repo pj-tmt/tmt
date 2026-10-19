@@ -233,7 +233,8 @@ jobs:
         working-directory: typescript
         run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
       # One worker and no retries, as configured. The native-fixture specs (cli, chrome) skip
-      # with a named reason here; the real-binary job below owns native behavior.
+      # with a named reason here; the real-binary job below owns native behavior, and ci.yml's
+      # gating `colab-chrome` job runs the chrome spec with its fixture.
       - name: Run the app component specs
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/colab-app-results/results.json
@@ -351,7 +352,7 @@ jobs:
           PLAYWRIGHT_JSON_OUTPUT_FILE="$RUNNER_TEMP/colab-served-results/list.json" \
             pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --list --reporter=json
           pnpm --filter @tmt/colab-app --fail-if-no-match test:browser e2e/served.spec.ts --workers=1 --reporter=list,json --output "$RUNNER_TEMP/colab-served-results/traces"
-          node scripts/colab-served-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
+          node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"
 
   colab-acceptance:
     name: Colab real-binary acceptance (Chromium, shard ${{ matrix.shard }}/2)
