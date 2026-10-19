@@ -34,7 +34,7 @@ pub(in crate::board) fn fixture(scene: &str, look: Look, now_ms: u64) -> App {
     home.workspace.rows.get_mut(&target).unwrap()["name"] = json!(name);
     home.workspace.roster.members.get_mut(MEMBER).unwrap().name = name.into();
     let sent = match scene {
-        "sent-sending" => now_ms,
+        "sent-sending" => now_ms - 1_000,
         "sent-earlier" => now_ms - 42_000,
         _ => now_ms - 180_000,
     };

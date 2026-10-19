@@ -74,7 +74,7 @@ enum Change {
 
 #[derive(Clone, Copy)]
 enum AuthoredLine {
-    Outgoing { answer: bool },
+    Outgoing { answer: bool, sequence: u64 },
     ReplyHeading,
     Status { sequence: u64 },
 }

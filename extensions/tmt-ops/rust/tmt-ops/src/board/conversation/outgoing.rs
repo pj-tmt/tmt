@@ -14,6 +14,9 @@ use crate::{
 // Sends stay in the session until this many have scrolled past; the byte budget
 // below still bounds the total.
 const MAX_ITEMS: usize = 512;
+/// R1 for the sending row: nothing for the first 400 ms, then `sending…` for at
+/// least 400 ms, so a fast send goes straight to its next state without a flash.
+const SENDING_DELAY_MS: u64 = 400;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 mod progress;
@@ -146,6 +149,10 @@ pub(super) struct Entry {
     pub(super) reply: Option<Reply>,
     feedback: String,
     feedback_clock: Option<FeedbackClock>,
+    /// The first frame time at which `sending…` was painted.
+    sending_shown_ms: Option<u64>,
+    /// A settled send keeps `sending…` until it has been visible long enough.
+    sending_held: bool,
 }
 impl Entry {
     pub(super) fn pending(&self) -> bool {
@@ -165,9 +172,36 @@ impl Entry {
             + self.reply.as_ref().map_or(0, |reply| reply.body.len())
             + self.lead_in.as_ref().map_or(0, |reply| reply.body.len())
     }
+    /// Time-driven only: advances the R1 sending row; returns whether it changed.
+    fn observe_sending(&mut self, now_ms: u64) -> bool {
+        let before = (self.sending_shown_ms, self.sending_held);
+        if self.outcome.is_none()
+            && self.sending_shown_ms.is_none()
+            && now_ms.saturating_sub(self.started_ms) >= SENDING_DELAY_MS
+        {
+            self.sending_shown_ms = Some(now_ms);
+        }
+        self.sending_held = self.outcome.is_some()
+            && self
+                .sending_shown_ms
+                .is_some_and(|shown| now_ms < shown + SENDING_DELAY_MS);
+        before != (self.sending_shown_ms, self.sending_held)
+    }
+    /// When the sending row next changes without any other event.
+    fn sending_boundary(&self) -> Option<u64> {
+        match (&self.outcome, self.sending_shown_ms) {
+            (None, None) => Some(self.started_ms + SENDING_DELAY_MS),
+            (Some(_), Some(shown)) => Some(shown + SENDING_DELAY_MS),
+            _ => None,
+        }
+    }
     fn status(&self) -> String {
+        if self.sending_held {
+            return "sending…".into();
+        }
         match &self.outcome {
-            None => "sending…".into(),
+            None if self.sending_shown_ms.is_some() => "sending…".into(),
+            None => String::new(),
             Some(Outcome::Send(Ok(accepted))) => match accepted.disposition {
                 Disposition::Sent => self.feedback.clone(),
                 Disposition::Queued => "◌ queued · inbox".into(),
@@ -218,6 +252,7 @@ impl Session {
         let mut changed = false;
         let pending = &self.pending_replies;
         for entry in &mut self.outgoing {
+            changed |= entry.observe_sending(now_ms);
             // The reply exists and is being read: keep the line as painted.
             if entry
                 .request()
@@ -267,6 +302,15 @@ impl Session {
         if app.modal_open() {
             return;
         }
+        if let Some(until_ms) = self.status_entry(source).and_then(Entry::sending_boundary) {
+            let mut clocks = app.frame_clocks.borrow_mut();
+            let gate = crate::board::view::ClockSurface::SendingGate { until_ms };
+            if !clocks.iter().any(|held| {
+                matches!(held, crate::board::view::ClockSurface::SendingGate { until_ms: known } if *known == until_ms)
+            }) {
+                clocks.push(gate);
+            }
+        }
         let Some(clock) = self.feedback_clock(source) else {
             return;
         };
@@ -294,6 +338,28 @@ impl Session {
     }
 
     fn feedback_clock(&self, source: usize) -> Option<&FeedbackClock> {
+        self.status_entry(source)
+            .filter(|entry| entry.reply.is_none())
+            .and_then(|entry| entry.feedback_clock.as_ref())
+    }
+
+    /// The sent message's age, like every other stamp; it admits its own clock.
+    pub(super) fn outgoing_stamp(&self, app: &App, sequence: u64) -> String {
+        let Some(entry) = self.outgoing.iter().find(|e| e.ticket.sequence == sequence) else {
+            return "now".into();
+        };
+        let mut clocks = app.frame_clocks.borrow_mut();
+        let at = entry.started_ms;
+        if !clocks.iter().any(|held| {
+            matches!(held, crate::board::view::ClockSurface::ActivityAge(known) if *known == at)
+        }) {
+            clocks.push(crate::board::view::ClockSurface::ActivityAge(at));
+        }
+        super::exchange::age_stamp(&crate::requests::age(crate::status::now_ms(), at))
+    }
+
+    /// The send whose status row paints at this source line.
+    fn status_entry(&self, source: usize) -> Option<&Entry> {
         let source = self.rendered.as_ref().and_then(|rendered| {
             rendered
                 .response_sources
@@ -308,8 +374,7 @@ impl Session {
         };
         self.outgoing
             .iter()
-            .find(|entry| entry.ticket.sequence == *sequence && entry.reply.is_none())
-            .and_then(|entry| entry.feedback_clock.as_ref())
+            .find(|entry| entry.ticket.sequence == *sequence)
     }
 
     pub(super) fn feedback_line<'a>(
@@ -543,6 +608,7 @@ impl Session {
                 header_line,
                 super::AuthoredLine::Outgoing {
                     answer: entry.question.is_some(),
+                    sequence: entry.ticket.sequence,
                 },
             );
             self.compact_separators.insert(header_line + 1);
@@ -712,6 +778,8 @@ impl App {
             reply: None,
             feedback: String::new(),
             feedback_clock: None,
+            sending_shown_ms: None,
+            sending_held: false,
         });
         session.trim_outgoing();
         session.follow = true;

@@ -256,15 +256,18 @@ fn five_dispositions_preserve_delivery_and_never_infer_activity_from_task_state(
         let fake = Fake::new(document, false);
         let mut app = fixture();
         let completed = send(&mut app, &fake, "exact outgoing text");
-        let sending = draw(&app);
+        // R1: `sending…` appears only after 400 ms.
+        let started = crate::status::now_ms();
+        let sending = crate::status::with_now_ms(started + 500, || draw(&app));
         assert!(
-            sending.contains("You · now")
+            sending.contains("You")
                 && sending.contains("exact outgoing text")
                 && sending.contains("sending")
         );
         assert!(app.input.as_ref().unwrap().text.is_empty());
         finish(&mut app, completed);
-        let painted = draw(&app);
+        // The visible `sending…` row is kept for 400 ms before the outcome.
+        let painted = crate::status::with_now_ms(started + 1_000, || draw(&app));
         assert!(painted.contains(label), "{painted}");
         assert!(painted.contains("working · product · member"), "{painted}");
         assert!(
@@ -1681,6 +1684,8 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
             reply: None,
             feedback: String::new(),
             feedback_clock: None,
+            sending_shown_ms: None,
+            sending_held: false,
         });
     }
     session.trim_outgoing();
@@ -1814,6 +1819,59 @@ fn a_reply_still_being_read_never_flashes_a_loading_row_between_working_and_repl
         assert!(
             !screen.contains("is working") && !screen.contains("reading reply"),
             "{screen}"
+        );
+    });
+}
+
+#[test]
+fn the_sending_row_is_nothing_for_400ms_then_visible_for_at_least_400ms() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    let at = |app: &App, ms: u64| crate::status::with_now_ms(SENT + ms, || draw(app));
+    let fresh = |text: &str, fake: &Fake| {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        provider_observation(&mut app, Phase::Working, SENT);
+        let completed = crate::status::with_now_ms(SENT, || send(&mut app, fake, text));
+        (app, completed)
+    };
+    let _ = MEMBER;
+    crate::status::with_now_ms(SENT, || {
+        // A fast send, admitted at 200 ms, never paints `sending…`.
+        let fake = Fake::new(json!({"requestId":"fast","status":"sent"}), false);
+        let (mut app, completed) = fresh("fast message", &fake);
+        for ms in [0, 100, 190] {
+            let screen = at(&app, ms);
+            assert!(!screen.contains("sending"), "{ms}: {screen}");
+        }
+        crate::status::with_now_ms(SENT + 200, || finish(&mut app, completed));
+        for ms in [210, 250, 600] {
+            let screen = at(&app, ms);
+            assert!(!screen.contains("sending"), "{ms}: {screen}");
+            assert!(screen.contains("worker is working"), "{ms}: {screen}");
+        }
+        // A slow send shows `sending…` from 400 ms and keeps it for 400 ms
+        // after it was first painted, even if the send settles right away.
+        let fake = Fake::new(json!({"requestId":"slow","status":"sent"}), false);
+        let (mut app, completed) = fresh("slow message", &fake);
+        assert!(!at(&app, 399).contains("sending"));
+        assert!(at(&app, 450).contains("sending…"));
+        crate::status::with_now_ms(SENT + 500, || finish(&mut app, completed));
+        let held = at(&app, 600);
+        assert!(
+            held.contains("sending…") && !held.contains("worker is working"),
+            "{held}"
+        );
+        let done = at(&app, 900);
+        assert!(
+            !done.contains("sending") && done.contains("worker is working"),
+            "{done}"
         );
     });
 }

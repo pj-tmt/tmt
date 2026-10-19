@@ -290,13 +290,16 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                     };
                 };
                 match session.authored_lines.get(&source) {
-                    Some(AuthoredLine::Outgoing { answer: true }) => {
+                    Some(AuthoredLine::Outgoing { answer: true, .. }) => {
                         exchange::replier(exchange::Sender::You(me), look)
                     }
-                    Some(AuthoredLine::Outgoing { answer: false }) => exchange::header(
+                    Some(AuthoredLine::Outgoing {
+                        answer: false,
+                        sequence,
+                    }) => exchange::header(
                         exchange::Sender::You(me),
                         name,
-                        "now",
+                        &session.outgoing_stamp(app, *sequence),
                         read_only,
                         usize::from(body.width),
                         look,
