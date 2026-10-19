@@ -64,7 +64,8 @@ this tab and shows the limit, settings link when supplied, and CLI command.
 Other tunnel resyncs reuse the same session and Remote adapter, rebuilding only
 the Ask controller. A verified Remote session fault triggers coalesced mounted session
 replacement, verifies the same device and space owner, then rebuilds the
-Remote adapter and Ask controller before opening sync. Closing the old controller
+Remote adapter and Ask controller before opening sync. The page-list read does the same once
+when the door refuses it for an ended session, so Back from a page reaches the list. Closing the old controller
 invalidates its preview actions; the new controller observes unresolved original
 IDs after catchup. Normal context, agent-list, send and result calls never reopen
 the session.
