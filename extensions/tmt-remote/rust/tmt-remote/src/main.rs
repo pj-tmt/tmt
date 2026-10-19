@@ -55,13 +55,13 @@ const RESTART: CommandSpec = CommandSpec {
 };
 const LINK: CommandSpec = CommandSpec {
     name: "link",
-    summary: "Print the remote link",
+    summary: "Print a link to this remote's join guide",
     examples: &[Example {
         command: "tmt remote link --json",
         note: "Read the public configuration link",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Read-only. The link carries public Firebase configuration, not access; pairing still grants access. You can share it again; it is not one-time. Does not deploy or open a browser.",
+    details: "Share this link so someone can connect to this remote. It holds public connection details only and gives no access to shared pages or the project. Printing it opens no browser and changes nothing. The same link can be shared again.",
 };
 const STATUS: CommandSpec = CommandSpec {
     name: "status",
@@ -252,7 +252,7 @@ fn grammar() -> Command {
             outputs: OutputModes::Human, details: "Only Firestore sharing is supported. Deployment requires explicit exact-plan authorization.",
         }).subcommand_required(true).subcommand(tmt_remote::deploy_cli::command()))
         .subcommand(tmt_cli_style::command(&CommandSpec { name: "ls", summary: "List remotes", examples: &[Example { command: "tmt remote ls --json", note: "List names, projects and regions" }], outputs: OutputModes::HumanAndJson, details: "The default column marks only the configured default. This is not live provider status." }))
-        .subcommand(tmt_cli_style::command(&CommandSpec { name: "add", summary: "Add a public remote reference", examples: &[Example { command: "tmt remote add test <remote-link> --json", note: "Register public configuration without granting access" }], outputs: OutputModes::HumanAndJson, details: "Adding a reference changes no cloud resources or access." }).arg(Arg::new("name").required(true)).arg(Arg::new("url").required(true)))
+        .subcommand(tmt_cli_style::command(&CommandSpec { name: "add", summary: "Remember a remote on this machine", examples: &[Example { command: "tmt remote add test <remote-link> --json", note: "Register public configuration without granting access" }], outputs: OutputModes::HumanAndJson, details: "Save the remote's public connection details under a name you choose. This does not sign in, grant page access or change the project." }).arg(Arg::new("name").required(true)).arg(Arg::new("url").required(true)))
         .subcommand(tmt_cli_style::command(&CommandSpec { name: "rm", summary: "Remove only a remote reference", examples: &[Example { command: "tmt remote rm test --json", note: "Keep deploy history and cloud resources" }], outputs: OutputModes::HumanAndJson, details: "Removing the default leaves it pointing to a removed remote until you change default-remote." }).arg(Arg::new("name").required(true)))
         .subcommand(tmt_cli_style::command(&LINK).arg(Arg::new("project").long("project").help("Project deployed from this machine")))
         .subcommand(tmt_cli_style::command(&STOP))
@@ -1571,6 +1571,51 @@ mod cli_style_allowlist;
 #[cfg(test)]
 mod tests {
     use super::{cli_style_allowlist, grammar, open::Outcome, open_row};
+
+    #[test]
+    fn anonymous_connect_help_separates_reference_sign_in_and_browser_page_access() {
+        for (words, expected) in [
+            (
+                vec!["link"],
+                vec![
+                    "Print a link to this remote's join guide",
+                    "Share this link so someone can connect to this remote. It holds public connection details only and gives no access to shared pages or the project. Printing it opens no browser and changes nothing. The same link can be shared again.",
+                ],
+            ),
+            (
+                vec!["add"],
+                vec![
+                    "Remember a remote on this machine",
+                    "Save the remote's public connection details under a name you choose. This does not sign in, grant page access or change the project.",
+                ],
+            ),
+            (
+                vec!["sync"],
+                vec!["To open a shared page in your browser, use the page link from its owner."],
+            ),
+            (
+                vec!["sync", "sign-in"],
+                vec![
+                    "Sign this machine in to a remote",
+                    "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.",
+                ],
+            ),
+        ] {
+            let mut command = grammar();
+            for word in &words {
+                command = command.find_subcommand(word).unwrap().clone();
+            }
+            let help = tmt_cli_style::help_text(&command, tmt_cli_style::Terminal::PLAIN)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            for text in expected {
+                assert!(help.contains(text), "{words:?}: missing {text:?} in {help}");
+            }
+            assert!(!help.contains("pairing still grants access"));
+            assert!(!help.contains("owner must admit"));
+        }
+    }
 
     #[test]
     fn sync_commands_use_the_shipped_selector_and_have_no_browser_flags() {

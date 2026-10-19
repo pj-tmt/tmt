@@ -54,7 +54,7 @@ GitHub requires an owner-created OAuth app and console entry of its client ID/se
 deploy stops with a fixed owner-console instruction, like the existing Google owner step. No secret
 belongs in a share link. Policies are link holders or an email allow-list; company-domain policy is
 outside v1. Invite links are multi-use by default (as today), with optional single-use at creation.
-The provider/policy inputs, single-use option, join guide and machine-join flow remain proposals.
+The provider/policy inputs, single-use option and machine-join flow remain proposals.
 The current [anonymous bootstrap](#hosted-anonymous-bootstrap) and Rules remain unchanged.
 [Native automatic opens](#native-automatic-opens) use the local driver only; manual
 `tmt remote pair` retains its terminal ceremony.
@@ -2406,6 +2406,26 @@ Colab owns the hosted shell policy and its composed manifest headers.
 The local door's pairing and session path never implicitly loads Firebase.
 Cloud agent operations and a machine connector are not shipped. This bootstrap's Firestore
 access is the browser sealed-document transport described below.
+
+### Anonymous connect guide
+
+Colab's hosted `/pair` entry presents the public Remote link as an anonymous connect guide,
+before its page-link fragment parser. The original public link and the installed declaration's
+exact bytes/digest pass through the existing `firebaseRemote.connect` checks; the guide adds no
+link parser, pairing, device proof or Rules/admission gate. Colab owns that entry and its view;
+Remote owns the public link, CLI help and bounded Auth implementation.
+
+Browser progress comes only from bounded `connect` and an explicit `signInAnonymous` result.
+A confirmed browser sign-in proves neither page access nor machine readiness. Closing the guide
+closes its Auth reference and suppresses late progress. Failure uses fixed copy, never provider
+bodies, and causes no automatic sign-in retry. Only a validated public link enables command copying.
+
+The machine section provides instructions to add the public reference and sign in with an explicit
+remote selector, with no progress labels, local probes or default changes. Copying does not execute
+them. Opening the owner's page link is a browser-only instruction: Colab's existing token self-join
+admits that browser uid with the link's role. It does not admit the machine's native sync uid.
+Native share-link joining remains stage 5 of #3861; #3868 only integrates local browser opening.
+The existing CLI grammar/JSON and public link bytes remain unchanged.
 
 ### Native sealed-document carrier
 

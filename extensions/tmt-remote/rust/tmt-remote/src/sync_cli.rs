@@ -24,17 +24,17 @@ const SYNC: CommandSpec = CommandSpec {
         note: "Sign in to the selected Firestore remote",
     }],
     outputs: OutputModes::Human,
-    details: "Uses --remote, the configured default, then this machine's Firestore project. Public remote references grant no membership; a space owner admits the sign-in identity in Colab.",
+    details: "Uses --remote, the configured default, then this machine's Firestore project. Public remote references grant no membership. To open a shared page in your browser, use the page link from its owner.",
 };
 const SIGN_IN: CommandSpec = CommandSpec {
     name: "sign-in",
-    summary: "Sign in to Firestore for native sync",
+    summary: "Sign this machine in to a remote",
     examples: &[Example {
         command: "tmt remote --remote team sync sign-in --json",
         note: "Sign in using a public remote reference",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "An active sign-in is reused. After it ends, signing in creates a new identity that the space owner must admit in Colab. An unconfirmed attempt is never retried automatically.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
+    details: "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
 };
 const REVOKE: CommandSpec = CommandSpec {
     name: "revoke",
