@@ -952,3 +952,42 @@ test.describe('relative retention evidence', () => {
     );
   });
 });
+
+// Back from a page to the list reads the catalog again; an ended Remote session is refreshed once
+// for the same device, as the page's own read does, instead of ending in a terminal error.
+for (const status of [403, 503])
+  test(`Back to the list refreshes an ended session once (${status}) and shows the list`, async ({
+    page,
+  }) => {
+    await fixture(page);
+    await page.goto(mount);
+    await page.locator(`[data-page-id="${pageId}"] a`).click();
+    await expect(page).toHaveURL(/\/p\//);
+    let reads = 0;
+    await page.route(`**${mount}api/pages`, (route) =>
+      reads++ === 0 ? route.fulfill({ status, json: { code: 'DENIED' } }) : route.fallback(),
+    );
+    const registers = page.waitForRequest(`**${mount}api/devices/register`);
+    await page.goBack();
+    await registers;
+    await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/colab\/$/);
+    expect(reads).toBe(2);
+  });
+test('Back to the list still ends in the error when a refreshed session is refused again', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto(mount);
+  await page.locator(`[data-page-id="${pageId}"] a`).click();
+  await expect(page).toHaveURL(/\/p\//);
+  let reads = 0;
+  await page.route(`**${mount}api/pages`, (route) => {
+    reads++;
+    return route.fulfill({ status: 403, json: { code: 'DENIED' } });
+  });
+  await page.goBack();
+  await expect(page.getByText('DENIED')).toBeVisible();
+  expect(reads).toBe(2);
+});

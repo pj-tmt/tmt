@@ -93,6 +93,14 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
   const requests = new WeakMap<Pending, ManagementClient>();
   const scopedSignal = (signal?: AbortSignal) =>
     signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal;
+  /** The door refused a read because this device's Remote session ended and can be reopened. */
+  function endedSession(error: unknown): boolean {
+    return (
+      error instanceof AdmissionRefusedError &&
+      (error.status === 403 || error.status === 503) &&
+      classify(error).recovery === 'reopen'
+    );
+  }
   function managed<T>(client: ManagementClient, action: () => Promise<T>): Promise<T> {
     return owned(async () => {
       if (client !== managementClient) throw new ManagementError('DENIED');
@@ -211,34 +219,44 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       management,
       remotePresence,
       async spaceHome() {
+        const read = (client: ManagementClient) =>
+          managed(client, async () => {
+            const { boot, log } = await client.snapshot(lifetime.signal);
+            return {
+              title: text.product,
+              projects: boot.projects,
+              pageIds: boot.pageIds,
+              pages: await Promise.all(
+                boot.pages.map(async (page) => {
+                  const policy = project(page, log, boot.owner).page;
+                  const cachedTitle = await titles.read(page.pageId);
+                  return {
+                    id: page.pageId,
+                    title: cachedTitle || text.unknownPageTitle,
+                    titleMissing: cachedTitle === undefined,
+                    sharing: policy.sharing,
+                    archived: policy.archived,
+                    retentionDays: policy.retentionDays,
+                    lastUpdateAtMs: policy.lastUpdateAtMs,
+                    expiresAtMs: policy.expiresAtMs,
+                    warnings: policy.warnings,
+                    projects: page.projects,
+                    summary: page.summary,
+                  };
+                }),
+              ),
+            };
+          });
         const client = managementClient;
-        return managed(client, async () => {
-          const { boot, log } = await client.snapshot(lifetime.signal);
-          return {
-            title: text.product,
-            projects: boot.projects,
-            pageIds: boot.pageIds,
-            pages: await Promise.all(
-              boot.pages.map(async (page) => {
-                const policy = project(page, log, boot.owner).page;
-                const cachedTitle = await titles.read(page.pageId);
-                return {
-                  id: page.pageId,
-                  title: cachedTitle || text.unknownPageTitle,
-                  titleMissing: cachedTitle === undefined,
-                  sharing: policy.sharing,
-                  archived: policy.archived,
-                  retentionDays: policy.retentionDays,
-                  lastUpdateAtMs: policy.lastUpdateAtMs,
-                  expiresAtMs: policy.expiresAtMs,
-                  warnings: policy.warnings,
-                  projects: page.projects,
-                  summary: page.summary,
-                };
-              }),
-            ),
-          };
-        });
+        try {
+          return await read(client);
+        } catch (error) {
+          if (!endedSession(error)) throw error;
+          // The list read refreshes the same device once, like a page read, so Back from a page
+          // after the session ended lands on the list.
+          await owner.reconnect(client.registration, lifetime.signal);
+          return read(managementClient);
+        }
       },
       readingDetails(id, signal) {
         // A new shell opening joins the previous aborted request before starting its read.
@@ -346,12 +364,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
         try {
           boot = await read();
         } catch (error) {
-          if (
-            !(error instanceof AdmissionRefusedError) ||
-            (error.status !== 403 && error.status !== 503) ||
-            classify(error).recovery !== 'reopen'
-          )
-            throw error;
+          if (!endedSession(error)) throw error;
           // One same-device refresh per page attempt; PageReopener owns all retry timing.
           await owner.reconnect(bound.registration, pageSignal);
           pageSignal.throwIfAborted();
