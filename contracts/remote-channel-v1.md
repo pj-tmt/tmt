@@ -2418,14 +2418,19 @@ Remote owns the public link, CLI help and bounded Auth implementation.
 Browser progress comes only from bounded `connect` and an explicit `signInAnonymous` result.
 A confirmed browser sign-in proves neither page access nor machine readiness. Closing the guide
 closes its Auth reference and suppresses late progress. Failure uses fixed copy, never provider
-bodies, and causes no automatic sign-in retry. Only a validated public link enables command copying.
+bodies, and causes no automatic sign-in retry; the same action permits an explicit retry after failure.
+Only a validated public link enables command copying.
 
 The machine section provides instructions to add the public reference and sign in with an explicit
 remote selector, with no progress labels, local probes or default changes. Copying does not execute
 them. Opening the owner's page link is a browser-only instruction: Colab's existing token self-join
 admits that browser uid with the link's role. It does not admit the machine's native sync uid.
-Native share-link joining remains stage 5 of #3861; #3868 only integrates local browser opening.
-The existing CLI grammar/JSON and public link bytes remain unchanged.
+An active native sign-in reuses its uid; after it ends, signing in creates a new identity.
+Page access for a joining machine is not shipped: there is neither native share-link self-join
+nor an owner-to-Firebase-uid enrollment command. Machine page access remains stage 5 of #3861;
+#3868 only integrates local browser opening.
+The existing CLI grammar, JSON shape and public link bytes remain unchanged; fixed sign-in
+diagnostics state the machine-page-access limitation.
 
 ### Native sealed-document carrier
 

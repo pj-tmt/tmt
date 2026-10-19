@@ -1,8 +1,8 @@
 //! One owner for the accepted command/status copy and secret-free projection.
 use super::{AuthError, AuthErrorKind, AuthState, Status};
 use serde::Serialize;
-pub const SIGN_IN_ENDED: &str = "Firestore sign-in has ended. Run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab.";
-pub const SIGN_IN_UNCONFIRMED: &str = "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity that Colab must admit separately.";
+pub const SIGN_IN_ENDED: &str = "Firestore sign-in has ended. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet.";
+pub const SIGN_IN_UNCONFIRMED: &str = "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity. Page access for this machine is not available yet.";
 pub const REVOKE_UNCONFIRMED: &str =
     "Revoke not confirmed. Run `tmt remote sync revoke` again; nothing else changed.";
 #[derive(Serialize)]
@@ -55,7 +55,7 @@ pub fn status_line(status: &Status, now_ms: u64) -> Option<String> {
         AuthState::Active if status.expiry_notice => status.expires_at_ms.map(|end| {
             let date = crate::calendar::utc_date(end);
             let days = end.saturating_sub(now_ms).div_ceil(86_400_000);
-            format!("Firestore sign-in ends on {date} (in {days} days). After that, run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab.")
+            format!("Firestore sign-in ends on {date} (in {days} days). After that, run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet.")
         }),
         AuthState::ReSignInNeeded => Some(SIGN_IN_ENDED.into()),
         AuthState::Revoking => Some(format!("Firestore sign-in: {REVOKE_UNCONFIRMED}")),
@@ -67,15 +67,20 @@ pub fn signed_in(uid: &str, reused: bool) -> String {
     if reused {
         format!("Already signed in as {uid}. Nothing changed.")
     } else {
-        format!("Signed in to Firestore as {uid}. Admit this identity in Colab to finish.")
+        format!(
+            "Signed in to Firestore as {uid}. Page access for this machine is not available yet."
+        )
     }
 }
 pub fn revoked(uid: Option<&str>) -> String {
-    match uid {
+    let outcome = match uid {
         Some(uid) => format!(
             "Revoked the Firestore sign-in {}.",
             uid.chars().take(8).collect::<String>()
         ),
         None => "Already revoked.".into(),
-    }
+    };
+    format!(
+        "{outcome} Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
+    )
 }

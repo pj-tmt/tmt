@@ -1591,13 +1591,16 @@ mod tests {
             ),
             (
                 vec!["sync"],
-                vec!["To open a shared page in your browser, use the page link from its owner."],
+                vec![
+                    "Page access for this machine is not available yet.",
+                    "To open a shared page in your browser, use the page link from its owner.",
+                ],
             ),
             (
                 vec!["sync", "sign-in"],
                 vec![
                     "Sign this machine in to a remote",
-                    "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.",
+                    "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. After it ends, signing in creates a new identity. Page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.",
                 ],
             ),
         ] {

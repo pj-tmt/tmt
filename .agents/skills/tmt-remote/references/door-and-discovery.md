@@ -179,7 +179,7 @@ The native `firebase_auth` library is separate from deployment login and local d
 The [host-driver contract](../../../../contracts/remote-channel-v1.md#host-driver-authentication) owns that boundary. `firebase_auth` uses injected
 HTTP, clock, jitter, cancellation and credential-store ports. `tmt remote sync sign-in`
 and `sync revoke` compose them with the verified public selector; nothing opens. An active
-sign-in is reused without a network request. The space owner admits a new identity in Colab.
+sign-in is reused without a network request. The [connect-guide contract](../../../../contracts/remote-channel-v1.md#anonymous-connect-guide) owns the current machine-page-access limitation.
 Files are `remote/firebase-auth/<project>.json` plus
 the project lock, with refresh credentials only. The Remote writer uses stage/file-sync/
 rename/directory-sync under the lock and compares the captured credential before replacing
@@ -201,7 +201,7 @@ Ordinary status adds `signIn` with `state` and nullable `expiresAtMs`. Unreadabl
 credentials report `unreadable`, and a transient writer lock reports `busy`, with the existing
 credential diagnostic line; both preserve door status and a normal exit. Explicit/default
 selection errors still refuse. Expiring human copy
-names the ISO UTC end date and says to sign in after that date, then admit the new identity.
+names the ISO UTC end date, warns that signing in after it creates a new identity, and states the machine-page-access limitation.
 Command JSON uses the full uid; human output abbreviates it to eight characters. Paired
 device revocation remains `tmt remote devices revoke`, with cross-pointing help. A host
 without a published Firestore configuration still reports its ordinary door status; an

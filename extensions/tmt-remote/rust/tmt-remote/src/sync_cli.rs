@@ -24,7 +24,7 @@ const SYNC: CommandSpec = CommandSpec {
         note: "Sign in to the selected Firestore remote",
     }],
     outputs: OutputModes::Human,
-    details: "Uses --remote, the configured default, then this machine's Firestore project. Public remote references grant no membership. To open a shared page in your browser, use the page link from its owner.",
+    details: "Uses --remote, the configured default, then this machine's Firestore project. Public remote references grant no membership. Page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner.",
 };
 const SIGN_IN: CommandSpec = CommandSpec {
     name: "sign-in",
@@ -34,7 +34,7 @@ const SIGN_IN: CommandSpec = CommandSpec {
         note: "Sign in using a public remote reference",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
+    details: "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. After it ends, signing in creates a new identity. Page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
 };
 const REVOKE: CommandSpec = CommandSpec {
     name: "revoke",
@@ -115,10 +115,7 @@ pub(crate) fn run(
         Ok(()) if action == "sign-in" => {
             presentation::signed_in(uid.expect("confirmed identity"), reused)
         }
-        Ok(()) => format!(
-            "{} Run `tmt remote sync sign-in` when you need to sync again, then have the space owner admit the new identity in Colab.",
-            presentation::revoked(uid)
-        ),
+        Ok(()) => presentation::revoked(uid),
         Err(_) if action == "revoke" && status.state == AuthState::Revoking => {
             presentation::REVOKE_UNCONFIRMED.into()
         }

@@ -16,7 +16,7 @@ fn expiring_copy_waits_until_after_the_fixed_date_and_json_never_uses_zero() {
     let value = status(AuthState::Active, Some(end), true);
     assert_eq!(
         presentation::status_line(&value, end - 12 * 86_400_000).unwrap(),
-        "Firestore sign-in ends on 2026-11-12 (in 12 days). After that, run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab."
+        "Firestore sign-in ends on 2026-11-12 (in 12 days). After that, run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
     assert_eq!(
         serde_json::to_value(presentation::project(&value)).unwrap(),
@@ -44,7 +44,7 @@ fn ended_and_unknown_lines_name_the_actual_next_step_without_renewal_copy() {
     let ended = status(AuthState::ReSignInNeeded, None, false);
     assert_eq!(
         presentation::status_line(&ended, 0).unwrap(),
-        "Firestore sign-in has ended. Run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab."
+        "Firestore sign-in has ended. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
     assert_eq!(
         serde_json::to_value(presentation::project(&ended)).unwrap(),
@@ -52,7 +52,7 @@ fn ended_and_unknown_lines_name_the_actual_next_step_without_renewal_copy() {
     );
     assert_eq!(
         presentation::SIGN_IN_UNCONFIRMED,
-        "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity that Colab must admit separately."
+        "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity. Page access for this machine is not available yet."
     );
     assert_eq!(
         serde_json::to_value(presentation::unconfirmed(None)).unwrap(),
@@ -63,7 +63,7 @@ fn ended_and_unknown_lines_name_the_actual_next_step_without_renewal_copy() {
 fn human_command_outputs_abbreviate_uid_and_active_sign_in_says_nothing_changed() {
     assert_eq!(
         presentation::signed_in("fixture-identity-long", false),
-        "Signed in to Firestore as fixture-. Admit this identity in Colab to finish."
+        "Signed in to Firestore as fixture-. Page access for this machine is not available yet."
     );
     assert_eq!(
         presentation::signed_in("fixture-identity-long", true),
@@ -71,9 +71,12 @@ fn human_command_outputs_abbreviate_uid_and_active_sign_in_says_nothing_changed(
     );
     assert_eq!(
         presentation::revoked(Some("fixture-identity-long")),
-        "Revoked the Firestore sign-in fixture-."
+        "Revoked the Firestore sign-in fixture-. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
-    assert_eq!(presentation::revoked(None), "Already revoked.");
+    assert_eq!(
+        presentation::revoked(None),
+        "Already revoked. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
+    );
     assert_eq!(
         presentation::REVOKE_UNCONFIRMED,
         "Revoke not confirmed. Run `tmt remote sync revoke` again; nothing else changed."
