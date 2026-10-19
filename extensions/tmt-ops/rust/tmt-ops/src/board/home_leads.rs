@@ -73,7 +73,8 @@ impl FinalsKey {
 /// How many of the user's own sends to one agent are restored, newest first.
 pub(super) const SENT: usize = 20;
 /// The recipient-history page that holds those sends among other senders'.
-const SENT_PAGE: usize = 100;
+/// `requests.list` refuses a larger limit.
+const SENT_PAGE: usize = 50;
 
 /// One agent's durable requests from this user, read from storage so they
 /// survive a restart and are not bounded by the session's own sends.

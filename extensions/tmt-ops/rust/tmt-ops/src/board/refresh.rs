@@ -3525,19 +3525,23 @@ printf '%s\n' '{{}}'
             ]
         );
         assert!(!cancellation.cancelled());
-        let operations: Vec<String> = std::fs::read_to_string(calls)
+        let logged: Vec<Value> = std::fs::read_to_string(calls)
             .unwrap()
             .lines()
-            .map(|line| {
-                serde_json::from_str::<Value>(line).unwrap()["operation"]
-                    .as_str()
-                    .unwrap()
-                    .to_owned()
-            })
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let operations: Vec<_> = logged
+            .iter()
+            .map(|call| call["operation"].as_str().unwrap())
             .collect();
         assert_eq!(
             operations,
             ["requests.list", "requests.show", "requests.show"]
+        );
+        assert_eq!(
+            logged[0]["input"],
+            json!({"recipientId":"agent","limit":50}),
+            "core's largest page, with no originator filter"
         );
         drop(worker);
         std::fs::remove_dir_all(dir).unwrap();
