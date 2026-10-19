@@ -24,7 +24,7 @@ export function BearerArtifact({ url }: { url: string }) {
           }
         }}
       >
-        Copy share link
+        Copy link
       </button>
       {feedback && (
         <p className={c.commandFeedback} role="status">

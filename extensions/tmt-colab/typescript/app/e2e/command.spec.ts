@@ -14,7 +14,7 @@ test('verified bearer values copy exactly and remain selectable on clipboard den
   const link = await page.getByLabel('Share link', { exact: true }).inputValue();
   expect(new URL(link).pathname).toBe('/read/22222222-2222-4222-8222-222222222222');
   expect(new URL(link).hash).toContain('seed=');
-  const copy = page.getByRole('button', { name: 'Copy share link' });
+  const copy = page.getByRole('button', { name: 'Copy link' });
   await copy.focus();
   await page.keyboard.press('Enter');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);

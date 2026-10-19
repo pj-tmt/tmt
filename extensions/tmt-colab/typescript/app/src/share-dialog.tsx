@@ -280,9 +280,8 @@ export function ShareDialog({
             {pending?.artifact && ack && (
               <div className="bearer">
                 <p>
-                  Copy this share link now. It is shown once and never stored. Anyone with the link
-                  has bearer access. Shared links open in a separate read-only view, whatever their
-                  role.
+                  Copy this link now. It is shown only once and is not saved. Anyone with the link
+                  can open this page in a read-only view.
                 </p>
                 <BearerArtifact
                   key={pending.artifact.linkId}
@@ -561,7 +560,7 @@ export function ShareDialog({
                   review(
                     { operation: 'link.add', value: newLink(role, [pageId]) },
                     'Create link',
-                    `Grant ${role} bearer access under ${view.page.history} history. Copy the link once after verification. Shared links open read-only, whatever their role.`,
+                    `Grant ${role} bearer access under ${view.page.history} history. You can copy the link once, right after it is created. Shared links open read-only, whatever their role.`,
                   )
                 }
               >

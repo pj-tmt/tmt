@@ -597,7 +597,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   expect(capability.get('page')).toBe(pageId);
   await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
   await expect(dialog).toContainText(
-    'Shared links open in a separate read-only view, whatever their role',
+    'Anyone with the link can open this page in a read-only view.',
   );
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await choose(dialog, 'Audience', 'Private');
