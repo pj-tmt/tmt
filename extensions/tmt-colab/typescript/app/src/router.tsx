@@ -1285,6 +1285,15 @@ function Page() {
     renderer.current?.images(imageInput.current);
   }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  const accessLabel = archived
+    ? text.archiveReadOnly
+    : recoveryRequired
+      ? text.reconnecting
+      : state === 'ready'
+        ? text.live
+        : state === 'loading'
+          ? text.loading
+          : text.blocked;
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
   const canSelect =
@@ -1664,17 +1673,7 @@ function Page() {
               }
             >
               {archived ? '○ ' : `${text[snapshot.sharing]} · `}
-              <span className="status-label">
-                {archived
-                  ? text.archiveReadOnly
-                  : recoveryRequired
-                    ? text.reconnecting
-                    : state === 'ready'
-                      ? text.live
-                      : state === 'loading'
-                        ? text.loading
-                        : text.blocked}
-              </span>
+              <span className="status-label">{accessLabel}</span>
             </span>
           </div>
         }
@@ -1686,6 +1685,7 @@ function Page() {
             unseen={unseenThreads}
             chatUnread={notifications.chatUnread}
             readOnly={archived}
+            access={`${archived ? '○ ' : `${text[snapshot.sharing]} · `}${accessLabel}`}
             canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}

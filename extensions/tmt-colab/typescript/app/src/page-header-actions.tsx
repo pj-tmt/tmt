@@ -64,6 +64,9 @@ function PageHeaderIcon({
 
 const compactQuery = '(max-width: 640px)';
 
+/** Under 480px the header hides the access chip (CSS); its words lead the More menu instead. */
+const phoneQuery = '(max-width: 479px)';
+
 /** Page-local commands use the shared Menu presentation owner. */
 export function PageHeaderActions({
   active,
@@ -75,6 +78,7 @@ export function PageHeaderActions({
   canManage,
   canFiles,
   readOnly = false,
+  access,
   onSelect,
 }: {
   active: PageHeaderAction | null;
@@ -86,9 +90,12 @@ export function PageHeaderActions({
   canManage: boolean;
   canFiles: boolean;
   readOnly?: boolean;
+  /** The access chip's words; shown as the More menu's first, non-interactive line on a phone. */
+  access?: string;
   onSelect(action: PageHeaderAction): void;
 }) {
   const compact = useMedia(compactQuery);
+  const phone = useMedia(phoneQuery);
   const remoteAvailable = useRemoteHeaderSource();
   const MoreMenu = compact && remoteAvailable ? RemoteMoreMenu : BrowserMenu;
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
@@ -147,6 +154,7 @@ export function PageHeaderActions({
       <MoreMenu
         label={text.more}
         icon={<PageHeaderIcon name="more" />}
+        description={phone ? access : undefined}
         items={[
           ...(compact
             ? [

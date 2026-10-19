@@ -175,9 +175,12 @@ export function RemoteHeaderChip() {
 /** Narrow More reuses the existing shared submenu, without a shared header/menu API change. */
 export function RemoteMoreMenu({
   items = [],
+  description,
   onSelect = () => {},
 }: {
   items?: readonly BrowserMenuItem[];
+  /** A non-interactive first line, above the Remote count. */
+  description?: string;
   onSelect?(key: string): void;
 }) {
   const { snapshot, refresh } = usePresence();
@@ -246,6 +249,11 @@ export function RemoteMoreMenu({
               }
             }}
           >
+            {description && (
+              <DropdownMenuLabel className="remote-more-description">
+                {description}
+              </DropdownMenuLabel>
+            )}
             {snapshot.kind !== 'hidden' && (
               <DropdownMenuSub
                 onOpenChange={(open) => {

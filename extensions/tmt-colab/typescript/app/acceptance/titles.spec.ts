@@ -22,8 +22,11 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       if (screen === 'page') {
         const chip = header.locator('.page-sharing');
-        await expect(chip).toHaveText('Private · Live');
-        expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+        if (width === 390) await expect(chip).toBeHidden();
+        else {
+          await expect(chip).toHaveText('Private · Live');
+          expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+        }
         await expect(header.locator('.page-header-actions').getByRole('button')).toHaveCount(
           width === 390 ? 2 : 5,
         );

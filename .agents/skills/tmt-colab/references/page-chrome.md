@@ -67,8 +67,10 @@ display-only `local · <backendName>` identity (`local` when absent) is not a vi
 names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
 named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
 visually hidden and stays in that name. Author hides below 900px; the title truncates without
-changing its DOM copy. The page connection chip remains outside menus
-and keeps its existing connection owner. At 640px and narrower, Discussion and More
+changing its DOM copy. The page connection chip (`Private · Live`) remains outside menus
+and keeps its existing connection owner, except below 480px: the header hides it (CSS; the element stays in the DOM) and its words
+become the first, non-interactive line of the More menu (the menu's description, so the
+access state stays reachable and described), which leaves the title the room. At 640px and narrower, Discussion and More
 stay visible; Agents, Files (count), Source and Export move into More with the same
 handlers and disabled states. A single media-query observation selects those menu
 items; CSS owns fitting. Header, body and update-notice offsets use shared heights,
