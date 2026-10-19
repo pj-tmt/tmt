@@ -11,10 +11,17 @@ import { probeCapabilities } from '@tmt/colab-client';
 import { UnsupportedBrowserNotice } from './notice-card.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { startHosted } from './hosted-main.js';
+import { startConnectGuide } from './connect-guide.js';
 
 const root = createRoot(document.getElementById('root')!);
 async function start() {
   if (isHostedOrigin(location.origin)) {
+    if (location.pathname === '/pair') {
+      const link = location.href;
+      history.replaceState(history.state, '', location.pathname + location.search);
+      startConnectGuide(root, link);
+      return;
+    }
     await startHosted(root);
     return;
   }
