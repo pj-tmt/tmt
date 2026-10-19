@@ -149,19 +149,20 @@ channels and the driver protocol. The owner map is in
   must report that pane, socket and server pid and a live pane) are located on that chain.
   The nearer located pane owns the caller; a conclusive answer whose pane is off the chain
   is absent (the tmux server daemonizes, so the Herdr pane that runs tmux is never on a tmux
-  caller's chain). Doubt on either side (a driver that is not conclusive,
-  only one of `TMUX` and `TMUX_PANE`, a stale socket, another server or pane, both hosts
-  naming one pane process), no located pane, or a change from the caller up to the owner pane before the answer refuses and never
-  falls back to the other host. The hook then requires the pane pid it reads to be the
-  pinned owner's (`Host::pinned_caller_pane`). Two external hosts' variables still refuse.
-  Limits: a pid reused with the same start within the start resolution is not caught
-  (microseconds natively, whole seconds from `ps`; on Linux a native start is boot time plus
-  clock ticks, so a clock step between two reads can shift one entry by a second, which
-  refuses or misses a reuse within that second). Herdr started in a tmux that has since
-  closed keeps a stale `TMUX` and refuses: clear `TMUX` and `TMUX_PANE` before you start the
-  agent. Caller-session discovery after an ordinary command is scheduled by pane locators,
-  and Herdr's caller variable (`HERDR_PANE_ID`) holds a target, not a pane ID, so a
-  Herdr-owned nested caller runs no worker unless its tmux pane is bound. An external caller's server must already have a `host_servers`
+  caller's chain). Doubt on either side (a driver that is not conclusive, only one of
+  `TMUX` and `TMUX_PANE`, a stale socket, another server or pane, both hosts naming one pane
+  process), no located pane, or a change from the caller up to the owner pane before the
+  answer refuses and never falls back to the other host. The hook then requires the pane
+  pid it reads to be the pinned owner's (`Host::pinned_caller_pane`). Two external hosts'
+  variables still refuse. Limits: a pid reused with the same start within the start
+  resolution is not caught (microseconds natively, whole seconds from `ps`; on Linux a
+  native start is boot time plus clock ticks, so a clock step between two reads can shift
+  one entry by a second, which refuses or misses a reuse within that second). Herdr started
+  in a tmux that has since closed keeps a stale `TMUX` and refuses: clear `TMUX` and
+  `TMUX_PANE` before you start the agent. Caller-session discovery after an ordinary
+  command is scheduled by pane locators, and Herdr's caller variable (`HERDR_PANE_ID`)
+  holds a target, not a pane ID, so a Herdr-owned nested caller runs no worker unless its
+  tmux pane is bound. An external caller's server must already have a `host_servers`
   row (`RecordedHostServers` reads it and never records one).
   `Host::for_target` picks the host whose grammar reads the text. Only a definite answer is
   "not found"; a failing or late driver is `RECONCILIATION_FAILED`.

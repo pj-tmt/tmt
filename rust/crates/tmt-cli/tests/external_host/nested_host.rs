@@ -52,13 +52,17 @@ fn tmux_env(dir: &std::path::Path) -> [(&'static str, String); 3] {
     ]
 }
 
-fn nested_hook(fixture: &Fixture, dir: &std::path::Path) -> Output {
+/// The hook's output, and whether it took at least the nested proof's 1 s
+/// budget: only then can load have refused it.
+fn nested_hook(fixture: &Fixture, dir: &std::path::Path) -> (Output, bool) {
     let env = tmux_env(dir);
     let env: Vec<_> = env
         .iter()
         .map(|(name, value)| (*name, value.as_str()))
         .collect();
-    hook_with(fixture, Some("f1"), &env, true, "SessionStart", || {})
+    let start = std::time::Instant::now();
+    let output = hook_with(fixture, Some("f1"), &env, true, "SessionStart", || {});
+    (output, start.elapsed() >= Duration::from_secs(1))
 }
 
 /// The fake tmux's calls: only the one pane read on the outer socket.
@@ -82,9 +86,10 @@ fn assert_one_pane_read(dir: &std::path::Path) {
 /// and a tmux process. With the whole suite running, process starts can use
 /// it up, and a late answer is doubt, so the hook refuses. That is load, not
 /// the behaviour under test. A scenario asserts what load cannot change and
-/// returns true when its proof did not finish; then it runs again in a
-/// fresh fixture, at most five times, and each such attempt is reported. A
-/// fault that refuses every time still fails.
+/// returns true when its proof did not finish, which it accepts only when the
+/// hook took at least that 1 s (a faster refusal fails at once); then it runs
+/// again in a fresh fixture, at most five times, and each such attempt is
+/// reported. A fault that refuses every time still fails.
 fn within_budget(name: &str, scenario: impl Fn(&Fixture) -> bool) {
     for attempt in 1..=5 {
         let fixture = Fixture::new(&format!("{name}-{attempt}"));
@@ -116,8 +121,9 @@ fn a_hook_in_an_external_pane_inside_tmux_records_its_session() {
             let servers = host_servers(fixture);
             let rows = stored_rows(fixture);
             let dir = fake_tmux(fixture, Some(pane(tmux_pane, SERVER)));
-            let output = nested_hook(fixture, &dir);
+            let (output, late) = nested_hook(fixture, &dir);
             if refused(&output) {
+                assert!(late, "{case}: refused within the budget: {output:?}");
                 assert_eq!(
                     stored_rows(fixture),
                     rows,
@@ -152,10 +158,11 @@ fn assert_refused_at_tmux(name: &str, answer: Option<String>) {
         bind(fixture, record);
         let dir = fake_tmux(fixture, answer.clone());
         let rows = stored_rows(fixture);
-        let output = nested_hook(fixture, &dir);
+        let (output, late) = nested_hook(fixture, &dir);
         assert_eq!(stored_rows(fixture), rows, "a refused hook changed a row");
         assert_hook_refused(fixture, &output);
         if !dir.join("calls").exists() {
+            assert!(late, "refused before tmux within the budget: {output:?}");
             return true;
         }
         assert_one_pane_read(&dir);
@@ -195,13 +202,17 @@ fn a_nested_pane_that_is_not_the_pinned_shell_refuses() {
         let dir = fake_tmux(fixture, Some(pane(999_999, SERVER)));
         let rows = stored_rows(fixture);
         let calls = fixture.calls().len();
-        let output = nested_hook(fixture, &dir);
+        let (output, late) = nested_hook(fixture, &dir);
         // Read before `assert_hook_refused`, whose `ls` takes snapshots too.
         let chosen = fixture.calls()[calls..]
             .iter()
             .any(|call| call == "snapshot");
         assert_eq!(stored_rows(fixture), rows, "a refused hook changed a row");
         assert_hook_refused(fixture, &output);
+        assert!(
+            chosen || late,
+            "refused before the host choice within the budget"
+        );
         !chosen
     });
 
