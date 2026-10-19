@@ -81,8 +81,60 @@ describe('E2E ls row projection', () => {
     expect(() => rows(row)).toThrow();
   });
 
-  it('leaves an offline row alone', () => {
-    const offline = { id: 'id', presence: 'offline', pane: null, address: null, driver: null };
+  it.each([
+    ['a tmux pane address', {}],
+    ['an agent session address', { address: 'claude:abc', driver: 'claude' }],
+  ])('accepts a live row with %s and removes the address keys', (_name, patch) => {
+    expect(rows(live(patch))).toEqual({
+      id: 'id',
+      presence: 'active',
+      pane: '%1',
+      target: 'my session:3.0',
+    });
+  });
+
+  // Each case starts from the valid live row above and changes only the address keys, so a
+  // rejection can only come from the address check.
+  it.each([
+    ['both address keys missing', ['address', 'driver'], {}],
+    ['the address key missing', ['address'], {}],
+    ['the driver key missing', ['driver'], {}],
+    ['an undefined address and driver', [], { address: undefined, driver: undefined }],
+    ['an undefined address', [], { address: undefined }],
+    ['an undefined driver', [], { driver: undefined }],
+    ['a null address and driver', [], { address: null, driver: null }],
+    ['a driver that is not the address prefix', [], { driver: 'codex' }],
+  ])('rejects a live row with %s', (_name, drop, patch) => {
+    const row = live(patch) as Record<string, unknown>;
+    for (const key of drop) delete row[key];
+    expect(() => rows(row)).toThrow();
+  });
+
+  it.each([
+    ['an offline row', { id: 'id', presence: 'offline', pane: null }],
+    ['an unknown row', { id: 'id', presence: 'unknown', pane: null }],
+  ])('leaves %s without an address alone', (_name, base) => {
+    const row = { ...base, address: null, driver: null };
+    expect(rows(row)).toEqual(base);
+  });
+
+  it('accepts the remembered session address of an offline row', () => {
+    const offline = {
+      id: 'id',
+      presence: 'offline',
+      pane: null,
+      address: 'codex:abc',
+      driver: 'codex',
+    };
     expect(rows(offline)).toEqual({ id: 'id', presence: 'offline', pane: null });
+  });
+
+  it.each([
+    ['only the address key', { address: null }],
+    ['only the driver key', { driver: null }],
+    ['an undefined address and driver', { address: undefined, driver: undefined }],
+    ['a non-string driver', { address: 'codex:abc', driver: 7 }],
+  ])('rejects an offline row with %s', (_name, patch) => {
+    expect(() => rows({ id: 'id', presence: 'offline', pane: null, ...patch })).toThrow();
   });
 });

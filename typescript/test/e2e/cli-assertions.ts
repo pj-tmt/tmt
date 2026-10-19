@@ -42,20 +42,30 @@ function withoutLocation(row: Row): Row {
 /**
  * A `tmt ls` JSON result without the additive `address` and
  * `driver` keys (#434) and the pane `location`, after checking them, so scenarios
- * keep asserting the pre-existing contract exactly. Both address keys come together; a
- * live pane always has an address, which is its tmux pane unless an agent session is
- * known.
+ * keep asserting the pre-existing contract exactly. A row carries both keys or
+ * neither (a direct-pane document has neither); each is null or a string, and the two
+ * are null together. A live pane always has a string address, which is its tmux pane
+ * unless an agent session is known.
  */
 export function withoutAddress<T>(result: CliResult<T>): CliResult<T> {
   const strip = (original: Row): Row => {
     const row = withoutLocation(original);
-    if (!('address' in row) && !('driver' in row)) return row;
+    const live = typeof row.pane === 'string' && row.presence === 'active';
+    expect('address' in row, 'address and driver come together').toBe('driver' in row);
+    if (!('address' in row)) {
+      expect(live, 'a live pane always has an address').toBe(false);
+      return row;
+    }
     const { address, driver, ...rest } = row;
+    for (const value of [address, driver]) {
+      expect(
+        value === null || typeof value === 'string',
+        'address and driver are null or text'
+      ).toBe(true);
+    }
     expect(address === null, 'address and driver come together').toBe(driver === null);
     if (typeof address === 'string') expect(address.startsWith(`${String(driver)}:`)).toBe(true);
-    if (typeof rest.pane === 'string' && rest.presence === 'active') {
-      expect(address, 'a live pane always has an address').not.toBeNull();
-    }
+    if (live) expect(address, 'a live pane always has an address').not.toBeNull();
     return rest;
   };
   const value = result.json as unknown;
