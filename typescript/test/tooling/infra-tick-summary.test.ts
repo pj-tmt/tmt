@@ -120,31 +120,48 @@ function fixture({
         };
       }
       if (endpoint.includes('/logs')) return log;
-      if (endpoint.includes('/pulls?state=open'))
-        return open.map((row: any) => ({
+      if (endpoint.includes('/pulls?state=open') || endpoint.includes('/issues?state=closed')) {
+        const query = new URL(`https://api.github.com/${endpoint}`).searchParams;
+        const page = Number(query.get('page'));
+        const isOpen = endpoint.includes('/pulls?');
+        const rows = (isOpen ? open : closed).map((row: any) => ({
           updated_at: options.until,
           head: { sha: SHA },
           node_id: `PR_${row.id}`,
+          state: isOpen ? 'open' : 'closed',
+          ...(isOpen
+            ? {}
+            : {
+                pull_request: {
+                  url: `https://api.github.com/repos/pj-tmt/tmt/pulls/${row.number}`,
+                },
+              }),
           ...row,
         }));
-      if (endpoint.includes('/pulls?state=closed'))
-        return closed.map((row: any) => ({
-          updated_at: options.until,
-          head: { sha: SHA },
-          node_id: `PR_${row.id}`,
-          ...row,
-        }));
+        const since = query.get('since');
+        return rows
+          .filter((row: any) => !since || Date.parse(row.updated_at) > Date.parse(since))
+          .slice((page - 1) * 100, page * 100);
+      }
       if (endpoint.includes('/files?') || endpoint.includes('/comments?')) {
         const rows = endpoint.includes('/files?') ? files : comments;
         const page = Number(new URL(`https://api.github.com/${endpoint}`).searchParams.get('page'));
         return rows.slice((page - 1) * 100, page * 100);
       }
-      if (/\/pulls\/\d+$/.test(endpoint))
+      if (/\/pulls\/\d+$/.test(endpoint)) {
+        const number = Number(endpoint.split('/').at(-1));
+        const pr: any = [...open, ...closed].find((row: any) => row.number === number);
         return {
-          number: 1,
-          head: { sha: changedHead ? 'b'.repeat(40) : SHA },
+          updated_at: options.until,
+          state: closed.includes(pr) ? 'closed' : 'open',
+          merged_at: null,
+          ...pr,
+          node_id: pr?.node_id ?? `PR_${pr?.id}`,
+          number,
+          head: { sha: changedHead ? 'b'.repeat(40) : (pr?.head?.sha ?? SHA) },
           changed_files: files.length,
         };
+      }
       throw new Error(`Unexpected endpoint ${endpoint}`);
     },
     releases: () => releases,
@@ -543,7 +560,7 @@ describe('prepared Infra tick evidence', () => {
     expect(report.repeated).toHaveLength(1);
     expect(report.repeated[0].occurrences).toHaveLength(2);
   });
-  it('reads only recently updated open PRs plus PRs merged in the interval, stopping at the first old row', () => {
+  it('exhausts open history and hydrates closed candidates before selecting interval merges', () => {
     const old = new Date(Date.parse(options.since) - 1000).toISOString();
     const api = fixture({
       open: [
@@ -556,17 +573,12 @@ describe('prepared Infra tick evidence', () => {
       ],
       files: [{ filename: '.github/workflows/ci.yml' }],
     });
-    const read = api.get;
-    api.get = (endpoint) => {
-      if (endpoint.includes('state=open') && endpoint.includes('page=2'))
-        throw Error('Must stop at old row');
-      if (/\/pulls\/101$/.test(endpoint))
-        return { number: 101, head: { sha: SHA }, changed_files: 1 };
-      return read(endpoint);
-    };
     const report = collectInfraTick(api, options);
     expect(report.reviewEvidence.map((row) => row.pr)).toEqual([1, 101]);
-    expect(api.calls.some((call) => /\/pulls\/(?:2|102)(?:\/|$)/.test(call))).toBe(false);
+    expect(api.calls.filter((call) => /\/pulls\/(?:101|102)$/.test(call))).toHaveLength(2);
+    expect(api.calls.some((call) => call.includes('state=open') && call.endsWith('page=2'))).toBe(
+      true
+    );
   });
   it('extracts exact known log forms without inventing a failing test from arbitrary text', () => {
     expect(failingTests('some error about cron_clock\nPASS [ 1s] suite test\n')).toEqual([]);
@@ -773,7 +785,7 @@ if(args[1]==='graphql')console.log(JSON.stringify({data:{repository:{mergeQueue:
 else if(endpoint==='repos/pj-tmt/tmt')console.log('{"permissions":{"push":true}}');
 else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
 else if(endpoint.includes('/actions/runs?'))console.log('{"total_count":0,"workflow_runs":[]}');
-else if(endpoint.includes('/pulls?'))console.log('[]');
+else if(endpoint.includes('/pulls?')||endpoint.includes('/issues?state=closed'))console.log('[]');
 else throw Error('Unexpected endpoint');
 `,
         0o700
@@ -819,7 +831,7 @@ else throw Error('Unexpected endpoint');
       expect(report.complete).toBe(true);
       expect(JSON.parse(cursor).baselineUntil).toBe(initialCursor.baselineUntil);
       expect(report.coverage).toContain(initialCursor.baselineUntil);
-      expect(report.evidence.requests).toBe(18);
+      expect(report.evidence.requests).toBe(20);
       expect(JSON.parse(cursor).until).toBe(report.until);
       expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(detail.stdout);
       const refused = execute(true);
@@ -841,53 +853,63 @@ else throw Error('Unexpected endpoint');
   });
 });
 
-it('batches 30 PR reviews in one pass without mutable REST review reads', () => {
-  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-batched-'));
-  const evidence = fixture({
-    open: Array.from({ length: 30 }, (_, i) => ({ id: i + 1, number: i + 1 })),
-    files: [{ filename: '.github/workflows/ci.yml' }],
-  });
-  const calls: string[] = [];
-  try {
-    const api = createTickClient({
-      repository: 'pj-tmt/tmt',
-      cache,
-      trace: (row) => calls.push(row.endpoint!),
-      execute: (_program, args) => {
-        if (args[1] === 'graphql') {
-          if (args.includes(`query=${REVIEW_QUERY}`))
+it.each([0, 3])(
+  'batches 30 PR reviews with %i closed candidates and accounts for hydration reads',
+  (hydrated) => {
+    const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-batched-'));
+    const evidence = fixture({
+      open: Array.from({ length: 30 - hydrated }, (_, i) => ({ id: i + 1, number: i + 1 })),
+      closed: Array.from({ length: hydrated }, (_, i) => ({
+        id: 31 - hydrated + i,
+        number: 31 - hydrated + i,
+        merged_at: options.until,
+      })),
+      files: [{ filename: '.github/workflows/ci.yml' }],
+    });
+    const calls: string[] = [];
+    try {
+      const api = createTickClient({
+        repository: 'pj-tmt/tmt',
+        cache,
+        trace: (row) => calls.push(row.endpoint!),
+        execute: (_program, args) => {
+          if (args[1] === 'graphql') {
+            if (args.includes(`query=${REVIEW_QUERY}`))
+              return JSON.stringify({
+                data: {
+                  rateLimit: { cost: 1 },
+                  nodes: evidence.reviews(
+                    args.filter((arg) => arg.startsWith('ids[]=')).map((arg) => arg.slice(6))
+                  ),
+                },
+              });
             return JSON.stringify({
-              data: {
-                rateLimit: { cost: 1 },
-                nodes: evidence.reviews(
-                  args.filter((arg) => arg.startsWith('ids[]=')).map((arg) => arg.slice(6))
-                ),
-              },
+              data: { repository: { mergeQueue: { entries: evidence.queue() } } },
             });
-          return JSON.stringify({
-            data: { repository: { mergeQueue: { entries: evidence.queue() } } },
-          });
-        }
-        const endpoint = args.find((arg) => arg.startsWith('repos/'))!;
-        if (endpoint === 'repos/pj-tmt/tmt') return '{"permissions":{"push":true}}';
-        if (endpoint.includes('/releases?')) return 'HTTP/2 200 OK\r\n\r\n[]';
-        return JSON.stringify(evidence.get(endpoint));
-      },
-    });
-    const report = collectInfraTick(api, options);
-    expect(report.complete).toBe(true);
-    expect(report.reviewEvidence).toHaveLength(30);
-    expect(api.evidence()).toMatchObject({
-      requests: 19,
-      queueQueries: 1,
-      reviewQueries: 1,
-      reviewPoints: 1,
-    });
-    expect(calls.filter((endpoint) => /\/(pulls|issues)\/\d+/.test(endpoint))).toEqual([]);
-  } finally {
-    rmSync(cache, { recursive: true, force: true });
+          }
+          const endpoint = args.find((arg) => arg.startsWith('repos/'))!;
+          if (endpoint === 'repos/pj-tmt/tmt') return '{"permissions":{"push":true}}';
+          if (endpoint.includes('/releases?')) return 'HTTP/2 200 OK\r\n\r\n[]';
+          return JSON.stringify(evidence.get(endpoint));
+        },
+      });
+      const report = collectInfraTick(api, options);
+      expect(report.complete).toBe(true);
+      expect(report.reviewEvidence).toHaveLength(30);
+      expect(api.evidence()).toMatchObject({
+        requests: 21 + hydrated,
+        queueQueries: 1,
+        reviewQueries: 1,
+        reviewPoints: 1,
+      });
+      expect(calls.filter((endpoint) => /\/(pulls|issues)\/\d+/.test(endpoint))).toEqual(
+        Array.from({ length: hydrated }, (_, i) => `repos/pj-tmt/tmt/pulls/${31 - hydrated + i}`)
+      );
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
   }
-});
+);
 
 it('post-bootstrap skips998 historical failures but analyses a newly failed old-created run', () => {
   const before = new Date(Date.parse(options.since) - 1000).toISOString();
@@ -1001,6 +1023,7 @@ else if(endpoint.includes('/actions/runs?')){
  const status=new URL('https://api.github.com/'+endpoint).searchParams.get('status');
  console.log(JSON.stringify(status?{total_count:0,workflow_runs:[]}:{total_count:32,workflow_runs:[run(1)]}));
 } else if(endpoint.startsWith('repos/pj-tmt/tmt/actions/runs/'))console.log(JSON.stringify(run(Number(endpoint.split('/').at(-1)))));
+else if(endpoint.includes('/issues?state=closed'))console.log(JSON.stringify(mode==='hydration-budget'?Array.from({length:30},(_,i)=>({id:1000+i,number:1000+i,node_id:'PR_'+(1000+i),updated_at:until,pull_request:{url:'https://api.github.com/repos/pj-tmt/tmt/pulls/'+(1000+i)}})):[]));
 else if(endpoint.includes('/pulls?')){
  const q=new URL('https://api.github.com/'+endpoint).searchParams, page=Number(q.get('page'));
  const rows=q.get('state')==='open'?Array.from({length:count},(_,i)=>({id:i+1,number:i+1,node_id:'PR_'+(i+1),updated_at:until,head:{sha}})):[];
@@ -1053,7 +1076,7 @@ else if(endpoint.includes('/pulls?')){
       cleanup: () => rmSync(directory, { recursive: true, force: true }),
     };
   }
-  it.each([20, 30])('completes a %i-PR, 50-call non-review window in one invocation', (count) => {
+  it.each([20, 30])('completes a %i-PR, 52-call non-review window in one invocation', (count) => {
     const test = volume(count);
     try {
       const result = test.invoke();
@@ -1061,7 +1084,7 @@ else if(endpoint.includes('/pulls?')){
       expect(test.report()).toMatchObject({
         complete: true,
         until: options.until,
-        evidence: { requests: 51, reviewQueries: 1, reviewPoints: 1 },
+        evidence: { requests: 53, reviewQueries: 1, reviewPoints: 1 },
       });
       expect(
         test.report().reviewEvidence.map((row: any) => ({
@@ -1104,7 +1127,7 @@ else if(endpoint.includes('/pulls?')){
     try {
       const result = test.invoke();
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(test.report()).toMatchObject({ complete: true, evidence: { requests: 55 } });
+      expect(test.report()).toMatchObject({ complete: true, evidence: { requests: 57 } });
       const reads = test
         .calls()
         .filter((row) => /\/(?:pulls|issues)\/\d+/.test(row.endpoint ?? ''));
@@ -1114,28 +1137,42 @@ else if(endpoint.includes('/pulls?')){
       test.cleanup();
     }
   });
-  it.each(['overflow', 'changed-head', 'truncated', 'cost', 'unavailable', 'corrupt'])(
-    'refuses %s without advancing the cursor or claiming health',
-    (mode) => {
-      const test = volume(20, mode);
-      try {
-        const result = test.invoke();
-        expect(result.status, result.stdout + result.stderr).toBe(1);
-        expect(test.currentCursor()).toBe(test.cursor);
-        expect(test.report().complete).toBe(false);
-        expect(result.stdout).not.toContain('No anomalies');
-        if (mode !== 'corrupt')
-          expect(test.report().anomalies[0]).toMatchObject({ stage: 'PR review', prCount: 20 });
-        if (mode === 'overflow') expect(test.report().evidence.requests).toBe(80);
-        if (mode === 'cost')
-          expect(
-            test.calls().find((row) => row.endpoint === 'graphql:InfraTickReviews')
-          ).toMatchObject({ graphqlCost: 21, outcome: 'error' });
-      } finally {
-        test.cleanup();
+  it.each([
+    'overflow',
+    'changed-head',
+    'truncated',
+    'cost',
+    'unavailable',
+    'corrupt',
+    'hydration-budget',
+  ])('refuses %s without advancing the cursor or claiming health', (mode) => {
+    const test = volume(20, mode);
+    try {
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(1);
+      expect(test.currentCursor()).toBe(test.cursor);
+      expect(test.report().complete).toBe(false);
+      expect(result.stdout).not.toContain('No anomalies');
+      if (mode !== 'corrupt')
+        expect(test.report().anomalies[0]).toMatchObject(
+          mode === 'hydration-budget'
+            ? { stage: 'PR hydration', prCount: 50 }
+            : { stage: 'PR review', prCount: 20 }
+        );
+      if (mode === 'hydration-budget') {
+        expect(test.report().evidence.requests).toBe(52);
+        expect(test.calls().some((row) => /\/pulls\/\d+$/.test(row.endpoint ?? ''))).toBe(false);
+        expect(test.calls().some((row) => row.endpoint === 'graphql:InfraTickReviews')).toBe(false);
       }
+      if (mode === 'overflow') expect(test.report().evidence.requests).toBe(80);
+      if (mode === 'cost')
+        expect(
+          test.calls().find((row) => row.endpoint === 'graphql:InfraTickReviews')
+        ).toMatchObject({ graphqlCost: 21, outcome: 'error' });
+    } finally {
+      test.cleanup();
     }
-  );
+  });
 });
 
 it('fetches the full REST comments only for a paginated PR, including an older head statement', () => {
@@ -1275,3 +1312,237 @@ it.each([undefined, 0, -1, 1.5, '1'])(
     }
   }
 );
+
+// Frozen n/u projection from #3857's 2026-10-19 live listing (20 rows).
+// Original SHA-256: b6cef107a8b16ef3bc7858678ed195614f2d5c673975e53e9fd404f23b95e04d.
+// IDs, node IDs and heads are synthetic fixture enrichment; order/timestamps are unchanged.
+const nonMonotonicOpenSnapshot = [
+  {
+    n: 3856,
+    u: '2026-10-19T03:00:08Z',
+  },
+  {
+    n: 3849,
+    u: '2026-10-19T02:57:30Z',
+  },
+  {
+    n: 3827,
+    u: '2026-10-19T02:41:53Z',
+  },
+  {
+    n: 3855,
+    u: '2026-10-19T02:52:07Z',
+  },
+  {
+    n: 3843,
+    u: '2026-10-19T01:40:35Z',
+  },
+  {
+    n: 3693,
+    u: '2026-10-19T01:36:47Z',
+  },
+  {
+    n: 3356,
+    u: '2026-10-19T01:08:28Z',
+  },
+  {
+    n: 3780,
+    u: '2026-10-18T14:31:11Z',
+  },
+  {
+    n: 3096,
+    u: '2026-10-18T13:39:28Z',
+  },
+  {
+    n: 3692,
+    u: '2026-10-18T13:39:27Z',
+  },
+  {
+    n: 3653,
+    u: '2026-10-18T13:39:26Z',
+  },
+  {
+    n: 3673,
+    u: '2026-10-18T13:39:25Z',
+  },
+  {
+    n: 3674,
+    u: '2026-10-18T04:08:55Z',
+  },
+  {
+    n: 3675,
+    u: '2026-10-18T03:55:10Z',
+  },
+  {
+    n: 3702,
+    u: '2026-10-18T03:43:27Z',
+  },
+  {
+    n: 3610,
+    u: '2026-10-18T03:42:24Z',
+  },
+  {
+    n: 3694,
+    u: '2026-10-18T03:31:14Z',
+  },
+  {
+    n: 3633,
+    u: '2026-10-18T02:02:01Z',
+  },
+  {
+    n: 3102,
+    u: '2026-10-17T20:54:37Z',
+  },
+  {
+    n: 3655,
+    u: '2026-10-17T17:36:05Z',
+  },
+];
+it('includes the frozen non-monotonic PR listing without dropping a later eligible row', () => {
+  const collect = (rows: typeof nonMonotonicOpenSnapshot, since: string) =>
+    collectInfraTick(
+      fixture({
+        open: rows.map(({ n, u }) => ({ id: n, number: n, updated_at: u })),
+        files: [{ filename: '.github/workflows/ci.yml' }],
+      }),
+      { ...options, since, until: '2026-10-19T03:05:45.491Z' }
+    );
+  const sorted = [...nonMonotonicOpenSnapshot].sort((a, b) => Date.parse(b.u) - Date.parse(a.u));
+  expect(collect(sorted, '2026-10-19T01:38:29.018Z').complete).toBe(true);
+  const report = collect(nonMonotonicOpenSnapshot, '2026-10-19T01:38:29.018Z');
+  expect(report.complete).toBe(true);
+  expect(report.reviewEvidence.map(({ pr }) => pr)).toContain(3855);
+  // #3827 is older than this boundary; #3855, later on the same page, is eligible.
+  expect(
+    collect(nonMonotonicOpenSnapshot, '2026-10-19T02:45:00Z').reviewEvidence.map(({ pr }) => pr)
+  ).toContain(3855);
+});
+
+describe('PR discovery membership and hydration boundaries', () => {
+  const old = new Date(Date.parse(options.since) - 1000).toISOString();
+  const pr = (id: number, updated_at = options.until) => ({
+    id,
+    number: id,
+    node_id: `PR_${id}`,
+    head: { sha: SHA },
+    state: 'open',
+    updated_at,
+  });
+  it('accepts the same members reordered across pages and keeps a newer PR after a full old page', () => {
+    const rows = Array.from({ length: 102 }, (_, i) => pr(i + 1, i < 100 ? old : options.until));
+    const api = fixture({ open: rows, files: [{ filename: '.github/ci.yml' }] });
+    const read = api.get;
+    let pass = 0;
+    api.get = (endpoint) => {
+      const result = read(endpoint);
+      if (!endpoint.includes('/pulls?state=open')) return result;
+      const page = Number(new URL(`https://api.github.com/${endpoint}`).searchParams.get('page'));
+      if (page === 1) pass++;
+      const order = pass === 1 ? rows : [...rows].reverse();
+      return order.slice((page - 1) * 100, page * 100);
+    };
+    const report = collectInfraTick(api, options);
+    expect(report.complete).toBe(true);
+    expect(report.reviewEvidence.map(({ pr }) => pr)).toEqual([101, 102]);
+    expect(api.calls.filter((url) => url.includes('state=open'))).toHaveLength(4);
+  });
+  it.each(['added', 'dropped', 'shrunken page'])('refuses a %s member observation', (kind) => {
+    const first = Array.from({ length: kind === 'shrunken page' ? 100 : 2 }, (_, i) => pr(i + 1));
+    const second = kind === 'added' ? [...first, pr(999)] : first.slice(0, -1);
+    const api = fixture({ open: first });
+    const read = api.get;
+    let pass = 0;
+    api.get = (endpoint) => {
+      const result = read(endpoint);
+      if (!endpoint.includes('/pulls?state=open')) return result;
+      const page = Number(new URL(`https://api.github.com/${endpoint}`).searchParams.get('page'));
+      if (page === 1) pass++;
+      return (pass === 1 ? first : second).slice((page - 1) * 100, page * 100);
+    };
+    expect(() => collectInfraTick(api, options)).toThrow('Changing recent PR listing.');
+    expect(api.calls).not.toContain('graphql:InfraTickReviews');
+  });
+  it('refuses a repeated identity on a later page rather than deduplicating it', () => {
+    const rows = Array.from({ length: 101 }, (_, i) => pr(i + 1));
+    const api = fixture({ open: rows });
+    const read = api.get;
+    api.get = (endpoint) => {
+      const result = read(endpoint);
+      return endpoint.includes('/pulls?state=open') && endpoint.endsWith('page=2')
+        ? [rows[0]]
+        : result;
+    };
+    expect(() => collectInfraTick(api, options)).toThrow('Duplicate REST identity.');
+    expect(api.calls).not.toContain('graphql:InfraTickReviews');
+  });
+  it('uses inclusive since, discards overlap locally, ignores issues and selects actual merge times', () => {
+    const overlap = new Date(Date.parse(options.since) - 500).toISOString();
+    const closed = [
+      { ...pr(1, options.since), merged_at: options.since },
+      { ...pr(2, overlap), merged_at: overlap },
+      { ...pr(3), created_at: '2025-01-01T00:00:00Z', merged_at: old },
+      { ...pr(4), pull_request: undefined, node_id: 'I_4' },
+      { ...pr(5), created_at: '2025-01-01T00:00:00Z', merged_at: options.until },
+      { ...pr(6), merged_at: null },
+    ].map((row) => ({ ...row, state: 'closed' }));
+    const api = fixture({ closed, files: [{ filename: '.github/ci.yml' }] });
+    const read = api.get;
+    let pass = 0;
+    api.get = (endpoint) => {
+      const result = read(endpoint);
+      if (!endpoint.includes('/issues?state=closed')) return result;
+      const query = new URL(`https://api.github.com/${endpoint}`).searchParams;
+      expect(query.get('since')).toBe(new Date(Date.parse(options.since) - 1000).toISOString());
+      expect(Array.isArray(result)).toBe(true);
+      if (!Array.isArray(result)) throw Error('Expected issue fixture page');
+      // Issues and pulls have different REST ids; node_id and number bind hydration.
+      const projected = result.map((row: any) => ({ ...row, id: row.id + 1_000_000 }));
+      return ++pass === 1 ? projected : projected.reverse();
+    };
+    const report = collectInfraTick(api, options);
+    expect(report.complete).toBe(true);
+    expect(report.reviewEvidence.map(({ pr }) => pr)).toEqual([1, 5]);
+    expect(
+      api.calls
+        .filter((url) => /\/pulls\/\d+$/.test(url))
+        .map((url) => Number(url.split('/').at(-1)))
+    ).toEqual([1, 3, 5, 6]);
+  });
+  it.each([76, 77])(
+    'reserves all H reads plus the review batch with %i calls already spent',
+    (used) => {
+      const base = fixture({
+        closed: [1, 2, 3].map((id) => ({ ...pr(id), state: 'closed', merged_at: options.until })),
+      });
+      const api = { ...base, evidence: () => ({ requests: used }) };
+      if (used === 76) {
+        expect(collectInfraTick(api, options).complete).toBe(true);
+        expect(api.calls.filter((url) => /\/pulls\/\d+$/.test(url))).toHaveLength(3);
+        expect(api.calls).toContain('graphql:InfraTickReviews');
+      } else {
+        expect(() => collectInfraTick(api, options)).toThrow(
+          'stage=PR hydration; PRs=3; H=3; required=4; remaining=3'
+        );
+        expect(api.calls.some((url) => /\/pulls\/\d+$/.test(url))).toBe(false);
+        expect(api.calls).not.toContain('graphql:InfraTickReviews');
+      }
+    }
+  );
+  it('refuses a closed candidate reopened during hydration', () => {
+    const api = fixture({ closed: [{ ...pr(1), state: 'closed', merged_at: options.until }] });
+    const read = api.get;
+    api.get = (endpoint) =>
+      /\/pulls\/1$/.test(endpoint) ? { ...read(endpoint), state: 'open' } : read(endpoint);
+    expect(() => collectInfraTick(api, options)).toThrow(
+      'Changing closed PR candidate identity or state.'
+    );
+  });
+  it('retains the exact-head refusal between hydration and the review batch', () => {
+    const api = fixture({ closed: [{ ...pr(1), state: 'closed', merged_at: options.until }] });
+    const reviews = api.reviews;
+    api.reviews = (ids) => reviews(ids).map((row) => ({ ...row, headRefOid: 'b'.repeat(40) }));
+    expect(() => collectInfraTick(api, options)).toThrow(
+      'PR head changed while reading review evidence.'
+    );
+  });
+});
