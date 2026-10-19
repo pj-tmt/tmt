@@ -1,5 +1,6 @@
 import { BrowserToggle } from '@tmt/browser-ui/react';
-import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { useMedia } from './use-media.js';
 import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { text } from './strings.js';
 
@@ -54,15 +55,10 @@ export function useCreatorDefault(): Preference {
   );
 }
 const compactQuery = '(max-width: 640px)';
-function subscribeCompact(changed: () => void) {
-  const media = matchMedia(compactQuery);
-  media.addEventListener('change', changed);
-  return () => media.removeEventListener('change', changed);
-}
 
 /** The leaf owns its toggle-button semantics; Colab owns the responsive recipient label. */
 export function CreatorToggle({ name, preference }: { name: string; preference: Preference }) {
-  const compact = useSyncExternalStore(subscribeCompact, () => matchMedia(compactQuery).matches);
+  const compact = useMedia(compactQuery);
   return (
     <span className="creator-toggle">
       <BrowserToggle

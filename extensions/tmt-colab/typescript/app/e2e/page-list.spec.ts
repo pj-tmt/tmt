@@ -3,7 +3,7 @@ import { capturePath } from './captures.js';
 
 async function mount(
   page: Page,
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' = 'few',
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' = 'few',
   hash = '/',
   remembered?: string,
 ) {
@@ -521,6 +521,199 @@ test('a project with only active pages says its archived view is empty, not that
   await expect(app(page).getByText('No pages in ops yet.')).toHaveCount(0);
 });
 
+const selectRow = (page: Page, title: string) =>
+  app(page).getByRole('checkbox', { name: `Select ${title}` });
+const bulkBar = (page: Page) => app(page).getByRole('region', { name: 'Bulk actions' });
+
+test('selecting pages swaps the search row for a bulk bar; Escape and Clear bring it back', async ({
+  page,
+}) => {
+  await mount(page);
+  await expect(bulkBar(page)).toHaveCount(0);
+  await selectRow(page, 'Alpha plan').check();
+  await expect(bulkBar(page).getByRole('status')).toHaveText('1 page selected');
+  await selectRow(page, 'Beta review').check();
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  // The bar stands where the search row stood, and the draft search survives it.
+  await expect(search(page)).toHaveCount(0);
+  await expect(rows(page).filter({ hasText: 'Alpha plan' })).toHaveAttribute('data-selected', '');
+  await page.keyboard.press('Escape');
+  await expect(bulkBar(page)).toHaveCount(0);
+  await expect(search(page)).toBeVisible();
+  await expect(selectRow(page, 'Alpha plan')).not.toBeChecked();
+  await selectRow(page, 'Gamma notes').check();
+  await bulkBar(page).getByRole('button', { name: 'Clear selection' }).click();
+  await expect(bulkBar(page)).toHaveCount(0);
+});
+
+test('a filter that hides a selected page drops it from the selection', async ({ page }) => {
+  await mount(page);
+  await selectRow(page, 'Alpha plan').check();
+  await selectRow(page, 'Delta ops').check();
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  await scopeTo(page, 'design');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('1 page selected');
+  await scopeTo(page, 'All pages');
+  // Delta ops is shown again but is not selected again: what was hidden was dropped.
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+});
+
+test('bulk add and remove send one whole-set request for the selected pages that change', async ({
+  page,
+}) => {
+  await mount(page);
+  await selectRow(page, 'Beta review').check();
+  await selectRow(page, 'Gamma notes').check();
+  await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
+  await page.getByRole('menuitem', { name: 'q4 plan' }).click();
+  await expect(status(page)).toHaveText('Added 2 pages to q4 plan.');
+  expect(await requests(page)).toEqual([
+    {
+      page: 'c0000002-1111-4111-8111-000000000001',
+      changes: [
+        { pageId: 'c0000002-1111-4111-8111-000000000001', projects: ['design', 'q4 plan'] },
+        { pageId: 'c0000003-1111-4111-8111-000000000001', projects: ['q4 plan'] },
+      ],
+    },
+  ]);
+  // Adding it where it already is changes nothing, and says so.
+  await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
+  await page.getByRole('menuitem', { name: 'q4 plan' }).click();
+  await expect(status(page)).toHaveText('Nothing to change.');
+  expect(await requests(page)).toHaveLength(1);
+  await bulkBar(page).getByRole('button', { name: 'Remove from project' }).click();
+  await page.getByRole('menuitem', { name: 'q4 plan' }).click();
+  await expect(status(page)).toHaveText('Removed 2 pages from q4 plan.');
+  expect((await requests(page)).at(-1)!.changes.map((c) => c.projects)).toEqual([['design'], []]);
+});
+
+test('a bulk add leaves a full page out and says so', async ({ page }) => {
+  await mount(page, 'full');
+  await selectRow(page, 'Full page').check();
+  await selectRow(page, 'Gamma notes').check();
+  await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
+  await page.getByRole('menuitem', { name: 'extra' }).click();
+  await expect(status(page)).toHaveText(
+    'Added 1 page to extra. 1 page is in 8 projects already and was skipped.',
+  );
+  expect((await requests(page)).at(-1)!.changes).toHaveLength(1);
+});
+
+test('bulk archive confirms with the count and titles, then sends one statement per page', async ({
+  page,
+}) => {
+  await mount(page);
+  await selectRow(page, 'Beta review').check();
+  await selectRow(page, 'Gamma notes').check();
+  await bulkBar(page).getByRole('button', { name: 'Archive…' }).click();
+  const dialog = confirmDialog(page, 'Archive 2 pages?');
+  await expect(dialog.getByRole('listitem')).toHaveText(['Beta review', 'Gamma notes']);
+  await expect(dialog).toContainText('cannot be undone yet');
+  await dialog.getByRole('button', { name: 'Archive pages' }).click();
+  await expect(status(page)).toHaveText('Archived 2 pages.');
+  expect(await operations(page)).toEqual([
+    { operation: 'page.archive', pageId: 'c0000002-1111-4111-8111-000000000001' },
+    { operation: 'page.archive', pageId: 'c0000003-1111-4111-8111-000000000001' },
+  ]);
+  await expect(bulkBar(page)).toHaveCount(0);
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Delta ops']);
+});
+
+test('bulk delete in the Archived tab offers no archive and confirms the count', async ({
+  page,
+}) => {
+  await mount(page);
+  await app(page)
+    .getByRole('tab', { name: /^Archived/ })
+    .click();
+  await selectRow(page, 'Archived spec').check();
+  await expect(bulkBar(page).getByRole('button', { name: 'Archive…' })).toHaveCount(0);
+  await bulkBar(page).getByRole('button', { name: 'Delete…' }).click();
+  const dialog = confirmDialog(page, 'Delete “Archived spec”?');
+  await expect(dialog).toContainText('This cannot be undone.');
+  await dialog.getByRole('button', { name: 'Delete page' }).click();
+  await expect(status(page)).toHaveText('Deleted “Archived spec”.');
+});
+
+test('a refusal stops the batch, names the page and keeps the rest selected', async ({ page }) => {
+  await mount(page);
+  await selectRow(page, 'Beta review').check();
+  await selectRow(page, 'Gamma notes').check();
+  await selectRow(page, 'Delta ops').check();
+  await page.evaluate(() => {
+    window.__operationMode = 'refuse-second';
+  });
+  await bulkBar(page).getByRole('button', { name: 'Delete…' }).click();
+  await confirmDialog(page, 'Delete 3 pages?')
+    .getByRole('button', { name: 'Delete pages' })
+    .click();
+  await expect(status(page)).toHaveText(
+    'Updated 1 of 3 pages. “Gamma notes” was not changed: This device is not allowed to manage pages. Reopen your paired session.',
+  );
+  await expect(status(page)).toHaveAttribute('data-tone', 'error');
+  expect(await operations(page)).toEqual([
+    { operation: 'page.delete', pageId: 'c0000002-1111-4111-8111-000000000001' },
+  ]);
+  // The page that went is gone from the list; the two that did not are still selected.
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Gamma notes', 'Delta ops']);
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+});
+
+test('list keys move, select, archive and open menus, and stay out of text fields, menus and dialogs', async ({
+  page,
+}) => {
+  await mount(page);
+  const link = (title: string) => rows(page).getByRole('link', { name: title, exact: true });
+  // The search starts focused: a key typed there writes to it, and Escape on an empty search
+  // hands the keys back to the list.
+  await expect(search(page)).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(search(page)).not.toBeFocused();
+  await page.keyboard.press('j');
+  await expect(link('Alpha plan')).toBeFocused();
+  await page.keyboard.press('j');
+  await expect(link('Beta review')).toBeFocused();
+  await page.keyboard.press('k');
+  await expect(link('Alpha plan')).toBeFocused();
+  await page.keyboard.press('k');
+  await expect(link('Alpha plan')).toBeFocused();
+  await page.keyboard.press('x');
+  await expect(selectRow(page, 'Alpha plan')).toBeChecked();
+  await page.keyboard.press('j');
+  await page.keyboard.press('x');
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  // With a selection, e archives it; the dialog is modal, so no key reaches the list.
+  await page.keyboard.press('e');
+  const dialog = confirmDialog(page, 'Archive 2 pages?');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('x');
+  await page.keyboard.press('j');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(bulkBar(page).getByRole('status')).toHaveText('2 pages selected');
+  expect(await operations(page)).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(bulkBar(page)).toHaveCount(0);
+  // Without a selection, e archives the focused row, and l opens its projects menu.
+  await link('Gamma notes').focus();
+  await page.keyboard.press('l');
+  await expect(page.getByRole('menuitemcheckbox', { name: 'design' })).toBeVisible();
+  await page.keyboard.press('j');
+  await page.keyboard.press('x');
+  await expect(bulkBar(page)).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await link('Gamma notes').focus();
+  await page.keyboard.press('e');
+  await expect(confirmDialog(page, 'Archive “Gamma notes”?')).toBeVisible();
+  await page.keyboard.press('Escape');
+  // `/` focuses the search; typing a key there writes to it and selects nothing.
+  await page.keyboard.press('/');
+  await expect(search(page)).toBeFocused();
+  await page.keyboard.type('xj');
+  await expect(bulkBar(page)).toHaveCount(0);
+  await expect(selectRow(page, 'Gamma notes')).not.toBeChecked();
+});
+
 test('a reader gets search, filters and the scope, but no project writes or archived tab', async ({
   page,
 }) => {
@@ -678,7 +871,7 @@ test('a ninth project is refused before any request', async ({ page }) => {
     await alpha.getByRole('button', { name: 'Projects for Alpha plan' }).click();
     await page.getByRole('menuitem', { name: 'New project…' }).click();
     await app(page).getByRole('textbox', { name: 'Project name' }).fill(name);
-    await app(page).getByRole('checkbox', { name: 'Alpha plan' }).check();
+    await app(page).getByRole('checkbox', { name: 'Alpha plan', exact: true }).check();
     await app(page).getByRole('button', { name: 'Create' }).click();
     await expect(app(page).getByRole('dialog')).toHaveCount(0);
   }
@@ -939,6 +1132,73 @@ for (const width of [1440, 390])
       await manager.getByRole('textbox', { name: 'New name' }).fill('design');
       await expect(manager).toContainText('A project named design already exists.');
       await page.screenshot({ path: await capturePath(`2588-merge-${width}-${theme}.png`) });
+    });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    test(`the bulk bar, its menu and its confirmation stay inside ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const flat = () =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        );
+      await selectRow(page, 'Alpha plan').check();
+      await selectRow(page, 'Beta review').check();
+      const phone = width < 480;
+      const selected = phone ? '2 selected' : '2 pages selected';
+      await expect(bulkBar(page).getByRole('status')).toHaveText(selected);
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3746-bulk-bar-${width}-${theme}.png`) });
+      if (phone) {
+        // One row: the count, an Actions menu and Clear.
+        const bar = await bulkBar(page).boundingBox();
+        expect(bar!.height).toBeLessThan(80);
+        await bulkBar(page).getByRole('button', { name: 'Actions' }).click();
+        await expect(page.getByRole('menuitem')).toHaveText([
+          'Add to project',
+          'Remove from project',
+          'Archive…',
+          'Delete…',
+        ]);
+      } else {
+        await bulkBar(page).getByRole('button', { name: 'Add to project' }).click();
+        await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeVisible();
+      }
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3746-bulk-menu-${width}-${theme}.png`) });
+      if (phone) {
+        await page.getByRole('menuitem', { name: 'Add to project' }).click();
+        const choice = page.getByRole('dialog', { name: 'Add to project' });
+        await expect(choice.getByRole('button')).toContainText([
+          'design',
+          'ops',
+          'q4 plan',
+          'New project…',
+        ]);
+        expect(await flat()).toBe(true);
+        await page.screenshot({
+          path: await capturePath(`3746-bulk-choice-${width}-${theme}.png`),
+        });
+        await page.keyboard.press('Escape');
+        await bulkBar(page).getByRole('button', { name: 'Actions' }).click();
+        await page.getByRole('menuitem', { name: 'Delete…' }).click();
+      } else {
+        await page.keyboard.press('Escape');
+        await bulkBar(page).getByRole('button', { name: 'Delete…' }).click();
+      }
+      const confirm = confirmDialog(page, 'Delete 2 pages?');
+      await expect(confirm).toBeVisible();
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3746-bulk-delete-${width}-${theme}.png`) });
+      await confirm.getByRole('button', { name: 'Cancel' }).click();
+      await expect(bulkBar(page).getByRole('status')).toHaveText(selected);
     });
 
 /** Nothing on the page reaches past the viewport, and the filter rows stay inside their column. */

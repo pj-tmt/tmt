@@ -22,16 +22,20 @@ export interface BrowserListRowProps extends Omit<
   metadata: ReactNode;
   state: ReactNode;
   actions?: ReactNode;
+  /** A control that belongs to the row before its title, such as a selection checkbox. */
+  leading?: ReactNode;
 }
 export function BrowserListRow({
   title,
   metadata,
   state,
   actions,
+  leading,
   ...attributes
 }: BrowserListRowProps) {
   return (
-    <li {...attributes} className={c.listRow}>
+    <li {...attributes} className={c.listRow} data-leading={leading !== undefined || undefined}>
+      {leading !== undefined && <div className={c.listLeading}>{leading}</div>}
       <div className={c.listTitle}>{title}</div>
       <div className={c.listMeta}>
         <div className={c.listUpdated}>{metadata}</div>

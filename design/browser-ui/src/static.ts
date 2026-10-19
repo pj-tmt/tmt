@@ -64,6 +64,7 @@ export const browserUiClasses = Object.freeze({
   toggleIndicator: 'tmt-ui-toggle-indicator',
   list: 'tmt-ui-list',
   listRow: 'tmt-ui-list-row',
+  listLeading: 'tmt-ui-list-leading',
   listTitle: 'tmt-ui-list-title',
   listMeta: 'tmt-ui-list-meta',
   listUpdated: 'tmt-ui-list-updated',

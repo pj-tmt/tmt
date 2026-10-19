@@ -21,8 +21,9 @@ declare global {
     __releaseManage?: () => void;
     /** Every archive and delete statement the owner accepted, in order. */
     __pageOperations: { operation: string; pageId: string }[];
-    /** `refuse`: the owner refuses the next statement; `unverified`: its log cannot be read back. */
-    __operationMode?: 'refuse' | 'unverified';
+    /** `refuse`: the owner refuses the next statement; `refuse-second`: the one after the first it
+     * accepts; `unverified`: its log cannot be read back. */
+    __operationMode?: 'refuse' | 'refuse-second' | 'unverified';
     /** What `window.open` was asked for, since the fixture replaces it. */
     __opened: { url: string; target: string; features: string }[];
   }
@@ -45,7 +46,7 @@ function page(n: number, title: string, projects: string[], changes: Partial<Pag
 }
 
 export async function mountPageList(
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' = 'few',
+  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' = 'few',
   hash = '/',
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -94,6 +95,17 @@ export async function mountPageList(
                     }),
                   ]
                 : []),
+              // A page already in the most projects it can be, and one project it is not in.
+              ...(size === 'full'
+                ? [
+                    page(
+                      7,
+                      'Full page',
+                      Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
+                    ),
+                    page(8, 'Extra page', ['extra']),
+                  ]
+                : []),
               page(1, 'Alpha plan', ['design', 'q4 plan'], {
                 summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
               }),
@@ -120,7 +132,10 @@ export async function mountPageList(
         operation: string;
         value: { pageId: string };
       };
-      if (window.__operationMode === 'refuse') {
+      if (
+        window.__operationMode === 'refuse' ||
+        (window.__operationMode === 'refuse-second' && window.__pageOperations.length === 1)
+      ) {
         window.__operationMode = undefined;
         throw new ManagementError('DENIED');
       }

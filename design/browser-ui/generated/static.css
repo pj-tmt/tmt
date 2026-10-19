@@ -596,6 +596,13 @@ svg.tmt-ui-mark {
   border-radius: var(--tmt-ui-radius);
   box-shadow: none;
 }
+.tmt-ui-list-row[data-leading] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+.tmt-ui-list-leading {
+  display: flex;
+  align-items: center;
+}
 .tmt-ui-list-title {
   min-width: 0;
   overflow: hidden;
@@ -640,6 +647,13 @@ svg.tmt-ui-mark {
   .tmt-ui-list-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: 'title actions' 'meta actions';
+  }
+  .tmt-ui-list-row[data-leading] {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'leading title actions' 'leading meta actions';
+  }
+  .tmt-ui-list-leading {
+    grid-area: leading;
   }
   .tmt-ui-list-title {
     grid-area: title;

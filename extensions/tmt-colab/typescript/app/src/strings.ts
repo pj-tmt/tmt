@@ -658,6 +658,40 @@ export const text = {
       }. The pages stay.`,
     openInNewTab: (title: string) => `Open ${title} in a new tab`,
     archivePage: (title: string) => `Archive ${title}`,
+    selectPage: (title: string) => `Select ${title}`,
+    bulkActions: 'Bulk actions',
+    selectedCount: (count: number) => `${count} ${count === 1 ? 'page' : 'pages'} selected`,
+    addToProject: 'Add to project',
+    removeFromProject: 'Remove from project',
+    archiveSelected: 'Archive…',
+    deleteSelected: 'Delete…',
+    clearSelection: 'Clear selection',
+    clearSelectionShort: 'Clear · Esc',
+    clearSelectionPhone: 'Clear',
+    selectedShort: (count: number) => `${count} selected`,
+    actionsMenu: 'Actions',
+    confirmArchiveMany: (count: number) => `Archive ${count} pages?`,
+    confirmDeleteMany: (count: number) => `Delete ${count} pages?`,
+    confirmArchiveManyBody:
+      'Archived pages stay readable, but nobody can edit them. Archiving cannot be undone yet.',
+    confirmDeleteManyBody:
+      'The pages, their comments and their attachments are deleted. This cannot be undone.',
+    moreTitles: (count: number) => `and ${count} more`,
+    archivedMany: (count: number) => `Archived ${count} pages.`,
+    deletedMany: (count: number) => `Deleted ${count} pages.`,
+    awaitingMany: (count: number) =>
+      `The owner acknowledged ${count} of the changes; their signed logs are not verified yet.`,
+    partial: (done: number, total: number, title: string, reason: string) =>
+      `Updated ${done} of ${total} pages. “${title}” was not changed: ${reason}`,
+    addedToProject: (name: string, count: number) =>
+      `Added ${count} ${count === 1 ? 'page' : 'pages'} to ${name}.`,
+    removedFromProject: (name: string, count: number) =>
+      `Removed ${count} ${count === 1 ? 'page' : 'pages'} from ${name}.`,
+    skippedFull: (count: number) =>
+      `${count} ${count === 1 ? 'page is' : 'pages are'} in 8 projects already and ${
+        count === 1 ? 'was' : 'were'
+      } skipped.`,
+    nothingToChange: 'Nothing to change.',
     archiveItem: 'Archive…',
     deleteItem: 'Delete…',
     confirmArchiveTitle: (title: string) => `Archive “${title}”?`,
@@ -666,6 +700,8 @@ export const text = {
     confirmDeleteTitle: (title: string) => `Delete “${title}”?`,
     confirmDelete: 'The page, its comments and its attachments are deleted. This cannot be undone.',
     archiveButton: 'Archive page',
+    archiveButtonMany: 'Archive pages',
+    deleteButtonMany: 'Delete pages',
     deleteButton: 'Delete page',
     archived: (title: string) => `Archived “${title}”.`,
     deleted: (title: string) => `Deleted “${title}”.`,

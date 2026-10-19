@@ -609,6 +609,24 @@ so and never called done) or `failed` with the management error code. The list n
 reversible: the contract has no unarchive operation (#3833), so an archived row offers `Delete…`
 only.
 
+Each row has a leading checkbox (`BrowserListRow`'s `leading` slot) when the transport has
+`management`. The selection is a set of page IDs in `Home`; what counts is the selected pages the
+list shows now, so a tab, scope or filter that hides one drops it. While one exists `BulkBar`
+(`bulk-bar.tsx`) takes the search row's place (the draft survives in `Home`): add to or remove from
+a project (`withProject` per page and `applyProjectChanges` batches of `PROJECT_REQUEST_PAGES`; a
+page already in eight projects is skipped and said so), `Archive…` (not in the Archived tab) and
+`Delete…`. Under 480px (`useMedia`) the bar is one row: the count, an `Actions` menu with the same
+four commands and `Clear`; the project choice then opens in `ProjectChoiceDialog`. A bulk archive or delete confirms with the count and the first titles, then
+`runPageOperations` sends one signed statement per page in order, each through its own read, prepare,
+send and verify; the first refusal stops the batch, `operationStatus` names the page and reports
+`Updated N of M pages`, and the pages not reached stay selected. `usePageListKeys`
+(`page-list-keys.ts`) maps `/` (search), `j`/`k` (move between rows; Enter and Ctrl/Cmd+Enter act on
+the focused link as before), `x` (select), `e` (archive the selection, or the focused row) and `l`
+(that row's projects menu, through `BrowserMenu`'s `openRequest`); Escape clears the selection, and
+on an empty search it leaves the search. The keys fire only for a trusted unmodified press whose
+target is the page or the list's own section: never in a text field, never above a menu or dialog,
+never in a hidden list.
+
 The header's `Project: <name>` crumb (the design system's `BrowserMenu variant="crumb"` in the
 `BrowserHeader` `headingSuffix` slot) scopes the whole list. `scope` in the route search is the base
 filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the chips, the Needs you
