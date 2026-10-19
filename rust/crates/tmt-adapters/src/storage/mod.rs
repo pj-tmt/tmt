@@ -1,4 +1,5 @@
 mod bindings;
+mod consumption_family;
 mod consumption_history;
 mod context;
 mod database_rename;

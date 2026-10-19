@@ -251,6 +251,14 @@ delivery. They install and launch nothing.
   unattributed: rows sum to at most the bucket (#3763), and a fifth model drops the split
   built so far. It also stores `byDriver` (#3751): every counted delta is between two reads
   of one driver, so `record_sample` writes that driver's share. Neither is backfilled.
+  A Codex seat also counts the sessions its session started (#3828,
+  `runtime/consumption/family.rs`): the sampler is a fresh process each tick and the driver
+  state is 1 KiB, so the per-rollout cursors live in `consumption_family` and
+  `consumption_family_files` (schema 58) and commit in the same transaction as the sample.
+  Placement reads a rollout's first line (`parent_thread_id`) only, scans the day directories
+  from the scan position with a bounded number of headers and reads per tick, and baselines
+  what existed at the first scan; the state carries only the summed contribution, which a
+  hook-driven read keeps unchanged. `Stored::after` is the test stand-in for the commit.
   The Claude scan gets half the hook's remaining deadline and keeps validated counts
   with `complete=false` on expiry; the hook supervisor stays the hard time authority.
 - `run_command/run.rs` ticks the foreground wait every five seconds into

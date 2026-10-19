@@ -284,6 +284,10 @@ const MIGRATIONS: &[Migration] = &[
         "record whether a person or automation made each request",
         "schema/057.sql"
     ),
+    migration!(
+        "follow the Codex sessions a bound session started as part of its seat",
+        "schema/058.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

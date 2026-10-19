@@ -88,6 +88,8 @@ pub struct RuntimeObservation<'a> {
     pub now_ms: u64,
     pub deadline: Instant,
     pub response: Option<super::ResponseCapture>,
+    /// The started sessions' rows, written with the sample that counted them.
+    pub family: Option<crate::runtime::consumption::family::Write>,
 }
 
 fn integer(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
@@ -388,6 +390,9 @@ impl Storage {
                         consumption,
                     });
                 record_sample(connection, id, latest, observation.now_ms)?;
+                if let Some(family) = observation.family.as_ref() {
+                    super::consumption_family::apply(connection, id, family)?;
+                }
             }
             if Instant::now() >= observation.deadline {
                 return Err(invalid());

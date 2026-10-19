@@ -4,6 +4,7 @@
 use super::transcript;
 mod attribution;
 mod credits;
+pub mod family;
 mod rate_limits;
 pub use attribution::ModelUsage;
 pub(crate) use attribution::valid_service_tier;
@@ -23,7 +24,7 @@ use tmt_core::limits::is_valid_js_safe_integer;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Counts {
+pub struct Counts {
     input: u64,
     output: u64,
     cached: u64,
@@ -45,6 +46,32 @@ impl Counts {
             cached: self.cached.checked_add(other.cached)?,
         };
         next.valid().then_some(next)
+    }
+
+    /// What `self` has beyond `other`, or None when any counter is lower.
+    fn sub(self, other: Self) -> Option<Self> {
+        let next = Self {
+            input: self.input.checked_sub(other.input)?,
+            output: self.output.checked_sub(other.output)?,
+            cached: self.cached.checked_sub(other.cached)?,
+        };
+        next.valid().then_some(next)
+    }
+
+    /// What `self` gained over an earlier reading of the same cumulative
+    /// counters: each counter's rise, with cached input kept inside input.
+    fn gained(self, earlier: Self) -> Self {
+        let input = self.input.saturating_sub(earlier.input);
+        Self {
+            input,
+            output: self.output.saturating_sub(earlier.output),
+            cached: self.cached.saturating_sub(earlier.cached).min(input),
+        }
+    }
+
+    /// No counter is lower than `other`'s.
+    fn covers(self, other: Self) -> bool {
+        self.input >= other.input && self.output >= other.output && self.cached >= other.cached
     }
 }
 
@@ -180,12 +207,46 @@ struct SourceCursor {
     discard: bool,
 }
 
+/// What the sessions a Codex session started have contributed to `value`'s
+/// counters (see [`family`]), carried unchanged by reads that do not look at them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Carry {
+    input: u64,
+    output: u64,
+    cached: u64,
+    /// The family was still being discovered or followed when this was taken.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    incomplete: bool,
+}
+
+impl Carry {
+    fn counts(self) -> Counts {
+        Counts {
+            input: self.input,
+            output: self.output,
+            cached: self.cached,
+        }
+    }
+    /// Nothing contributed and nothing missing is the absent form.
+    fn of(counts: Counts, incomplete: bool) -> Option<Self> {
+        (counts != Counts::default() || incomplete).then_some(Self {
+            input: counts.input,
+            output: counts.output,
+            cached: counts.cached,
+            incomplete,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct State {
     pub value: Consumption,
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor: Option<SourceCursor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    family: Option<Carry>,
 }
 
 impl State {
@@ -209,6 +270,9 @@ impl State {
         let state: Self = serde_json::from_value(value).ok()?;
         let hash = |hash: &str| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
         (state.value.valid()
+            && state.family.is_none_or(|carry| {
+                carry.counts().valid() && state.value.counts().covers(carry.counts())
+            })
             && state.cursor.as_ref().is_none_or(|cursor| {
                 cursor.last.as_deref().is_none_or(hash)
                     && cursor.request.as_deref().is_none_or(hash)
@@ -364,6 +428,7 @@ fn claude_until(
             counts: None,
             discard: !boundary,
         }),
+        family: None,
     };
     let Some(previous) = previous else {
         if end == 0 {
@@ -521,6 +586,20 @@ fn codex_counts(entry: &Value) -> Option<Counts> {
 }
 
 pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Option<State> {
+    codex_with(root, path, previous, None, now)
+}
+
+/// The session's own rollout, plus what the sessions it started contributed
+/// (`family`, from [`family::advance`]). Without a `family` the previous
+/// contribution is carried unchanged, so a read that does not look at the
+/// started sessions never moves the totals back.
+pub fn codex_with(
+    root: &Path,
+    path: &Path,
+    previous: Option<&State>,
+    family: Option<&family::Contribution>,
+    now: u64,
+) -> Option<State> {
     if now == 0 || !is_valid_js_safe_integer(now) {
         return None;
     }
@@ -540,6 +619,14 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         })
     })?;
     let (counts, rate_limits, credits) = latest?;
+    let carried = previous.and_then(|state| state.family);
+    let (contribution, family_incomplete) = match family {
+        Some(family) => (family.counts, !family.complete),
+        None => carried.map_or((Counts::default(), false), |carry| {
+            (carry.counts(), carry.incomplete)
+        }),
+    };
+    let total = counts.add(contribution)?;
     let cursor = SourceCursor {
         dev: metadata.dev(),
         ino: metadata.ino(),
@@ -551,10 +638,10 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
     };
     let Some(previous) = previous else {
         let mut value = Consumption::baseline(now, false);
-        value.set_counts(counts);
+        value.set_counts(total);
         value.rate_limits = rate_limits;
         value.credits = credits;
-        value.complete = complete;
+        value.complete = complete && !family_incomplete;
         if let Some(details) = attribution::codex(&mut file, metadata.len(), None) {
             value.cache_write_tokens = details.0;
             value.model_id = details.1;
@@ -563,30 +650,49 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
         return Some(State {
             value,
             cursor: Some(cursor),
+            family: Carry::of(contribution, family_incomplete),
         });
     };
     if now < previous.value.observed_at_ms {
         return None;
     }
-    let old = previous.value.counts();
+    let carried_counts = carried.map_or(Counts::default(), Carry::counts);
+    let carried_incomplete = carried.is_some_and(|carry| carry.incomplete);
+    // The session's own counters, without what its family added to the total.
+    let own = previous.value.counts().sub(carried_counts);
     let old_cursor = previous.cursor.as_ref()?;
     let replaced = cursor.dev != old_cursor.dev
         || cursor.ino != old_cursor.ino
         || cursor.offset < old_cursor.offset;
-    if counts == old && cursor == *old_cursor {
+    if own == Some(counts)
+        && cursor == *old_cursor
+        && contribution == carried_counts
+        && family_incomplete == carried_incomplete
+    {
         return Some(previous.clone());
     }
-    let details = attribution::codex(&mut file, metadata.len(), Some(previous));
+    let own_before = State {
+        value: Consumption {
+            input_tokens: own.map_or(0, |own| own.input),
+            output_tokens: own.map_or(0, |own| own.output),
+            cached_input_tokens: own.map_or(0, |own| own.cached),
+            ..previous.value.clone()
+        },
+        cursor: previous.cursor.clone(),
+        family: None,
+    };
+    let details =
+        own.and_then(|_| attribution::codex(&mut file, metadata.len(), Some(&own_before)));
+    // A family that lost ground is lost evidence, like a counter that did.
     let decreased = replaced
-        || counts.input < old.input
-        || counts.output < old.output
-        || counts.cached < old.cached;
+        || own.is_none_or(|own| !counts.covers(own))
+        || !contribution.covers(carried_counts);
     let mut value = if decreased {
         Consumption::baseline(now, true)
     } else {
         previous.value.clone()
     };
-    value.set_counts(counts);
+    value.set_counts(total);
     value.rate_limits = rate_limits;
     value.credits = credits;
     value.cache_write_tokens = details.as_ref().and_then(|details| details.0);
@@ -595,16 +701,20 @@ pub fn codex(root: &Path, path: &Path, previous: Option<&State>, now: u64) -> Op
     value.delta_by_model = if decreased {
         None
     } else {
-        details.and_then(|details| details.2)
+        family::merge_rows(
+            details.and_then(|details| details.2),
+            family.and_then(|family| family.rows.clone()),
+        )
     };
     if !decreased {
         value.gap = false;
-        value.complete = complete;
+        value.complete = complete && !family_incomplete;
         value.advance(now)?;
     }
     Some(State {
         value,
         cursor: Some(cursor),
+        family: Carry::of(contribution, family_incomplete),
     })
 }
 

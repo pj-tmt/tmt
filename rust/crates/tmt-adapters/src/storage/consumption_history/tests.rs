@@ -321,6 +321,7 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
                 expected,
                 preferences,
                 response: None,
+                family: None,
                 remember_source: true,
                 locator: Some("project/session.jsonl"),
                 sampled: true,
@@ -819,6 +820,7 @@ fn recent_responses_share_the_binding_cas_without_text_deduplication() {
                 sampled: false,
                 consumption: None,
                 now_ms: now,
+                family: None,
                 deadline: Instant::now() + std::time::Duration::from_secs(1),
                 response: text.map(|text| ResponseCapture {
                     text: FinalText::new(text).unwrap(),
@@ -954,6 +956,7 @@ fn recent_responses_keep_ten_in_capture_order_and_retirement_removes_them() {
                     sampled: false,
                     consumption: None,
                     now_ms: 20000 - sequence,
+                    family: None,
                     deadline: Instant::now() + std::time::Duration::from_secs(1),
                     response: Some(ResponseCapture {
                         text: FinalText::new(&format!("response-{sequence}")).unwrap(),
@@ -1039,6 +1042,7 @@ fn recent_response_failure_rolls_back_preferences_and_the_change_cursor() {
         sampled: false,
         consumption: None,
         now_ms: 6000,
+        family: None,
         deadline: Instant::now() + std::time::Duration::from_secs(1),
         response: Some(crate::storage::ResponseCapture {
             text: tmt_core::responses::FinalText::new("must roll back").unwrap(),
@@ -1208,4 +1212,223 @@ fn a_fifth_model_drops_the_split_built_so_far_and_a_later_one_starts_again() {
     assert_eq!(held.by_model.as_ref().unwrap()[0].model_id, "e");
     assert!(held.valid(1, 0, 0));
     assert!(!held.valid(0, 0, 0), "rows above the bucket are corrupt");
+}
+
+mod family {
+    use super::*;
+    use crate::runtime::consumption::{
+        State,
+        family::{Header, Member, Stored, Write},
+    };
+
+    fn file(n: u32) -> String {
+        format!(
+            "2026/10/19/rollout-2026-10-19T09-10-{n:02}-00000000-0000-4000-8000-0000000000{n:02}.jsonl"
+        )
+    }
+
+    fn header(session: &str) -> Header {
+        Header {
+            session: session.into(),
+            scan: Some("2026-10-19T09-10-00".into()),
+            edge: vec![file(0)],
+            closed: serde_json::from_value(json!({"input":5,"output":1,"cached":0})).unwrap(),
+            warm: false,
+        }
+    }
+
+    fn member(n: u32, input: u64) -> Member {
+        let child = format!("00000000-0000-4000-8000-0000000000{n:02}");
+        Member {
+            file: file(n),
+            child,
+            base: serde_json::from_value(json!({"input":1,"output":0,"cached":0})).unwrap(),
+            state: State::read(&json!({
+                "value":{"inputTokens":input,"outputTokens":1,"cachedInputTokens":0,
+                    "epoch":"33333333-3333-4333-8333-333333333333","sequence":2,
+                    "observedAtMs":7000,"complete":true,"gap":false},
+                "cursor":{"dev":1,"ino":2,"offset":900}
+            }))
+            .unwrap(),
+            touched_ms: 7000,
+        }
+    }
+
+    fn write(
+        storage: &Storage,
+        id: &str,
+        reset: bool,
+        header: Option<Header>,
+        upserts: Vec<Member>,
+        deletes: Vec<String>,
+    ) {
+        super::super::super::consumption_family::apply(
+            storage.connection().unwrap(),
+            id,
+            &Write {
+                reset,
+                header,
+                upserts,
+                deletes,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_family_round_trips_updates_in_place_and_is_replaced_by_a_reset() {
+        let (_directory, path, id) = fixture();
+        let mut storage = Storage::open(&path).unwrap();
+        assert_eq!(storage.consumption_family(&id).unwrap(), None);
+        source(&storage, &id);
+        write(
+            &storage,
+            &id,
+            false,
+            Some(header("fixture-session")),
+            vec![member(1, 100), member(2, 200)],
+            vec![],
+        );
+        let stored = storage.consumption_family(&id).unwrap().unwrap();
+        assert_eq!(stored.header, header("fixture-session"));
+        assert_eq!(
+            stored
+                .members
+                .iter()
+                .map(|m| m.file.as_str())
+                .collect::<Vec<_>>(),
+            [file(1), file(2)]
+        );
+        // One row moves, one is folded away; the unchanged header is not rewritten.
+        let cursor = storage.change_cursor().unwrap();
+        write(
+            &storage,
+            &id,
+            false,
+            None,
+            vec![member(1, 150)],
+            vec![file(2)],
+        );
+        assert!(storage.change_cursor().unwrap() > cursor);
+        let stored = storage.consumption_family(&id).unwrap().unwrap();
+        assert_eq!(stored.members, [member(1, 150)]);
+        let cursor = storage.change_cursor().unwrap();
+        write(
+            &storage,
+            &id,
+            false,
+            Some(header("fixture-session")),
+            vec![member(1, 150)],
+            vec![],
+        );
+        assert_eq!(
+            storage.change_cursor().unwrap(),
+            cursor,
+            "an identical write changes nothing"
+        );
+        // Another session replaces the whole family, rows included.
+        write(
+            &storage,
+            &id,
+            true,
+            Some(header("next-session")),
+            vec![member(3, 10)],
+            vec![],
+        );
+        let stored: Stored = storage.consumption_family(&id).unwrap().unwrap();
+        assert_eq!(stored.header.session, "next-session");
+        assert_eq!(stored.members, [member(3, 10)]);
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn a_family_goes_with_its_source_and_a_row_that_does_not_read_back_is_corrupt() {
+        let (_directory, path, id) = fixture();
+        let mut storage = Storage::open(&path).unwrap();
+        source(&storage, &id);
+        write(
+            &storage,
+            &id,
+            false,
+            Some(header("fixture-session")),
+            vec![member(1, 100)],
+            vec![],
+        );
+        let connection = storage.connection().unwrap();
+        connection
+            .execute(
+                "UPDATE consumption_family_files SET state='{\"value\":1}' WHERE identity_id=?",
+                [&id],
+            )
+            .unwrap();
+        assert_eq!(
+            storage.consumption_family(&id).unwrap_err().code,
+            StorageErrorCode::Corrupt
+        );
+        connection
+            .execute(
+                "UPDATE consumption_family SET edge='[\"../escape\"]' WHERE identity_id=?",
+                [&id],
+            )
+            .unwrap();
+        assert_eq!(
+            storage.consumption_family(&id).unwrap_err().code,
+            StorageErrorCode::Corrupt
+        );
+        // The source is the owner: its removal takes the family and its rows.
+        connection
+            .execute("DELETE FROM consumption_sources WHERE identity_id=?", [&id])
+            .unwrap();
+        for table in ["consumption_family", "consumption_family_files"] {
+            let rows: i64 = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(rows, 0, "{table}");
+        }
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn an_invalid_write_is_refused_and_the_other_seats_sessions_exclude_the_own() {
+        let (_directory, path, id) = fixture();
+        let mut storage = Storage::open(&path).unwrap();
+        source(&storage, &id);
+        let mut bad = member(1, 100);
+        bad.file = "../escape.jsonl".into();
+        let connection = storage.connection().unwrap();
+        assert!(
+            super::super::super::consumption_family::apply(
+                connection,
+                &id,
+                &Write {
+                    reset: false,
+                    header: Some(header("fixture-session")),
+                    upserts: vec![bad],
+                    deletes: vec![],
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(
+            storage
+                .other_bound_sessions("someone-else", "claude")
+                .unwrap(),
+            ["fixture-session".to_owned()].into_iter().collect()
+        );
+        assert!(
+            storage
+                .other_bound_sessions(&id, "claude")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            storage
+                .other_bound_sessions("someone-else", "codex")
+                .unwrap()
+                .is_empty()
+        );
+        storage.close().unwrap();
+    }
 }
