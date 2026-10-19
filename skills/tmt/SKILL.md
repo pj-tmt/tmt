@@ -554,8 +554,9 @@ controls, and each identity has at most 64 entries. Omit `--identity` only when
 caller resolution can prove the active bound identity.
 
 Create requires a name. Explicit create/show names return `INVALID_NAME`
-(exit 1) when invalid; valid missing show names return `NAME_NOT_FOUND`
-(exit 3). Omitting the show name uses only the verified bound caller described
+(exit 1) when invalid, and a new name of more than 64 characters is invalid
+(a name an identity already holds stays valid); valid missing show names return
+`NAME_NOT_FOUND` (exit 3). Omitting the show name uses only the verified bound caller described
 above, never an active-pane or sole-identity fallback. Creation does not alter
 anonymous talk or request-ID result access. Use `rm <name>` for removal and
 `mv <old> <new>` to rename: the UUID, remembered session, profile, notes and

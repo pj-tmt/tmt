@@ -24,10 +24,14 @@ impl ValidatedName {
     }
 }
 
+/// The most Unicode scalar values a new name may hold, counted after trimming and NFKC.
+pub const NAME_LIMIT: usize = 64;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
     EmptyOrControl,
     PaneTarget,
+    TooLong,
 }
 
 impl fmt::Display for NameError {
@@ -37,6 +41,7 @@ impl fmt::Display for NameError {
                 "Identity name must not be empty or contain control characters."
             }
             Self::PaneTarget => "Identity name must not look like a pane target.",
+            Self::TooLong => "Identity name must be at most 64 characters.",
         })
     }
 }
@@ -84,11 +89,16 @@ pub fn names_pane_target(value: &str) -> bool {
 }
 
 /// A name a new identity (or a rename) may take: never one whose text or key
-/// a host reads as a pane target.
+/// a host reads as a pane target, and at most [`NAME_LIMIT`] scalar values once
+/// trimmed and composed like a key. An identity that already holds a longer name
+/// keeps it ([`validate_existing_name`]).
 pub fn validate_name(value: &str) -> Result<ValidatedName, NameError> {
     let name = validate_existing_name(value)?;
     if names_pane_target(value) {
         return Err(NameError::PaneTarget);
+    }
+    if target_text(value).chars().count() > NAME_LIMIT {
+        return Err(NameError::TooLong);
     }
     Ok(name)
 }

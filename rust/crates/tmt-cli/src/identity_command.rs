@@ -185,19 +185,25 @@ fn operation(
                 .map_err(identity_failure)
         }
         IdentityRequest::Show(Some(name)) => {
-            tmt_core::names::validate_name(&name).map_err(|error| {
-                Failure::new("INVALID_NAME", error.to_string(), 1).caused_by(error)
-            })?;
-            let identity = storage
-                .resolve_identity(&name)
-                .map_err(unavailable)?
-                .ok_or_else(|| {
-                    Failure::new(
-                        "NAME_NOT_FOUND",
-                        format!("Identity '{name}' was not found."),
-                        3,
-                    )
-                })?;
+            // An id addresses its identity directly; a name is found as `identity::find_by_name` finds
+            // it, so a name an identity already holds stays addressable when a new one would be refused.
+            let by_id = if tmt_core::dispatch::canonical_id(&name) {
+                storage.resolve_identity(&name).map_err(unavailable)?
+            } else {
+                None
+            };
+            let identity = match by_id {
+                Some(identity) => identity,
+                None => identity::find_by_name(storage, &name)
+                    .map_err(identity_failure)?
+                    .ok_or_else(|| {
+                        Failure::new(
+                            "NAME_NOT_FOUND",
+                            format!("Identity '{name}' was not found."),
+                            3,
+                        )
+                    })?,
+            };
             shown(storage, identity)
         }
         IdentityRequest::Show(None) => {

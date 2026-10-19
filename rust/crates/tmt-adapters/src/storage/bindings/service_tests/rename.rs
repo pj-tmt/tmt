@@ -504,3 +504,69 @@ fn uuid_rename_preserves_bound_state_and_noop_cursor_and_rolls_back_storage_fail
     );
     storage.close().unwrap();
 }
+
+#[test]
+fn a_new_name_over_64_characters_is_refused_on_every_admission_path_and_a_held_one_still_resolves()
+{
+    use tmt_core::binding::{bind_auto_identity, bind_identity, name_auto_identity};
+    use tmt_core::identity::find_by_name;
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1", "%2"]);
+    let (sixty_four, sixty_five) = ("n".repeat(64), "n".repeat(65));
+
+    // create
+    assert!(matches!(
+        create_or_resolve(&mut storage, &sixty_five, Lifetime::Saved),
+        Err(tmt_core::identity::IdentityError::InvalidName(_))
+    ));
+    assert!(storage.find_identity(&sixty_five).unwrap().is_none());
+    // add and name: a bind that creates the identity
+    assert!(matches!(
+        bind_identity(&mut storage, &mut endpoint, "%1", &sixty_five, true),
+        Err(Error::InvalidName(_))
+    ));
+    let bound = bind_identity(&mut storage, &mut endpoint, "%1", &sixty_four, true).unwrap();
+    assert_eq!(bound.identity.name, sixty_four);
+    // rename
+    assert!(matches!(
+        rename_identity::<_, EndpointFailure>(&mut storage, &sixty_four, &sixty_five),
+        Err(Error::InvalidName(_))
+    ));
+    assert_eq!(
+        storage.find_identity(&sixty_four).unwrap().unwrap().id,
+        bound.identity.id
+    );
+    // this: naming the auto-named caller
+    bind_auto_identity(&mut storage, &mut endpoint, "%2", "claude-test", true).unwrap();
+    assert!(matches!(
+        name_auto_identity(&mut storage, &mut endpoint, "%2", &sixty_five, true),
+        Err(Error::InvalidName(_))
+    ));
+    assert!(storage.find_identity("claude-test").unwrap().is_some());
+
+    // An identity that already holds a longer name keeps it, lists, resolves and renames away.
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE identities SET name = ?1, canonical_name = ?1 WHERE id = ?2",
+            [&sixty_five, &bound.identity.id],
+        )
+        .unwrap();
+    assert!(
+        storage
+            .list_identities()
+            .unwrap()
+            .iter()
+            .any(|identity| identity.name == sixty_five)
+    );
+    assert_eq!(
+        find_by_name(&storage, &sixty_five).unwrap().unwrap().id,
+        bound.identity.id
+    );
+    let renamed =
+        rename_identity::<_, EndpointFailure>(&mut storage, &sixty_five, "Short").unwrap();
+    assert_eq!(renamed.identity.id, bound.identity.id);
+    storage.close().unwrap();
+}

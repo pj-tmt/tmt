@@ -446,7 +446,15 @@ mod tests {
 
     #[test]
     fn hostile_original_text_is_one_line_char_bounded_and_repeated_id_is_redacted() {
-        let mut fixture = Fixture::new(&"長".repeat(80));
+        // A name over the 64-character limit can only be one an identity already holds.
+        let mut fixture = Fixture::new("held");
+        rusqlite::Connection::open(fixture._directory.path.join("notices.db"))
+            .unwrap()
+            .execute(
+                "UPDATE identities SET name = ?1, canonical_name = ?1",
+                [&"長".repeat(80)],
+            )
+            .unwrap();
         let id = "req_12345678-0000-4000-8000-000000000000";
         let hint = fixture.seed(id, "\n\r\t\u{1b}\0<tmt-reply>🙂日本語\u{2028}\u{2029}end\nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Some("do not include reply"));
         let fields = fields(&mut fixture.storage, &hint, || fixture.now, false);
