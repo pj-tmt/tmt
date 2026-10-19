@@ -106,6 +106,9 @@ struct Session {
     change: Change,
     outgoing: std::collections::VecDeque<outgoing::Entry>,
     before_send: Option<Reply>,
+    /// A question that arrived after the sends above it; it is shown below them
+    /// and becomes the next send's lead-in.
+    tail: Option<Reply>,
     response_spans: Vec<(
         Option<u64>,
         super::home_leads::MessageKey,
@@ -132,6 +135,7 @@ impl Default for Session {
             change: Change::Current,
             outgoing: Default::default(),
             before_send: None,
+            tail: None,
             response_spans: Default::default(),
             agent_mark: String::new(),
             authored_lines: Default::default(),
@@ -165,9 +169,14 @@ impl Session {
                 self.change = Change::NewOutput;
                 return;
             }
-            // A new incoming request starts a new bounded feedback group. Old
-            // explicit sends do not replace the selected agent's new question.
-            self.outgoing.clear();
+            if !self.outgoing.is_empty() {
+                // Settled sends are the user's side of the exchange: the new
+                // question is a later block below them, never a replacement.
+                self.reply = incoming.clone();
+                self.tail = incoming;
+                self.refresh_outgoing();
+                return;
+            }
             self.before_send = None;
             self.response_spans.clear();
             self.authored_lines.clear();

@@ -400,7 +400,11 @@ fn outgoing_retention_is_bounded_and_keeps_follow_without_a_transcript_store() {
     }
     let state = app.conversation.borrow();
     let session = state.sessions.values().next().unwrap();
-    assert_eq!(session.outgoing.len(), MAX_ITEMS);
+    assert_eq!(
+        session.outgoing.len(),
+        20,
+        "no send is dropped below the cap"
+    );
     assert!(session.outgoing.iter().map(Entry::bytes).sum::<usize>() <= MAX_BYTES);
     assert!(session.follow);
     drop(state);
@@ -827,9 +831,14 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
         .get_mut(&identity)
         .unwrap()
         .update(Some(incoming));
-    assert_eq!(
-        app.conversation.borrow().sessions[&identity].text,
-        "New exact question"
+    let text = app.conversation.borrow().sessions[&identity].text.clone();
+    assert!(
+        text.starts_with("You · now\n\n") && text.contains("in flight"),
+        "the settled send stays: {text:?}"
+    );
+    assert!(
+        text.ends_with("auth-fix · now\n\nNew exact question"),
+        "the new question is a later block below it: {text:?}"
     );
 }
 
@@ -960,4 +969,154 @@ exit {status}
             "Queued"
         }));
     }
+}
+
+#[test]
+fn a_settled_send_stays_in_order_when_the_same_agent_asks_a_new_question() {
+    let fake = Fake::new(json!({"requestId":"r1", "status":"queued"}), false);
+    let mut app = fixture();
+    let completed = send(&mut app, &fake, "first message");
+    finish(&mut app, completed);
+    let identity = app
+        .conversation
+        .borrow()
+        .sessions
+        .keys()
+        .next()
+        .cloned()
+        .unwrap();
+    let incoming = Reply {
+        from: "auth-fix".into(),
+        age: "now".into(),
+        at_ms: None,
+        body: "A new question while you were away".into(),
+        key: Some(crate::board::home_leads::MessageKey {
+            sender: identity.0.clone().unwrap(),
+            lead: identity.1.clone(),
+            squad: "product".into(),
+            request: "incoming".into(),
+            kind: crate::board::home_leads::Kind::Question,
+        }),
+        acquired: true,
+        source: false,
+    };
+    app.conversation
+        .borrow_mut()
+        .sessions
+        .get_mut(&identity)
+        .unwrap()
+        .update(Some(incoming));
+    let state = app.conversation.borrow();
+    let session = &state.sessions[&identity];
+    assert_eq!(
+        session.outgoing.len(),
+        1,
+        "the earlier send must stay below the new question's exchange"
+    );
+}
+
+#[test]
+fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
+    let mut session = Session::default();
+    for sequence in 0..=MAX_ITEMS as u64 {
+        session.outgoing.push_back(Entry {
+            ticket: Ticket {
+                key: ("ben-id".into(), "agent".into()),
+                sequence,
+                text: format!("message {sequence}"),
+                squad: "product".into(),
+            },
+            started_ms: sequence,
+            outcome: None,
+            question: None,
+            lead_in: None,
+            reply: None,
+        });
+    }
+    session.trim_outgoing();
+    assert_eq!(session.outgoing.len(), MAX_ITEMS);
+    assert_eq!(session.outgoing.front().unwrap().ticket.sequence, 1);
+    assert_eq!(
+        session.outgoing.back().unwrap().ticket.sequence,
+        MAX_ITEMS as u64
+    );
+}
+
+#[test]
+fn sends_and_later_questions_alternate_in_arrival_order() {
+    let fake = Fake::new(json!({"requestId":"r1", "status":"queued"}), false);
+    let mut app = fixture();
+    let completed = send(&mut app, &fake, "first send");
+    finish(&mut app, completed);
+    let identity = app
+        .conversation
+        .borrow()
+        .sessions
+        .keys()
+        .next()
+        .cloned()
+        .unwrap();
+    let question = |request: &str, body: &str| Reply {
+        from: "auth-fix".into(),
+        age: "now".into(),
+        at_ms: None,
+        body: body.into(),
+        key: Some(crate::board::home_leads::MessageKey {
+            sender: identity.0.clone().unwrap(),
+            lead: identity.1.clone(),
+            squad: "product".into(),
+            request: request.into(),
+            kind: crate::board::home_leads::Kind::Question,
+        }),
+        acquired: true,
+        source: false,
+    };
+    let feed = |app: &App, reply: Reply| {
+        app.conversation
+            .borrow_mut()
+            .sessions
+            .get_mut(&identity)
+            .unwrap()
+            .update(Some(reply));
+    };
+    feed(&app, question("q2", "second question"));
+    // The same question refreshed with a longer body updates in place.
+    feed(&app, question("q2", "second question, revised"));
+    // A newer question replaces only the unanswered tail, not the sends.
+    feed(&app, question("q3", "third question"));
+    let text = app.conversation.borrow().sessions[&identity].text.clone();
+    assert_eq!(text.matches("You · now").count(), 1, "{text:?}");
+    assert!(!text.contains("second question"), "{text:?}");
+    assert!(
+        text.ends_with("auth-fix · now\n\nthird question"),
+        "{text:?}"
+    );
+    // Answering the tail keeps it above the new send, below the first one.
+    if app.input.is_some() {
+        app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    }
+    let completed = send(&mut app, &fake, "second send");
+    finish(&mut app, completed);
+    let text = app.conversation.borrow().sessions[&identity].text.clone();
+    let order: Vec<_> = ["first send", "third question", "second send"]
+        .iter()
+        .map(|part| {
+            text.find(part)
+                .unwrap_or_else(|| panic!("{part}: {text:?}"))
+        })
+        .collect();
+    assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{text:?}");
+    let screen = draw(&app);
+    let painted: Vec<_> = ["first send", "third question", "second send"]
+        .iter()
+        .map(|part| {
+            screen
+                .find(part)
+                .unwrap_or_else(|| panic!("{part}: {screen:?}"))
+        })
+        .collect();
+    assert!(
+        painted.windows(2).all(|pair| pair[0] < pair[1]),
+        "{screen:?}"
+    );
 }

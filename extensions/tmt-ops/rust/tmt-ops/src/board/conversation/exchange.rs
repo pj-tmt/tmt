@@ -59,7 +59,7 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
         return 1;
     }
     session.prepare_grouped(usize::from(width), app.look(), &app.references);
-    let waiting = session.outgoing.is_empty()
+    let waiting = (session.outgoing.is_empty() || session.tail.is_some())
         && session.reply.as_ref().is_some_and(|reply| {
             reply
                 .key
@@ -199,8 +199,9 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         exchange::header(name, me, &stamp, read_only, usize::from(area.width), look),
     );
     let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
-    let footer_rows = u16::from(question && session.outgoing.is_empty() && area.height >= 3)
-        + u16::from(link.is_some() && area.height >= 4);
+    let footer_rows = u16::from(
+        question && (session.outgoing.is_empty() || session.tail.is_some()) && area.height >= 3,
+    ) + u16::from(link.is_some() && area.height >= 4);
     // Long observations retain their viewport and paging indicator; optional
     // waiting/link captions yield before the response or the filled input.
     let footer_rows = if session.rendered.as_ref().unwrap().mapped.lines.len()
@@ -331,7 +332,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         .anchor
         .select_visual(&rendered.anchor_text, &rendered.anchor_sources, offset);
     let mut y = body.bottom();
-    if question && session.outgoing.is_empty() && footer_rows > 0 {
+    if question && (session.outgoing.is_empty() || session.tail.is_some()) && footer_rows > 0 {
         strip::paint_left(
             frame.buffer_mut(),
             Rect::new(area.x, y, area.width, 1),

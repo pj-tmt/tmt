@@ -10,7 +10,9 @@ use crate::{
     send::{Accepted, Disposition},
 };
 
-const MAX_ITEMS: usize = 16;
+// Sends stay in the session until this many have scrolled past; the byte budget
+// below still bounds the total.
+const MAX_ITEMS: usize = 512;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +77,9 @@ pub(super) struct Entry {
     pub(super) started_ms: u64,
     outcome: Option<Outcome>,
     question: Option<String>,
+    /// The agent question that opened this send's group, when it arrived after
+    /// earlier sends; the first group's question is `Session::before_send`.
+    pub(super) lead_in: Option<Reply>,
     pub(super) reply: Option<Reply>,
 }
 impl Entry {
@@ -91,7 +96,9 @@ impl Entry {
         )
     }
     fn bytes(&self) -> usize {
-        self.ticket.text.len() + self.reply.as_ref().map_or(0, |reply| reply.body.len())
+        self.ticket.text.len()
+            + self.reply.as_ref().map_or(0, |reply| reply.body.len())
+            + self.lead_in.as_ref().map_or(0, |reply| reply.body.len())
     }
     fn status(&self) -> String {
         match &self.outcome {
@@ -148,6 +155,32 @@ impl Session {
                 self.refresh_outgoing();
             }
             return;
+        }
+        if let Some(reply) = incoming.filter(|reply| {
+            reply
+                .key
+                .as_ref()
+                .is_some_and(|key| key.kind == crate::board::home_leads::Kind::Question)
+        }) {
+            let held = self
+                .tail
+                .iter_mut()
+                .chain(self.outgoing.iter_mut().filter_map(|e| e.lead_in.as_mut()))
+                .find(|held| super::same_source(held, reply));
+            if let Some(held) = held {
+                if reply.acquired && (held.body != reply.body || !held.acquired) {
+                    *held = reply.clone();
+                    if self
+                        .reply
+                        .as_ref()
+                        .is_some_and(|old| super::same_source(old, reply))
+                    {
+                        self.reply = Some(reply.clone());
+                    }
+                    self.refresh_outgoing();
+                }
+                return;
+            }
         }
         let Some(reply) = incoming.filter(|reply| reply.acquired && reply.source) else {
             return;
@@ -298,7 +331,7 @@ impl Session {
         bodies
     }
 
-    fn refresh_outgoing(&mut self) {
+    pub(super) fn refresh_outgoing(&mut self) {
         let mut text = self.before_send.as_ref().map_or_else(String::new, |reply| {
             crate::board::notes::sanitize(&reply.body)
         });
@@ -318,6 +351,15 @@ impl Session {
         self.authored_lines.clear();
         self.compact_separators.clear();
         for entry in &self.outgoing {
+            if let Some(question) = &entry.lead_in {
+                push_question(
+                    &mut text,
+                    &mut self.authored_lines,
+                    &mut self.compact_separators,
+                    &mut self.response_spans,
+                    question,
+                );
+            }
             if !text.is_empty() {
                 text.push_str("\n\n");
             }
@@ -363,8 +405,50 @@ impl Session {
                 }
             }
         }
+        if let Some(question) = &self.tail {
+            push_question(
+                &mut text,
+                &mut self.authored_lines,
+                &mut self.compact_separators,
+                &mut self.response_spans,
+                question,
+            );
+        }
         self.text = text;
         self.rendered = None;
+    }
+}
+
+/// An agent question shown between or after sends, headed like an agent reply.
+fn push_question(
+    text: &mut String,
+    authored_lines: &mut std::collections::BTreeMap<usize, super::AuthoredLine>,
+    compact_separators: &mut std::collections::BTreeSet<usize>,
+    response_spans: &mut Vec<(
+        Option<u64>,
+        crate::board::home_leads::MessageKey,
+        std::ops::Range<usize>,
+    )>,
+    question: &Reply,
+) {
+    let lines = |text: &str| text.bytes().filter(|byte| *byte == b'\n').count();
+    if !text.is_empty() {
+        text.push_str("\n\n");
+    }
+    let header_line = lines(text);
+    authored_lines.insert(header_line, super::AuthoredLine::ReplyHeading);
+    compact_separators.insert(header_line + 1);
+    text.push_str(&format!(
+        "{} · now\n\n",
+        crate::board::notes::sanitize(&question.from)
+    ));
+    let start = lines(text);
+    text.push_str(crate::board::notes::sanitize(&question.body).trim_end_matches('\n'));
+    if question.acquired
+        && question.source
+        && let Some(key) = &question.key
+    {
+        response_spans.push((None, key.clone(), start..lines(text) + 1));
     }
 }
 
@@ -427,10 +511,13 @@ impl App {
         };
         let identity: ConversationKey = (Some(key.0), key.1);
         let session = state.sessions.entry(identity).or_default();
-        if session.outgoing.is_empty() {
+        let lead_in = if session.outgoing.is_empty() {
             session.update(incoming);
             session.before_send = session.reply.clone();
-        }
+            None
+        } else {
+            session.tail.take()
+        };
         session.outgoing.push_back(Entry {
             ticket: ticket.clone(),
             started_ms: crate::status::now_ms(),
@@ -439,6 +526,7 @@ impl App {
                 crate::board::app::Compose::Reply { request, .. } => Some(request.clone()),
                 _ => None,
             },
+            lead_in,
             reply: None,
         });
         session.trim_outgoing();

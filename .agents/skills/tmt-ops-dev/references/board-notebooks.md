@@ -87,7 +87,9 @@ Unavailable/expired source is not an annotatable response.
 same selected-agent response in the workspace Overview and Agents detail area. Each session
 retains the response, source anchor, follow state and Markdown render cache keyed
 by source, width and look. Bounded outgoing turns use typed acceptance and exact
-request correlation, without a transcript store. Reading older text pauses follow;
+request correlation, without a transcript store. A later question from the same agent is a
+block below the earlier sends and never clears them; the session keeps up to 512 sends
+and 4 MiB. Reading older text pauses follow;
 a replacement result is indicated without replacing the displayed request until
 End or intentional downward scrolling to the bottom resumes follow. Resize and
 new output alone do not resume it; Send enables follow.
