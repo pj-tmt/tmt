@@ -381,10 +381,8 @@ impl App {
         {
             return None;
         }
-        let target = self.conversation_target();
-        let mut state = self.conversation.borrow_mut();
         if event.code == KeyCode::Char('@') && event.modifiers.is_empty() {
-            state.selection = None;
+            self.conversation.borrow_mut().selection = None;
             return None;
         }
         let movement = matches!(
@@ -396,6 +394,12 @@ impl App {
                 | KeyCode::Home
                 | KeyCode::End
         );
+        // Resolving the recipient scans the roster, so only a key that can start
+        // a selection pays for it; plain scrolling keys stay O(1) here.
+        let target = (movement && event.modifiers.contains(KeyModifiers::SHIFT))
+            .then(|| self.conversation_target())
+            .flatten();
+        let mut state = self.conversation.borrow_mut();
         if movement && event.modifiers.contains(KeyModifiers::SHIFT) {
             if state.selection.is_none() {
                 let surface = state
