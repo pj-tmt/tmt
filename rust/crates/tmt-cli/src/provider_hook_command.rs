@@ -352,6 +352,14 @@ pub(super) fn verified_caller<R: CommandRunner + Clone>(
             .iter()
             .find(|item| item.id == pane)
             .ok_or(())?;
+        // A nested caller's host was chosen from one pinned ancestry; the
+        // pane it reports now must be the pane shell that ancestry held.
+        if panes
+            .pinned_caller_pane()
+            .is_some_and(|pid| pid != observed_pane.pane_pid)
+        {
+            return Err(());
+        }
         let process = lifecycle
             .observe_in_pane(
                 &runner,

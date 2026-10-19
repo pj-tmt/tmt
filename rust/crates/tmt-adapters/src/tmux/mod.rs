@@ -287,6 +287,18 @@ impl<R: CommandRunner> Tmux<R> {
         optional_observation(caller::depth(self, environment)).map(Option::flatten)
     }
 
+    /// The caller's tmux pane shell pid for a nested caller that locates it
+    /// on its own pinned ancestry. A tmux environment that can't be observed
+    /// (a partial or stale one, another server, a failed command) is an
+    /// error, never absence.
+    pub(crate) fn proven_caller_pane(
+        &self,
+        environment: &CallerEnvironment,
+        deadline: Instant,
+    ) -> Result<u64, TmuxError> {
+        caller::proven_pane_pid(self, environment, deadline)
+    }
+
     fn server_evidence(
         &self,
         socket: Option<&str>,

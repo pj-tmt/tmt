@@ -326,8 +326,9 @@ delivery. They install and launch nothing.
   never migrate, and on failure emit no context and at most one fixed stderr line. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
   payload session IDs never create bindings or move identities. `verified_caller` gets the
-  caller's host from `Host::for_verified_caller` (only the one host its locators name, with
-  approved drivers and recorded server IDs; mixed or nested hosts refuse), so an external
+  caller's host from `Host::for_verified_caller` (the one host its locators name, or a nested
+  tmux and external caller's owner on one pinned ancestry, with approved drivers and recorded
+  server IDs; two external hosts refuse; [rule](hosts-drivers.md)), so an external
   caller it cannot verify is that failure line, not a silent success; a turn end stays
   silent. Hook
   storage writer admission waits at most 500 ms within the supplied remaining worker deadline,

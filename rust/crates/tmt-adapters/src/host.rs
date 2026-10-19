@@ -16,6 +16,7 @@
 mod delivery;
 pub(crate) mod driver;
 pub mod external;
+mod nested;
 
 use external::ExternalCaller;
 
@@ -147,18 +148,21 @@ impl CallerEnvironment {
         match (self.names_tmux(), named.as_slice()) {
             (_, []) => NamedHost::Builtin,
             (false, [record]) => NamedHost::External(record),
+            (true, [record]) => NamedHost::Nested(record),
             _ => NamedHost::Ambiguous,
         }
     }
 }
 
 /// The host a caller's locators name: none of the approved external hosts
-/// (tmux, or outside any host), exactly one external host and no tmux, or
-/// more than one host (mixed or nested, unsupported).
+/// (tmux, or outside any host), exactly one external host and no tmux, tmux
+/// and exactly one external host (nested, in either order), or more than one
+/// external host (unsupported).
 #[derive(Debug)]
 pub enum NamedHost<'a> {
     Builtin,
     External(&'a crate::driver_protocol::registry::DriverRecord),
+    Nested(&'a crate::driver_protocol::registry::DriverRecord),
     Ambiguous,
 }
 
@@ -182,6 +186,8 @@ pub enum HostError {
     },
     /// TMT could not record an external server's incarnation.
     ServerIds(Box<dyn std::error::Error + Send + Sync>),
+    /// TMT's own read of the caller's processes could not clean up.
+    Process(CommandError),
 }
 
 impl HostError {
@@ -189,6 +195,7 @@ impl HostError {
         match self {
             Self::Tmux(error) => error.cleanup_failed(),
             Self::Driver(external::CallError::Process { error, .. }) => error.cleanup_failed(),
+            Self::Process(error) => error.cleanup_failed(),
             Self::Unavailable(_)
             | Self::Driver(_)
             | Self::Refused { .. }
@@ -204,7 +211,8 @@ impl HostError {
             | Self::Driver(_)
             | Self::Refused { .. }
             | Self::Evidence { .. }
-            | Self::ServerIds(_) => false,
+            | Self::ServerIds(_)
+            | Self::Process(_) => false,
         }
     }
 }
@@ -229,6 +237,7 @@ impl fmt::Display for HostError {
             } => write!(output, "Host driver {driver}: {message}"),
             Self::Evidence { driver, reason } => write!(output, "Host driver {driver}: {reason}."),
             Self::ServerIds(error) => write!(output, "Could not record the host server: {error}"),
+            Self::Process(error) => error.fmt(output),
         }
     }
 }
@@ -250,6 +259,7 @@ impl std::error::Error for HostError {
             Self::Tmux(error) => error.source(),
             Self::Driver(error) => Some(error),
             Self::ServerIds(error) => Some(error.as_ref()),
+            Self::Process(error) => Some(error),
             Self::Unavailable(_) | Self::Refused { .. } | Self::Evidence { .. } => None,
         }
     }
@@ -302,6 +312,9 @@ pub struct Host<R = UnixCommandRunner> {
     primary: HostKind,
     tmux: Tmux<R>,
     external: external::Drivers<R>,
+    /// The caller's pane shell pid on the pinned ancestry that chose a nested
+    /// caller's host; `None` for every other handle.
+    pinned_pane: Option<u64>,
 }
 
 impl<R: CommandRunner> Host<R> {
@@ -409,10 +422,11 @@ impl<R: CommandRunner + Clone> Host<R> {
     /// A hook or discovery caller's host: the one host its locators name,
     /// verified, never a fallback. No locator keeps tmux (outside any host);
     /// tmux variables alone keep the tmux caller check. One named external
-    /// host must answer conclusively with the caller's pane. Locators naming
-    /// more than one host (mixed or nested hosts, unsupported) refuse whatever
-    /// the pane checks say. The external server ID must be one a bind
-    /// recorded (`ids` never records one).
+    /// host must answer conclusively with the caller's pane. tmux and one
+    /// external host (nested) admit only the owner that one pinned ancestry
+    /// proves ([`Host::for_nested_caller`]). Locators naming more than one
+    /// external host refuse whatever the pane checks say. The external server
+    /// ID must be one a bind recorded (`ids` never records one).
     pub fn for_verified_caller<I: HostServerIds>(
         environment: &CallerEnvironment,
         runner: R,
@@ -421,21 +435,41 @@ impl<R: CommandRunner + Clone> Host<R> {
     ) -> Result<Self, HostError> {
         let unverified =
             |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
+        let deadline = Instant::now() + Duration::from_secs(1);
         let builtin = Self::of(HostKind::Tmux, runner.clone()).with_drivers(records.clone());
         match environment.named_host(&records) {
             NamedHost::Builtin => return Ok(builtin),
             NamedHost::External(_) => {}
+            NamedHost::Nested(_) => {
+                return Self::for_nested_caller(
+                    environment,
+                    builtin,
+                    runner,
+                    records,
+                    ids,
+                    deadline,
+                );
+            }
             NamedHost::Ambiguous => {
                 return Err(unverified("the caller's locators name more than one host"));
             }
         }
-        let callers = builtin
-            .external
-            .callers(environment, Instant::now() + Duration::from_secs(1))?;
+        let callers = builtin.external.callers(environment, None, deadline)?;
         let [external] = <[ExternalCaller; 1]>::try_from(callers.found)
             .ok()
             .filter(|_| callers.conclusive)
             .ok_or_else(|| unverified("no approved driver verified the caller's pane"))?;
+        Self::for_external_caller(external, runner, records, ids)
+    }
+
+    /// The handle for a verified external caller pane, whose server must be
+    /// one a bind recorded.
+    fn for_external_caller<I: HostServerIds>(
+        external: ExternalCaller,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+        ids: &mut I,
+    ) -> Result<Self, HostError> {
         let name = external.host;
         let host = Self::of(HostKind::External(name), runner).with_drivers(records);
         host.external.set_caller(external);
@@ -481,6 +515,7 @@ impl<R: CommandRunner + Clone> Host<R> {
             primary,
             tmux: Tmux::new(runner.clone()),
             external: external::Drivers::new(runner, Vec::new()),
+            pinned_pane: None,
         }
     }
 }
@@ -518,7 +553,7 @@ impl<R: CommandRunner> Host<R> {
         let deadline = Instant::now() + Duration::from_secs(1);
         let external = self
             .external
-            .callers(environment, deadline)
+            .callers(environment, None, deadline)
             .ok()?
             .found
             .into_iter()

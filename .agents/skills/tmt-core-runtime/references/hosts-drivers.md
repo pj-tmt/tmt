@@ -136,16 +136,34 @@ channels and the driver protocol. The owner map is in
 - A driver's `caller` pane counts only when that pane's shell is an ancestor of the caller
   (`process::ancestry`); the nearest verified pane wins, otherwise the host is tmux.
   Hooks and the caller-session worker use `Host::for_verified_caller` instead, which uses a
-  host only when the caller's locators name exactly that host. No locator keeps tmux
-  (outside any host), and tmux variables alone keep the tmux caller check. One named external
-  host must answer conclusively with the caller's pane (`Callers::conclusive`: a driver
-  error, a changed or unopenable approved executable or a non-text variable is not); anything
-  less refuses and never tries another host. Locators that name more than one host (tmux
-  variables beside a driver's, or two drivers' variables) refuse whatever the pane checks
-  say: mixed and nested host environments are unsupported for hooks. Launch the agent with
-  the other host's variables cleared; the hook never clears them itself. Supporting nesting
-  needs its own coherent proof of the hosts' order. An external caller's server must
-  already have a `host_servers` row (`RecordedHostServers` reads it and never records one).
+  host only when the caller's locators name exactly that host or prove a nested caller's
+  owner. No locator keeps tmux (outside any host), and tmux variables alone keep the tmux
+  caller check. One named external host must answer conclusively with the caller's pane
+  (`Callers::conclusive`: a driver error, a changed or unopenable approved executable or a
+  non-text variable is not); anything less refuses and never tries another host. tmux
+  variables beside exactly one external host's (nested, in either order) admit only the
+  owner that one pinned ancestry proves (`host/nested.rs`). `process::ancestry::pinned_chain`
+  reads the caller's chain once, each entry's parent and start from one native read or one
+  UTC `ps` row, and refuses a parent that started after its child (a reused pid). The
+  driver's `caller` pane and the tmux pane (one `display-message` on the `TMUX` socket, which
+  must report that pane, socket and server pid and a live pane) are located on that chain.
+  The nearer located pane owns the caller; a conclusive answer whose pane is off the chain
+  is absent (the tmux server daemonizes, so the Herdr pane that runs tmux is never on a tmux
+  caller's chain). Doubt on either side (a driver that is not conclusive, only one of
+  `TMUX` and `TMUX_PANE`, a stale socket, another server or pane, both hosts naming one pane
+  process), no located pane, or a change from the caller up to the owner pane before the
+  answer refuses and never falls back to the other host. The hook then requires the pane
+  pid it reads to be the pinned owner's (`Host::pinned_caller_pane`). Two external hosts'
+  variables still refuse. Limits: a pid reused with the same start within the start
+  resolution is not caught (microseconds natively, whole seconds from `ps`; on Linux a
+  native start is boot time plus clock ticks, so a clock step between two reads can shift
+  one entry by a second, which refuses or misses a reuse within that second). Herdr started
+  in a tmux that has since closed keeps a stale `TMUX` and refuses: clear `TMUX` and
+  `TMUX_PANE` before you start the agent. Caller-session discovery after an ordinary
+  command is scheduled by pane locators, and Herdr's caller variable (`HERDR_PANE_ID`)
+  holds a target, not a pane ID, so a Herdr-owned nested caller runs no worker unless its
+  tmux pane is bound. An external caller's server must already have a `host_servers`
+  row (`RecordedHostServers` reads it and never records one).
   `Host::for_target` picks the host whose grammar reads the text. Only a definite answer is
   "not found"; a failing or late driver is `RECONCILIATION_FAILED`.
 - Prompt-first `send` maps `no_agent`/`unsupported` to raw input, `blocked` to
