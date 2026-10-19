@@ -30,7 +30,7 @@ selection defaults to the debug build.
 ## Owners and evidence
 
 Rust tests stay beside their owner. TypeScript suites live under
-`typescript/test/{native,e2e,tooling,stress}` and share only `test/support`.
+`typescript/test/{native,e2e,tooling}` and share only `test/support`.
 The tooling architecture guard rejects support importing a suite, native/E2E
 importing each other or tooling, harness helpers importing their fixture, and
 scenarios bypassing `harness.ts`. Focused tooling tests may import suite-local

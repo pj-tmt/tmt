@@ -74,8 +74,3 @@ checks for `tmt whoami --context`; the `identity-context` and `identity-context-
 Docker scenarios own bound acceptance (independent SQLite snapshots must not change on a
 context read). `test/native/inbox.test.ts` owns the no-tmux queue, bounded listen, receipt
 and reply path; fake-clock unit tests own debounce timing.
-
-## Load diagnostics
-
-`pnpm test:stress:native` runs the maximum-body, 50-reply page as an explicit
-diagnostic, not required acceptance.

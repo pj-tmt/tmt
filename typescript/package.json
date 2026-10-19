@@ -10,7 +10,6 @@
     "test:watch": "vp test watch --config vitest.config.ts",
     "test:e2e": "node scripts/run-e2e.mjs",
     "test:native": "vp test run --config test/native/vitest.config.ts",
-    "test:stress:native": "vp test run --config test/stress/vitest.config.ts",
     "test:run": "vp test run --config vitest.config.ts",
     "lint": "vp lint --config vitest.config.ts test/ scripts/*.mjs",
     "docs:format:check": "node scripts/format-workspace.mjs --docs --check",
