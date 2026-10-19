@@ -56,6 +56,13 @@ with Core's usual 15 seconds and 1 MiB per call:
   `not_sampled`; [meaning](../../../contracts/extension-api.md#consumption-history)):
   why nothing is being sampled right now. A value this build does not know is passed
   through, and a reader must tolerate one. The other reasons carry no cause.
+- `usage.otherSessions`: `{name:"other sessions",reason:"no_source"}`, always present.
+  Core counts a Codex seat's started sessions (subagents and auto-review) with the seat at
+  the root of their parent chain
+  ([the rule](../../../contracts/extension-api.md#consumption-history)), so every figure above
+  is the seat's. A session that no seat started is not read, so its usage is
+  unavailable, never a zero and never folded into a seat; the report's totals are the sum of
+  its seat rows.
 - `usage.lines[]`: totals grouped by model family, from the model id: `claude`
   (`claude-*`), `gpt` (`gpt-*`), `other`, and `unattributed` for totals Core could
   not attribute. `seats` counts identities contributing; `partialSeats` those whose
@@ -102,7 +109,8 @@ JSON rows, so the two never disagree.
   One row per model of each seat (`line` from the model id), one `unattributed` row with
   an empty `model` for what no model row covers (the whole total when `byModel` is null),
   then one row per unavailable identity with
-  only `id,name,retired,unavailable,cause`.
+  only `id,name,retired,unavailable,cause`, then the `other sessions` row with
+  only `name` and `unavailable` (`no_source`).
 - `credits`: `fromMs,toMs,balance,observedAtMs,hasCredits,unlimited,serviceTiers`, one row
   per point (`serviceTiers` joined by spaces); only the header when `credits` is null.
 - `exchange`: `senderId,sender,recipientId,recipient,kind,count,bytes`, one row per

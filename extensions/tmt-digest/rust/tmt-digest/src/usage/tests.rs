@@ -108,7 +108,9 @@ fn csv_has_one_row_per_json_row() {
                 + usize::from(seat["unattributed"].is_object())
         })
         .sum::<usize>()
-        + usage["unavailable"].as_array().unwrap().len();
+        + usage["unavailable"].as_array().unwrap().len()
+        // The row for sessions that belong to no seat.
+        + 1;
     let table = csv::table(&document, Table::Usage).unwrap();
     assert_eq!(table.lines().count() - 1, expected);
     let table = csv::table(&document, Table::Exchange).unwrap();
@@ -325,7 +327,7 @@ fn a_no_evidence_identity_carries_core_s_cause_and_unknown_causes_pass_through()
     assert!(
         csv::table(&known, Table::Usage)
             .unwrap()
-            .ends_with("no_evidence,no_sampler\n")
+            .contains("no_evidence,no_sampler\n")
     );
     // A cause a later host adds is passed through; one that is not a plain id is dropped.
     assert_eq!(
@@ -767,9 +769,11 @@ fn a_partly_attributed_seat_names_its_remainder_and_keeps_it_on_the_unattributed
     // The CSV table sums to the total: the remainder is its own row.
     let table = csv::table(&document, Table::Usage).unwrap();
     let rows: Vec<_> = table.lines().skip(1).collect();
-    assert_eq!(rows.len(), 2);
+    // The two seat rows, then the row for sessions outside every seat.
+    assert_eq!(rows.len(), 3);
     assert!(rows[0].contains(",gpt,gpt-6.1-sol,6,1,1,"));
     assert!(rows[1].contains(",unattributed,,4,1,3,"));
+    assert!(rows[2].contains(",other sessions,"));
 }
 
 #[test]
@@ -788,4 +792,56 @@ fn a_seat_with_no_rows_or_full_rows_names_no_remainder_and_overcounting_rows_are
     );
     assert!(document["usage"]["seats"][0].get("unattributed").is_none());
     assert_eq!(document["usage"]["seats"][0]["lines"], json!(["gpt"]));
+}
+
+#[test]
+fn sessions_outside_every_seat_are_one_unavailable_row_and_the_totals_are_the_seat_rows() {
+    let case = vector();
+    let document = model::document(&report(&case)).unwrap();
+    // Always present, never a zero and never folded into a seat.
+    assert_eq!(
+        document["usage"]["otherSessions"],
+        json!({"name": "other sessions", "reason": "no_source"})
+    );
+    let table = csv::table(&document, Table::Usage).unwrap();
+    assert_eq!(
+        table.lines().last(),
+        Some(",other sessions,,,,,,,,,,,no_source,")
+    );
+    // With nothing to report the row is still there.
+    let empty = model::usage(
+        &json!({"identities": [], "windows": []}),
+        &json!({"identities": [], "windows": []}),
+        &[],
+        &BTreeMap::new(),
+    );
+    if let Ok(usage) = empty {
+        let document = model::document(&Report {
+            as_of_ms: AS_OF,
+            since: Since::parse("24h").unwrap().text(),
+            usage,
+            exchange: None,
+            warnings: vec![],
+        })
+        .unwrap();
+        assert_eq!(document["usage"]["otherSessions"]["reason"], "no_source");
+    }
+    // The line totals are the sum of the seat totals: nothing counted twice or dropped.
+    let sum = |field: &str| -> u64 {
+        document["usage"]["seats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|seat| seat["totals"][field].as_u64().unwrap())
+            .sum()
+    };
+    for field in ["input", "output", "cached"] {
+        let lines: u64 = document["usage"]["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| line["totals"][field].as_u64().unwrap())
+            .sum();
+        assert_eq!(lines, sum(field), "{field}");
+    }
 }

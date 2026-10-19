@@ -583,6 +583,14 @@ fn seat_json(seat: &Seat) -> Value {
     value
 }
 
+/// Sessions that belong to no seat (an agent run outside any seat's session)
+/// have no Core source: the row is always present and never a zero.
+pub const OTHER_SESSIONS: &str = "other sessions";
+
+fn other_sessions() -> Value {
+    json!({"name": OTHER_SESSIONS, "reason": "no_source"})
+}
+
 fn unavailable_json(row: &Unavailable) -> Value {
     let mut value = json!({"id": row.label.id, "name": row.label.name,
                            "retired": row.label.retired, "reason": row.reason});
@@ -601,6 +609,7 @@ pub fn usage_sections(
     let section = json!({
         "seats": usage.seats.iter().map(seat_json).collect::<Vec<_>>(),
         "unavailable": usage.unavailable.iter().map(unavailable_json).collect::<Vec<_>>(),
+        "otherSessions": other_sessions(),
         "lines": grouped.iter().map(|(name, line)| json!({
             "line": name, "totals": line.tokens.json(),
             "seats": line.seats.len(), "partialSeats": line.partial.len(),
