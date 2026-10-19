@@ -85,12 +85,13 @@ describe('former Squad hook consent during Ops replacement', () => {
   const hint =
     'Removed former squad hook consent; Ops hooks require separate consent. Enable with: tmt extension hooks enable ops';
 
+  // One case per obligation (#3836): consent withdrawn and reported in JSON, consent absent
+  // and nothing reported in text, and the text hint beside an independently consented Ops.
+  // The JSON refusal is asserted on the repeated run of every case below.
   it.each([
     { consent: true, json: true, independentOps: false },
-    { consent: false, json: true, independentOps: false },
-    { consent: true, json: false, independentOps: false },
     { consent: false, json: false, independentOps: false },
-    { consent: true, json: true, independentOps: true },
+    { consent: true, json: false, independentOps: true },
   ])(
     'replaces verified Squad with $consent consent, JSON=$json, independent Ops=$independentOps',
     async ({ consent, json, independentOps }) => {
