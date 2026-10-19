@@ -9,6 +9,7 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
+    extension_hooks,
     native_install::{self, Product},
     skill_installation::{self, OwnedReport, OwnedSkill, ProviderEnvironment},
 };
@@ -103,7 +104,7 @@ pub(super) fn settle_skills(
     let installation = native_install::inspect_product(product, executable)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
     if product == Product::Ops
-        && let Some(note) = retired_squad_note(installation.prefix())
+        && let Some(note) = retired_squad_hint(installation.prefix())
     {
         document["retiredSquadHint"] = json!(note);
         human.push(note);
@@ -156,10 +157,23 @@ fn settle_publication(
     Ok(())
 }
 
+/// The leftover-Squad note for `prefix`, or `None` without a leftover. Hook
+/// consent is read only when there is one; a consent record that cannot be read
+/// is treated as absent, since the note must never fail an install or upgrade.
+pub(crate) fn retired_squad_hint(prefix: &Path) -> Option<String> {
+    native_install::retired_squad(prefix)?;
+    let consent = ConfigPaths::discover()
+        .ok()
+        .and_then(|paths| extension_hooks::list_consents(&paths).ok())
+        .is_some_and(|consents| consents.iter().any(|consent| consent.name == "squad"));
+    retired_squad_note(prefix, consent)
+}
+
 /// What a Squad installation that Ops replaced still has under `prefix`. TMT no
 /// longer upgrades it, replaces it with Ops or switches its board, and removes
-/// nothing of it, so say what is left and what to do.
-pub(crate) fn retired_squad_note(prefix: &Path) -> Option<String> {
+/// nothing of it, so say what is left and what to do. Its recorded hook consent
+/// stays too: the note names the command that withdraws it.
+fn retired_squad_note(prefix: &Path, hook_consent: bool) -> Option<String> {
     let found = native_install::retired_squad(prefix)?;
     let mut note = format!(
         "Squad at {} is left as it is: TMT no longer upgrades it, replaces it with Ops or switches its board.",
@@ -172,6 +186,10 @@ pub(crate) fn retired_squad_note(prefix: &Path) -> Option<String> {
     note.push_str(
         " Ops moves your Squad config and data on first use; a running former board defers that until it exits.",
     );
+    if hook_consent {
+        note.push_str(" Withdraw its hook consent with: tmt extension hooks disable squad");
+        note.push('.');
+    }
     let leftovers = found
         .links
         .iter()
@@ -187,12 +205,18 @@ pub(crate) fn retired_squad_note(prefix: &Path) -> Option<String> {
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
-    &[crate::cli_style_tests::HintSpec::core(
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
         " Install Ops with: tmt extension install ops --yes",
         &[""],
         &[],
-    )];
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        " Withdraw its hook consent with: tmt extension hooks disable squad",
+        &[""],
+        &[],
+    ),
+];
 
 #[cfg(test)]
 mod retired_squad_tests {
@@ -211,7 +235,7 @@ mod retired_squad_tests {
     fn nothing_is_said_without_a_squad_installation() {
         let prefix = prefix("none");
         fs::create_dir_all(prefix.join("lib/tmt-ops")).unwrap();
-        assert_eq!(retired_squad_note(&prefix), None);
+        assert_eq!(retired_squad_note(&prefix, true), None);
         fs::remove_dir_all(&prefix).unwrap();
     }
 
@@ -224,8 +248,12 @@ mod retired_squad_tests {
             prefix.join("bin/tmt-squad"),
         )
         .unwrap();
-        let note = retired_squad_note(&prefix).unwrap();
+        let note = retired_squad_note(&prefix, false).unwrap();
         assert!(note.contains(&prefix.join("lib/tmt-squad").display().to_string()));
+        assert!(
+            !note.contains("hooks disable squad"),
+            "no consent, nothing to withdraw"
+        );
         assert!(note.contains("no longer upgrades it"));
         assert!(note.contains("tmt extension install ops --yes"));
         assert!(
@@ -244,8 +272,11 @@ mod retired_squad_tests {
         // With Ops installed there is nothing to install.
         std::os::unix::fs::symlink("../lib/tmt-ops/current/tmt-ops", prefix.join("bin/tmt-ops"))
             .unwrap();
-        let note = retired_squad_note(&prefix).unwrap();
+        let note = retired_squad_note(&prefix, true).unwrap();
         assert!(!note.contains("tmt extension install ops"));
+        assert!(
+            note.contains("Withdraw its hook consent with: tmt extension hooks disable squad.")
+        );
         fs::remove_dir_all(&prefix).unwrap();
     }
 }

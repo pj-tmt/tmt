@@ -177,9 +177,8 @@ fn finish(
     let squad_hint = failure
         .is_none()
         .then(|| {
-            // <prefix>/lib/tmt/releases/<id>/tmt
-            let prefix = report.installation.active_executable.ancestors().nth(5)?;
-            crate::extension_install_command::retired_squad_note(prefix)
+            let prefix = native_install::release_prefix(&report.installation.active_executable)?;
+            crate::extension_install_command::retired_squad_hint(prefix)
         })
         .flatten();
     let named_hints = picker_hint

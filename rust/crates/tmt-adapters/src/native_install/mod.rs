@@ -20,7 +20,7 @@ pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{
     Companion, ManagedInstallation, active_companion, inspect, inspect_former_product,
-    inspect_product, inspect_product_prefix, release_skill_names, release_skills,
+    inspect_product, inspect_product_prefix, release_prefix, release_skill_names, release_skills,
     with_active_product, with_active_release,
 };
 #[cfg(test)]

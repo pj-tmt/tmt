@@ -39,13 +39,20 @@ impl ManagedInstallation {
     }
 }
 
+/// The installation prefix of a release's executable, whose path is
+/// `<prefix>/lib/<namespace>/releases/<id>/<executable>`. The one place that
+/// knows how deep a release sits; the executable is not verified.
+pub fn release_prefix(executable: &Path) -> Option<&Path> {
+    executable.ancestors().nth(5)
+}
+
 pub fn inspect(executable: &Path) -> io::Result<ManagedInstallation> {
     inspect_product(Product::Cli, executable)
 }
 
 pub fn inspect_product(product: Product, executable: &Path) -> io::Result<ManagedInstallation> {
     let executable = fs::canonicalize(executable)?;
-    let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
+    let prefix = release_prefix(&executable).ok_or_else(unmanaged)?;
     let layout = installed_layout(prefix, product).map_err(|_| unmanaged())?;
     let installation = inspect_layout(layout)?;
     if executable != installation.active_executable {
@@ -175,7 +182,7 @@ pub fn active_companion(executable: &Path, name: &str) -> io::Result<Option<Comp
         return Ok(None);
     }
     let executable = fs::canonicalize(executable)?;
-    let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
+    let prefix = release_prefix(&executable).ok_or_else(unmanaged)?;
     let layout = installed_layout(prefix, Product::Cli).map_err(|_| unmanaged())?;
     let (release, id) = layout.current_directory()?.ok_or_else(unmanaged)?;
     if executable != release.join(Product::Cli.executable()) {

@@ -4,6 +4,7 @@
 
 use super::{
     Product, invalid,
+    managed::release_prefix,
     publication::{Layout, require_installation_entries},
 };
 use crate::config::normalize;
@@ -112,7 +113,7 @@ pub fn in_moved_prefix(executable: &Path) -> bool {
 /// moved the installation, which keeps it on purpose as the rollback source.
 pub fn retained_former_hint(active: &Path) -> Option<String> {
     let former = Product::Cli.former()?;
-    let prefix = active.ancestors().nth(5)?;
+    let prefix = release_prefix(active)?;
     let root = prefix.join(former.namespace);
     fs::symlink_metadata(&root).ok()?;
     Some(match blockers(prefix, &root, &hook_settings()) {

@@ -74,6 +74,10 @@ describe('a leftover former Squad installation', () => {
       const report = parseWholeStdout(result);
       expect(report.retiredSquadHint).toContain(`Squad at ${root} is left as it is`);
       expect(report.retiredSquadHint).toContain('no longer upgrades it');
+      // Squad's recorded hook consent stays too, and the note names how to withdraw it.
+      expect(report.retiredSquadHint).toContain(
+        'Withdraw its hook consent with: tmt extension hooks disable squad.'
+      );
       expect(report.retiredSquadHint).toContain(`Remove ${links.join(', ')}, ${root} by hand`);
       // Ops is installed, so there is nothing to tell the user to install.
       expect(report.retiredSquadHint).not.toContain('Install Ops with');
@@ -1280,6 +1284,11 @@ describe('aggregate official upgrades', () => {
           `Squad at ${retiredSquad} is left as it is`
         );
         expect(existsSync(retiredSquad)).toBe(true);
+        const text = await runCli(managed, ['upgrade', '--yes'], {
+          deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+        });
+        expect(text.status, text.stderr + text.stdout).toBe(0);
+        expect(text.stdout).toContain('is left as it is');
         for (const [receipt, before] of extensionReceipts) {
           expect(readFileSync(receipt).equals(before)).toBe(true);
         }
