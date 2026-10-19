@@ -4334,6 +4334,8 @@ async function pairingPage(link) {
 async function automaticPairingPage(link, lifetime) {
 	const status = element("status");
 	element("pair").hidden = true;
+	element("comparison").hidden = true;
+	element("entry-link").hidden = true;
 	const timer = setTimeout(() => lifetime.abort(), 6e4);
 	let leaving = false;
 	const departed = () => {

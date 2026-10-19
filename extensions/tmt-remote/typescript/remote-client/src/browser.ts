@@ -765,6 +765,8 @@ export async function pairingPage(link: string): Promise<void> {
 async function automaticPairingPage(link: string, lifetime: AbortController): Promise<void> {
   const status = element('status');
   element('pair').hidden = true;
+  element('comparison').hidden = true;
+  element('entry-link').hidden = true;
   const timer = setTimeout(() => lifetime.abort(), 60_000);
   let leaving = false;
   const departed = () => {

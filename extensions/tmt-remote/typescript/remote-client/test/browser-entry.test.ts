@@ -17,8 +17,12 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       },
     };
     const form = { hidden: false, querySelector: () => ({ disabled: true }) };
+    const comparison = { hidden: false };
+    const entry = { hidden: false };
     const nodes: Record<string, unknown> = {
       pair: form,
+      comparison,
+      'entry-link': entry,
       status,
       mark: { textContent: '' },
       notice: { dataset: {} },
@@ -52,6 +56,8 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
     try {
       await pairingPage(door.link().replace('#', '#auto='));
       assert.equal(form.hidden, true);
+      assert.equal(comparison.hidden, true, 'a reused manual page must hide its old comparison');
+      assert.equal(entry.hidden, true, 'a reused manual page must hide its old success link');
       assert.equal(status.dataset.state, 'blocked');
       assert.equal(
         status.textContent,
