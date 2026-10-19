@@ -588,8 +588,8 @@ test('a new project save in flight vetoes Cancel, Escape and Close, then closes 
   page,
 }) => {
   await mount(page);
-  const open = app(page).getByRole('button', { name: '+ New project' });
-  await open.click();
+  const open = () => fromScopeMenu(page, 'New project…');
+  await open();
   const dialog = app(page).getByRole('dialog', { name: 'New project' });
   await dialog.getByRole('textbox', { name: 'Project name' }).fill('held');
   await page.evaluate(() => {
@@ -605,7 +605,7 @@ test('a new project save in flight vetoes Cancel, Escape and Close, then closes 
   await page.evaluate(() => window.__releaseManage!());
   await expect(dialog).toHaveCount(0);
   expect(await manageRequests(page)).toEqual([{ action: 'create', name: 'held' }]);
-  await open.click();
+  await open();
   await expect(dialog.getByRole('textbox', { name: 'Project name' })).toHaveValue('');
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
