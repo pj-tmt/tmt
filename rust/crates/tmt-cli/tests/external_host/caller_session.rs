@@ -62,7 +62,7 @@ fn a_caller_in_an_external_pane_records_its_session_after_a_command() {
         let own = before.own(fixture);
         assert_eq!((status, stderr.as_str()), (0, ""));
         assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);
-        let load = own.budget(fixture, &rows);
+        let load = own.budget(fixture, &rows, Some(("fake-1", SESSION, pid)));
         if !load {
             assert_eq!(own.hints, Vec::<String>::new());
             assert_eq!(own.calls, ["caller", "server", "snapshot"]);
@@ -202,15 +202,52 @@ impl Before {
     }
 }
 
+/// The session that an admissible command records: pane, session and PID.
+type Admission<'a> = (&'a str, &'a str, u64);
+
 impl Own {
-    /// Whether load refused this command: its only hint is `budget`. Then
-    /// it still must have changed no stored row.
-    fn budget(&self, fixture: &Fixture, rows: &[String]) -> bool {
+    /// Whether load refused this command: its only hint is `budget`. Then it
+    /// still must have changed no stored row, unless the command is
+    /// admissible: the supervisor's deadline can pass after its worker's
+    /// commit, so the hint can follow that whole admission. Then only the
+    /// pane's binding, its preferences and the change cursor change, to
+    /// exactly that session.
+    fn budget(&self, fixture: &Fixture, rows: &[String], admitted: Option<Admission<'_>>) -> bool {
         let load = self.hints == ["budget"];
-        if load {
-            assert_eq!(stored_rows(fixture), rows, "a budget refusal changed a row");
+        if !load {
+            return false;
         }
-        load
+        let now = stored_rows(fixture);
+        match admitted {
+            Some((pane, session, pid)) if now != rows => {
+                assert_eq!(
+                    recorded(fixture, pane),
+                    [session.to_owned(), pid.to_string(), "running".into()],
+                    "a budget refusal after its commit recorded another session"
+                );
+                let others = |rows: &[String]| -> Vec<String> {
+                    rows.iter()
+                        .filter(|row| {
+                            ![
+                                "bindings: ",
+                                "identity_session_preferences: ",
+                                "change_cursor: ",
+                            ]
+                            .iter()
+                            .any(|table| row.starts_with(table))
+                        })
+                        .cloned()
+                        .collect()
+                };
+                assert_eq!(
+                    others(&now),
+                    others(rows),
+                    "a budget refusal after its commit changed another row"
+                );
+            }
+            _ => assert_eq!(now, rows, "a budget refusal changed a row"),
+        }
+        true
     }
 }
 
@@ -251,7 +288,7 @@ fn two_agents_on_one_external_server_never_record_for_each_other() {
             first,
             "the agent in f1 is untouched"
         );
-        let load = own.budget(fixture, &rows);
+        let load = own.budget(fixture, &rows, Some(("fake-2", SESSION, pid)));
         if !load {
             assert_eq!(own.hints, Vec::<String>::new());
             assert_eq!(own.calls, ["caller", "server", "snapshot"]);
@@ -286,7 +323,7 @@ fn an_unbound_external_caller_makes_one_refused_attempt_then_a_hint_suppresses_i
         let own = before.own(fixture);
         assert_eq!((status, stderr.as_str()), (0, ""));
         assert_eq!(stored_rows(fixture), rows);
-        let load = own.budget(fixture, &rows);
+        let load = own.budget(fixture, &rows, None);
         if !load {
             assert_eq!(own.hints, ["native-admission"]);
             assert_eq!(own.calls, ["caller", "server", "snapshot"]);
@@ -420,7 +457,7 @@ fn refusal_then_control(
             rows,
             "{broken:?}: the refusal changed a row"
         );
-        let mut load = own.budget(fixture, &rows);
+        let mut load = own.budget(fixture, &rows, None);
         match refusal {
             Refusal::Held => assert!(
                 load,
@@ -456,7 +493,7 @@ fn refusal_then_control(
         let (status, _, stderr) = run_command(&mut claude, CONTROL, pid);
         let own = before.own(fixture);
         assert_eq!((status, stderr.as_str()), (0, ""), "{broken:?}");
-        if !own.budget(fixture, &rows) {
+        if !own.budget(fixture, &rows, Some(("fake-1", CONTROL, pid))) {
             assert_eq!(
                 (own.hints, recorded(fixture, "fake-1")[0].clone()),
                 (Vec::new(), CONTROL.to_owned()),
