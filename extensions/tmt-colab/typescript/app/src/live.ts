@@ -134,6 +134,7 @@ export class Live implements PageBinding {
   }
   #replaceAsk(remote: RemoteClient | null) {
     this.#refreshOlderAsks = true;
+    this.#projection = { ...this.#projection, agentActivity: undefined };
     this.#remote = remote;
     this.ask?.close();
     const { bootstrap, page, registration } = this;
@@ -197,6 +198,17 @@ export class Live implements PageBinding {
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
           observe: () => this.#observe(),
+          activityObserved: (agentActivity) => {
+            if (
+              this.#closed ||
+              this.#error ||
+              this.ask !== facade ||
+              this.registration !== registration
+            )
+              return;
+            this.#projection = { ...this.#projection, agentActivity };
+            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+          },
           observationUnavailable: (unavailable) => {
             if (
               this.#closed ||
@@ -398,6 +410,7 @@ export class Live implements PageBinding {
               ),
             ),
             askUnavailable: this.#projection.askUnavailable ?? false,
+            agentActivity: this.#projection.agentActivity,
           };
           this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
           this.#observe();

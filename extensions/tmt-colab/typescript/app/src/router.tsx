@@ -1,5 +1,6 @@
 import { ShellPage } from './shell-page.js';
 import { usePageLayers } from './page-layers.js';
+import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
@@ -2157,20 +2158,24 @@ function Page() {
       >
         <QuickSwitcherModalPresence />
         <AgentPresentation value={agents}>
-          {view.pageType === 'shell' ? (
-            <section className="page">
-              <AppHeader
-                title={view.title || snapshot.title}
-                remote={{ deviceName: transport.backendName }}
-              />
-              <main className="canvas">
-                {(view.shell || !endedError) && <ShellPage shell={view.shell} />}
-                {endedError && <EndedBody error={endedError} action={endedAction} />}
-              </main>
-            </section>
-          ) : (
-            content
-          )}
+          <AgentActivityProvider
+            observation={liveError || archived ? undefined : view.agentActivity}
+          >
+            {view.pageType === 'shell' ? (
+              <section className="page">
+                <AppHeader
+                  title={view.title || snapshot.title}
+                  remote={{ deviceName: transport.backendName }}
+                />
+                <main className="canvas">
+                  {(view.shell || !endedError) && <ShellPage shell={view.shell} />}
+                  {endedError && <EndedBody error={endedError} action={endedAction} />}
+                </main>
+              </section>
+            ) : (
+              content
+            )}
+          </AgentActivityProvider>
         </AgentPresentation>
       </ReplyNotificationContext>
     </CreatorDefaultProvider>

@@ -1,3 +1,4 @@
+import { agentActivity, type AgentActivity } from './agent-activity.js';
 import { coreId, decimal, exactKeys, generatedId, requireValue, time } from '@tmt/colab-client';
 import { requestId } from './ask-records.js';
 import { remoteSdk, jsonResponse } from './registration.js';
@@ -8,6 +9,8 @@ export interface RemoteAgent {
   name: string;
   presence?: 'active' | 'offline' | 'unknown';
   runningDriver?: RunningDriver;
+  activity?: AgentActivity;
+  observedAtMs?: number;
 }
 export interface SendInput {
   operationId: string;
@@ -152,6 +155,8 @@ export interface OperationsSdk {
         delivery?: unknown;
         /** Additive verified SDK field; absent until Remote ships it. */
         runningDriver?: unknown;
+        activity?: unknown;
+        observedAtMs?: unknown;
       }[]
     >;
   };
@@ -294,11 +299,15 @@ export async function createRemoteClient(
           typeof row.name === 'string' && ['active', 'offline', 'unknown'].includes(row.presence),
         );
       }
-      return rows.map(({ id, name, presence, runningDriver }) => ({
+      return rows.map(({ id, name, presence, runningDriver, activity, observedAtMs }) => ({
         id,
         name,
         presence,
         ...(runningDriver === 'claude' || runningDriver === 'codex' ? { runningDriver } : {}),
+        ...(agentActivity(activity) ? { activity: agentActivity(activity) } : {}),
+        ...(Number.isSafeInteger(observedAtMs) && Number(observedAtMs) >= 0
+          ? { observedAtMs: observedAtMs as number }
+          : {}),
       }));
     },
     send: async (input) => {

@@ -298,6 +298,8 @@ test('follow-up preparation failure stays on the card after composer closes', as
   await run(page, 'proposal', 'inline');
   const card = page.locator('[data-inline-proposal] .proposal-card');
   await card.getByRole('button', { name: 'Follow up', exact: true }).click();
+  // This case faults Ask preparation, so wait for its recipient before editing the draft.
+  await expect(card.getByRole('combobox')).toContainText('@Agent 1');
   await card.getByRole('combobox').press('End');
   await card.getByRole('combobox').pressSequentially('Please clarify');
   await card.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();

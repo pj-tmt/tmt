@@ -1,3 +1,4 @@
+import { ActivityTracker, type ActivityObservation } from './agent-activity.js';
 import { ASK_OBSERVATION_MS } from './ask-records.js';
 import { decodeText, requireValue, text } from '@tmt/colab-client';
 import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-intent.js';
@@ -21,6 +22,7 @@ import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-re
 const ACTIVATION_READ_LIMIT = 256;
 const ACTIVE_OBSERVATION_MS = 10 * 60 * 1000;
 const ACTIVE_READ_STEP_MS = 3000;
+const ACTIVITY_READ_INTERVAL_MS = 60_000;
 export interface AskDestinations {
   context: RemoteContext;
   machines: { id: string; name: string; online: 'online'; agents: RemoteAgent[] }[];
@@ -49,6 +51,8 @@ export interface AskControllerOptions {
   selection(): AdmittedSelection;
   sessionEnded?(error?: SessionEvictedError): void;
   observationUnavailable?(unavailable: boolean): void;
+  activityRead?(): Promise<AskDirectoryObservation>;
+  activityObserved?(observation: ActivityObservation): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
  * state/result reads operate on the current device's admitted immutable ledger.
@@ -61,6 +65,14 @@ export class AskController {
   #observationWake: AbortController | null = null;
   #activeObservationUntil = 0;
   #ended = false;
+  #activity = new ActivityTracker();
+  #activityObservation: ActivityObservation | undefined;
+  // Optional presentation reads never borrow from explicit Send admission.
+  #nextActivityReadAt = 0;
+  #directory: { snapshot: AskDestinations; receivedAt: number } | undefined;
+  #intervalMs = 2000;
+  #directoryRead: { task: Promise<AskDestinations>; phase: { value: DirectoryReadPhase } } | null =
+    null;
   #endSession(error?: SessionEvictedError) {
     if (this.#ended) return;
     this.#ended = true;
@@ -71,6 +83,23 @@ export class AskController {
   /** One current-session/list normalization owner. Observation never updates the
    * Ask destination cache or invokes the session lifecycle callback. */
   async #readDestinations(phase: (value: DirectoryReadPhase) => void): Promise<AskDestinations> {
+    if (!this.#directoryRead) {
+      const current = { value: 'session' as DirectoryReadPhase };
+      const task = this.#acquireDirectory((value) => {
+        current.value = value;
+      }).finally(() => {
+        if (this.#directoryRead?.task === task) this.#directoryRead = null;
+      });
+      this.#directoryRead = { task, phase: current };
+    }
+    const pending = this.#directoryRead;
+    try {
+      return await pending.task;
+    } finally {
+      phase(pending.phase.value);
+    }
+  }
+  async #acquireDirectory(phase: (value: DirectoryReadPhase) => void): Promise<AskDestinations> {
     const { remote, store } = this.options;
     phase('session');
     requireValue(!this.#ended);
@@ -86,10 +115,12 @@ export class AskController {
     const agents = await remote.listAgents();
     phase('session');
     validate();
-    return {
+    const snapshot: AskDestinations = {
       context,
       machines: [{ id: context.machineId, name: 'This machine', online: 'online', agents }],
     };
+    this.#directory = { snapshot, receivedAt: performance.now() };
+    return snapshot;
   }
   async observeDestinations(): Promise<AskDirectoryObservation> {
     let phase: DirectoryReadPhase = 'session';
@@ -176,6 +207,18 @@ export class AskController {
         evicted: SessionEvictedError | null = null;
       try {
         requireValue(!this.#ended);
+        if (
+          !this.#directory ||
+          performance.now() - this.#directory.receivedAt >= 2 * this.#intervalMs
+        )
+          await this.observeDestinations();
+        const before = this.#directory;
+        if (before && performance.now() - before.receivedAt < 2 * this.#intervalMs) {
+          const rows = before.snapshot.machines
+            .filter((m) => m.id === preview.view.machine)
+            .flatMap((m) => m.agents.filter((a) => a.id === preview.view.agent));
+          if (rows.length === 1) this.#activity.anchor(id, rows[0].observedAtMs);
+        }
         const current = await remote.context(),
           view = preview.view;
         requireValue(
@@ -347,12 +390,19 @@ export class AskController {
       return view;
     });
   }
-  /** A bounded visible-page observer. It calls only receipt/final reads and
+  /** A bounded visible-page observer. It calls only receipt/final/inventory reads and
    * owns no send capability on reload, reconnect or a timer wake. */
   observe(signal: AbortSignal, refreshOlder = false): Promise<void> {
     if (this.#ended) return Promise.resolve();
     if (this.#observing) return this.#observing;
     const started = performance.now();
+    const stopActivity = () => {
+      if (this.#activityObservation) {
+        this.#activityObservation = { ...this.#activityObservation, active: false };
+        this.options.activityObserved?.(this.#activityObservation);
+      }
+    };
+    signal.addEventListener('abort', stopActivity, { once: true });
     let wakeOwner = new AbortController();
     this.#observationWake = wakeOwner;
     const unresolved = (view: AskLedgerView) =>
@@ -438,13 +488,58 @@ export class AskController {
           (typeof document === 'undefined' || document.visibilityState !== 'hidden')
         )
           this.options.observationUnavailable?.(unavailable);
-        if (this.#ended || !(await this.options.store.views()).some(withinHorizon)) return;
+        const remaining = (await this.options.store.views()).filter(withinHorizon);
+        if (this.#ended || !remaining.length) return;
         if (!signal.aborted) {
           const idleStep = Math.min(2000 * 2 ** Math.min(cycle, 4), 30000);
           const step =
             performance.now() < this.#activeObservationUntil
               ? Math.min(idleStep, ACTIVE_READ_STEP_MS)
               : idleStep;
+          this.#intervalMs = step;
+          if (
+            this.options.activityRead &&
+            performance.now() >= this.#nextActivityReadAt &&
+            (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+          ) {
+            // Charge attempts before awaiting, including failures. A wake or re-observation
+            // retains this controller's minimum acquisition interval.
+            this.#nextActivityReadAt = performance.now() + ACTIVITY_READ_INTERVAL_MS;
+            const observation = await this.options.activityRead().catch(() => undefined);
+            const current = (await this.options.store.views()).filter(withinHorizon);
+            if (!current.length || performance.now() - started >= ASK_OBSERVATION_MS) return;
+            if (
+              !signal.aborted &&
+              !this.#ended &&
+              (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+            ) {
+              const snapshot = observation?.kind === 'ready' ? observation.snapshot : undefined;
+              this.#activityObservation = {
+                active: true,
+                receivedAt: performance.now(),
+                intervalMs: ACTIVITY_READ_INTERVAL_MS,
+                entries: current.map((view) => {
+                  const operation = {
+                    operationId: view.intent.operationId,
+                    machine: view.intent.machine,
+                    agent: view.intent.agent,
+                  };
+                  const rows =
+                    snapshot?.machines
+                      .filter((m) => m.id === operation.machine)
+                      .flatMap((m) => m.agents.filter((a) => a.id === operation.agent)) ?? [];
+                  const entry = this.#activity.read(
+                    operation,
+                    rows.length === 1 ? rows[0] : undefined,
+                  );
+                  return observation?.kind === 'ready'
+                    ? entry
+                    : { ...entry, kind: 'unknown' as const };
+                }),
+              };
+              this.options.activityObserved?.(this.#activityObservation);
+            }
+          }
           await new Promise<void>((resolve) => {
             const done = () => {
               clearTimeout(timer);
@@ -460,6 +555,8 @@ export class AskController {
         }
       }
     })().finally(() => {
+      signal.removeEventListener('abort', stopActivity);
+      stopActivity();
       if (this.#observing === task) {
         this.#observing = null;
         this.#observationWake = null;

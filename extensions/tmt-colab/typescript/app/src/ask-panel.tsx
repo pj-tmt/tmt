@@ -1,10 +1,11 @@
+import { AgentActivityLine } from './components/agent-activity.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
-import { ASK_OBSERVATION_MS, sameMessageIds, type LedgerState } from './ask-records.js';
+import { sameMessageIds, type LedgerState } from './ask-records.js';
 import { askedMessageIds } from './answer-batch.js';
 import {
   ReadRefusedError,
@@ -104,26 +105,6 @@ export function AskPanel({
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
   const agents = useContext(AgentPresentation);
-  const [now, setNow] = useState(0);
-  useEffect(() => {
-    const deadlines = records
-      .filter(
-        (record) =>
-          record.state === 'accepted' && record.reply === undefined && !record.resultUnavailable,
-      )
-      .map((record) => record.issuedAt + ASK_OBSERVATION_MS);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const update = () => {
-      const timestamp = Date.now();
-      setNow(timestamp);
-      const future = deadlines.filter((deadline) => deadline > timestamp);
-      // Historical intent times can exceed the browser's signed 32-bit timer delay.
-      if (future.length)
-        timer = setTimeout(update, Math.min(2_147_483_647, Math.min(...future) - timestamp));
-    };
-    update();
-    return () => clearTimeout(timer);
-  }, [records]);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const busy = useRef(new Set<string>());
@@ -178,11 +159,6 @@ export function AskPanel({
   const turns = records.map((record) => {
     const retryInput =
       typeof suppliedRetryInput === 'function' ? suppliedRetryInput(record) : suppliedRetryInput;
-    const timedOut =
-      record.state === 'accepted' &&
-      !record.resultUnavailable &&
-      record.reply === undefined &&
-      now >= record.issuedAt + ASK_OBSERVATION_MS;
     const stateCopy =
       record.state === 'refused'
         ? record.reason === TALK_NOT_ENABLED
@@ -194,23 +170,21 @@ export function AskPanel({
     const agent = record.agentName || text.askAgentLabel;
     const waitingForAgent =
       ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable;
-    const deliveryState: { mark: ReactNode; tone: string; label: ReactNode } = timedOut
-      ? { mark: <Clock />, tone: 'waiting', label: agentSentence(text.askNoReply, agent) }
-      : waitingForAgent
-        ? { mark: <Clock />, tone: 'waiting', label: agentSentence(text.askWaiting, agent) }
-        : record.state === 'held'
-          ? { mark: <Pause />, tone: 'held', label: text.askApproval }
-          : {
-              mark: <CircleAlert />,
-              tone: 'problem',
-              label: record.resultUnavailable
-                ? text.askResultUnavailable
-                : record.state === 'uncertain'
-                  ? text.askUnconfirmed
-                  : record.state === 'abandoned'
-                    ? text.askTrackingAbandoned
-                    : text.askNotDelivered,
-            };
+    const deliveryState: { mark: ReactNode; tone: string; label: ReactNode } = waitingForAgent
+      ? { mark: <Clock />, tone: 'waiting', label: agentSentence(text.askWaiting, agent) }
+      : record.state === 'held'
+        ? { mark: <Pause />, tone: 'held', label: text.askApproval }
+        : {
+            mark: <CircleAlert />,
+            tone: 'problem',
+            label: record.resultUnavailable
+              ? text.askResultUnavailable
+              : record.state === 'uncertain'
+                ? text.askUnconfirmed
+                : record.state === 'abandoned'
+                  ? text.askTrackingAbandoned
+                  : text.askNotDelivered,
+          };
     const canRecheck =
       ['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
       record.reply === undefined &&
@@ -236,13 +210,26 @@ export function AskPanel({
       <span className="conversation-status" aria-label={`Ask ${agent}`}>
         <span role="status" data-testid="ask-state" data-state={record.state}>
           <span className="ask-state" data-tone={deliveryState.tone}>
-            <span className="ask-state-mark" aria-hidden>
-              {chat && deliveryState.label === text.askNotDelivered ? '✗' : deliveryState.mark}
-            </span>
-            {records.length > 1 && !timedOut && !waitingForAgent
-              ? agentSentence(text.askRecipientPrefix, agent)
-              : ''}
-            {deliveryState.label}
+            {!(
+              (record.state === 'accepted' && !record.resultUnavailable) ||
+              record.state === 'dispatching'
+            ) && (
+              <span className="ask-state-mark" aria-hidden>
+                {chat && deliveryState.label === text.askNotDelivered ? '✗' : deliveryState.mark}
+              </span>
+            )}
+            {record.state === 'accepted' && !record.resultUnavailable ? (
+              <AgentActivityLine record={record} />
+            ) : record.state === 'dispatching' ? (
+              text.agentSending
+            ) : (
+              <>
+                {records.length > 1 && !waitingForAgent
+                  ? agentSentence(text.askRecipientPrefix, agent)
+                  : ''}
+                {deliveryState.label}
+              </>
+            )}
           </span>
         </span>
         {!readOnly && canAskAgain && (

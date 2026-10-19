@@ -1,3 +1,4 @@
+import type { ActivityObservation } from './agent-activity.js';
 import type { AnswerBatchContext, CommentContext, commentForAsk } from './thread-store.js';
 import { requireValue } from '@tmt/colab-client';
 import {
@@ -25,6 +26,8 @@ import type { NotificationAdoption } from './thread-status-coordinator.js';
 export type AgentDestination = AskDestination & {
   presence?: RemoteAgent['presence'];
   runningDriver?: RemoteAgent['runningDriver'];
+  activity?: RemoteAgent['activity'];
+  observedAtMs?: number;
 };
 export type AgentDirectoryObservation =
   | { kind: 'ready'; checkedAt: number; destinations: AgentDestination[] }
@@ -39,6 +42,8 @@ function agentDestinations(snapshot: AskDestinations): AgentDestination[] {
       agentName: agent.name,
       presence: agent.presence,
       ...(agent.runningDriver ? { runningDriver: agent.runningDriver } : {}),
+      ...(agent.activity ? { activity: agent.activity } : {}),
+      ...(agent.observedAtMs !== undefined ? { observedAtMs: agent.observedAtMs } : {}),
       grantExpiresAt: snapshot.context.expiresAtMs,
       deviceName: snapshot.context.deviceName,
       grantRevision: snapshot.context.grantRevision,
@@ -73,6 +78,7 @@ export interface LiveAskOptions {
   remote: RemoteClient;
   observe?(): void;
   observationUnavailable?(unavailable: boolean): void;
+  activityObserved?(observation: ActivityObservation): void;
   sessionEnded?(error?: SessionEvictedError): void;
 }
 
@@ -103,6 +109,10 @@ export class LiveAsk implements AskBinding {
       sessionEnded: (error) => {
         if (!this.#closed) options.sessionEnded?.(error);
       },
+      activityRead: () => this.#observeDirectory(),
+      activityObserved: (observation) => {
+        if (!this.#closed) options.activityObserved?.(observation);
+      },
       selection: () => {
         requireValue(this.#selection !== null);
         return this.#selection;
@@ -117,7 +127,7 @@ export class LiveAsk implements AskBinding {
     return agentDestinations(snapshot);
   }
   /** Read-only status: no Ask preparation, cache admission or session recovery. */
-  async observeDestinations(): Promise<AgentDirectoryObservation> {
+  async #observeDirectory() {
     requireValue(!this.#closed);
     const connection = await this.options.connection();
     const validate = () => {
@@ -129,6 +139,10 @@ export class LiveAsk implements AskBinding {
     const observation = await this.#controller.observeDestinations();
     requireValue((await this.options.connection()) === connection);
     await connection.run(async () => validate());
+    return observation;
+  }
+  async observeDestinations(): Promise<AgentDirectoryObservation> {
+    const observation = await this.#observeDirectory();
     return observation.kind === 'ready'
       ? {
           kind: 'ready',

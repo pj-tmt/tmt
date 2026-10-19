@@ -109,12 +109,12 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
   await expect(state('held').locator('.ask-state-mark svg.lucide')).toBeVisible();
   await page.screenshot({ path: '/tmp/1730-390-dark-held.png' });
   await run(page, 'pending');
-  await expect(page.getByTestId('ask-state').first()).toContainText('Waiting for Agent 1');
-  await expect(state('waiting').locator('.ask-state-mark svg.lucide')).toBeVisible();
+  await expect(page.getByTestId('ask-state').first()).toContainText('Sent');
+  await expect(state('waiting').locator('.ask-state-mark svg.lucide')).toBeHidden();
   await page.screenshot({ path: '/tmp/1730-390-dark-waiting.png' });
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
-  await expect(page.getByTestId('ask-state').first()).toContainText('No reply yet from Agent 1');
-  await expect(state('waiting').locator('.ask-state-mark svg.lucide')).toBeVisible();
+  await expect(page.getByTestId('ask-state').first()).toContainText('Sent');
+  await expect(state('waiting').locator('.ask-state-mark svg.lucide')).toBeHidden();
   await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
   await page.screenshot({ path: '/tmp/1645-chromium-390-dark-timeout.png' });
   await run(page, 'syncRecords', 'accepted');

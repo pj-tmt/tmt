@@ -26,6 +26,20 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     fs.mkdirSync(captureDirectory, { recursive: true });
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('chat-agent', { gated: true });
+    // This plain recipient has no managed provider activity hooks. Pin the actual
+    // Core telemetry rather than assuming Remote omits the optional field.
+    const inventory = await world.tmt(['ls', '--json']);
+    expect(inventory.code).toBe(0);
+    expect(inventory.json?.identities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: agent.id,
+          session: expect.objectContaining({
+            activity: expect.objectContaining({ state: 'unknown', sinceMs: null }),
+          }),
+        }),
+      ]),
+    );
     const firstBrowser = await pairBrowser(world, 'chat-author', { talk: true });
     const secondBrowser = await pairBrowser(world, 'chat-viewer', { talk: true });
     await composerTrace(world, firstBrowser, door.address, 'chat-owner');
@@ -126,8 +140,12 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const own = panel.getByTestId('chat-thread').first();
     const writer = (await own.getAttribute('data-writer'))!;
     await expect(own).toHaveAttribute('data-thread-id', writer);
-    await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toContainText(
-      'Waiting for',
+    await expect(askEntry(first, sent.operationId)).toHaveAttribute(
+      'data-ledger-state',
+      'accepted',
+    );
+    await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toHaveText(
+      `✓ sent · ${agent.name}'s activity is not reported`,
     );
     const requestId = agent.received()[0].requestId as string;
     fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');

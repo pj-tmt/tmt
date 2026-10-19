@@ -1885,3 +1885,10 @@ body:has(.needs-you-header-menu) {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
+
+.agent-activity {
+  color: var(--tmt-ui-color-secondary);
+}
+.agent-activity[data-activity='finished'] > .agent-activity-mark {
+  color: var(--tmt-ui-color-working);
+}
