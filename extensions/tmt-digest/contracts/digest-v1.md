@@ -132,7 +132,7 @@ defaults to the configured `flushCount`.
 
 ```json
 {"version":1,"since":"24h","fromMs":0,"throughMs":0,
- "baseline":"each message delivered on its own","delayBasis":"settled minus arrival",
+ "baseline":"each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway","delayBasis":"settled minus arrival",
  "members":[{"id":"<uuid>","name":"worker","messages":6,"baseline":{"deliveries":6},
    "actual":{"deliveries":3,"delayMs":{"median":15000,"p90":40000,"max":40000},
              "byRule":{"interval_deadline":2,"unrecorded":1}},
@@ -144,6 +144,8 @@ defaults to the configured `flushCount`.
 Every output, with or without `--recompute`, carries the baseline (one delivery per
 message, so `baseline.deliveries` equals `messages`), `turnsSaved` (`messages` minus
 `actual.deliveries`) and the actual delay beside them, per member and in `total`.
+`turnsSaved` is an upper bound: without a digest a busy agent may already combine
+messages that queue up into one turn, so the real saving can be smaller.
 `messages` and `deliveries` count only delivered checklists whose membership is
 complete, so each message's arrival is known; the rest are counted in `excluded`
 (`notDelivered`, `incomplete`, `clock` for a message that arrived after its settle time),
