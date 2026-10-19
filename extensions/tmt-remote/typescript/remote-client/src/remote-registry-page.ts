@@ -303,6 +303,9 @@ export function remoteRegistryPage(
       action('Continue', () => {
         void reference(alias.input.value, url.input.value)
           .then((entry) => {
+            // A validation that outlived its dialog is dropped: it never confirms or touches
+            // a later opening.
+            if (currentDialog !== view.box || !view.box.open || !view.box.isConnected) return;
             view.end();
             confirmAdd(entry, add);
           })
