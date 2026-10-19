@@ -2027,22 +2027,24 @@ telemetry shows `✓ sent · <name>'s activity is not reported`. Durations use o
 owner/viewer wall-clock subtraction. No elapsed time claims that work is stuck.
 Anchors and observed transitions are page/controller-local, never persisted or sent.
 
-Optional activity acquisition shares the existing visible Ask observer, across all
-recipients and surfaces, but runs at most once per 60 seconds and at most 12 times
-in one page/controller incarnation. Attempts, including refused or failed reads,
-consume that allowance before acquisition starts. New Sends, observer restarts
-and visibility changes never reset it. There is at most one inventory read in
-flight. Explicit Send destination/admission and fresh owner-anchor reads are
-independent of the optional allowance; it never refuses or delays Send.
+Optional activity acquisition shares the existing visible Ask observer across all
+recipients and surfaces. Starts are at least 60 seconds apart, including refused
+or failed attempts: the next permitted time is charged before acquisition starts.
+New Sends, observer restarts and visibility changes never reset that time. There
+is at most one inventory read in flight. Explicit Send destination/admission and
+fresh owner-anchor reads are independent of this optional spacing; it never
+refuses or delays Send.
 
 Only an owned Ask awaiting a reply within its two-hour horizon permits activity
 acquisition. Hidden, closed, replaced or no-longer-admitted generations discard
-late results. A visible return reads only if the interval and allowance permit.
+late results. A visible return reads only if the interval permits. One continuing
+visible two-hour Ask allows at most 120 optional acquisitions per controller;
+there is no lifetime cap that stops activity for later Asks in a long-lived tab.
 Fresh activity is younger than 120 seconds; without another acquisition it becomes
 static unknown, never an indefinitely working animation. Stopping observation
-leaves plain `Sent` or the last non-working state. This is a controller-local bound,
-not a cross-tab or per-device daily quota. Remote's current observational reads
-are not journal-adopted; its separate call limits still apply.
+leaves plain `Sent` or the last non-working state. This is a controller-local rate
+bound, not a cross-tab or per-device daily quota. Remote's current observational
+reads are not journal-adopted; its separate call limits still apply.
 
 The agent uses the existing shared chip, whose icon becomes its working spinner.
 Only that spinner and the finished check use the working/success colour; all text,

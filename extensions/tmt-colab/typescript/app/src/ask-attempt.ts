@@ -23,7 +23,6 @@ const ACTIVATION_READ_LIMIT = 256;
 const ACTIVE_OBSERVATION_MS = 10 * 60 * 1000;
 const ACTIVE_READ_STEP_MS = 3000;
 const ACTIVITY_READ_INTERVAL_MS = 60_000;
-const ACTIVITY_READ_LIMIT = 12;
 export interface AskDestinations {
   context: RemoteContext;
   machines: { id: string; name: string; online: 'online'; agents: RemoteAgent[] }[];
@@ -69,7 +68,6 @@ export class AskController {
   #activity = new ActivityTracker();
   #activityObservation: ActivityObservation | undefined;
   // Optional presentation reads never borrow from explicit Send admission.
-  #activityReads = 0;
   #nextActivityReadAt = 0;
   #directory: { snapshot: AskDestinations; receivedAt: number } | undefined;
   #intervalMs = 2000;
@@ -501,12 +499,11 @@ export class AskController {
           this.#intervalMs = step;
           if (
             this.options.activityRead &&
-            this.#activityReads < ACTIVITY_READ_LIMIT &&
-            performance.now() >= this.#nextActivityReadAt
+            performance.now() >= this.#nextActivityReadAt &&
+            (typeof document === 'undefined' || document.visibilityState !== 'hidden')
           ) {
             // Charge attempts before awaiting, including failures. A wake or re-observation
-            // retains this controller's allowance and minimum acquisition interval.
-            this.#activityReads++;
+            // retains this controller's minimum acquisition interval.
             this.#nextActivityReadAt = performance.now() + ACTIVITY_READ_INTERVAL_MS;
             const observation = await this.options.activityRead().catch(() => undefined);
             const current = (await this.options.store.views()).filter(withinHorizon);

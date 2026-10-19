@@ -190,9 +190,11 @@ and ordinary recipients; fixture observations alone do not prove that boundary.
 `agent-activity.ts` validates optional activity, tracks only this controller's pre-Send
 owner-clock anchor and observed working-to-idle transition, and projects freshness.
 `AskController.observe` shares optional inventory acquisition across recipients:
-at most 12 attempts per controller incarnation, at least 60 seconds apart, without
-reset on Send or re-observation. Explicit Send admission reads remain independent. `LiveAsk` fences that read against current
-page admission and connection before and after; `Live` publishes the ephemeral
+starts are at least 60 seconds apart, with failures charged before awaiting and
+one read in flight. Send or re-observation never resets the next permitted time.
+Only a visible page with an owned Ask awaiting within two hours permits reads;
+there is no controller-lifetime cap. Explicit Send admission reads remain independent.
+`LiveAsk` fences that read against current page admission and connection before and after; `Live` publishes the ephemeral
 `agentActivity` projection without changing signed records. `AgentActivityProvider`
 owns one page rendering clock, and the shared `AskPanel` renders the same line in
 Chat and annotations. Stopped, missing, invalid or stale observation never animates.

@@ -1454,7 +1454,7 @@ describe('active Ask observation', () => {
       },
     };
   }
-  it('bounds optional directory reads over two hours without consuming explicit Send admission reads', async () => {
+  it('spaces optional directory reads throughout two hours without consuming explicit Send admission reads', async () => {
     const inventoryReads: number[] = [];
     const activityRead = vi.fn(async () => {
       inventoryReads.push(performance.now());
@@ -1466,7 +1466,9 @@ describe('active Ask observation', () => {
     });
     const f = await pendingObservation({ activityRead });
     await advanceObservation(f.clock, ASK_OBSERVATION_MS - 1);
-    expect(activityRead).toHaveBeenCalledTimes(12);
+    expect(activityRead.mock.calls.length).toBeGreaterThan(12);
+    expect(activityRead.mock.calls.length).toBeLessThanOrEqual(120);
+    expect(inventoryReads.at(-1)).toBeGreaterThan(ASK_OBSERVATION_MS - 90_000);
     expect(
       inventoryReads.slice(1).every((at, index) => at - inventoryReads[index]! >= 60_000),
     ).toBe(true);
@@ -1480,18 +1482,24 @@ describe('active Ask observation', () => {
     await f.observing;
     expect(vi.getTimerCount()).toBe(0);
   }, 15_000);
-  it('keeps the activity allowance across Send wakes and observer replacement', async () => {
-    const activityRead = vi.fn(async () => ({
-      kind: 'unavailable' as const,
-      phase: 'directory' as const,
-      failure: 'unavailable' as const,
-    }));
+  it('keeps minute spacing across Send wakes and observer replacement without a lifetime cap', async () => {
+    const inventoryReads: number[] = [];
+    const activityRead = vi.fn(async () => {
+      inventoryReads.push(performance.now());
+      return {
+        kind: 'unavailable' as const,
+        phase: 'directory' as const,
+        failure: 'unavailable' as const,
+      };
+    });
     const f = await pendingObservation({ activityRead });
     await advanceObservation(f.clock, 13 * 60_000);
-    expect(activityRead).toHaveBeenCalledTimes(12);
+    const before = activityRead.mock.calls.length;
+    expect(before).toBeGreaterThan(12);
+    const nextReadAt = inventoryReads.at(-1)! + 60_000;
     await f.controller.send(f.controller.prepare(destination()));
     await observationSleep();
-    expect(activityRead).toHaveBeenCalledTimes(12);
+    expect(activityRead).toHaveBeenCalledTimes(before);
     expect(f.remote.sends).toHaveLength(2);
     f.stop.abort();
     await f.observing;
@@ -1499,8 +1507,13 @@ describe('active Ask observation', () => {
     const observing = f.controller.observe(replacement.signal);
     try {
       await observationSleep();
-      await advanceObservation(f.clock, 60_000);
-      expect(activityRead).toHaveBeenCalledTimes(12);
+      await advanceObservation(f.clock, nextReadAt - performance.now() - 1);
+      expect(activityRead).toHaveBeenCalledTimes(before);
+      await advanceObservation(f.clock, 5_000);
+      expect(activityRead).toHaveBeenCalledTimes(before + 1);
+      expect(
+        inventoryReads.slice(1).every((at, index) => at - inventoryReads[index]! >= 60_000),
+      ).toBe(true);
     } finally {
       replacement.abort();
       await observing;
@@ -1557,6 +1570,9 @@ describe('active Ask observation', () => {
     await advanceObservation(f.clock, 59_000);
     await vi.advanceTimersByTimeAsync(4_000);
     await reading;
+    expect(f.controller.observe(f.stop.signal)).toBe(f.observing);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(activityRead).toHaveBeenCalledTimes(2);
     const before = activityObserved.mock.calls.length;
     f.stop.abort();
     release();
