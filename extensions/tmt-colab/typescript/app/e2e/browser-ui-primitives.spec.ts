@@ -213,3 +213,44 @@ for (const width of [320, 390, 1440])
       expect(failures).toEqual([]);
     });
   }
+
+/** Toggles the three form-reset controls on, checks FormData, then resets the named form. */
+async function toggleAndReset(page: Page) {
+  await gallery(page);
+  const form = page.getByRole('form', { name: 'External reset form' });
+  const controls = {
+    inForm: page.getByRole('checkbox', { name: 'In-form checkbox' }),
+    externalSwitch: page.getByRole('switch', { name: 'External-form switch' }),
+    externalCheck: page.getByRole('checkbox', { name: 'External-form checkbox' }),
+  };
+  const submitted = () =>
+    form.evaluate((node) => [...new FormData(node as HTMLFormElement).keys()].sort());
+  for (const control of Object.values(controls)) {
+    await control.click();
+    await expect(control).toHaveAttribute('aria-checked', 'true');
+  }
+  expect(await submitted()).toEqual(['external-check', 'external-switch', 'in-form-check']);
+  await form.getByRole('button', { name: 'Reset external form' }).click();
+  return { controls, submitted };
+}
+
+test('a form reset clears every named control and the in-form and Switch visuals', async ({
+  page,
+}) => {
+  const { controls, submitted } = await toggleAndReset(page);
+  for (const name of ['in-form-check', 'external-switch', 'external-check'])
+    await expect(page.locator(`input[name="${name}"]`)).not.toBeChecked();
+  expect(await submitted()).toEqual([]);
+  await expect(controls.inForm).toHaveAttribute('aria-checked', 'false');
+  await expect(controls.externalSwitch).toHaveAttribute('aria-checked', 'false');
+});
+
+test('an external-form Checkbox shows unchecked after a reset of the form it names', async ({
+  page,
+}) => {
+  // #3388 reproduction, no remedy yet: its hidden input and FormData reset (asserted above),
+  // but the visible Checkbox stays checked. The fix PR removes test.fail() from this test only.
+  test.fail();
+  const { controls } = await toggleAndReset(page);
+  await expect(controls.externalCheck).toHaveAttribute('aria-checked', 'false', { timeout: 1000 });
+});
