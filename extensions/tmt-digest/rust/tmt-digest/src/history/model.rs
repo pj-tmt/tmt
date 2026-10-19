@@ -11,13 +11,26 @@ pub enum Window {
     Lifetime,
 }
 impl Window {
-    /// Every window, in the order the CLI lists them.
+    /// Every window, in the order the CLI lists them. The check below keeps it complete.
     pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Lifetime];
+    /// The window after this one in `ALL`. Its match has no wildcard: a new variant fails to
+    /// compile here until it is placed, and then the check below until `ALL` lists it.
+    const fn next(self) -> Option<Self> {
+        match self {
+            Self::Day => Some(Self::Week),
+            Self::Week => Some(Self::Lifetime),
+            Self::Lifetime => None,
+        }
+    }
     pub fn parse(value: &str) -> Result<Self, String> {
         Self::ALL
             .into_iter()
             .find(|window| window.text() == value)
-            .ok_or_else(|| "Use 24h, 7d or lifetime".into())
+            .ok_or_else(|| {
+                let texts = Self::ALL.map(Self::text);
+                let (last, rest) = texts.split_last().expect("at least one window");
+                format!("Use {} or {last}", rest.join(", "))
+            })
     }
     pub fn text(self) -> &'static str {
         match self {
@@ -34,6 +47,24 @@ impl Window {
         }
     }
 }
+
+// `ALL` lists exactly the windows `next` chains from `Day`, in that order.
+const _: () = {
+    let mut walked = Some(Window::Day);
+    let mut listed = 0;
+    while let Some(window) = walked {
+        assert!(
+            listed < Window::ALL.len() && Window::ALL[listed] as usize == window as usize,
+            "Window::ALL must list every Window, in order"
+        );
+        walked = window.next();
+        listed += 1;
+    }
+    assert!(
+        listed == Window::ALL.len(),
+        "Window::ALL lists a window `next` never reaches"
+    );
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
