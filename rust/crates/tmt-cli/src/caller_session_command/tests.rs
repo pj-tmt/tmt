@@ -76,6 +76,49 @@ impl CommandRunner for Worker {
     }
 }
 
+/// The identity remembers the caller's provider session.
+fn remember_session(
+    storage: &mut Storage,
+    id: &str,
+    harness: &HarnessId,
+    coordinates: &CallerSession,
+) {
+    let mut preferences = tmt_core::binding::session::SessionPreferences::default();
+    preferences.remember(
+        harness.clone(),
+        tmt_core::binding::session::RuntimeMode::new("default").unwrap(),
+        coordinates.session.clone(),
+    );
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            records.set_session_preferences(id, &preferences)
+        })
+        .unwrap();
+}
+
+/// The identity's binding observes the caller's session as running.
+fn admit_session(storage: &mut Storage, id: &str, coordinates: &CallerSession) {
+    storage
+        .with_binding_transaction::<_, StorageError>(|records| {
+            use tmt_core::binding::session::{ObservedSessionKey, SessionTransition};
+            let binding = records.entry_by_id(id)?.unwrap().binding.unwrap();
+            let next = binding
+                .session
+                .admit(
+                    ObservedSessionKey {
+                        incarnation: tmt_core::endpoint::ProcessIncarnation::new(20, "provider")
+                            .unwrap(),
+                        provider_session: Some(coordinates.session.clone()),
+                    },
+                    SessionTransition::Started,
+                    RuntimeLiveness::Alive,
+                )
+                .unwrap();
+            records.set_session_state(&binding.id, &binding.session, &next)
+        })
+        .unwrap();
+}
+
 #[test]
 fn agreeing_observed_coordinates_skip_all_host_and_provider_file_work() {
     let directory = Directory::new();
@@ -93,37 +136,9 @@ fn agreeing_observed_coordinates_skip_all_host_and_provider_file_work() {
         .unwrap(),
         runtime_pid: Some(1234),
     };
-    let mut preferences = tmt_core::binding::session::SessionPreferences::default();
-    preferences.remember(
-        harness.clone(),
-        tmt_core::binding::session::RuntimeMode::new("default").unwrap(),
-        coordinates.session.clone(),
-    );
-    storage
-        .with_binding_transaction::<_, StorageError>(|records| {
-            records.set_session_preferences(&id, &preferences)
-        })
-        .unwrap();
+    remember_session(&mut storage, &id, &harness, &coordinates);
     insert_discovery_binding(&mut storage, &identity);
-    storage
-        .with_binding_transaction::<_, StorageError>(|records| {
-            use tmt_core::binding::session::{ObservedSessionKey, SessionTransition};
-            let binding = records.entry_by_id(&id)?.unwrap().binding.unwrap();
-            let next = binding
-                .session
-                .admit(
-                    ObservedSessionKey {
-                        incarnation: tmt_core::endpoint::ProcessIncarnation::new(20, "provider")
-                            .unwrap(),
-                        provider_session: Some(coordinates.session.clone()),
-                    },
-                    SessionTransition::Started,
-                    RuntimeLiveness::Alive,
-                )
-                .unwrap();
-            records.set_session_state(&binding.id, &binding.session, &next)
-        })
-        .unwrap();
+    admit_session(&mut storage, &id, &coordinates);
     storage.close().unwrap();
     let worker = Worker {
         calls: Cell::new(0),
@@ -978,4 +993,106 @@ fn an_exhausted_budget_at_the_storage_open_is_a_budget_refusal() {
         )),
         "storage"
     );
+}
+
+/// How a worker that already stored its session ends.
+#[derive(Clone, Copy)]
+enum Ending {
+    /// A fault closing the database, reported as a refusal.
+    CloseFault,
+    /// The deadline passes before its exit is reaped.
+    PastDeadline,
+}
+
+/// A worker that records the caller's session and then ends badly.
+struct CommitsThenEnds {
+    database: PathBuf,
+    ending: Ending,
+}
+
+impl CommandRunner for CommitsThenEnds {
+    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        let (harness, coordinates) = claude_session();
+        let mut storage = Storage::open(&self.database).unwrap();
+        let id = create_or_resolve(&mut storage, "Direct", Lifetime::Saved)
+            .unwrap()
+            .identity
+            .id;
+        remember_session(&mut storage, &id, &harness, &coordinates);
+        admit_session(&mut storage, &id, &coordinates);
+        storage.close().unwrap();
+        let args: [std::ffi::OsString; 2] = match self.ending {
+            Ending::CloseFault => [
+                "-c".into(),
+                "printf '%s\\n' 'warning: caller session not recorded: storage' >&2; exit 1".into(),
+            ],
+            Ending::PastDeadline => ["-c".into(), "sleep 5".into()],
+        };
+        UnixCommandRunner.execute(CommandRequest {
+            program: std::ffi::OsStr::new("/bin/sh"),
+            args: &args,
+            input: &[],
+            deadline: request.deadline,
+            max_output_bytes: 256,
+        })
+    }
+}
+
+/// The stored session is the outcome of an attempt. A worker that recorded it
+/// is admitted however it ends, and leaves no refusal hint behind for the next
+/// attempt to be suppressed by (#3908).
+fn assert_a_stored_session_is_admitted(ending: Ending) {
+    {
+        let directory = Directory::new();
+        let database = directory.0.join("state.db");
+        let mut storage = Storage::open(&database).unwrap();
+        let identity = create_or_resolve(&mut storage, "Direct", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        insert_external_binding(&mut storage, &identity, "fake", "fake-1");
+        storage.close().unwrap();
+        let records = [external_host(&directory, "fake", "FAKE_PANE_ID")];
+        let (harness, coordinates) = claude_session();
+        let worker = CommitsThenEnds {
+            database: database.clone(),
+            ending,
+        };
+        let result = observe_candidate(
+            &worker,
+            &harness,
+            &coordinates,
+            Discovery {
+                database: &database,
+                global_dir: &directory.0,
+                executable: std::path::Path::new("worker"),
+                deadline: Instant::now() + Duration::from_millis(300),
+                now_ms: 100,
+            },
+            || (external_caller(&[("FAKE_PANE_ID", "f1")]), records.to_vec()),
+        );
+        assert_eq!(result, Ok(()));
+        assert!(
+            Storage::observes_provider_session(
+                &database,
+                harness.as_str(),
+                coordinates.session.as_str()
+            )
+            .unwrap(),
+            "the worker stored the session"
+        );
+        assert!(
+            !directory.0.join("caller-session-refusals.json").exists(),
+            "an admitted attempt remembers no refusal"
+        );
+    }
+}
+
+#[test]
+fn a_worker_that_stored_its_session_then_faults_closing_the_database_is_admitted() {
+    assert_a_stored_session_is_admitted(Ending::CloseFault);
+}
+
+#[test]
+fn a_worker_that_stored_its_session_then_outlives_the_deadline_is_admitted() {
+    assert_a_stored_session_is_admitted(Ending::PastDeadline);
 }

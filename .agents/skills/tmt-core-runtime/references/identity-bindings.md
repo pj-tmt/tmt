@@ -100,7 +100,10 @@ delivery. They install and launch nothing.
   layer, without paths, IDs, provider output or content. Running out of the 500 ms is
   the `budget` layer wherever it is noticed, including a hook-storage writer wait that
   ran out (refused at open, or SQLite's plain BUSY once the whole allowance has passed);
-  lock contention, LOCKED and any other storage failure stay `storage`.
+  lock contention, LOCKED and any other storage failure stay `storage`. The stored
+  session is the outcome of an attempt: a worker that recorded it is admitted however
+  it ends (a fault closing the database, or the 500 ms passing before its exit is
+  reaped), so it leaves no refusal hint behind.
 - A storage-only pane-locator precheck suppresses discovery without an active
   binding. For an external caller without a pane-ID locator (Herdr's variables
   hold a target): when its variables name exactly one approved external host and
