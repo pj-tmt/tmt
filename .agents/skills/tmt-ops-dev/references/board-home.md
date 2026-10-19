@@ -293,9 +293,11 @@ choice; none reports no membership rather than incomplete data. Choice rechecks
 the visible member UUID, current membership and Complete room before freezing
 its current revision. Partial or failed evidence names the held cause and asks
 for refresh. The Menu loses pointer authority with the frame and regains it on
-paint; keys retain their selection. The shared modal starts on Cancel and offers a scrollable
-read region before Apply. Short terminals use a screen-sized sheet; read position
-uses the shared modal's reserved position row. Apply requires current geometry.
+paint; keys retain their selection. The shared modal starts on Cancel, fits its
+content within the existing caps and scrolls overflow in its read region. Its
+confirm label names the frozen operation; whole key hints fit after the controls
+in Esc, Enter, Tab priority. Short terminals use a screen-sized sheet; read
+position uses the shared modal's reserved position row. Confirm requires current geometry.
 Pending blocks replay; partial results remain readable without automatic retry.
 The service rechecks the frozen identities and revisions before writes.
 

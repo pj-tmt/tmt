@@ -48,6 +48,29 @@ pub(crate) enum Change {
     Membership(Operation),
     RenameMember(super::rename_member::Request),
 }
+impl Change {
+    pub(super) fn confirm_label(&self) -> &'static str {
+        match self {
+            Self::RenameMember(_) => "Rename",
+            Self::Membership(operation) => match operation {
+                Operation::Create { .. } => "Create squad",
+                Operation::Add { .. } => "Add member",
+                Operation::Lead {
+                    member: Some(_), ..
+                } => "Set lead",
+                Operation::Lead { member: None, .. } => "Clear lead",
+                Operation::RenameSquad { .. } => "Rename",
+                Operation::Remove { .. } => "Remove membership",
+                Operation::Assign {
+                    move_member: true, ..
+                } => "Move",
+                Operation::Assign {
+                    move_member: false, ..
+                } => "Add",
+            },
+        }
+    }
+}
 
 pub struct Draft {
     pub kind: Kind,
@@ -256,7 +279,7 @@ impl Draft {
                 request.identity_id,
             );
         }
-        let mut lines = vec![self.title()];
+        let mut lines = vec![];
         let operation = self.operation.as_ref().and_then(|change| match change {
             Change::Membership(operation) => Some(operation),
             Change::RenameMember(_) => None,

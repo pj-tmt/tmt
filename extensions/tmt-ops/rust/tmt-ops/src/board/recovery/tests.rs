@@ -95,6 +95,137 @@ fn review(c: &mut Controller) {
     assert!(c.readable.get());
 }
 #[test]
+fn restore_and_delete_fit_their_reviews_without_changing_inventory_height() {
+    for (screen, id, expected) in [
+        (Screen::Confirm, "confirm", "Restore"),
+        (Screen::Delete, "delete-confirm", "Delete snapshot"),
+    ] {
+        let mut c = controller();
+        c.screen = screen;
+        c.confirmation = c.selection();
+        let text = render(&c, 160, 80);
+        assert!(text.contains(expected));
+        assert_eq!(
+            c.rows().iter().find(|row| row.id == id).unwrap().label,
+            expected
+        );
+        assert!(
+            c.readable.get(),
+            "the complete target and choices remain visible"
+        );
+        let outer = c.panel.borrow().frame.as_ref().unwrap().areas.outer;
+        assert!(outer.height < 38, "short review must not demand 38 rows");
+        assert!(outer.width <= 120);
+        c.screen = Screen::List;
+        render(&c, 160, 80);
+        assert_eq!(
+            c.list.borrow().frame.as_ref().unwrap().areas.outer.height,
+            38
+        );
+    }
+}
+#[test]
+fn recovery_confirmation_keeps_escape_hint_whole_at_low_height() {
+    for screen in [Screen::Confirm, Screen::Delete] {
+        for width in [60, 100, 160] {
+            for height in [8, 24, 36] {
+                let mut c = controller();
+                c.screen = screen;
+                c.confirmation = c.selection();
+                let mut app = crate::board::app::workspace::tests::board();
+                app.recovery = Some(c);
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                let c = app.recovery.as_ref().unwrap();
+                let footer = c.panel.borrow().frame.as_ref().unwrap().areas.footer;
+                assert_eq!(
+                    footer.height, 1,
+                    "one whole fitted hint row at {width}x{height}"
+                );
+                let text: String = (footer.x..footer.right())
+                    .map(|x| terminal.backend().buffer()[(x, footer.y)].symbol())
+                    .collect();
+                assert!(text.starts_with("Esc cancel"), "{width}x{height}: {text:?}");
+                assert!(text.contains("Enter select"));
+            }
+        }
+    }
+}
+#[test]
+fn short_recovery_review_keeps_its_subject_and_current_action_visible() {
+    for (screen, subject) in [
+        (Screen::Confirm, "Restore snapshot: saved"),
+        (Screen::Delete, "Delete snapshot: saved"),
+    ] {
+        for height in [8, 10, 12] {
+            let mut c = controller();
+            c.screen = screen;
+            c.confirmation = c.selection();
+            let mut app = crate::board::app::workspace::tests::board();
+            app.recovery = Some(c);
+            let mut terminal = Terminal::new(TestBackend::new(60, height)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let c = app.recovery.as_ref().unwrap();
+            let state = c.panel.borrow();
+            let map = state.frame.as_ref().unwrap();
+            assert_eq!(
+                map.areas.outer,
+                ratatui::layout::Rect::new(0, 0, 60, height)
+            );
+            assert!(map.areas.content.height > 0);
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(text.contains(subject), "{subject}: {text}");
+            assert!(
+                map.hits
+                    .iter()
+                    .any(|hit| hit.row_id.as_deref() == Some("cancel") && hit.rect.height > 0)
+            );
+            assert!(
+                !c.readable.get(),
+                "clipped required review must not authorize a write"
+            );
+            drop(state);
+            assert!(
+                app.recovery
+                    .as_mut()
+                    .unwrap()
+                    .input(&Event::Key(KeyEvent::new(
+                        KeyCode::Down,
+                        KeyModifiers::NONE
+                    )))
+                    .is_none()
+            );
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(text.contains(if screen == Screen::Delete {
+                "Delete snapshot"
+            } else {
+                "Restore"
+            }));
+            assert!(text.contains(subject));
+            assert!(!app.recovery.as_ref().unwrap().readable.get());
+        }
+    }
+}
+#[test]
 fn cancel_selection_and_preview_have_no_restore_authority() {
     let mut c = controller();
     let task = c.select("snapshot:saved").unwrap();
@@ -1035,4 +1166,36 @@ fn capture_recovery_packet() {
     });
     assert_eq!(captures.len(), 352);
     std::fs::write(path, serde_json::to_vec(&captures).unwrap()).unwrap();
+}
+
+#[test]
+#[ignore = "explicit fitted review matrix; requires TMT_OVERLAY_CUE_OUTPUT"]
+fn capture_fitted_recovery_reviews() {
+    std::env::var("TMT_OVERLAY_CUE_OUTPUT").expect("task-owned output directory");
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for (scene, screen) in [("restore", Screen::Confirm), ("delete", Screen::Delete)] {
+            for (theme, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+                for width in [160, 100, 60] {
+                    for height in [36, 24, 8] {
+                        let mut c = controller();
+                        c.screen = screen;
+                        c.confirmation = c.selection();
+                        let mut app = crate::board::app::workspace::tests::board();
+                        app.view.as_mut().unwrap().look = look;
+                        app.recovery = Some(c);
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        let c = app.recovery.as_ref().unwrap();
+                        picker_surface::evidence::capture(
+                            &format!("recovery-{scene}-{theme}-{width}x{height}"),
+                            terminal.backend().buffer(),
+                            &c.panel.borrow(),
+                        );
+                    }
+                }
+            }
+        }
+    });
 }

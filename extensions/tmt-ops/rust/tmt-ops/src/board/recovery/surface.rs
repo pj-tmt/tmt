@@ -5,7 +5,7 @@ use ratatui::{Frame, layout::Rect};
 use serde_json::json;
 use std::sync::OnceLock;
 use tmt_cli_style::mark::Mark;
-use tmt_tui::components::{ListRow, surface};
+use tmt_tui::components::{KeyHint, ListRow, Modal, Placement, footer as fit_hints, surface};
 
 pub(super) const PAGE_SIZE: usize = 150;
 const FILE: &str = "ops.recovery.xml";
@@ -119,7 +119,7 @@ impl Controller {
             ],
             Screen::Confirm => vec![
                 Row::choice("cancel", "Cancel", false),
-                Row::choice("confirm", "Confirm restore", self.pending.is_some()),
+                Row::choice("confirm", "Restore", self.pending.is_some()),
             ],
             Screen::Save => vec![
                 Row::choice("cancel", "Cancel", false),
@@ -127,7 +127,7 @@ impl Controller {
             ],
             Screen::Delete => vec![
                 Row::choice("cancel", "Cancel", false),
-                Row::choice("delete-confirm", "Delete named snapshot", busy),
+                Row::choice("delete-confirm", "Delete snapshot", busy),
             ],
             Screen::Results => vec![
                 Row::choice("back", "Back to snapshots", busy),
@@ -279,9 +279,34 @@ impl Controller {
     }
     pub fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
-        let template = TEMPLATE.get_or_init(|| {
-            picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["cursor", "label"]))
-        });
+        static REVIEW_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        static SHEET_TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
+        // Center's 4/5 bound needs ten body rows to leave two reading
+        // rows after borders, query, status, position and footer.
+        let short = matches!(self.screen, Screen::Confirm | Screen::Delete) && body.height < 10;
+        let template = if short {
+            SHEET_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP
+                        .replace(" h-38", "")
+                        .replace("placement=\"center\"", "placement=\"body\""),
+                    picker_surface::schema(&["cursor", "label"]),
+                )
+            })
+        } else if matches!(self.screen, Screen::Confirm | Screen::Delete) {
+            REVIEW_TEMPLATE.get_or_init(|| {
+                picker_surface::compile(
+                    FILE,
+                    &MARKUP.replace(" h-38", ""),
+                    picker_surface::schema(&["cursor", "label"]),
+                )
+            })
+        } else {
+            TEMPLATE.get_or_init(|| {
+                picker_surface::compile(FILE, MARKUP, picker_surface::schema(&["cursor", "label"]))
+            })
+        };
         let rows = self.rows();
         let state = match self.screen {
             Screen::List => &self.list,
@@ -324,6 +349,22 @@ impl Controller {
         };
         let query = if self.screen == Screen::Save {
             format!("Name: {}", safe(state.picker.query().unwrap_or_default()))
+        } else if short {
+            let (action, name) = if self.screen == Screen::Delete {
+                (
+                    "Delete snapshot",
+                    self.selected_entry()
+                        .and_then(|entry| entry.name.as_deref()),
+                )
+            } else {
+                (
+                    "Restore snapshot",
+                    self.confirmation
+                        .as_ref()
+                        .and_then(|selection| selection.name.as_deref()),
+                )
+            };
+            format!("{action}: {}", safe(name.unwrap_or("Latest")))
         } else {
             String::new()
         };
@@ -337,7 +378,53 @@ impl Controller {
         } else {
             "↑↓ / PgUp/PgDn select · Enter opens/selects · Ctrl-R refresh · Esc back"
         };
+        let footer = if matches!(self.screen, Screen::Confirm | Screen::Delete) {
+            let width = Modal {
+                title: String::new(),
+                placement: if short {
+                    Placement::Body
+                } else {
+                    Placement::Center
+                },
+            }
+            .areas(
+                if short { frame.area() } else { body },
+                [120, 38],
+                true,
+                false,
+            )
+            .footer
+            .width;
+            let hints = [
+                ("Esc", "cancel"),
+                ("Enter", "select"),
+                ("↑↓", "select"),
+                ("Ctrl-R", "refresh"),
+            ]
+            .map(|(key, description)| KeyHint {
+                key: key.into(),
+                description: description.into(),
+            });
+            fit_hints(&hints, width, " · ")
+        } else {
+            footer.to_owned()
+        };
         let value = json!({"rows":rows,"notes":notes.iter().map(|text|json!({"id":note_id(text),"text":text})).collect::<Vec<_>>(),"query":query,"status":status,"footer":footer});
+        let body = if short {
+            frame.area()
+        } else if matches!(self.screen, Screen::Confirm | Screen::Delete) {
+            // Intrinsic sizing retains the former 38-row cap. Center's 4/5
+            // placement bound reaches 38 rows in a centered 48-row body.
+            let height = body.height.min(48);
+            Rect::new(
+                body.x,
+                body.y + (body.height - height) / 2,
+                body.width,
+                height,
+            )
+        } else {
+            body
+        };
         state.render(FILE, template, value, frame, look, body);
         // Do not activate a restore while its exact target/mode is clipped.
         // Low terminals can scroll the preview, then resize to review confirmation.
