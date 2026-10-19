@@ -99,16 +99,28 @@ export async function expectLive(page: Page, timeout?: number): Promise<void> {
   try {
     await expect(label).toHaveText(text.live, { timeout });
   } catch (error) {
+    // #3083: a stopped preview is either the renderer's mount deadline or a frame navigation.
+    // Their notices are product copy, so naming which one shows leaks no page text.
+    let stop = 'unavailable';
     try {
       const seen = await page.locator('body').evaluate(
-        () => ({
-          label: document.querySelector('.page-sharing .status-label')?.textContent ?? null,
-          frame: document.querySelector('iframe') !== null,
-          visible: document.visibilityState === 'visible',
-        }),
-        undefined,
+        (_body, { failed, navigation }) => {
+          const notice = document.body.innerText;
+          return {
+            label: document.querySelector('.page-sharing .status-label')?.textContent ?? null,
+            frame: document.querySelector('iframe') !== null,
+            visible: document.visibilityState === 'visible',
+            stop: notice.includes(failed)
+              ? 'mount-deadline'
+              : notice.includes(navigation)
+                ? 'navigation'
+                : 'none',
+          };
+        },
+        { failed: text.failed, navigation: text.navigation },
         { timeout: 1_000 },
       );
+      stop = seen.stop;
       const known = liveLabels.find(([, value]) => value === seen.label);
       await test.info().attach('colab-live-state', {
         body: JSON.stringify({
@@ -121,6 +133,8 @@ export async function expectLive(page: Page, timeout?: number): Promise<void> {
     } catch {
       // A missing diagnostic never replaces the original failure.
     }
+    // The hosted report keeps this log line; its closed live-state row admits no new field.
+    if (error instanceof Error) error.message += ` · renderer stop ${stop}`;
     throw error;
   }
 }

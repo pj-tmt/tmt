@@ -1,3 +1,4 @@
+import { text } from '../src/strings.js';
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { expectLive } from './harness/ask.js';
@@ -531,4 +532,18 @@ test('harness: a failed Live check attaches the closed header state and keeps it
     { state: 'none', frame: false, visibility: 'visible' },
     { state: 'other', frame: false, visibility: 'visible' },
   ]);
+});
+
+// A stopped preview names its renderer stop kind in the failure line, which the hosted log keeps.
+test('harness: a stopped preview names whether the renderer timed out or navigated', async ({
+  page,
+}) => {
+  const stopped = (notice: string) =>
+    `<span class="chip page-sharing status"><span class="status-label">Preview stopped</span></span><p>${notice}</p>`;
+  await page.setContent(stopped(text.failed));
+  await expect(expectLive(page, 300)).rejects.toThrow(/ · renderer stop mount-deadline$/);
+  await page.setContent(stopped(text.navigation));
+  await expect(expectLive(page, 300)).rejects.toThrow(/ · renderer stop navigation$/);
+  await page.setContent(stopped(''));
+  await expect(expectLive(page, 300)).rejects.toThrow(/ · renderer stop none$/);
 });
