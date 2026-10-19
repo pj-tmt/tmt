@@ -1229,6 +1229,10 @@ test('a browser pairs, gets a door session and certifies only its own extension'
 // Optional exported evidence uses the same real-door fixture as the pairing smoke.
 // No mocked HTML or network responses enter the captures.
 test('browser pages consume shared presentation in both schemes and fit desktop and mobile', async () => {
+  const pairingBootstrap = await readFile(
+    new URL('../../../rust/tmt-remote/assets/pair.js', import.meta.url),
+    'utf8',
+  );
   const testInfo = test.info();
   const favicon = await readFile(
     new URL('../../../../../design/browser-ui/src/favicon.svg', import.meta.url),
@@ -1356,8 +1360,11 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
               opacity: style.opacity,
               overflow: document.documentElement.scrollWidth > innerWidth,
               // Playwright restores the input caret with an empty style attribute.
-              inline: document.querySelectorAll('[style]:not([style=""]), style, script:not([src])')
-                .length,
+              inline: document.querySelectorAll('[style]:not([style=""]), style').length,
+              inlineScripts: Array.from(
+                document.querySelectorAll('script:not([src])'),
+                (script) => script.textContent,
+              ),
             };
           });
           expect(look).toMatchObject({
@@ -1376,6 +1383,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             overflow: false,
             inline: 0,
           });
+          expect(look.inlineScripts).toEqual(
+            state === 'pairing' || state === 'confirmation' ? [pairingBootstrap] : [],
+          );
           expect(look.shadow).toBe('none');
           await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
           // Colab's header, from the same tokens: mark, product, then the page title.
