@@ -24,6 +24,7 @@ fn ordinary_client_imports_public_config_without_deployment_or_owner_authority()
     let layout = root.layout();
     tmt_remote::remote_catalog::add(&layout, "tenant", &public_link()).unwrap();
     let selection = selector::client(&layout, Some("tenant"), None).unwrap();
+    assert_eq!(selection.kind, selector::ClientKind::Imported);
     assert_eq!(selection.project, "demo-remote-1");
     assert_eq!(selection.public_config["projectId"], selection.project);
     assert_eq!(selection.public_config.as_object().unwrap().len(), 4);

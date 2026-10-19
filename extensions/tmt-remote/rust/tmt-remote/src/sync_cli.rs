@@ -24,17 +24,17 @@ const SYNC: CommandSpec = CommandSpec {
         note: "Sign in to the selected Firestore remote",
     }],
     outputs: OutputModes::Human,
-    details: "Uses --remote, the configured default, then this machine's Firestore project. Public remote references grant no membership; a space owner admits the sign-in identity in Colab.",
+    details: "Uses --remote, the configured default, then this machine's Firestore project. Public remote references grant no membership. For a remote added with tmt remote add, page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner.",
 };
 const SIGN_IN: CommandSpec = CommandSpec {
     name: "sign-in",
-    summary: "Sign in to Firestore for native sync",
+    summary: "Sign this machine in to a remote",
     examples: &[Example {
         command: "tmt remote --remote team sync sign-in --json",
-        note: "Sign in using a public remote reference",
+        note: "Sign this machine in to the saved remote",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "An active sign-in is reused. After it ends, signing in creates a new identity that the space owner must admit in Colab. An unconfirmed attempt is never retried automatically.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
+    details: "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. After it ends, signing in creates a new identity. For a remote added with tmt remote add, page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.\nTo revoke a paired device instead, use tmt remote devices revoke <client-id>.",
 };
 const REVOKE: CommandSpec = CommandSpec {
     name: "revoke",
@@ -59,8 +59,8 @@ fn action(spec: &CommandSpec) -> Command {
             .help("Assert the selected Firebase project id"),
     )
 }
-fn mapped(error: auth::AuthError) -> RemoteError {
-    RemoteError::new(error.code(), &error.to_string())
+fn mapped(error: auth::AuthError, kind: remote_selector::ClientKind) -> RemoteError {
+    RemoteError::new(error.code(), &presentation::error_line(&error, kind))
 }
 pub(crate) fn run(
     layout: &Layout,
@@ -73,6 +73,7 @@ pub(crate) fn run(
         explicit,
         words.get_one::<String>("project").map(String::as_str),
     )?;
+    let mapped = |error| mapped(error, selected.kind);
     let project = Project::from_public_config(&selected.public_config).map_err(mapped)?;
     let store = FileStore::new(layout, &selected.project).map_err(mapped)?;
     let clock = Arc::new(SystemClock::default());
@@ -113,19 +114,16 @@ pub(crate) fn run(
     };
     let message = match result {
         Ok(()) if action == "sign-in" => {
-            presentation::signed_in(uid.expect("confirmed identity"), reused)
+            presentation::signed_in(uid.expect("confirmed identity"), reused, selected.kind)
         }
-        Ok(()) => format!(
-            "{} Run `tmt remote sync sign-in` when you need to sync again, then have the space owner admit the new identity in Colab.",
-            presentation::revoked(uid)
-        ),
+        Ok(()) => presentation::revoked(uid, selected.kind),
         Err(_) if action == "revoke" && status.state == AuthState::Revoking => {
             presentation::REVOKE_UNCONFIRMED.into()
         }
         Err(error) if action == "sign-in" && error.may_have_effect() => {
-            presentation::SIGN_IN_UNCONFIRMED.into()
+            presentation::sign_in_unconfirmed(selected.kind)
         }
-        Err(error) => error.to_string(),
+        Err(error) => presentation::error_line(&error, selected.kind),
     };
     let sign_in = if result.is_err()
         && action == "sign-in"
@@ -184,7 +182,8 @@ pub(crate) fn status(
         permissions_repaired: false,
     };
     let mut notice = None;
-    if let Some(selection) = selection {
+    if let Some(selection) = selection.as_ref() {
+        let mapped = |error| mapped(error, selection.kind);
         let project = Project::from_public_config(&selection.public_config).map_err(mapped)?;
         let loaded = (|| {
             let store = FileStore::new(layout.expect("selected layout"), &selection.project)?;
@@ -209,7 +208,7 @@ pub(crate) fn status(
                 return Ok(SignInStatus {
                     value: serde_json::to_value(presentation::diagnostic(&error))
                         .expect("safe diagnostic serializes"),
-                    line: Some(error.to_string()),
+                    line: Some(presentation::error_line(&error, selection.kind)),
                     notice: None,
                 });
             }
@@ -218,7 +217,9 @@ pub(crate) fn status(
     Ok(SignInStatus {
         value: serde_json::to_value(presentation::project(&status))
             .expect("safe projection serializes"),
-        line: presentation::status_line(&status, clock.now().wall_ms),
+        line: selection.as_ref().and_then(|selection| {
+            presentation::status_line(&status, clock.now().wall_ms, selection.kind)
+        }),
         notice,
     })
 }

@@ -1,8 +1,10 @@
 //! One owner for the accepted command/status copy and secret-free projection.
 use super::{AuthError, AuthErrorKind, AuthState, Status};
+use crate::remote_selector::ClientKind;
 use serde::Serialize;
-pub const SIGN_IN_ENDED: &str = "Firestore sign-in has ended. Run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab.";
-pub const SIGN_IN_UNCONFIRMED: &str = "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity that Colab must admit separately.";
+pub const SIGN_IN_ENDED: &str =
+    "Firestore sign-in has ended. Run `tmt remote sync sign-in` to create a new identity.";
+pub const SIGN_IN_UNCONFIRMED: &str = "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity.";
 pub const REVOKE_UNCONFIRMED: &str =
     "Revoke not confirmed. Run `tmt remote sync revoke` again; nothing else changed.";
 #[derive(Serialize)]
@@ -50,32 +52,55 @@ pub fn diagnostic(error: &AuthError) -> SignInView {
         expires_at_ms: None,
     }
 }
-pub fn status_line(status: &Status, now_ms: u64) -> Option<String> {
+pub fn status_line(status: &Status, now_ms: u64, kind: ClientKind) -> Option<String> {
     match status.state {
         AuthState::Active if status.expiry_notice => status.expires_at_ms.map(|end| {
             let date = crate::calendar::utc_date(end);
             let days = end.saturating_sub(now_ms).div_ceil(86_400_000);
-            format!("Firestore sign-in ends on {date} (in {days} days). After that, run `tmt remote sync sign-in`, then have the space owner admit the new identity in Colab.")
+            with_access_limit(format!("Firestore sign-in ends on {date} (in {days} days). After that, run `tmt remote sync sign-in` to create a new identity."), kind)
         }),
-        AuthState::ReSignInNeeded => Some(SIGN_IN_ENDED.into()),
+        AuthState::ReSignInNeeded => Some(with_access_limit(SIGN_IN_ENDED.into(), kind)),
         AuthState::Revoking => Some(format!("Firestore sign-in: {REVOKE_UNCONFIRMED}")),
         _ => None,
     }
 }
-pub fn signed_in(uid: &str, reused: bool) -> String {
+pub fn signed_in(uid: &str, reused: bool, kind: ClientKind) -> String {
     let uid: String = uid.chars().take(8).collect();
     if reused {
         format!("Already signed in as {uid}. Nothing changed.")
     } else {
-        format!("Signed in to Firestore as {uid}. Admit this identity in Colab to finish.")
+        with_access_limit(format!("Signed in to Firestore as {uid}."), kind)
     }
 }
-pub fn revoked(uid: Option<&str>) -> String {
-    match uid {
+pub fn revoked(uid: Option<&str>, kind: ClientKind) -> String {
+    let outcome = match uid {
         Some(uid) => format!(
             "Revoked the Firestore sign-in {}.",
             uid.chars().take(8).collect::<String>()
         ),
         None => "Already revoked.".into(),
+    };
+    with_access_limit(
+        format!("{outcome} Run `tmt remote sync sign-in` to create a new identity."),
+        kind,
+    )
+}
+
+/// Low-level Auth errors have no selector; CLI composition adds the import limitation.
+pub fn error_line(error: &AuthError, kind: ClientKind) -> String {
+    match error.kind {
+        AuthErrorKind::ReSignInNeeded | AuthErrorKind::UserNotFound => {
+            with_access_limit(SIGN_IN_ENDED.into(), kind)
+        }
+        _ => error.to_string(),
     }
+}
+pub fn sign_in_unconfirmed(kind: ClientKind) -> String {
+    with_access_limit(SIGN_IN_UNCONFIRMED.into(), kind)
+}
+fn with_access_limit(mut line: String, kind: ClientKind) -> String {
+    if kind == ClientKind::Imported {
+        line.push_str(" Page access for this machine is not available yet.");
+    }
+    line
 }

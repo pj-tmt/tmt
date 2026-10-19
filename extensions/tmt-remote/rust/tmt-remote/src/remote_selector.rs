@@ -191,8 +191,15 @@ fn default_error(error: RemoteError) -> RemoteError {
         error
     }
 }
+/// Provenance for presentation only; this grants no authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClientKind {
+    Owned,
+    Imported,
+}
 /// Selected public config gives an ordinary client no local deployment authority.
 pub struct ClientSelection {
+    pub kind: ClientKind,
     pub project: String,
     pub public_config: serde_json::Value,
 }
@@ -205,6 +212,7 @@ fn client_local(layout: &Layout, project: Option<&str>) -> Result<ClientSelectio
         .ok_or_else(crate::remote_link::unavailable)?;
     let link = crate::remote_link::from_record(&record)?;
     Ok(ClientSelection {
+        kind: ClientKind::Owned,
         project,
         public_config: crate::remote_link::public_config(&link)?,
     })
@@ -243,6 +251,7 @@ fn client_reference(
         return Err(crate::remote_link::unavailable());
     }
     Ok(ClientSelection {
+        kind: ClientKind::Imported,
         project: selected.into(),
         public_config,
     })

@@ -95,6 +95,11 @@ contains public connection configuration, not an access grant. To print it again
 tmt remote link --project <project-id> --json
 ```
 
+Open that link for the [anonymous connect guide](../../../../contracts/remote-channel-v1.md#anonymous-connect-guide).
+It observes this browser's sign-in and offers commands to add/sign in on a machine, without
+claiming those commands ran. Give a reader the Colab page link separately: it admits the browser
+with the link's role. Opening it does not join the machine's native sync identity.
+
 To inspect the locally recorded evidence:
 
 ```sh
