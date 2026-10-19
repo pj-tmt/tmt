@@ -33,8 +33,9 @@ use tmt_core::{
     identity::Identity,
 };
 
-/// When each attempt is due, counted from the thread's start. Herdr takes a
-/// few seconds to recognize a new agent; these are measured (#3341).
+/// When each attempt is due, counted from the thread's start. Herdr recognizes a new agent about
+/// 0.5 s after it starts, and up to about 3 s under heavy CPU load, so the first or second attempt
+/// names it; #3341 measured these times.
 pub(super) const ATTEMPTS: [Duration; 5] = [
     Duration::from_secs(1),
     Duration::from_secs(3),
