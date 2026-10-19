@@ -40,7 +40,7 @@
   refuses a new send while one is in flight so no text is lost. Picker and overlay
   saves are bounded local file writes through the compare-and-set config writer and stay
   on the session thread; they start no command.
-- <a id="extension-labels"></a>Extension labels: a dedicated `labels::Reader` thread, started by the
+- Extension labels: a dedicated `labels::Reader` thread, started by the
   board next to the refresh worker (never inside it, so a slow extension cannot hold up a
   reload), asks each `[labels] sources` entry `tmt <name> status --json` through `Core` with
   a 5 s limit, one read in flight, every 5 s. A document that is not version 1, has no
