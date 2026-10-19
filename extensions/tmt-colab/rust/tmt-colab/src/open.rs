@@ -167,8 +167,10 @@ pub fn describe(outcome: &Outcome, link: &str) -> (String, Option<String>) {
         Outcome::Skipped | Outcome::NoOpener => (link.to_owned(), None),
         Outcome::Failed(why) => (
             link.to_owned(),
+            // Sentences, not a parenthesis; the shared printer omits the final period.
             Some(format!(
-                "Could not open the browser ({why}); the link is above"
+                "Could not open the browser. {}. Open the link above yourself",
+                why.trim().trim_end_matches('.')
             )),
         ),
     }
@@ -177,6 +179,26 @@ pub fn describe(outcome: &Outcome, link: &str) -> (String, Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_open_reads_as_sentences_without_a_doubled_period() {
+        for why in [
+            "Remote could not start the browser",
+            "Remote could not start the browser.",
+        ] {
+            let (row, warning) = describe(
+                &Outcome::Failed(why.to_owned()),
+                "http://127.0.0.1:1/colab/",
+            );
+            assert_eq!(row, "http://127.0.0.1:1/colab/");
+            assert_eq!(
+                warning.as_deref(),
+                Some(
+                    "Could not open the browser. Remote could not start the browser. Open the link above yourself"
+                )
+            );
+        }
+    }
 
     #[test]
     fn only_the_canonical_short_target_reaches_remote() {

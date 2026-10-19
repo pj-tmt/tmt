@@ -5797,7 +5797,9 @@ fn remotes_other_launch_states_keep_the_short_link_and_never_open_twice() {
         (
             r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"failed"}"#,
             false,
-            Some("Could not open the browser (Remote could not start the browser)"),
+            Some(
+                "Could not open the browser. Remote could not start the browser. Open the link above yourself",
+            ),
         ),
     ] {
         let pilot = Pilot::new(None);
@@ -5829,7 +5831,10 @@ fn remotes_other_launch_states_keep_the_short_link_and_never_open_twice() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
-    assert!(text.contains("A manual pairing is still open"), "{text}");
+    assert!(
+        text.contains("Could not open the browser. A manual pairing is still open. Finish or cancel it first. Open the link above yourself"),
+        "{text}"
+    );
     assert!(pilot.opened().is_empty());
 }
 #[test]
