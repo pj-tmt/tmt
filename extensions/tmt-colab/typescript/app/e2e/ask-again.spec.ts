@@ -1,3 +1,4 @@
+import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 const fixture = '/test/ask-again-browser.tsx';
@@ -171,7 +172,30 @@ test('a replaced binding cannot dispatch a late prepared retry', async ({ page }
   await expect(
     page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }),
   ).toBeEnabled();
+  // #3956: the abandoned click is not silent; the reader sees it failed and can retry.
+  await expect(page.getByRole('alert')).toHaveText(text.askActionFailed);
   expect((await run(page, 'proof')).sends).toHaveLength(2);
+  await run(page, 'setPark', false);
+  await page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true }).click();
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(3);
+});
+
+test('a conversation blocked mid-send shows the failure instead of dropping the click', async ({
+  page,
+}) => {
+  await mount(page, 'chat', 'refused');
+  await run(page, 'setPark', true);
+  const again = page.getByRole('button', { name: /^(?:Ask again|Retry)$/, exact: true });
+  await again.click();
+  await expect.poll(() => run(page, 'isParked')).toBe(true);
+  await run(page, 'setBlocked', true);
+  await run(page, 'releasePreparation');
+  await expect(page.getByRole('alert')).toHaveText(text.askActionFailed);
+  expect((await run(page, 'proof')).sends).toHaveLength(2);
+  await run(page, 'setBlocked', false);
+  await run(page, 'setPark', false);
+  await again.click();
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(3);
 });
 
 test('another device sees the old refusal but gets no Ask again capability', async ({ page }) => {
