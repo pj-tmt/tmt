@@ -788,6 +788,18 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         environment: &crate::skill_installation::ProviderEnvironment,
         previous: Option<&tmt_core::binding::session::DriverState>,
         now_ms: u64,
+        deadline: std::time::Instant,
+    ) -> Option<tmt_core::binding::session::DriverState> {
+        self.turn_state_with_family(turn, environment, previous, None, now_ms, deadline)
+    }
+
+    fn turn_state_with_family(
+        &self,
+        turn: &crate::runtime::lifecycle::TurnEnd,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        previous: Option<&tmt_core::binding::session::DriverState>,
+        family: Option<&crate::runtime::consumption::family::Contribution>,
+        now_ms: u64,
         _deadline: std::time::Instant,
     ) -> Option<tmt_core::binding::session::DriverState> {
         let root = codex_home(environment).join("sessions");
@@ -799,15 +811,42 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
             previous.and_then(crate::runtime::driver_state::state_consumption);
         let consumption = (usage.is_some() || previous_consumption.is_some())
             .then(|| {
-                crate::runtime::consumption::codex(
+                crate::runtime::consumption::codex_with(
                     &root,
                     path,
                     previous_consumption.as_ref(),
+                    family,
                     now_ms,
                 )
             })
             .flatten();
         crate::runtime::driver_state::after_observation(usage, consumption, previous)
+    }
+
+    /// The sessions this one started count toward its seat (#3828).
+    fn family_tick(
+        &self,
+        turn: &crate::runtime::lifecycle::TurnEnd,
+        session: &ProviderSessionId,
+        environment: &crate::skill_installation::ProviderEnvironment,
+        input: crate::runtime::consumption::family::Input,
+        now_ms: u64,
+        deadline: std::time::Instant,
+    ) -> Option<crate::runtime::consumption::family::Outcome> {
+        let root = codex_home(environment).join("sessions");
+        crate::runtime::consumption::family::advance(
+            &crate::runtime::consumption::family::Tick {
+                root: &root,
+                main: turn.transcript.as_deref()?,
+                session: session.as_str(),
+                others: &input.others,
+                now: now_ms,
+                deadline,
+                corrupt: input.corrupt,
+                entries: crate::runtime::consumption::family::SCAN_ENTRIES,
+            },
+            input.stored,
+        )
     }
 
     fn observe_replacement(

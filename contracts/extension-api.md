@@ -405,6 +405,26 @@ cachedInputTokens}` rows in ascending `driver` order, holding **deltas for that
   Aggregating beyond four drivers drops the split built so far, so an aggregate may
   carry only a partial one; the at-most rule always holds. Existing stored rows are
   not backfilled.
+- A Codex session's consumption includes the sessions it started. Codex writes a
+  subagent, and an auto-review (`source.subagent.other = "guardian"`), as a rollout of
+  its own whose header names its parent. A started session counts toward the seat that
+  owns the **root** of its parent chain, so a review of a subagent counts toward the same
+  seat; one that is, or later becomes, another seat's bound session counts only toward
+  that seat, with everything it started (what it already added here stays). To place a
+  new rollout, Core reads its first line (the session header) and keeps only its id and
+  parent; it reads token counters only of rollouts whose chain ends at a bound session,
+  never the conversation, and no counters or conversation of a rollout whose root is not
+  a seat's session. A started session nobody wrote to for 24 hours is folded into a closed
+  sum and forgotten: if it wakes later, it and what it then starts are not counted (a
+  bounded undercount; the seat's own session is unaffected). Counting starts when Core first scans a seat's started sessions: what
+  they had already consumed is not counted, so the step is not new usage and a seat's
+  history shows no spike when the rule ships; a session started later counts from its
+  first token. While Core is still finding or following them, `complete` is false.
+  `resume.consumption` and `latest` carry the sum; the split by model follows the
+  at-most rule above, so a started session that cannot be attributed adds none. An
+  unread family never turns into a zero: the seat's own counters carry the last sum
+  unchanged until it is read again. A seat's session consumed before this rule is
+  unchanged; a family that is lost starts a new baseline like any decreasing counter.
 
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
 one open bucket per identity; the [rollup](#thirty-day-rollup) keeps coarser sums for 30 days. Expired history is excluded immediately on reads;

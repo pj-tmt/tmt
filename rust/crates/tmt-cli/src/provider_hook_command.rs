@@ -655,6 +655,7 @@ fn observe(
                 sampled: false,
                 consumption: None,
                 response: None,
+                family: None,
                 now_ms: 0,
                 deadline,
             })
@@ -1015,6 +1016,7 @@ fn commit_observation(
         locator: reading.as_ref().and_then(|r| r.locator.as_deref()),
         sampled: reading.is_some(),
         consumption: reading.as_ref().and_then(|r| r.consumption.clone()),
+        family: None,
         response,
         now_ms: reading.as_ref().map_or(0, |r| r.now_ms),
         deadline,

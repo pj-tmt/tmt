@@ -131,6 +131,12 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             remembered.provider_session.as_str(),
         )
         .map_err(|_| ())?;
+    // The started sessions' rows are read here, with the locator, so the source
+    // work below runs with SQLite closed. An unreadable family is replaced.
+    let family = storage.consumption_family(&binding.identity_id);
+    let others = storage
+        .other_bound_sessions(&binding.identity_id, remembered.harness.as_str())
+        .map_err(|_| ())?;
     // Source reads occur with SQLite closed and are then committed against the
     // entire snapshot. A concurrent hook makes this attempt a harmless loser.
     storage.close().map_err(|_| ())?;
@@ -147,9 +153,34 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             let payload = serde_json::json!({"transcript_path":path}).to_string();
             lifecycle.consumption_locator(payload.as_bytes(), &environment)
         });
-    let next = turn.as_ref().and_then(|turn| {
-        lifecycle.turn_state(turn, &environment, remembered.state.as_ref(), now, deadline)
+    // The started sessions get a share of the budget; the session's own read
+    // keeps the rest, and a family that does not finish is reported incomplete.
+    let family = turn.as_ref().and_then(|turn| {
+        let share = deadline.saturating_duration_since(Instant::now()) / 2;
+        lifecycle.family_tick(
+            turn,
+            &remembered.provider_session,
+            &environment,
+            tmt_adapters::runtime::consumption::family::Input {
+                corrupt: family.is_err(),
+                stored: family.ok().flatten(),
+                others,
+            },
+            now,
+            Instant::now() + share,
+        )
     });
+    let next = turn.as_ref().and_then(|turn| {
+        lifecycle.turn_state_with_family(
+            turn,
+            &environment,
+            remembered.state.as_ref(),
+            family.as_ref().map(|family| &family.contribution),
+            now,
+            deadline,
+        )
+    });
+    let next_counted = next.is_some();
     let consumption = next
         .as_ref()
         .and_then(|state| lifecycle.state_consumption(state));
@@ -181,6 +212,8 @@ fn sample(deadline: Instant) -> Result<(), ()> {
             locator: source.as_deref(),
             sampled: true,
             consumption,
+            // Written only with a state that counted it: rows and totals move together.
+            family: family.filter(|_| next_counted).map(|family| family.write),
             response: None,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
             deadline,

@@ -322,6 +322,35 @@ pub trait RuntimeLifecycle {
         None
     }
 
+    /// [`Self::turn_state`] that also counts what the sessions the bound one
+    /// started contributed (`family`, from [`Self::family_tick`]). A driver
+    /// without such sessions ignores it.
+    fn turn_state_with_family(
+        &self,
+        turn: &TurnEnd,
+        environment: &ProviderEnvironment,
+        previous: Option<&DriverState>,
+        _family: Option<&super::consumption::family::Contribution>,
+        now_ms: u64,
+        deadline: Instant,
+    ) -> Option<DriverState> {
+        self.turn_state(turn, environment, previous, now_ms, deadline)
+    }
+
+    /// One tick of the sessions the bound session started, when the driver
+    /// has such sessions and a source for them. `None` leaves them as they were.
+    fn family_tick(
+        &self,
+        _turn: &TurnEnd,
+        _session: &ProviderSessionId,
+        _environment: &ProviderEnvironment,
+        _input: super::consumption::family::Input,
+        _now_ms: u64,
+        _deadline: Instant,
+    ) -> Option<super::consumption::family::Outcome> {
+        None
+    }
+
     /// Usage and optional final text from the same bounded turn-end read.
     fn turn_observation(
         &self,

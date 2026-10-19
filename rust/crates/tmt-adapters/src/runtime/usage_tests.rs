@@ -471,3 +471,105 @@ fn malformed_final_text_does_not_discard_other_codex_lifecycle_evidence() {
     input["source"] = json!("startup");
     assert!(codex::decode_hook(input.to_string().as_bytes()).is_some());
 }
+
+/// The sessions a Codex session started count toward its seat (#3828): the
+/// sampler counts them, a hook-driven read carries them, and the state still
+/// fits the driver's opaque bound.
+#[test]
+fn codex_counts_the_sessions_it_started_and_a_hook_read_keeps_them() {
+    use super::consumption::family::{Input, Stored};
+    let home = TestDirectory::new();
+    let day = home.path.join(".codex/sessions/2026/10/19");
+    fs::create_dir_all(&day).unwrap();
+    let header = |id: &str, parent: Option<&str>| {
+        format!(
+            "{}\n",
+            json!({"type":"session_meta","payload":{"id":id,"parent_thread_id":parent,
+                "base_instructions":"x".repeat(20_000)}})
+        )
+    };
+    let usage = |input: u64, output: u64| {
+        format!(
+            "{}\n",
+            json!({"type":"event_msg","payload":{"type":"token_count","info":{
+                "total_token_usage":{"input_tokens":input,"output_tokens":output,
+                    "cached_input_tokens":0,"total_tokens":input+output},
+                "last_token_usage":{"total_tokens":input+output},
+                "model_context_window":258_400}}})
+        )
+    };
+    let main = day.join(format!("rollout-2026-10-19T09-00-00-{SESSION}.jsonl"));
+    fs::write(&main, header(SESSION, None) + &usage(1_000, 100)).unwrap();
+    let environment = ProviderEnvironment::from_parts(&home.path, &home.path, Vec::new(), []);
+    let lifecycle = &codex::CodexLifecycle;
+    let turn = lifecycle.decode_turn(&stop(Some(&main))).unwrap();
+    let session = turn.session.clone();
+    let deadline = || std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let tick = |stored: Option<Stored>, now: u64| {
+        lifecycle
+            .family_tick(
+                &turn,
+                &session,
+                &environment,
+                Input {
+                    stored,
+                    corrupt: false,
+                    others: Default::default(),
+                },
+                now,
+                deadline(),
+            )
+            .unwrap()
+    };
+    let counted = |state: &DriverState| {
+        let consumption = lifecycle.state_consumption(state).unwrap();
+        (consumption.input_tokens, consumption.output_tokens)
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    // First sample: nothing started yet.
+    let first = tick(None, now);
+    let state = lifecycle
+        .turn_state_with_family(
+            &turn,
+            &environment,
+            None,
+            Some(&first.contribution),
+            now,
+            deadline(),
+        )
+        .unwrap();
+    assert_eq!(counted(&state), (1_000, 100));
+    let stored = Stored::after(None, &first.write);
+    // A subagent starts and works.
+    let child = day.join("rollout-2026-10-19T09-10-00-00000000-0000-4000-8000-000000000001.jsonl");
+    fs::write(
+        &child,
+        header("00000000-0000-4000-8000-000000000001", Some(SESSION)) + &usage(300, 30),
+    )
+    .unwrap();
+    let second = tick(Some(stored.clone()), now + 5_000);
+    let state = lifecycle
+        .turn_state_with_family(
+            &turn,
+            &environment,
+            Some(&state),
+            Some(&second.contribution),
+            now + 5_000,
+            deadline(),
+        )
+        .unwrap();
+    assert_eq!(counted(&state), (1_300, 130));
+    // The session works on its own: a hook-driven read keeps the family.
+    fs::write(
+        &main,
+        header(SESSION, None) + &usage(1_000, 100) + &usage(1_200, 120),
+    )
+    .unwrap();
+    let state = lifecycle
+        .turn_state(&turn, &environment, Some(&state), now + 6_000, deadline())
+        .unwrap();
+    assert_eq!(counted(&state), (1_500, 150));
+}

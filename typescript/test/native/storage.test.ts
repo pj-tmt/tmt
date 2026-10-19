@@ -127,6 +127,7 @@ function expectNativeSchema(
       name: 'keep the last credit balance and service tier per consumption rollup bucket',
     },
     { version: 57, name: 'record whether a person or automation made each request' },
+    { version: 58, name: 'follow the Codex sessions a bound session started as part of its seat' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -170,6 +171,8 @@ function expectNativeSchema(
       'exchange_flow',
       'reply_notice_batches',
       'reply_notices',
+      'consumption_family',
+      'consumption_family_files',
     ].sort()
   );
   expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
