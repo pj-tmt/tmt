@@ -8,11 +8,16 @@ pub(super) fn coordinates(session: Option<&OsStr>, pid: Option<&OsStr>) -> Optio
     if id.to_string() != session {
         return None;
     }
-    let pid = pid?.to_str()?.parse::<u32>().ok().filter(|pid| *pid > 0)?;
+    let pid = runtime_pid(pid?)?;
     Some(CallerSession {
         session: tmt_core::binding::session::ProviderSessionId::new(session).ok()?,
         runtime_pid: Some(pid),
     })
+}
+
+/// Claude's documented `CLAUDE_PID`: a nonzero `u32`, written as text.
+pub(super) fn runtime_pid(value: &OsStr) -> Option<u32> {
+    value.to_str()?.parse::<u32>().ok().filter(|pid| *pid > 0)
 }
 
 #[cfg(test)]
