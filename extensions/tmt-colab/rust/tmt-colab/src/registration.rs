@@ -319,10 +319,6 @@ impl Registration {
         }
         Ok(bytes)
     }
-    fn page_catalog(&self, context: Option<&str>) -> std::result::Result<serde_json::Value, Code> {
-        self.page_catalog_fingerprinted(context)
-            .map(|(catalog, _)| catalog)
-    }
     fn page_catalog_fingerprinted(
         &self,
         context: Option<&str>,
@@ -339,42 +335,6 @@ impl Registration {
                 Ok((tx.page_list()?, tx.page_fingerprints()?))
             })
             .map_err(map_error)
-    }
-    /// Only the admitted metadata catalog resolves a page alias; no ciphertext is decoded.
-    pub fn page_alias(
-        &self,
-        context: Option<&str>,
-        prefix: &str,
-        mount: &str,
-    ) -> std::result::Result<String, Code> {
-        let mount = crate::short_links::mounted_root(Some(mount)).ok_or(Code::Invalid)?;
-        let catalog = self.page_catalog(context)?;
-        let pages: Vec<String> = catalog["pageIds"]
-            .as_array()
-            .ok_or(Code::Unavailable)?
-            .iter()
-            .map(|page| {
-                page["pageId"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .ok_or(Code::Unavailable)
-            })
-            .collect::<std::result::Result<_, _>>()?;
-        let path = match crate::short_links::matches(prefix, &pages).as_slice() {
-            [only]
-                if catalog["pages"]
-                    .as_array()
-                    .is_some_and(|pages| pages.iter().any(|page| page["pageId"] == *only)) =>
-            {
-                format!("/pages/{only}")
-            }
-            _ => format!("/short/{prefix}"),
-        };
-        Ok(format!(
-            "{mount}#space={}&path={}",
-            self.keyring.space_id,
-            path.replace('/', "%2F")
-        ))
     }
     /// The caller serializes management with sync before taking this mutex.
     pub fn apply_owner(

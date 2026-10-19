@@ -34,7 +34,7 @@ export function MountedApp() {
           return;
         }
         mounted = next;
-        setRouter(createAppRouter(next.transport, next.space));
+        setRouter(createAppRouter(next.transport, next.space, next.pageIds));
         setState('ready');
       } catch (error) {
         if (!disposed) {

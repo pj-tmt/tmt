@@ -2,18 +2,14 @@ import { useState } from 'react';
 import { browserUiClasses as c } from '@tmt/browser-ui/static';
 
 /** Presentation of the already verified artifact; copying never creates or stores a link. */
-export function BearerArtifact({ linkId, seed }: { linkId: string; seed: string }) {
+export function BearerArtifact({ url }: { url: string }) {
   const [feedback, setFeedback] = useState('');
   return (
     <div className={c.command}>
       <div className="bearer-values">
         <label>
-          Link ID
-          <input className={c.commandText} readOnly value={linkId} />
-        </label>
-        <label>
-          Link seed
-          <input className={c.commandText} readOnly value={seed} />
+          Share link
+          <input className={c.commandText} readOnly value={url} />
         </label>
       </div>
       <button
@@ -21,14 +17,14 @@ export function BearerArtifact({ linkId, seed }: { linkId: string; seed: string 
         type="button"
         onClick={async () => {
           try {
-            await navigator.clipboard.writeText(`Link ID: ${linkId}\nLink seed: ${seed}`);
+            await navigator.clipboard.writeText(url);
             setFeedback('Copied.');
           } catch {
-            setFeedback('Clipboard unavailable. Select and copy the displayed values.');
+            setFeedback('Clipboard unavailable. Select and copy the displayed link.');
           }
         }}
       >
-        Copy link ID and seed
+        Copy share link
       </button>
       {feedback && (
         <p className={c.commandFeedback} role="status">

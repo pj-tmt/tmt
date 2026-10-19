@@ -1,3 +1,4 @@
+import { entryMount, entryTarget, publicEntry } from './entry.js';
 import {
   binary,
   decimal,
@@ -8,8 +9,9 @@ import {
   requireValue,
   spaceId,
 } from '@tmt/colab-client';
+import { ownerPageHint } from './reading-link.js';
 import { record } from './storage.js';
-import { validPagePrefix } from './short-links.js';
+import { shortPageId, validPagePrefix } from './short-links.js';
 import { jsonResponse } from './registration.js';
 
 import type { ExpiryInfo } from './expiry.js';
@@ -104,6 +106,7 @@ export function activity(value: unknown): asserts value is PageActivity {
     );
 }
 export function mountUrl(): URL {
+  if (publicEntry()) return entryMount();
   const url = new URL(location.href);
   requireValue(/^\/r\/[a-z0-9]+\/x\/colab\/$/.test(url.pathname) && url.search === '');
   url.hash = '';
@@ -207,8 +210,9 @@ export async function discover(
       (!fragment || fragment === value.spaceId) &&
         (!pin || (pin.space === value.spaceId && equal(pin.owner, owner))),
     );
+    if (publicEntry()) entryTarget();
     let path: string | null = null;
-    if (!fragment) {
+    if (!fragment && !publicEntry()) {
       const incoming = new URLSearchParams(location.hash.slice(1));
       path = incoming.get('path');
       requireValue(
@@ -217,7 +221,7 @@ export async function discover(
       requireValue(path === null || (path.startsWith('/short/') && validPagePrefix(path.slice(7))));
     }
     if (!pin) await record(`pin:${mount.href}`, { space: value.spaceId, owner });
-    if (!fragment) {
+    if (!fragment && !publicEntry()) {
       history.replaceState(
         history.state,
         '',
@@ -225,6 +229,31 @@ export async function discover(
       );
     }
   });
+  if (
+    !publicEntry() &&
+    typeof location.pathname === 'string' &&
+    location.pathname.startsWith('/r/')
+  ) {
+    const target = new URLSearchParams(location.hash.slice(1)).get('path');
+    const hint = ownerPageHint(new URL(location.href), value.spaceId);
+    const ids = (value.pageIds as PageId[]).map((row) => row.pageId);
+    let destination = '/colab/';
+    if (target?.startsWith('/pages/')) {
+      const page = target.slice(7);
+      generatedId(page);
+      destination = `/p/${shortPageId(page, ids)}`;
+    } else if (target?.startsWith('/short/') && validPagePrefix(target.slice(7))) {
+      destination = `/p/${target.slice(7)}`;
+    } else requireValue(target === null || target === '/');
+    // The owner's cosmetic reading or shell-anchor hint rides the short location.
+    const tail =
+      hint && destination !== '/colab/'
+        ? 'read' in hint
+          ? `#read=${hint.read}`
+          : `#anchor=${hint.anchor}`
+        : '';
+    history.replaceState(history.state, '', destination + tail);
+  }
   return {
     space: value.spaceId,
     owner,

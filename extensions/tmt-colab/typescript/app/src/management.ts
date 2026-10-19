@@ -38,6 +38,8 @@ export interface Policy extends Omit<PageInfo, 'projects'> {
 }
 export interface ManagementView {
   page: Policy;
+  /** The owner's root public key, encoded; it is the root of every reader link. */
+  root: string;
   revision: string;
   ownerMember: string;
   members: Recipient[];
@@ -71,7 +73,13 @@ export interface Pending {
   readonly operation: Selection['operation'];
   readonly expiresAt: number;
   readonly expectedRevision: string;
-  readonly artifact?: { readonly linkId: string; readonly seed: string };
+  readonly artifact?: {
+    readonly linkId: string;
+    readonly seed: string;
+    readonly space: string;
+    readonly root: string;
+    readonly role: payload.Role;
+  };
 }
 export interface Acknowledgment {
   operationId: string;
@@ -115,6 +123,7 @@ export function managementFailure(error: unknown, prepared: boolean): Management
 export function project(
   page: Omit<PageInfo, 'projects'>,
   log: readonly statement.Verified[],
+  root: Uint8Array,
 ): ManagementView {
   requireValue(log.length > 0);
   const policy: Policy = {
@@ -181,6 +190,7 @@ export function project(
   const head = log[log.length - 1].head;
   return {
     page: policy,
+    root: encodeBinary(root),
     revision: String(head.revision),
     ownerMember: head.ownerMember.id,
     members: [...members.values()].filter(
@@ -437,7 +447,7 @@ export class ManagementClient implements ManagementPort {
     const { boot, log } = await this.snapshot(signal, { page: id });
     const page = boot.pages.find((p) => p.pageId === id);
     if (!page || !log.length) throw new ManagementError('DENIED');
-    const view = project(page, log);
+    const view = project(page, log, boot.owner);
     requireValue(!view.page.deleted && view.page.epoch === page.epoch);
     return view;
   }
@@ -481,7 +491,17 @@ export class ManagementClient implements ManagementPort {
         payload: encodeBinary(bytes),
         signature: encodeBinary(signature),
       }),
-      ...(link ? { artifact: Object.freeze({ linkId: link.linkId, seed: link.seed }) } : {}),
+      ...(link
+        ? {
+            artifact: Object.freeze({
+              linkId: link.linkId,
+              seed: link.seed,
+              space: cert.space,
+              root: view.root,
+              role: link.role,
+            }),
+          }
+        : {}),
     });
   }
   /** A signed `page.projects` request: the owner applies the named pages in one store transaction. */
@@ -665,12 +685,12 @@ export class ManagementClient implements ManagementPort {
     const page = boot.pages.find((p) => p.pageId === pending.page);
     if (deleting) {
       requireValue(page === undefined);
-      const view = project(pending.context, log);
+      const view = project(pending.context, log, boot.owner);
       requireValue(view.page.deleted);
       return view;
     }
     requireValue(page !== undefined);
-    const view = project(page, log);
+    const view = project(page, log, boot.owner);
     requireValue(boot.pages.some((p) => p.pageId === pending.page && p.epoch === view.page.epoch));
     return view;
   }

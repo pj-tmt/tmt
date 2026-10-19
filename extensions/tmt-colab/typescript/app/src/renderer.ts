@@ -1,3 +1,4 @@
+import { entryMount, publicEntry } from './entry.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
@@ -1037,7 +1038,7 @@ export async function mountRenderer(
       [channel.port2],
     );
   };
-  frame.src = rendererUrl(document.baseURI);
+  frame.src = rendererUrl(publicEntry() ? entryMount().href : document.baseURI);
   // Preserve the current offset through replacement, without replaying an older
   // offset when a later height report arrives after the person has scrolled.
   const scroll =

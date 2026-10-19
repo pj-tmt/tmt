@@ -106,7 +106,7 @@ for (const collision of [false, true])
     await page.goto('/');
     await page.evaluate(
       async ({ fixture, collision, read }) =>
-        (await import(fixture)).mount('12345678', collision, false, read),
+        (await import(fixture)).mount('12345678', collision, false, false, read),
       { fixture, collision, read },
     );
     if (collision) {
@@ -116,6 +116,64 @@ for (const collision of [false, true])
     const frame = page.frameLocator('#short-fixture iframe');
     await expect(frame.getByRole('heading', { name: 'Recommended passage' })).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`&read=${read}$`));
+    await expect
+      .poll(() => frame.locator('body').evaluate(() => CSS.highlights.has('colab-reading')))
+      .toBe(true);
+  });
+// The public URL stays short while resolution uses the fresh admitted catalog.
+test('public aliases resolve a freshly loaded catalog and disambiguate without a redirect loop', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(
+    async (path) => (await import(path)).mount('12345678', true, false, true),
+    fixture,
+  );
+  await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
+  await page.getByRole('link', { name: /Original proposal/ }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Original content' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/p\/12345678-0$/);
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
+  await page.getByRole('link', { name: /Later proposal/ }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Later content' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/p\/12345678-1$/);
+});
+test('a unique public alias resolves after startup without turning the address into a full page route', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(
+    async (path) => (await import(path)).mount('12345678', false, false, true),
+    fixture,
+  );
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Original content' }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/p\/12345678$/);
+});
+for (const collision of [false, true])
+  test(`a public reading hint survives ${collision ? 'the prefix chooser' : 'unique prefix resolution'} and only highlights its passage`, async ({
+    page,
+  }) => {
+    const read = '10000000-0000-4000-8000-000000000401';
+    await page.goto('/');
+    await page.evaluate(
+      async ({ fixture, collision, read }) =>
+        (await import(fixture)).mount('12345678', collision, false, true, read),
+      { fixture, collision, read },
+    );
+    if (collision) {
+      await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
+      await page.getByRole('link', { name: /Original proposal/ }).click();
+    }
+    const frame = page.frameLocator('#short-fixture iframe');
+    await expect(frame.getByRole('heading', { name: 'Recommended passage' })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/p/12345678${collision ? '-0' : ''}#read=${read}$`));
     await expect
       .poll(() => frame.locator('body').evaluate(() => CSS.highlights.has('colab-reading')))
       .toBe(true);

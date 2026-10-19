@@ -75,7 +75,7 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     // Link creation keeps its derived devices, one per transport, before any reader opens it.
     expect(deviceRows(world)).toBe(baseline + 2);
     const readerPath = added.readerPath as string;
-    expect(readerPath.startsWith('x/colab/read#v=1&')).toBe(true);
+    expect(readerPath.startsWith(`/read/${added.linkId}#v=1&`)).toBe(true);
     const printed = new URLSearchParams(readerPath.split('#')[1]);
     expect([...printed.keys()].sort()).toEqual(
       ['link', 'page', 'rev', 'role', 'root', 'seed', 'space', 'st', 'v'].sort(),
@@ -307,7 +307,7 @@ async function twoPageLink(world: AcceptanceWorld, pages: string[]) {
   expect(ack.operationId).toBe(operationId);
   return {
     linkId,
-    readerPath: `x/colab/read#v=1&space=${current.spaceId}&page=${pages[0]}&link=${linkId}&rev=${ack.membershipHead.revision}&st=${ack.membershipHead.statementHash}&seed=${seed}&root=${ownerRoot(world)}&role=viewer`,
+    readerPath: `/read/${linkId}#v=1&space=${current.spaceId}&page=${pages[0]}&link=${linkId}&rev=${ack.membershipHead.revision}&st=${ack.membershipHead.statementHash}&seed=${seed}&root=${ownerRoot(world)}&role=viewer`,
   };
 }
 
@@ -319,7 +319,12 @@ async function publicRead(
   source: string,
   name: string,
 ) {
-  const browser = await openReaderLink(world, door, 'x/colab/read', name);
+  const browser = await openReaderLink(
+    world,
+    door,
+    '/read/00000000-0000-4000-8000-000000000001',
+    name,
+  );
   const { spaceId: space } = colab(world, ['show', pageId]) as { spaceId: string };
   const admitted = await browser.page.evaluate(
     async ({ mount, space, page }) => {

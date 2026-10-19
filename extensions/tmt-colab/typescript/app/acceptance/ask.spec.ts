@@ -164,9 +164,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       const draft = await composeChat(s.askerPage, s.recipient, 'Explain this sentence');
-      expect(new URL(s.askerPage.url()).hash).toMatch(
-        new RegExp(`^#space=[a-z2-7]{32}&path=%2Fpages%2F${s.page.pageId}$`),
-      );
+      expect(new URL(s.askerPage.url()).pathname).toBe(s.page.path);
+      expect(new URL(s.askerPage.url()).hash).toBe('');
       const ask = await sendChat(s.askerPage, draft);
       // The input stays ready for another explicit turn; no preview screen exists.
       await expect(s.askerPage.getByTestId('ask-preview')).toHaveCount(0);
@@ -593,7 +592,12 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'accepted',
       );
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
-      run(world, world.binaries.remote, ['devices', 'revoke', clientId(world, askerName)]);
+      run(world, world.binaries.remote, [
+        'devices',
+        'revoke',
+        clientId(world, askerName),
+        '--json',
+      ]);
       const before = dispatches(world).length;
       await s.askerPage.reload();
       await expect(s.askerPage.getByTestId('ask-send')).toHaveCount(0);

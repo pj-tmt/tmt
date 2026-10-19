@@ -861,13 +861,14 @@ fences.
 `share link add` and `share link reset` print one openable link for the link they create:
 
 ```text
-<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>&root=<ownerKey32>&role=<role>
+<door origin>/read/<linkId>#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>&root=<ownerKey32>&role=<role>
 ```
 
-The CLI prints the relative form `x/colab/read#...` (field `readerPath`), like `page create`'s
-`path`; while a door runs it also prints the complete link as `readerUrl` (door discovery below),
-otherwise the owner prepends the Remote door address `tmt remote pair` printed. Everything is in
-the fragment, which a browser never sends to a server. Path and query carry nothing, and the
+The CLI prints root-relative `/read/<linkId>#...` as `readerPath`; while a door runs it
+also prints the complete short link as `readerUrl`. The share dialog copies the same single
+openable capability after signed-log verification. Without a door, prepend its origin.
+The path names the link ID and must match the fragment; all authority stays in
+the fragment, which a browser never sends to a server. No query is accepted, and the
 seed appears nowhere else in any output. `rev` and `st` are the revision and canonical
 base64url hash of the `link.add` statement that introduced the link: the link-device chain
 must name that statement, and a wrong value only fails the server's chain check. The grammar is
@@ -888,7 +889,7 @@ stream (Own-stream edit requests), which the owner's serve may apply. The serve 
 the fragment's `role` only decides whether the drawer is offered, and a narrowed or removed link ends the session
 as before. A viewer or commenter link never shows it.
 
-The public `/read` entry removes the fragment from the address bar before any other work
+The public `/read/<linkId>` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
 the seed with the model's `link::Keys` derivation and wipes the seed. A link has one derived
 device per transport, so each transport writes a stream of its own and a race on one never forks
@@ -3502,7 +3503,7 @@ attach path.
 `serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
 facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
 `door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
-`<origin>/r/<prefix>/x/colab/`), `paired` (`true|false|null` when unreadable or no door),
+`<origin>/colab/`), `paired` (`true|false|null` when unreadable or no door),
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
 first page's full link, or its relative path without a door), `shortLink` (its short owner link,
 `null` without a page or door), `next` (commands still
@@ -3528,18 +3529,17 @@ Every command that names a page tells a person where to open it, from one door a
 lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
 print the **short owner link**, `<origin>/p/<shortId>`, while a door runs. Remote owns that
-root redirect into `<door>/x/colab/p/<shortId>`; it does not bypass pairing or grant admission.
-Colab resolves that alias to an absolute same-origin mounted-root path from Remote's
-`tmt-mount` header; missing or invalid mounted roots refuse, with no relative fallback.
-Without a door they print the mount-relative alias `x/colab/p/<shortId>` and the
+in-place public forwarding; it does not bypass pairing or grant admission.
+Colab retains the short location and uses validated Remote `tmt-mount` only for its internal
+transport, as defined below. Without a door they print root-relative `/p/<shortId>` and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
 this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
 serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
 as `serve` follows (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...`).
 
-`--json` results that name a page carry `path` (relative), `link` (full, `null` without a
-door), `shortLink` (short owner link, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
+`--json` results that name a page carry `path` (root-relative `/p/<prefix>`), `link`
+and `shortLink` (the same short owner URL, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
 `path`, `link` and `shortLink` on each page and `paired`/`next` once; its human rows lead with
 the title (`Untitled page` when empty), then its shortest unique catalog prefix (at least eight characters) and the
 audience/history. Each link is on its own indented line under the row. `show` retains the full
@@ -3562,6 +3562,22 @@ adds `tmt colab serve` to `next`. Browser navigation still undergoes existing ad
 
 ### Short owner-page aliases (#1688)
 
+Remote forwards `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` without device context.
+Colab validates Remote's absolute `tmt-mount` and returns catalog-independent bootstrap
+bytes, never a redirect or existence-dependent response. Missing/invalid mount refuses.
+Page and link identifiers use the Remote entry grammar; actual page-prefix resolution
+happens only after SDK admission and verified catalog discovery. Mounted owner assets,
+API and sync keep their existing admission and cookie scope; there are no root aliases
+for them. Public recovery admits through the SDK before loading protected app assets
+in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
+after verified discovery and carries its owner reading or anchor hint over. Internal mount and
+space pins remain separate from visible location; reload and history use short paths, with at
+most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or, on a full page
+route only, `#anchor=<shellAnchor>`.
+Reader entry uses only existing public reader assets and never obtains owner authority.
+Public responses for active, absent, revoked and archived/deleted-associated IDs are
+identical apart from any echoed display ID; they disclose no title, page, space or author.
+
 The shortest unique canonical page UUID prefix in the complete current catalog is the
 `shortId`, with a minimum of eight ASCII characters. Archived pages participate even when a
 listing hides them. Retained deleted IDs also participate, so a historical link cannot rebind
@@ -3570,22 +3586,16 @@ A missing catalog entry uses its full UUID rather than borrowing another page's 
 Previously copied aliases can become ambiguous when another page is created; they never
 choose an arbitrary match.
 
-Colab handles GET `/p/<shortId>` directly inside its mount, independently of Remote's root
-redirect. Prefixes are bounded to 8–36 canonical lowercase UUID-prefix characters; malformed
-or non-GET aliases receive the existing 404. Owner-context discovery uses the existing
-verified metadata catalog, without Yjs decoding, and responds with a relative same-mount 302
-and the existing no-store, no-referrer and CSP headers. A unique match targets the full
-`#space=<spaceId>&path=%2Fpages%2F<pageId>` route. Ambiguous and unknown prefixes target
-`#space=<spaceId>&path=%2Fshort%2F<shortId>`; the admitted parent shows every matching page
-as a plain link row, or the existing unavailable-page view when none match. A sole deleted
-match shows "This page was deleted"; deleted chooser rows are disabled and have no title. Choosing a live row
-opens its full UUID route. Display title hints confer no authority.
-
-Without owner context, the alias redirects to the private root guidance with only the
-requested prefix, never the space ID or inventory. The existing paired-session recovery
-retains that target across discovery/pinning; it creates no anonymous asset or API access.
-The long owner fragment route remains supported. Reader links retain their capability
-fragment and are never shortened into an owner alias.
+After admission, the parent resolves 8–36 canonical lowercase UUID-prefix characters
+against the complete verified metadata catalog, without decoding Yjs. A unique live match
+opens the internal full-page route while retaining the short public path. Ambiguous aliases
+show every matching page as a plain link row; missing or malformed aliases show the existing
+unavailable-page view. A sole deleted match shows "This page was deleted"; deleted chooser
+rows are disabled and have no title. Choosing a live row emits its shortest unique public
+alias. Display title hints and thread, reading and anchor fragments confer no authority. Unexpected fragments
+are refused both at discovery and during history navigation, without changing the mount pin.
+Reader capabilities retain their fragment and are never interpreted as owner aliases.
+New Ask Link values use short owner URLs; already captured Ask bytes are not rewritten.
 
 `serve` (once the door is ready, attached or started) opens the page when the space
 has exactly one, else the space home. `page create` opens its committed page using
@@ -4592,9 +4602,8 @@ signing; revoked devices receive nothing. These wraps confer no new Remote right
 
 JSON success is `{spaceId,pageId,title,path,operationId,membershipHead,warnings}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url
-hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is relative to the Remote door address:
-`x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
-browser router's existing fragment format. The CLI learns the door only through
+hash32), and `warnings` the [page markup check](#page-markup-check-2753) findings of the source (`[]` when clean). `path` is the root-relative short alias
+`/p/<shortId>`; it carries no space and pins nothing. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
 three-second cap, run through the invoking core executable), never Remote's files. See
 [page links](#page-links-and-opening-the-browser-1614) for what is printed with and without a door.

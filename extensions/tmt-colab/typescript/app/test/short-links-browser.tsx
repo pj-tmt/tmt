@@ -4,7 +4,13 @@ import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { localTransport } from '../src/transport.js';
 let root: Root | undefined;
-export function mount(prefix: string, collision = true, deleted = false, read?: string) {
+export function mount(
+  prefix: string,
+  collision = true,
+  deleted = false,
+  publicPath = false,
+  read?: string,
+) {
   root?.unmount();
   document.getElementById('short-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -12,12 +18,21 @@ export function mount(prefix: string, collision = true, deleted = false, read?: 
   host.id = 'short-fixture';
   document.body.append(host);
   const space = '10000000-0000-4000-8000-000000000001';
+  document.querySelector('meta[name="tmt-colab-mount"]')?.remove();
+  if (publicPath) {
+    const meta = document.createElement('meta');
+    meta.name = 'tmt-colab-mount';
+    meta.content = '/r/abcdefghijklmnop/x/colab/';
+    document.head.append(meta);
+  }
   history.replaceState(
     null,
     '',
-    read
-      ? `/#space=${space}&path=${encodeURIComponent(`/short/${prefix}`)}&read=${read}`
-      : `/#/short/${prefix}`,
+    publicPath
+      ? `/p/${prefix}${read ? `#read=${read}` : ''}`
+      : read
+        ? `/#space=${space}&path=${encodeURIComponent(`/short/${prefix}`)}&read=${read}`
+        : `/#/short/${prefix}`,
   );
   const pages = [
     {
@@ -49,5 +64,8 @@ export function mount(prefix: string, collision = true, deleted = false, read?: 
   const spaceHome = transport.spaceHome;
   transport.spaceHome = async () => ({ ...(await spaceHome()), pageIds });
   root = createRoot(host);
-  root.render(<RouterProvider router={createAppRouter(transport, read ? space : undefined)} />);
+  // The router starts with no catalog, so a public path resolves against the freshly loaded one.
+  root.render(
+    <RouterProvider router={createAppRouter(transport, publicPath || read ? space : undefined)} />,
+  );
 }
