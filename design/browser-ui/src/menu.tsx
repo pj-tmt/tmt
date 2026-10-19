@@ -20,6 +20,8 @@ export interface BrowserMenuItem<Key extends string = string> {
   disabledReason?: string;
   checked?: boolean;
   role?: 'menuitem' | 'menuitemradio' | 'menuitemcheckbox';
+  /** A rule above this row, to group the rows that follow it. */
+  separated?: boolean;
 }
 export interface BrowserMenuProps<Key extends string = string> {
   label: string;
@@ -29,6 +31,9 @@ export interface BrowserMenuProps<Key extends string = string> {
   icon?: ReactNode;
   /** A field's selected value; omitting it uses the icon action trigger. */
   valueLabel?: string;
+  /** With `valueLabel`: `crumb` is a borderless text trigger that inherits the surrounding font
+   * (a header crumb); the value truncates with an ellipsis and the chevron stays visible. */
+  variant?: 'field' | 'crumb';
   description?: ReactNode;
   /** Presentation transitions only; commands and selected values remain host-owned. */
   onOpenChange?(open: boolean): void;
@@ -42,6 +47,7 @@ export function BrowserMenu<Key extends string>({
   disabled = false,
   icon,
   valueLabel,
+  variant = 'field',
   description,
   onOpenChange,
 }: BrowserMenuProps<Key>) {
@@ -142,6 +148,7 @@ export function BrowserMenu<Key extends string>({
           ref={trigger}
           type="button"
           className="tmt-ui-menu-trigger"
+          {...(variant === 'crumb' ? { 'data-variant': 'crumb' } : {})}
           aria-label={`${label}: ${valueLabel}`}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -155,8 +162,8 @@ export function BrowserMenu<Key extends string>({
             }
           }}
         >
-          <span className="tmt-ui-menu-field-label">{label}</span>
-          <span>{valueLabel}</span>
+          {variant === 'field' && <span className="tmt-ui-menu-field-label">{label}</span>}
+          <span className="tmt-ui-menu-value">{valueLabel}</span>
           <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
         </button>
       ) : (
@@ -230,6 +237,7 @@ export function BrowserMenu<Key extends string>({
                 <button
                   type="button"
                   className="tmt-ui-menu-item"
+                  {...(item.separated ? { 'data-separated': 'true' } : {})}
                   role={item.role ?? (item.checked === undefined ? 'menuitem' : 'menuitemradio')}
                   aria-checked={item.checked}
                   aria-describedby={item.disabledReason ? `${id}-reason-${index}` : undefined}

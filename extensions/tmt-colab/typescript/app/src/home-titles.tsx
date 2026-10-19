@@ -69,10 +69,13 @@ export class HomeTitleHints {
 export function HomeTitleLink({
   page,
   hints,
+  scope,
   onClick,
 }: {
   page: PageSummary;
   hints?: HomeTitleHints;
+  /** The project the list is scoped to: the page's header then offers the way back to it. */
+  scope?: string;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
@@ -95,6 +98,7 @@ export function HomeTitleLink({
       ref={link}
       to="/pages/$pageId"
       params={{ pageId: page.id }}
+      {...(scope === undefined ? {} : { state: { scope } as never })}
       title={title}
       onClick={onClick}
       onKeyDown={pageLinkKey}

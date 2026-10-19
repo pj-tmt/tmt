@@ -8,6 +8,7 @@ export interface BrowserHeaderProps {
   brandLink?: (brand: ReactNode) => ReactNode;
   leading?: ReactNode;
   headingPrefix?: ReactNode;
+  headingSuffix?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
   headerRef?: Ref<HTMLElement>;
@@ -34,6 +35,7 @@ export function BrowserHeader({
   brandLink,
   leading,
   headingPrefix,
+  headingSuffix,
   status,
   actions,
   headerRef,
@@ -64,6 +66,7 @@ export function BrowserHeader({
         >
           {title}
         </h1>
+        {headingSuffix !== undefined && <div className={c.headingSuffix}>{headingSuffix}</div>}
         {caption !== undefined && (
           <div className={c.caption} id={captionId} title={caption}>
             {caption}

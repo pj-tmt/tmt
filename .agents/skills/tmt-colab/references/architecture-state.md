@@ -567,7 +567,7 @@ owners report lifetime separately from stale-outcome presentation fences.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `archived`, `needs`; the router merges its result
+(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `archived`, `needs`, `scope`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
@@ -594,6 +594,24 @@ keeps search, sort and filters because `projects` arrive in `/api/pages`. The li
 icon-only, so the shown set names itself in the `page-list-status` line ("Archived pages");
 the project chips count the pages shown, while the manage dialog counts every page in the
 project and says how many of them are archived.
+
+The header's `Project: <name>` crumb (the design system's `BrowserMenu variant="crumb"` in the
+`BrowserHeader` `headingSuffix` slot) scopes the whole list. `scope` in the route search is the base
+filter: `inScope` (`project-scope.ts`) decides which pages feed the rows, the chips, the Needs you
+chip and the free-text and creator filters, and a `project:` token narrows inside it
+(intersection). The menu lists All pages and every project of the space (empty ones too, with the
+pages shown and how many wait on the viewer) as radio rows, then `New project…` and
+`Manage projects…`; those two replace the gear's entry and the chips row's button. The default
+scope is device-local: `readScope`/`writeScope` keep it per space in `localStorage` (a refused
+access means All pages), the home loader redirects an unscoped `/` to it with `replace`, and
+choosing All pages removes it. A scope the space no longer has (a stale link or a remembered
+project that was deleted) shows All pages and is neither redirected to nor rewritten. `AppHeader`
+provides the heading's element through `HeaderSlot` (`header-slot.ts`) and `Home` portals the menu
+into it, so the menu keeps the list's data and dialogs while the header stays the shell's. A page
+opened from a scoped list carries the scope in history state only, and its own header shows
+`Colab / <project> / <title>` with the project linking back to `/?scope=<project>`; a copied or
+reloaded page link has no crumb. A heading narrower than 200px (a container query on it) leaves the crumb and
+its divider out so the title keeps its room; the brand link still returns to the remembered scope.
 `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
 its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
 from the verified complete catalog, including retained deleted IDs, before

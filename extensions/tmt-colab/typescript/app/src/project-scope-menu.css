@@ -1,0 +1,26 @@
+/* One row of the scope menu: name, page count and, only when something waits, the needs-you mark. */
+.scope-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4ch 5ch;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 18ch;
+  max-width: min(60ch, calc(100vw - 80px));
+}
+.scope-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-count,
+.scope-needs {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.scope-count {
+  color: var(--tmt-ui-color-muted);
+}
+.scope-needs {
+  color: var(--tmt-ui-color-waiting);
+}

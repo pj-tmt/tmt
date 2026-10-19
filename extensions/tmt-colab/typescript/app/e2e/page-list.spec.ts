@@ -5,8 +5,14 @@ async function mount(
   page: Page,
   size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' = 'few',
   hash = '/',
+  remembered?: string,
 ) {
   await page.goto('/');
+  if (remembered !== undefined)
+    await page.evaluate(
+      (name) => localStorage.setItem('tmt-colab-project-scope-v1:', name),
+      remembered,
+    );
   await page.clock.setFixedTime(new Date('2026-10-09T00:00:00Z'));
   await page.evaluate(
     async ({ size, hash }) => {
@@ -22,6 +28,20 @@ const rows = (page: Page) => app(page).locator('.pages > li');
 const titles = (page: Page) => rows(page).locator('.tmt-ui-list-title > a');
 const search = (page: Page) => app(page).getByRole('combobox', { name: 'Search pages' });
 const requests = (page: Page) => page.evaluate(() => window.__projectRequests);
+/** The header's project crumb: it names its value, and its menu holds the project actions. */
+const scopeTrigger = (page: Page, value = 'All pages') =>
+  app(page).getByRole('button', { name: `Project: ${value}` });
+/** The crumb whatever its value, to open the menu from any scope. */
+const anyScopeTrigger = (page: Page) => app(page).getByRole('button', { name: /^Project: / });
+async function fromScopeMenu(page: Page, name: string) {
+  await anyScopeTrigger(page).click();
+  await page.getByRole('menuitem', { name }).click();
+}
+/** Scope the list to a project (or All pages) from the header menu. */
+async function scopeTo(page: Page, name: string) {
+  await anyScopeTrigger(page).click();
+  await page.getByRole('menuitemradio', { name: new RegExp(`^${name}`) }).click();
+}
 const manageRequests = (page: Page) => page.evaluate(() => window.__projectManage);
 
 test('a project button filters the list, adds a token and removes it again', async ({ page }) => {
@@ -333,13 +353,125 @@ test('sort orders by title and the list menu shows archived pages', async ({ pag
   await expect(app(page).getByRole('button', { name: 'ops, 1 page' })).toHaveCount(0);
 });
 
-test('a reader gets search and filters but no project or list menus', async ({ page }) => {
+test('a reader gets search, filters and the scope, but no project writes or list menus', async ({
+  page,
+}) => {
   await mount(page, 'unmanaged');
   await expect(app(page).getByRole('button', { name: 'List options' })).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
-  await expect(app(page).getByRole('button', { name: /New project/ })).toHaveCount(0);
   await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
   await expect(titles(page)).toHaveText(['Delta ops']);
+  await scopeTrigger(page).click();
+  await expect(page.getByRole('menuitemradio')).toHaveCount(4);
+  await expect(page.getByRole('menuitem', { name: 'New project…' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toHaveCount(0);
+});
+
+test('the header scope lists All pages and each project with its counts and needs-you', async ({
+  page,
+}) => {
+  await mount(page);
+  await expect(scopeTrigger(page)).toBeVisible();
+  await scopeTrigger(page).click();
+  const rows = page.getByRole('menuitemradio');
+  await expect(rows).toHaveCount(4);
+  // Active pages shown: All 4; design 2 (Alpha waits on the viewer); ops 1; q4 plan 1 (also waits).
+  await expect(rows.nth(0)).toContainText('All pages');
+  await expect(rows.nth(0)).toContainText('4');
+  await expect(rows.nth(0)).toContainText('◆ 1');
+  await expect(rows.nth(1)).toHaveText(/design\s*2\s*◆ 1/);
+  await expect(rows.nth(2)).toHaveText(/ops\s*1\s*$/);
+  await expect(rows.nth(3)).toHaveText(/q4 plan\s*1\s*◆ 1/);
+  await expect(rows.nth(0)).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('menuitem', { name: 'New project…' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Manage projects…' })).toBeVisible();
+});
+
+test('choosing a project scopes the list, the filter chips and the needs-you chip', async ({
+  page,
+}) => {
+  await mount(page);
+  await scopeTo(page, 'ops');
+  await expect(scopeTrigger(page, 'ops')).toBeVisible();
+  expect(new URL(page.url()).hash).toContain('scope=ops');
+  await expect(titles(page)).toHaveText(['Delta ops']);
+  // Only the scope's pages feed the chips: no design chip, and nothing waits in ops.
+  await expect(app(page).getByRole('button', { name: /^design/ })).toHaveCount(0);
+  await expect(app(page).getByRole('button', { name: /^Needs you/ })).toHaveCount(0);
+  await scopeTo(page, 'design');
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+  await expect(app(page).getByRole('button', { name: 'Needs you, 1 page' })).toBeVisible();
+  await expect(app(page).getByRole('button', { name: 'q4 plan, 1 page' })).toBeVisible();
+  // A project: token filters inside the scope; a project outside it matches nothing.
+  await app(page).getByRole('button', { name: 'q4 plan, 1 page' }).click();
+  await expect(titles(page)).toHaveText(['Alpha plan']);
+  await search(page).fill('ops');
+  await search(page).press('Enter');
+  await expect(app(page).getByText('No pages match.')).toBeVisible();
+  await scopeTo(page, 'All pages');
+  await expect(scopeTrigger(page)).toBeVisible();
+  expect(new URL(page.url()).hash).not.toContain('scope');
+});
+
+test('the scope is remembered on this device; All pages forgets it; a missing project opens All pages', async ({
+  page,
+}) => {
+  await mount(page);
+  await scopeTo(page, 'ops');
+  expect(await page.evaluate(() => localStorage.getItem('tmt-colab-project-scope-v1:'))).toBe(
+    'ops',
+  );
+  // Opening the list without a scope applies the remembered one, and the address shows it.
+  await mount(page, 'few', '/', 'ops');
+  await expect(scopeTrigger(page, 'ops')).toBeVisible();
+  expect(new URL(page.url()).hash).toContain('scope=ops');
+  await expect(titles(page)).toHaveText(['Delta ops']);
+  await scopeTo(page, 'All pages');
+  expect(await page.evaluate(() => localStorage.getItem('tmt-colab-project-scope-v1:'))).toBeNull();
+  await mount(page);
+  await expect(scopeTrigger(page)).toBeVisible();
+  await expect(titles(page)).toHaveCount(4);
+  // A remembered project that no longer exists opens All pages.
+  await mount(page, 'few', '/', 'gone');
+  await expect(scopeTrigger(page)).toBeVisible();
+  await expect(titles(page)).toHaveCount(4);
+  expect(new URL(page.url()).hash).not.toContain('scope');
+});
+
+test('a link to a scope the space no longer has shows All pages', async ({ page }) => {
+  await mount(page, 'few', '/?scope=gone');
+  await expect(scopeTrigger(page)).toBeVisible();
+  await expect(titles(page)).toHaveCount(4);
+});
+
+test('a scoped project with no page says so, and the scope names it', async ({ page }) => {
+  await mount(page);
+  await fromScopeMenu(page, 'New project…');
+  const dialog = app(page).getByRole('dialog', { name: 'New project' });
+  await dialog.getByRole('textbox', { name: 'Project name' }).fill('backlog');
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  await expect(dialog).toHaveCount(0);
+  await scopeTo(page, 'backlog');
+  await expect(scopeTrigger(page, 'backlog')).toBeVisible();
+  await expect(app(page).getByText('No pages in backlog yet.')).toBeVisible();
+});
+
+test('a page opened from a scoped list shows the project it came from and links back to it', async ({
+  page,
+}) => {
+  await mount(page);
+  await scopeTo(page, 'design');
+  await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
+  const crumb = app(page).getByRole('link', { name: 'design', exact: true });
+  await expect(crumb).toBeVisible();
+  await crumb.click();
+  await expect(scopeTrigger(page, 'design')).toBeVisible();
+  expect(new URL(page.url()).hash).toContain('scope=design');
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+  // From the unscoped list, or by a copied link, no crumb: the page link stays clean.
+  await scopeTo(page, 'All pages');
+  await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
+  await expect(app(page).getByRole('link', { name: 'design', exact: true })).toHaveCount(0);
 });
 
 test('empty spaces and filters say what is missing', async ({ page }) => {
@@ -394,7 +526,7 @@ test('a new project needs only a name; ticked pages land in it in one request', 
   page,
 }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: '+ New project' }).click();
+  await fromScopeMenu(page, 'New project…');
   const dialog = app(page).getByRole('dialog', { name: 'New project' });
   const create = dialog.getByRole('button', { name: 'Create' });
   await expect(create).toBeDisabled();
@@ -426,7 +558,7 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   page,
 }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: '+ New project' }).click();
+  await fromScopeMenu(page, 'New project…');
   const dialog = app(page).getByRole('dialog', { name: 'New project' });
   await dialog.getByRole('textbox', { name: 'Project name' }).fill('backlog');
   await page.evaluate(() => {
@@ -484,8 +616,7 @@ test('rename is one request for every page in the project, archived included, an
   page,
 }) => {
   await mount(page, 'bulk');
-  await app(page).getByRole('button', { name: 'List options' }).click();
-  await page.getByRole('menuitem', { name: 'Manage projects…' }).click();
+  await fromScopeMenu(page, 'Manage projects…');
   const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
   await expect(dialog).toContainText('old');
   await dialog.getByRole('button', { name: 'Rename old' }).click();
@@ -511,8 +642,7 @@ test('rename is one request for every page in the project, archived included, an
 
 test('renaming onto an existing project says it merges', async ({ page }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: 'List options' }).click();
-  await page.getByRole('menuitem', { name: 'Manage projects…' }).click();
+  await fromScopeMenu(page, 'Manage projects…');
   const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
   await dialog.getByRole('button', { name: 'Rename ops' }).click();
   await dialog.getByRole('textbox', { name: 'New name' }).fill('design');
@@ -530,8 +660,7 @@ test('renaming onto an existing project says it merges', async ({ page }) => {
 
 test('delete removes the project in one request and keeps the pages', async ({ page }) => {
   await mount(page);
-  await app(page).getByRole('button', { name: 'List options' }).click();
-  await page.getByRole('menuitem', { name: 'Manage projects…' }).click();
+  await fromScopeMenu(page, 'Manage projects…');
   const dialog = app(page).getByRole('dialog', { name: 'Manage projects' });
   // The list shows the active pages (2 are in design); the dialog counts the archived one too.
   await expect(dialog.locator('.project-manage li').first()).toContainText('3 pages · 1 archived');
@@ -567,6 +696,20 @@ for (const width of [1440, 390])
       await expect(titles(page)).toHaveCount(4);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-list-${width}-${theme}.png`) });
+      await scopeTo(page, 'design');
+      await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3747-scoped-list-${width}-${theme}.png`) });
+      await rows(page).first().getByRole('link', { name: 'Alpha plan' }).click();
+      const crumb = app(page).getByRole('link', { name: 'design', exact: true });
+      if (width > 390) await expect(crumb).toBeVisible();
+      else await expect(crumb).toBeHidden();
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3747-page-crumb-${width}-${theme}.png`) });
+      if (width > 390) await crumb.click();
+      else await page.goBack();
+      await scopeTo(page, 'All pages');
+      await expect(titles(page)).toHaveCount(4);
       await app(page).getByRole('button', { name: 'Needs you, 1 page' }).click();
       await expect(titles(page)).toHaveCount(1);
       expect(await flat()).toBe(true);
@@ -592,13 +735,16 @@ for (const width of [1440, 390])
         path: await capturePath(`2588-projects-menu-${width}-${theme}.png`),
       });
       await page.keyboard.press('Escape');
-      await app(page).getByRole('button', { name: '+ New project' }).click();
+      await fromScopeMenu(page, 'New project…');
       await app(page).getByRole('textbox', { name: 'Project name' }).fill('review');
       await page.screenshot({ path: await capturePath(`2588-new-project-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
       await app(page).getByRole('button', { name: 'List options' }).click();
       await expect(page.getByRole('menuitemcheckbox', { name: 'Show archived' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-gear-menu-${width}-${theme}.png`) });
+      await page.keyboard.press('Escape');
+      await scopeTrigger(page).click();
+      await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
       await page.getByRole('menuitem', { name: 'Manage projects…' }).click();
       await expect(app(page).getByRole('dialog', { name: 'Manage projects' })).toBeVisible();
       await page.screenshot({ path: await capturePath(`2588-manage-${width}-${theme}.png`) });
@@ -662,4 +808,59 @@ for (const width of [1440, 390, 320])
       await expect(app(page).locator('[data-project-filter]')).toHaveCount(2);
       await insideViewport(page);
       await page.screenshot({ path: await capturePath(`3745-search-${width}-${theme}.png`) });
+    });
+
+for (const width of [1440, 390, 320])
+  for (const theme of ['light', 'dark'] as const)
+    test(`the project crumb, its menu and the page crumb stay inside ${width}px ${theme} with the longest names`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      await mount(page, 'long');
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      const inside = () =>
+        page.evaluate(() => {
+          const viewport = document.documentElement.clientWidth;
+          const crumb = document
+            .querySelector('#list-fixture button[aria-haspopup="menu"][aria-label^="Project: "]')!
+            .getBoundingClientRect();
+          return {
+            scroll: document.documentElement.scrollWidth - viewport,
+            crumbInside: crumb.left >= -0.5 && crumb.right <= viewport + 0.5,
+          };
+        });
+      for (const long of ['W'.repeat(32), '漢'.repeat(32)]) {
+        await anyScopeTrigger(page).click();
+        const row = page.getByRole('menuitemradio', { name: new RegExp(`^${long}`) });
+        await expect(row).toBeVisible();
+        if (long.startsWith('W'))
+          await page.screenshot({
+            path: await capturePath(`3747-scope-long-${width}-${theme}.png`),
+          });
+        const box = await row.boundingBox();
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width + 0.5);
+        await row.click();
+        await expect(scopeTrigger(page, long)).toBeVisible();
+        expect(await inside()).toEqual({ scroll: 0, crumbInside: true });
+        await rows(page).first().getByRole('link', { name: 'Long names' }).click();
+        // A heading too narrow for the crumb and the title leaves the crumb out; the title stays.
+        const crumb = app(page).getByRole('link', { name: long, exact: true });
+        if (width > 390) await expect(crumb).toBeVisible();
+        else await expect(crumb).toBeHidden();
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          ),
+        ).toBe(0);
+        if (long.startsWith('W'))
+          await page.screenshot({
+            path: await capturePath(`3747-page-crumb-long-${width}-${theme}.png`),
+          });
+        if (width > 390) await crumb.click();
+        else await page.goBack();
+        await expect(scopeTrigger(page, long)).toBeVisible();
+      }
     });

@@ -211,6 +211,25 @@ svg.tmt-ui-mark {
   flex: 1;
   min-width: 0;
 }
+/* A suffix turns the heading into one row: the title shrinks first, the suffix after it. */
+.tmt-ui-heading:has(> .tmt-ui-heading-suffix) {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-header-gap);
+}
+.tmt-ui-heading:has(> .tmt-ui-heading-suffix) > .tmt-ui-title {
+  flex: 0 8 auto;
+}
+.tmt-ui-heading-suffix {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: var(--tmt-ui-header-gap);
+  min-width: 0;
+  font: var(--tmt-ui-header-title-weight)
+    var(--tmt-ui-header-title-size)/var(--tmt-ui-header-title-line-height)
+    var(--tmt-ui-font-display);
+}
 .tmt-ui-title {
   margin: 0;
   overflow: hidden;
@@ -896,6 +915,25 @@ svg.tmt-ui-mark {
   font: inherit;
   cursor: pointer;
 }
+.tmt-ui-menu:has(> .tmt-ui-menu-trigger[data-variant='crumb']) {
+  min-width: 0;
+}
+/* A crumb trigger is text in the surrounding font: no border or padding, the value truncates and
+   the chevron stays. */
+.tmt-ui-menu-trigger[data-variant='crumb'] {
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+}
+.tmt-ui-menu-trigger[data-variant='crumb'] > .tmt-ui-menu-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tmt-ui-menu-field-label {
   color: var(--tmt-ui-color-muted);
 }
@@ -930,6 +968,9 @@ svg.tmt-ui-mark {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.tmt-ui-menu-item[data-separated] {
+  border-top: 1px solid var(--tmt-ui-surface-rule);
 }
 .tmt-ui-menu-item:hover:not(:disabled),
 .tmt-ui-menu-item:focus-visible {

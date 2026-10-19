@@ -15,6 +15,8 @@ export function ColabHeader({
   status,
   remote,
   remoteMenu = true,
+  crumb,
+  headingSuffix,
 }: {
   title: string;
   caption?: string;
@@ -24,6 +26,10 @@ export function ColabHeader({
   status?: ReactNode;
   remote?: { deviceName?: string };
   remoteMenu?: boolean;
+  /** A crumb between the brand and the title, with its own separator. */
+  crumb?: ReactNode;
+  /** A crumb or control after the title, supplied with its own separator. */
+  headingSuffix?: ReactNode;
 }) {
   const remoteAvailable = useRemoteHeaderAvailable();
   const deviceName = remote?.deviceName?.trim();
@@ -48,11 +54,22 @@ export function ColabHeader({
       }
       headingPrefix={
         remote === undefined ? undefined : (
-          <span className="colab-title-divider" aria-hidden="true">
-            /
-          </span>
+          <>
+            <span className="colab-title-divider" aria-hidden="true">
+              /
+            </span>
+            {crumb !== undefined && (
+              <span className="colab-crumb-group">
+                {crumb}
+                <span className="colab-title-divider" aria-hidden="true">
+                  /
+                </span>
+              </span>
+            )}
+          </>
         )
       }
+      headingSuffix={headingSuffix}
       title={title}
       caption={caption}
       captionId={caption === undefined ? undefined : 'colab-header-caption'}

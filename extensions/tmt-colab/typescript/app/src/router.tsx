@@ -56,7 +56,9 @@ import { ThreadPanel, ThreadWindow } from './thread-panel.js';
 import { presentationOf } from './thread-status-presentation.js';
 import { isStatusThread, openThreadCount } from './thread-status-view.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
-import { Home, validateHomeSearch } from './home.js';
+import { HeaderSlot } from './header-slot.js';
+import { Home, validateHomeSearch, type HomeSearch } from './home.js';
+import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
@@ -607,7 +609,20 @@ const home = createRoute({
   getParentRoute: () => root,
   path: '/',
   validateSearch: validateHomeSearch,
-  loader: loadSpaceHome,
+  loader: async (options) => {
+    const space = await loadSpaceHome(options);
+    // Colab opens on the project last chosen here; a project that is gone opens All pages.
+    if ((options.location.search as HomeSearch).scope === undefined) {
+      const remembered = readScope(options.context.space);
+      if (knownScope(remembered, space.projects) !== undefined)
+        throw redirect({
+          to: '/',
+          search: { ...(options.location.search as HomeSearch), scope: remembered },
+          replace: true,
+        });
+    }
+    return space;
+  },
   component: Home,
 });
 // The list was `/all` before it became the home; an old link or history entry still lands on it.
@@ -726,17 +741,20 @@ export function AppHeader({
   title = text.pages,
   remote,
   headerRef,
+  headingSuffix,
 }: {
   linked?: boolean;
   title?: string;
   remote?: { deviceName?: string };
   headerRef?: Ref<HTMLElement>;
+  headingSuffix?: ReactNode;
 }) {
   return (
     <ColabHeader
       title={title}
       headerRef={headerRef}
       remote={remote}
+      headingSuffix={headingSuffix}
       home={
         linked
           ? (brand) => (
@@ -772,6 +790,8 @@ function Shell() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const isPage = pathname.startsWith('/pages/');
   const isHome = pathname === '/';
+  // The home list portals its project control into the header, where it keeps the list's data.
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   return (
     <RemotePresenceProvider owner={transport.remotePresence}>
       <QuickSwitcherHost
@@ -790,6 +810,9 @@ function Shell() {
         {!isPage && (
           <AppHeader
             remote={isHome ? { deviceName: transport.backendName } : undefined}
+            headingSuffix={
+              isHome ? <span ref={setHeaderSlot} className="header-project-slot" /> : undefined
+            }
             title={
               pathname.startsWith('/short/')
                 ? 'Open a page'
@@ -800,7 +823,9 @@ function Shell() {
           />
         )}
         <main className={isPage ? 'page-main' : undefined}>
-          <Outlet />
+          <HeaderSlot.Provider value={isHome ? headerSlot : null}>
+            <Outlet />
+          </HeaderSlot.Provider>
         </main>
         {!isPage && (
           <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
@@ -824,6 +849,11 @@ function Page() {
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  // The list the reader came from, when it was scoped to a project: history state, not the address.
+  const fromScope = useRouterState({
+    select: (state) => (state.location.state as { scope?: unknown }).scope,
+  });
+  const scope = typeof fromScope === 'string' ? fromScope : undefined;
   const [panel, setPanel] = useState<PageHeaderAction | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
   const floatingChat = useRef<HTMLButtonElement>(null);
@@ -1552,6 +1582,13 @@ function Page() {
       />
       <ColabHeader
         remoteMenu={false}
+        crumb={
+          scope === undefined ? undefined : (
+            <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
+              {scope}
+            </Link>
+          )
+        }
         headerRef={toolbar}
         title={view.title || snapshot.title || text.unknownPageTitle}
         remote={{ deviceName: transport.backendName }}

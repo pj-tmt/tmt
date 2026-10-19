@@ -3,7 +3,8 @@ import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import { BrowserAction, BrowserList, BrowserListRow, BrowserMenu } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
 import { Settings, Tag } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ProjectWriting, ManageProjectsDialog, NewProjectDialog } from './project-dialogs.js';
 import {
   applyProjectChanges,
@@ -16,6 +17,9 @@ import {
   type PageSort,
 } from './projects.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
+import { HeaderSlot } from './header-slot.js';
+import { ProjectScopeMenu } from './project-scope-menu.js';
+import { inScope, knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ManagementError } from './management.js';
 import { ManagePage } from './manage-page.js';
 import { pageTitle, pageUpdate } from './page-index.js';
@@ -38,6 +42,8 @@ const homeRoute = getRouteApi('/');
 export interface HomeSearch {
   q?: string;
   project?: string[];
+  /** The project the list is scoped to: the base the filters narrow; absent is All pages. */
+  scope?: string;
   by?: string[];
   sort?: 'title';
   archived?: true;
@@ -50,6 +56,7 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
   const out: HomeSearch = {
     q: undefined,
     project: undefined,
+    scope: undefined,
     by: undefined,
     sort: undefined,
     archived: undefined,
@@ -67,6 +74,8 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
     ].slice(0, 8);
     if (names.length) out.project = names;
   }
+  if (typeof search.scope === 'string' && projectNameError(search.scope) === undefined)
+    out.scope = search.scope;
   if (Array.isArray(search.by)) {
     const names = [
       ...new Set(
@@ -193,7 +202,8 @@ function PageMetadata({
 
 export function Home() {
   const space = homeRoute.useLoaderData();
-  const { transport } = rootRoute.useRouteContext();
+  const { transport, space: spaceId } = rootRoute.useRouteContext();
+  const slot = useContext(HeaderSlot);
   const search = homeRoute.useSearch();
   const navigate = homeRoute.useNavigate();
   const router = useRouter();
@@ -208,18 +218,26 @@ export function Home() {
     needsYou: search.needs === true,
   };
   const shown = homePages.filter((p) => Boolean(p.archived) === archived);
-  const pages = filterPages(shown, filter, sort);
-  const counts = projectCounts(shown);
-  const waiting = waitingCount(shown);
+  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
+  // The scope is the base: filters, counts and the needs-you chip see only the pages in it.
+  const scope = knownScope(search.scope, projectNames);
+  const scoped = inScope(shown, scope);
+  const pages = filterPages(scoped, filter, sort);
+  const counts = projectCounts(scoped);
+  const waiting = waitingCount(scoped);
   const showNeeds = waiting > 0 || filter.needsYou;
   const authors = authorCounts(shown);
-  const projectNames = projectCounts(space.pages, space.projects).map((project) => project.name);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setNow(Date.now()), [space.pages, archived]);
   useSpaceTitle(space.title, text.product);
 
   function setSearch(patch: Partial<HomeSearch>) {
     void navigate({ search: (previous) => ({ ...previous, ...patch }), replace: true });
+  }
+  /** The choice is the default the next visit opens on; All pages removes it. */
+  function chooseScope(name: string | undefined) {
+    writeScope(spaceId, name);
+    setSearch({ scope: name });
   }
   // The route search holds what is applied; the editor holds the draft until Enter applies it.
   const applied = JSON.stringify([filter.projects, filter.authors, filter.text]);
@@ -334,17 +352,12 @@ export function Home() {
                 role: 'menuitemcheckbox' as const,
                 checked: archived,
               },
-              { key: 'projects', label: `${t.manageProjects}…` },
             ]}
-            onSelect={(key) =>
-              key === 'archived'
-                ? setSearch({ archived: archived ? undefined : true })
-                : setDialog({ kind: 'manage' })
-            }
+            onSelect={() => setSearch({ archived: archived ? undefined : true })}
           />
         )}
       </div>
-      {(counts.length > 0 || port || showNeeds) && (
+      {(counts.length > 0 || showNeeds) && (
         <ul className="project-filters" aria-label={t.filters}>
           {showNeeds && (
             <li>
@@ -388,16 +401,6 @@ export function Home() {
               </button>
             </li>
           ))}
-          {port && (
-            <li>
-              <BrowserAction
-                type="button"
-                variant="text"
-                label={`+ ${t.newProject}`}
-                onActivate={() => setDialog({ kind: 'new', initial: [] })}
-              />
-            </li>
-          )}
         </ul>
       )}
       <p
@@ -417,7 +420,7 @@ export function Home() {
                 data-page-id={p.id}
                 title={
                   <>
-                    <HomeTitleLink page={p} hints={titleHints} />
+                    <HomeTitleLink page={p} hints={titleHints} scope={scope} />
                     {p.summary?.waiting ? (
                       <span className="page-waiting" data-waiting>
                         <span aria-hidden="true">◆</span> {t.waitingForYou}
@@ -472,7 +475,9 @@ export function Home() {
         </BrowserList>
       ) : (
         <div className="page-list-empty">
-          {filtered && shown.length ? (
+          {scope !== undefined && scoped.length === 0 ? (
+            <p>{t.noPagesInProject(scope)}</p>
+          ) : filtered && scoped.length ? (
             <>
               <p>{t.noMatch}</p>
               <BrowserAction
@@ -513,6 +518,27 @@ export function Home() {
           />
         </>
       )}
+      {slot &&
+        (port || projectNames.length > 0) &&
+        createPortal(
+          <>
+            <span className="colab-title-divider" aria-hidden="true">
+              /
+            </span>
+            <ProjectScopeMenu
+              rows={scopeRows(shown, projectNames)}
+              scope={scope}
+              onScope={chooseScope}
+              {...(port
+                ? {
+                    onNew: () => setDialog({ kind: 'new', initial: [] }),
+                    onManage: () => setDialog({ kind: 'manage' }),
+                  }
+                : {})}
+            />
+          </>,
+          slot,
+        )}
     </section>
   );
 }

@@ -75,9 +75,12 @@ Input autocomplete remains a host-owned listbox. No native select or new font lo
 
 ## Controlled input contracts
 
-Header has one h1. Optional `leading` and `headingPrefix` slots place host-owned
-attribution before the brand and a separator before the title; neither supplies state
-or changes default layout. A supplied caption requires a stable `captionId`, retaining
+Header has one h1. Optional `leading`, `headingPrefix` and `headingSuffix` slots place
+host-owned attribution before the brand, a separator before the title and a crumb or control
+after it; none supplies state or changes the default layout. A suffix turns the heading into
+one row in the header's title font: the title shrinks (ellipsis) before the suffix does, and a
+`BrowserMenu` with `variant="crumb"` there is a borderless text trigger whose value truncates
+with an ellipsis while its chevron stays visible. A menu item may carry `separated` to draw a rule above it. A supplied caption requires a stable `captionId`, retaining
 full DOM copy and title association; the host supplies a visible full-caption
 read path. `brandLink` preserves a caller's native anchor. `disclosure` selects a
 caller-owned data attribute; the leaf does not choose or operate a menu.
