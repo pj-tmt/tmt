@@ -431,3 +431,58 @@ fn wal_setup_rejects_non_wal_and_non_busy_results_without_retrying() {
         b"not a SQLite database"
     );
 }
+
+#[test]
+fn only_a_hook_connections_spent_writer_wait_is_its_spent_allowance() {
+    use rusqlite::ffi;
+    let fixture = Fixture::new();
+    Storage::open(&fixture.database).unwrap().close().unwrap();
+    let failure = |code| {
+        classify(
+            rusqlite::Error::SqliteFailure(ffi::Error::new(code), None),
+            "Hook write",
+        )
+    };
+    let passed = Instant::now();
+    let later = passed + Duration::from_secs(60);
+    assert!(spent_allowance(failure(ffi::SQLITE_BUSY), passed).is_hook_allowance_spent());
+    // LOCKED and the extended BUSY codes return without the bounded wait.
+    for code in [
+        ffi::SQLITE_LOCKED,
+        ffi::SQLITE_LOCKED_SHAREDCACHE,
+        ffi::SQLITE_BUSY_SNAPSHOT,
+        ffi::SQLITE_BUSY_RECOVERY,
+    ] {
+        let error = spent_allowance(failure(code), passed);
+        assert_eq!(error.code, StorageErrorCode::Busy, "{code}");
+        assert!(!error.is_hook_allowance_spent(), "{code}");
+    }
+    assert!(!spent_allowance(failure(ffi::SQLITE_BUSY), later).is_hook_allowance_spent());
+    assert!(
+        !spent_allowance(
+            StorageError::new(StorageErrorCode::Busy, "no cause"),
+            passed
+        )
+        .is_hook_allowance_spent()
+    );
+    assert!(
+        Storage::open_hook(&fixture.database, Instant::now())
+            .err()
+            .unwrap()
+            .is_hook_allowance_spent()
+    );
+    let mut plain = Storage::open(&fixture.database).unwrap();
+    assert!(
+        !plain
+            .hook_allowance(failure(ffi::SQLITE_BUSY))
+            .is_hook_allowance_spent()
+    );
+    plain.close().unwrap();
+    // A hook connection's close fault is not its writer wait.
+    let mut hook =
+        Storage::open_hook(&fixture.database, Instant::now() + Duration::from_secs(5)).unwrap();
+    hook.connection().unwrap().execute_batch("BEGIN IMMEDIATE; INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES ('uncommitted', 'Test', 'test', 'now', 'now');").unwrap();
+    let closed = hook.close().unwrap_err();
+    assert_eq!(closed.code, StorageErrorCode::Busy);
+    assert!(!closed.is_hook_allowance_spent());
+}

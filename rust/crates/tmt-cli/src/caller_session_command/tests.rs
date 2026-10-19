@@ -298,6 +298,30 @@ fn caller_commit_fences_binding_and_preferences_and_preserves_driver_state() {
         let before = Storage::context_by_identity(&database, &identity.id, 0)
             .unwrap()
             .unwrap();
+        if race == "unchanged" {
+            // A writer that holds the lock past the hook's bounded wait makes
+            // the commit busy: that is the budget, and nothing is written.
+            let writer = rusqlite::Connection::open(&database).unwrap();
+            writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+            let mut bounded =
+                Storage::open_hook(&database, Instant::now() + Duration::from_millis(300)).unwrap();
+            let busy = commit_session(
+                &mut bounded,
+                SessionCommit {
+                    stored: &stored,
+                    next: &next,
+                    event: &event,
+                    harness: &harness,
+                    mode: &mode,
+                    fence_preferences: true,
+                },
+            )
+            .unwrap_err();
+            assert!(busy.is_hook_allowance_spent(), "{busy:?}");
+            assert_eq!(storage_layer(busy), "budget");
+            drop(bounded);
+            writer.execute_batch("ROLLBACK").unwrap();
+        }
         let applied = commit_session(
             &mut storage,
             SessionCommit {
@@ -928,5 +952,30 @@ fn an_external_worker_gets_the_precheck_deadline_and_a_timeout_is_remembered() {
             101
         ),
         Err("budget")
+    );
+}
+
+#[test]
+fn an_exhausted_budget_at_the_storage_open_is_a_budget_refusal() {
+    let directory = Directory::new();
+    let database = directory.0.join("tmt.db");
+    Storage::open(&database).unwrap().close().unwrap();
+    let exhausted = Storage::open_hook(&database, Instant::now()).err().unwrap();
+    assert_eq!(storage_layer(exhausted), "budget");
+    let missing = Storage::open_hook(
+        &directory.0.join("missing.db"),
+        Instant::now() + Duration::from_secs(5),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(storage_layer(missing), "storage");
+    // A busy or locked result that is not the spent allowance, such as a
+    // close fault, stays a storage refusal.
+    assert_eq!(
+        storage_layer(StorageError::new(
+            tmt_adapters::storage::StorageErrorCode::Busy,
+            "Close storage failed",
+        )),
+        "storage"
     );
 }

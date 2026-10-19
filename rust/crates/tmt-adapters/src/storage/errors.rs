@@ -35,6 +35,7 @@ pub struct StorageError {
     pub retryable: bool,
     cause: Option<Box<dyn Error + Send + Sync>>,
     newer_schema: bool,
+    hook_allowance_spent: bool,
 }
 
 impl StorageError {
@@ -46,7 +47,34 @@ impl StorageError {
             retryable: code == StorageErrorCode::Busy,
             cause: None,
             newer_schema: false,
+            hook_allowance_spent: false,
         }
+    }
+
+    /// The bounded writer wait of a hook connection ran out (see
+    /// `Storage::open_hook`). Any other busy or locked result is not this.
+    pub fn is_hook_allowance_spent(&self) -> bool {
+        self.hook_allowance_spent
+    }
+
+    pub(crate) fn hook_allowance_spent(mut self) -> Self {
+        self.hook_allowance_spent = true;
+        self
+    }
+
+    /// SQLite's plain BUSY, which its busy handler returns when it stops
+    /// waiting. LOCKED and the extended BUSY codes return without that wait.
+    pub(crate) fn is_plain_busy(&self) -> bool {
+        let mut source = self.source();
+        while let Some(error) = source {
+            if let Some(rusqlite::Error::SqliteFailure(failure, _)) =
+                error.downcast_ref::<rusqlite::Error>()
+            {
+                return failure.extended_code == rusqlite::ffi::SQLITE_BUSY;
+            }
+            source = error.source();
+        }
+        false
     }
 
     /// The known migration prefix is valid but the next version is unsupported.
