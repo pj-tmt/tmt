@@ -192,6 +192,11 @@ fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
         width,
     ))
 }
+/// Text projection for tests that do not paint key roles.
+#[cfg(test)]
+pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
+    overview_pairs(app, width).map(|pairs| hint_text(&pairs))
+}
 fn agents_pairs(app: &App, width: usize) -> Option<[Vec<Hint>; 2]> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
     Some([
