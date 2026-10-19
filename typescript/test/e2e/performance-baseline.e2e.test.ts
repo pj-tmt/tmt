@@ -5,7 +5,13 @@ import { assertBenchmarkHelp } from '../support/performance-contract.mjs';
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vite-plus/test';
 import { durableState } from './identity-state-oracle.js';
-import { withE2EFixture, type CliResult, type E2EFixture, type MockEvent } from './harness.js';
+import {
+  processState,
+  withE2EFixture,
+  type CliResult,
+  type E2EFixture,
+  type MockEvent,
+} from './harness.js';
 import { installTmuxTrace, type TmuxTrace } from './tmux-trace.js';
 
 const ENABLED = process.env.TMT_PERFORMANCE_BASELINE === '1';
@@ -231,16 +237,6 @@ function createUnboundSleepingPanes(fixture: E2EFixture): string[] {
     panes.push(pane);
   }
   return panes;
-}
-
-function processIsRunning(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function assertKnownTraceCommands(series: BenchmarkSeries): void {
@@ -567,7 +563,7 @@ baselineSuite('TMT performance baseline', { concurrent: false }, () => {
       if (cleanup.root !== '') {
         expect(fs.existsSync(cleanup.root)).toBe(false);
         expect(fs.existsSync(cleanup.socketRoot)).toBe(false);
-        expect(processIsRunning(cleanup.serverPid)).toBe(false);
+        expect(processState(cleanup.serverPid)).toBe('absent');
       }
       if (scenarioFailed) throw scenarioError;
     }

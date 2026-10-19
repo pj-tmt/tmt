@@ -23,20 +23,13 @@ export async function killAndWait(
   }
   const groupsRunning = (reportErrors = false): number[] =>
     pids.filter((pid) => {
-      try {
-        return processGroupIsRunning(pid);
-      } catch (error) {
-        // Inspection can be temporarily unknown while a killed group is reaped.
-        // Keep it pending within the cleanup bound; never treat an error as gone.
-        if (reportErrors) {
-          onError(
-            new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
-              cause: error,
-            })
-          );
-        }
-        return true;
+      const { state, cause } = inspectProcess(pid, { group: true });
+      // Inspection can be temporarily unknown while a killed group is reaped.
+      // Keep it pending within the cleanup bound; never treat it as gone.
+      if (state === 'unknown' && reportErrors) {
+        onError(new Error(`Could not inspect E2E ${label} process group ${pid}.`, { cause }));
       }
+      return state !== 'absent';
     });
   const deadline = Date.now() + 1_000;
   while (Date.now() < deadline && groupsRunning().length > 0) {
@@ -45,15 +38,43 @@ export async function killAndWait(
   return groupsRunning(true);
 }
 
-export function processGroupIsRunning(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+/** What one `kill(pid, 0)` probe can prove about a process. */
+export type ProcessState = 'running' | 'absent' | 'unknown';
+
+type SignalProcess = (target: number, signal: 0) => unknown;
+
+/** A probe's state, with the error that left it `unknown` so diagnostics keep their cause. */
+interface ProcessInspection {
+  state: ProcessState;
+  cause?: unknown;
+}
+
+/**
+ * Probe a process, or with `group` its process group. Only ESRCH proves absence:
+ * EPERM, EIO, any other error and a pid that cannot name a process leave the state
+ * unknown, which callers must never read as exited.
+ */
+function inspectProcess(
+  pid: number,
+  options: { group?: boolean; kill?: SignalProcess } = {}
+): ProcessInspection {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return { state: 'unknown' };
+  const kill = options.kill ?? ((target, signal) => process.kill(target, signal));
   try {
-    process.kill(-pid, 0);
-    return true;
+    kill(options.group ? -pid : pid, 0);
+    return { state: 'running' };
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return false;
-    throw error;
+    return error instanceof Error && 'code' in error && error.code === 'ESRCH'
+      ? { state: 'absent' }
+      : { state: 'unknown', cause: error };
   }
+}
+
+export function processState(
+  pid: number,
+  options: { group?: boolean; kill?: SignalProcess } = {}
+): ProcessState {
+  return inspectProcess(pid, options).state;
 }
 
 export function requestObserverPids(observers: string): number[] {
@@ -144,16 +165,6 @@ export async function stopAttachedClients(
       }
     })
   );
-}
-
-export function processIsRunning(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function serverIsRunning(

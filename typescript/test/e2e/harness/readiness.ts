@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ProcessState } from './cleanup.js';
 import type { MockEvent, CliProcess, CliResult } from './types.js';
 
 /** Time for the CLI to reach a metadata barrier on a loaded host; only a hung CLI exceeds it. */
@@ -34,16 +35,38 @@ export async function waitFor(
   throw new Error(`Timed out waiting for ${description}.`);
 }
 
+/** How a bounded wait for processes to exit ended; only `exited` proves every one is gone. */
+export type ProcessExit =
+  | { outcome: 'exited' }
+  | { outcome: 'timed-out'; running: number[]; unknown: number[] }
+  | { outcome: 'unknown'; unknown: number[] };
+
+/**
+ * Wait up to `timeoutMs` for every pid to be proven absent. A pid whose state stays
+ * unknown is reported as such, not as exited; one that is still running at the
+ * deadline is a timeout the caller must report, not a reason to wait longer.
+ */
 export async function waitForProcessExit(
-  panePids: readonly number[],
-  isRunning: (pid: number) => boolean,
+  pids: readonly number[],
+  probe: (pid: number) => ProcessState,
   timeoutMs = 2_000
-): Promise<void> {
-  if (panePids.length === 0) return;
+): Promise<ProcessExit> {
+  const survey = (): { running: number[]; unknown: number[] } => {
+    const states = pids.map((pid) => [pid, probe(pid)] as const);
+    return {
+      running: states.filter(([, state]) => state === 'running').map(([pid]) => pid),
+      unknown: states.filter(([, state]) => state === 'unknown').map(([pid]) => pid),
+    };
+  };
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && panePids.some((panePid) => isRunning(panePid))) {
+  let { running, unknown } = survey();
+  while (Date.now() < deadline && running.length + unknown.length > 0) {
     await new Promise((resolve) => setTimeout(resolve, 25));
+    ({ running, unknown } = survey());
   }
+  if (running.length > 0) return { outcome: 'timed-out', running, unknown };
+  if (unknown.length > 0) return { outcome: 'unknown', unknown };
+  return { outcome: 'exited' };
 }
 
 export async function waitForCapture(

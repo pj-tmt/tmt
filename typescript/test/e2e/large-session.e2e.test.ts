@@ -2,7 +2,13 @@ import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vite-plus/test';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
-import { withE2EFixture, type CliResult, type E2EFixture, type MockEvent } from './harness.js';
+import {
+  processState,
+  withE2EFixture,
+  type CliResult,
+  type E2EFixture,
+  type MockEvent,
+} from './harness.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
 import { installTmuxTrace } from './tmux-trace.js';
 
@@ -58,15 +64,6 @@ function commandCount(commands: string[], command: string): number {
 function invocationArgs(invocation: string): string {
   const separator = invocation.indexOf('\t');
   return separator < 0 ? invocation : invocation.slice(separator + 1);
-}
-
-function processIsRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function createUnboundSleepingPanes(fixture: E2EFixture): Promise<string[]> {
@@ -351,7 +348,7 @@ describe('scoped identity operations in a large tmux session', { concurrent: fal
       expect(cleanup.socketRoot).not.toBe('');
       expect(fs.existsSync(cleanup.root)).toBe(false);
       expect(fs.existsSync(cleanup.socketRoot)).toBe(false);
-      expect(processIsRunning(cleanup.serverPid)).toBe(false);
+      expect(processState(cleanup.serverPid)).toBe('absent');
     }
   );
 });
