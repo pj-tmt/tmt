@@ -22,16 +22,25 @@ export function localTime(value: number | null): string {
   return `${part('weekday')} ${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
 }
 export function expiryText(page: Partial<ExpiryInfo>, now = Date.now()): string {
-  if (page.retentionDays === null) return 'kept forever';
+  // A page kept forever locally still has a cloud copy with a confirmed deadline, and losing it
+  // ends sharing; with no confirmed row there is nothing more to say than kept forever.
+  if (page.retentionDays === null) {
+    if (page.expiresAtMs == null) return 'kept forever';
+    const cloud = cloudExpiry(page.expiresAtMs, now);
+    return `kept forever here · ${cloud ? `cloud copy ${cloud}` : 'not in the cloud'}`;
+  }
   // The expiry is the cloud copy's: what the last confirmed write of the page's row made it.
   // A page this machine never put in the cloud has none and is only local.
   if (page.expiresAtMs == null)
     return page.warnings?.includes('not-in-cloud') ? 'not in the cloud' : 'local only';
-  const remaining = page.expiresAtMs - now;
-  if (remaining <= 0) return 'not in the cloud';
-  const duration = Math.abs(remaining);
-  const days = Math.floor(duration / 86400000);
-  const hours = Math.floor(duration / 3600000);
+  return cloudExpiry(page.expiresAtMs, now) ?? 'not in the cloud';
+}
+/** `expires in …` while the cloud copy lasts; nothing once its confirmed expiry has passed. */
+function cloudExpiry(expiresAtMs: number, now: number): string | undefined {
+  const remaining = expiresAtMs - now;
+  if (remaining <= 0) return undefined;
+  const days = Math.floor(remaining / 86400000);
+  const hours = Math.floor(remaining / 3600000);
   const interval =
     days >= 1
       ? `${days} ${days === 1 ? 'day' : 'days'}`

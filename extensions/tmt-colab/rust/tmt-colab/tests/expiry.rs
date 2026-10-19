@@ -170,12 +170,13 @@ fn verified_projection_reports_the_cloud_expiry_the_last_confirmed_page_row_made
     let p = f.projection();
     assert_eq!(p["expiresAtMs"], NOW + 90 * DAY);
     assert_eq!(p["warnings"], json!([]));
+    // Kept forever locally, the cloud copy still has the deadline its confirmed row made.
     f.apply(OwnerAction::Retention {
         page: PAGE,
         days: None,
     });
     let p = f.projection();
-    assert!(p["expiresAtMs"].is_null());
+    assert_eq!(p["expiresAtMs"], NOW + 90 * DAY);
     assert_eq!(p["warnings"], json!([]));
     f.sql()
         .execute(
@@ -184,6 +185,41 @@ fn verified_projection_reports_the_cloud_expiry_the_last_confirmed_page_row_made
         )
         .unwrap();
     assert!(inspection::catalog(&f.store, &f.key).is_err());
+}
+#[test]
+fn a_locally_forever_page_shows_its_confirmed_cloud_deadline_and_the_same_warnings() {
+    const OTHER: &str = "10000000-0000-4000-8000-000000000002";
+    let mut f = Fixture::new();
+    f.create();
+    f.apply(OwnerAction::Create {
+        creation_recipient: None,
+        page: OTHER,
+        title: "Other",
+        source: "<p>Other</p>",
+        publisher_agent: None,
+    });
+    f.apply(OwnerAction::Retention {
+        page: PAGE,
+        days: None,
+    });
+    // No confirmed row for a forever page: only kept forever, even once this machine has a
+    // cloud copy of another page.
+    f.store.confirm_page_row(OTHER, 1, NOW + 30 * DAY).unwrap();
+    let p = f.projection();
+    assert!(p["retentionDays"].is_null());
+    assert!(p["expiresAtMs"].is_null());
+    assert_eq!(p["warnings"], json!([]));
+    f.store.confirm_page_row(PAGE, 1, NOW + 365 * DAY).unwrap();
+    let p = f.projection();
+    assert!(p["retentionDays"].is_null());
+    assert_eq!(p["expiresAtMs"], NOW + 365 * DAY);
+    assert_eq!(p["warnings"], json!([]));
+    f.clock.store(NOW + 358 * DAY, Ordering::SeqCst);
+    assert_eq!(f.projection()["warnings"], json!(["expires-soon"]));
+    f.clock.store(NOW + 365 * DAY, Ordering::SeqCst);
+    let p = f.projection();
+    assert_eq!(p["expiresAtMs"], NOW + 365 * DAY);
+    assert_eq!(p["warnings"], json!(["not-in-cloud"]));
 }
 #[test]
 fn a_confirmed_row_belongs_to_its_epoch_and_goes_with_the_page() {

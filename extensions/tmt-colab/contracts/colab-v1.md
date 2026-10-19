@@ -4282,8 +4282,9 @@ the cloud last confirmed it for the page's current epoch. The serve's cloud-sync
 it when its write of the row is confirmed (Store schema 11: one row per page holding the epoch
 and that expiry, replaced by each confirmation and removed with the page's data), so an edit or
 a retention override moves it only once a later write of the row is confirmed. A page with no
-confirmed row for its current epoch has a null `expiresAtMs`. Forever has no expiry and no
-warning. At most one expiry warning is emitted: `expires-soon` when the confirmed expiry is in
+confirmed row for its current epoch has a null `expiresAtMs`. A page kept forever locally still
+reports its confirmed row's expiry and the same warnings, since losing the cloud copy ends sharing;
+with no confirmed row it has a null expiry and no warning. At most one expiry warning is emitted: `expires-soon` when the confirmed expiry is in
 the future and at most seven days away; `not-in-cloud` when it is at or before now, or when the
 page has no confirmed row for its current epoch (never confirmed, or the epoch moved) on a
 machine that has confirmed a page row for some page. A machine that never has is local only:
@@ -4295,7 +4296,9 @@ expiry within seven days has a `◷` waiting mark; a page that is not in the clo
 `not in the cloud`, and a local-only page `local only`. Expiry intervals use days, hours or less
 than an hour, matching browser retention hints rather than UTC calendar dates. The footer says
 "Expiry never deletes your local copy." CLI state values are lowercase UX display copy:
-`kept forever`, `local only` and `not in the cloud`. They omit redundant type labels and final
+`kept forever`, `local only` and `not in the cloud`; a page kept forever locally with a confirmed
+row reads `kept forever here · cloud copy expires in 6 days` (or `kept forever here · not in the
+cloud`). They omit redundant type labels and final
 periods; browser hints keep their sentence form. `expires-soon` prints one stderr line,
 `<id>: <expiry> · Expiry never deletes your local copy`, and so does `not-in-cloud` with a
 non-null `expiresAtMs`: a page that was in the cloud and whose confirmed expiry has passed.

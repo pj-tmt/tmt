@@ -341,14 +341,16 @@ impl OwnerTransaction<'_> {
                 .get(id)
                 .filter(|(epoch, _)| page["epoch"].as_str() == Some(epoch.as_str()))
                 .map(|&(_, expires)| expires);
+            // A page kept forever locally still reports its confirmed cloud copy's deadline and
+            // warnings, since losing that copy ends sharing; with no confirmed row it has neither.
             let (shown, warning) = match (page["retentionDays"].as_u64(), expiry) {
-                (None, _) => (None, None),
+                (None, None) => (None, None),
                 (Some(_), None) => (None, cloud_in_use.then_some("not-in-cloud")),
-                (Some(_), Some(expiry)) if expiry <= now => (Some(expiry), Some("not-in-cloud")),
-                (Some(_), Some(expiry)) if expiry - now <= 7 * 86_400_000 => {
+                (_, Some(expiry)) if expiry <= now => (Some(expiry), Some("not-in-cloud")),
+                (_, Some(expiry)) if expiry - now <= 7 * 86_400_000 => {
                     (Some(expiry), Some("expires-soon"))
                 }
-                (Some(_), Some(expiry)) => (Some(expiry), None),
+                (_, Some(expiry)) => (Some(expiry), None),
             };
             page["expiresAtMs"] = serde_json::json!(shown);
             page["warnings"] = serde_json::json!(warning.into_iter().collect::<Vec<_>>());

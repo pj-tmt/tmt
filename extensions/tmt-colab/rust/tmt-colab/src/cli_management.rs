@@ -1264,7 +1264,20 @@ fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
 /// List/detail/warning callers share this copy owner, without final periods.
 fn expiry_text(page: &Value, now_ms: u64, listing: bool) -> String {
     if page["retentionDays"].is_null() {
-        return "kept forever".into();
+        // A confirmed cloud copy of a locally forever page still has a deadline worth naming.
+        return match page["expiresAtMs"].as_u64() {
+            None => "kept forever".into(),
+            Some(ms) if ms <= now_ms => "kept forever here · not in the cloud".into(),
+            Some(ms) => format!(
+                "kept forever here · {}cloud copy expires in {}",
+                if ms - now_ms <= 7 * DAY_MS {
+                    "◷ "
+                } else {
+                    ""
+                },
+                retention_interval(ms - now_ms)
+            ),
+        };
     }
     let missing = page["warnings"]
         .as_array()
@@ -1575,10 +1588,36 @@ mod expiry_tests {
                 expiry_text(&page(None, &["not-in-cloud"]), 0, listing),
                 "not in the cloud"
             );
-            let mut forever = page(None, &["not-in-cloud"]);
+            let mut forever = page(None, &[]);
             forever["retentionDays"] = Value::Null;
             assert_eq!(expiry_text(&forever, 0, listing), "kept forever");
         }
+    }
+    #[test]
+    fn a_locally_forever_page_with_a_confirmed_cloud_row_names_both_facts() {
+        let now = 30 * DAY_MS;
+        let forever = |expires: u64, warnings: &[&str]| {
+            let mut value = page(Some(expires), warnings);
+            value["retentionDays"] = Value::Null;
+            value
+        };
+        let soon = forever(now + 6 * DAY_MS, &["expires-soon"]);
+        assert_eq!(
+            expiry_text(&soon, now, true),
+            "kept forever here · ◷ cloud copy expires in 6 days"
+        );
+        assert_eq!(
+            expiry_text(&soon, now, false),
+            "kept forever here · ◷ cloud copy expires in 6 days"
+        );
+        assert_eq!(
+            expiry_text(&forever(now + 300 * DAY_MS, &[]), now, true),
+            "kept forever here · cloud copy expires in 300 days"
+        );
+        assert_eq!(
+            expiry_text(&forever(now, &["not-in-cloud"]), now, true),
+            "kept forever here · not in the cloud"
+        );
     }
     #[test]
     fn last_edit_handles_whole_units_and_clock_rollback_without_overflow() {
