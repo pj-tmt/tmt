@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { destination } from '../test/ask-fixtures.js';
@@ -86,7 +87,7 @@ for (const surface of ['reply', 'chat']) {
     expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
   });
 
-  test(`${surface}: a write failure turns the echo into the error row and restores the full draft`, async ({
+  test(`${surface}: a write failure leaves one failed row that holds the draft until Retry or Edit`, async ({
     page,
   }) => {
     const input = await mount(page, surface, 'write-failure');
@@ -95,28 +96,47 @@ for (const surface of ['reply', 'chat']) {
     expect(draft.mentions).toHaveLength(1);
     await input.press('Enter');
     await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
-    await expect(echo(page)).toContainText(text.commentFailed);
-    // One announced alert: the composer's send notice, not a second one on the row.
+    // The row is the one place: one alert, '✗ Not sent.' with its reference.
     await expect(page.getByRole('alert')).toHaveCount(1);
+    await expect(echo(page).getByRole('alert')).toHaveText(
+      `✗ ${text.messageUnsent} ${text.messageSendReference('S12')}`,
+    );
     await expect(echo(page).locator('.comment-echo-mark')).toHaveCount(0);
-    await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
-    // Text and the bound recipient chip both come back.
+    // The composer stays empty and inert, not grey, and says why.
+    await expect(input).toHaveText('', { useInnerText: true });
+    await expect(input).toHaveAttribute('aria-disabled', 'true');
+    await expect(page.getByText(text.messageUnsentFirst)).toBeVisible();
+    await expect(send(page)).toBeDisabled();
+    // The kept draft is the row's: closing now would keep text and chip.
     expect((await run(page, 'editingProof')).edit).toMatchObject({
       value: draft.value,
       mentions: draft.mentions,
     });
+    await input.press('Enter');
     expect(await run(page, 'proof')).toMatchObject({ writes: 1, preparations: 0, sends: [] });
+    // Retry re-sends exactly that draft once; it fails again into a fresh row.
     await echo(page).getByRole('button', { name: 'Retry', exact: true }).click();
-    await expect.poll(() => run(page, 'proof')).toMatchObject({ writes: 2 });
+    await expect.poll(async () => (await run(page, 'editingProof')).captured).toHaveLength(2);
+    expect((await run(page, 'editingProof')).captured.at(-1)).toMatchObject({ body: draft.value });
+    await expect(echo(page)).toHaveCount(1);
     await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+    // Edit moves the full draft back into the composer and removes the row.
+    await echo(page).getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(echo(page)).toHaveCount(0);
     await expect(input).toHaveText('@alpha Kept draft.', { useInnerText: true });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveAttribute('aria-disabled', 'false');
+    expect((await run(page, 'editingProof')).edit).toMatchObject({
+      value: draft.value,
+      mentions: draft.mentions,
+    });
   });
 
   for (const [failure, reference] of [
     ['refused', 'S10'],
     ['stale', 'S14'],
   ] as const)
-    test(`${surface}: attachment refusal ${reference} restores the draft behind a failed echo`, async ({
+    test(`${surface}: attachment refusal ${reference} is reported on the failed row that holds the draft`, async ({
       page,
     }) => {
       const input = await mount(page, surface);
@@ -134,8 +154,11 @@ for (const surface of ['reply', 'chat']) {
         };
       }, failure);
       await input.press('Enter');
-      await expect(page.locator('.annotation-send-notice')).toContainText(`(ref ${reference})`);
       await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+      await expect(echo(page).getByRole('alert')).toContainText(`(ref ${reference})`);
+      await expect(page.locator('.annotation-send-notice')).toHaveCount(0);
+      await expect(input).toHaveText('', { useInnerText: true });
+      await echo(page).getByRole('button', { name: 'Edit', exact: true }).click();
       await expect(input).toHaveText('Kept attachment draft.', { useInnerText: true });
       expect(await run(page, 'proof')).toMatchObject({ writes: 0, sends: [] });
     });
@@ -236,7 +259,7 @@ test('anchored dialog: a reply shows at once and its verified record takes its p
   expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
 });
 
-test('anchored dialog: a refused reply becomes the failed row and restores the draft', async ({
+test('anchored dialog: a refused reply becomes the failed row and Retry records it once', async ({
   page,
 }) => {
   const { dialog, input, page_ } = await openAnchoredThread(page);
@@ -244,11 +267,39 @@ test('anchored dialog: a refused reply becomes the failed row and restores the d
   await page_('failNextReply');
   await input.press('Enter');
   await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
-  await expect(echo(page)).toContainText(text.commentFailed);
-  await expect(input).toHaveText('A refused reply.', { useInnerText: true });
+  await expect(echo(page).getByRole('alert')).toContainText(text.messageUnsent);
+  await expect(input).toHaveText('', { useInnerText: true });
   await expect(dialog.getByTestId('comment-entry')).toHaveCount(1);
   await echo(page).getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(echo(page)).toHaveCount(0);
   await expect(dialog.getByTestId('comment-entry')).toHaveCount(2);
   await expect(dialog.getByTestId('comment-entry').last()).toContainText('A refused reply.');
+});
+
+test('chat: a failed message survives closing and reopening Chat', async ({ page }) => {
+  const page_ = (method: string) =>
+    page.evaluate(async (method) => {
+      const path = '/test/ask-page-browser.tsx';
+      return (await import(path))[method]();
+    }, method);
+  await page.goto('/');
+  await page_('mount');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  const fixtureRoot = page.locator('#ask-page-fixture');
+  await (await pageAction(fixtureRoot, 'Chat')).click();
+  const chat = page.getByTestId('chat-panel');
+  const input = chat.getByRole('combobox', { name: 'Message' });
+  await input.pressSequentially('Keep this unsent message.');
+  await page_('failNextReply');
+  await input.press('Enter');
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
+  await (await pageAction(fixtureRoot, 'Chat')).click();
+  // Chat stays mounted while closed, so the row still holds the draft; Edit brings it back.
+  await expect(echo(page)).toHaveAttribute('data-echo', 'failed');
+  await expect(echo(page)).toContainText('Keep this unsent message.');
+  await echo(page).getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(input).toHaveText('Keep this unsent message.', { useInnerText: true });
+  await expect(echo(page)).toHaveCount(0);
 });

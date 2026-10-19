@@ -618,6 +618,11 @@ export async function mount(
     },
     deviceId: id(4),
     async createChat(body, attach) {
+      await replyGate.held;
+      if (replyGate.fail) {
+        replyGate.fail = false;
+        throw new Error('Chat message refused');
+      }
       return createThread(body, null, id(4), attach);
     },
     async reply(ref, body, _expected, attach) {
@@ -953,7 +958,7 @@ export function replaceFilesOwner() {
   replacedFiles = true;
   fail?.(new Error('STALE_EPOCH'));
 }
-/** Holds or refuses the next thread reply write, as a slow or refused Remote append would. */
+/** Holds or refuses the next reply or Chat write, as a slow or refused Remote append would. */
 let replyGate: { held?: Promise<void>; release?(): void; fail?: boolean } = {};
 export function holdReply() {
   replyGate.held = new Promise<void>((resolve) => (replyGate.release = resolve));

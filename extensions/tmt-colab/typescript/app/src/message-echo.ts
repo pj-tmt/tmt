@@ -12,17 +12,19 @@ export type MessageEcho = {
   at: number;
   /** The recorded message, once the write returned; its verified record replaces the echo. */
   message?: DiscussionRef;
-  /** Present when the send failed before it was recorded. */
-  retry?(): void;
+  /** Present when the send failed before it was recorded: the row then holds the draft. */
+  failure?: { reference: string; retry(): void; edit(): void };
 };
 
 /**
  * Provided by a host that shows sent replies and Chat messages at once (a thread window, Chat).
  * A composer inside it reports its echo here; without a host it keeps today's send flow.
  */
-export const MessageEchoContext = createContext<
-  ((echo: MessageEcho | undefined) => void) | undefined
->(undefined);
+export type MessageEchoHost = {
+  show(echo: MessageEcho): void;
+  remove(local: string): void;
+};
+export const MessageEchoContext = createContext<MessageEchoHost | undefined>(undefined);
 
 /** A new echo for a message the composer is sending now. */
 export function messageEcho(body: string): MessageEcho {

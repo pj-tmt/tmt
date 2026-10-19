@@ -191,6 +191,9 @@ export const text = {
     'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',
   messageRecordFailed: 'The turn could not be recorded.',
   messageNotSent: 'Not sent. Your draft is kept; try again.',
+  /** A sent message's failed row; the row holds the draft. */
+  messageUnsent: 'Not sent.',
+  messageUnsentFirst: 'Retry or edit the unsent message first.',
   messageNotSentBusy:
     'Not sent: another message is still sending. Your draft is kept. Wait, then try again.',
   messageNotSentArchived: 'Not sent: this page is archived. Your draft is kept.',

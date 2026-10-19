@@ -20,7 +20,12 @@ import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
 import { text } from './strings.js';
-import { echoLanded, MessageEchoContext, type MessageEcho } from './message-echo.js';
+import {
+  echoLanded,
+  MessageEchoContext,
+  type MessageEcho,
+  type MessageEchoHost,
+} from './message-echo.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
 import {
@@ -29,14 +34,24 @@ import {
   type ThreadStatusOutcome,
 } from './thread-status-presentation.js';
 
-/** One host-owned echo slot; it clears itself once the verified record is in view. */
+/** Host-owned echoes, in send order; each clears itself once its verified record is in view. */
 export function useMessageEcho(comments: readonly CommentView[]) {
-  const [echo, setEcho] = useState<MessageEcho>();
-  const landed = !!echo && echoLanded(echo, comments);
+  const [echoes, setEchoes] = useState<readonly MessageEcho[]>([]);
+  const [host] = useState<MessageEchoHost>(() => ({
+    show: (echo) =>
+      setEchoes((previous) =>
+        previous.some((value) => value.local === echo.local)
+          ? previous.map((value) => (value.local === echo.local ? echo : value))
+          : [...previous, echo],
+      ),
+    remove: (local) => setEchoes((previous) => previous.filter((value) => value.local !== local)),
+  }));
+  const shown = echoes.filter((echo) => !echoLanded(echo, comments));
+  const landed = shown.length !== echoes.length;
   useEffect(() => {
-    if (landed) setEcho(undefined);
-  }, [landed]);
-  return [landed ? undefined : echo, setEcho] as const;
+    if (landed) setEchoes((previous) => previous.filter((echo) => !echoLanded(echo, comments)));
+  }, [landed, comments]);
+  return [shown, host] as const;
 }
 
 export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: string }) {
@@ -48,11 +63,11 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
       authorTitle={writer}
       className="comment"
       data-testid="comment-echo"
-      data-echo={echo.retry ? 'failed' : 'pending'}
+      data-echo={echo.failure ? 'failed' : 'pending'}
       // The verified record's message actions take this slot; holding it keeps the row's height.
       actions={<span className="comment-echo-actions" aria-hidden="true" />}
       meta={
-        !echo.retry && (
+        !echo.failure && (
           // The mark has no words and shows only once a send has taken 400 ms.
           <span className="comment-echo-mark" aria-hidden="true">
             {' '}
@@ -61,18 +76,33 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
         )
       }
       delivery={
-        echo.retry && (
+        echo.failure && (
+          // The row is the draft and the one place this failure is reported.
           <>
-            {/* The composer's send notice is the one announced alert for this failure. */}
-            <p className="comment-status">{text.commentFailed}</p>
-            <BrowserAction
-              type="button"
-              variant="text"
-              label={text.chatRetry}
-              onActivate={(event) => {
-                if (event.isTrusted) echo.retry?.();
-              }}
-            />
+            <p role="alert" className="comment-echo-failure">
+              <span className="annotation-send-mark" aria-hidden="true">
+                ✗{' '}
+              </span>
+              {text.messageUnsent} {text.messageSendReference(echo.failure.reference)}
+            </p>
+            <div className="comment-actions">
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.chatRetry}
+                onActivate={(event) => {
+                  if (event.isTrusted) echo.failure?.retry();
+                }}
+              />
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentEdit}
+                onActivate={(event) => {
+                  if (event.isTrusted) echo.failure?.edit();
+                }}
+              />
+            </div>
           </>
         )
       }
@@ -455,7 +485,7 @@ export function ThreadWindow({
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
   const [showResolved, setShowResolved] = useState(false);
-  const [echo, setEcho] = useMessageEcho(thread?.comments ?? []);
+  const [echoes, echoHost] = useMessageEcho(thread?.comments ?? []);
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
   const collapsed = !!thread?.resolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
@@ -637,7 +667,7 @@ export function ThreadWindow({
         historyClassName="thread-messages"
         composer={
           // One echo seam for the built-in composer and a parent's (the anchored dialog).
-          <MessageEchoContext value={setEcho}>
+          <MessageEchoContext value={echoHost}>
             {composer !== undefined
               ? composer
               : thread &&
@@ -682,7 +712,9 @@ export function ThreadWindow({
             title={title}
           />
         ))}
-        {echo && <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />}
+        {echoes.map((echo) => (
+          <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />
+        ))}
         {!archived &&
           binding &&
           thread &&

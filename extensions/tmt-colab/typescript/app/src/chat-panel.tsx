@@ -58,15 +58,15 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
-  const [echo, setEcho] = useMessageEcho(own?.comments ?? []);
+  const [echoes, echoHost] = useMessageEcho(own?.comments ?? []);
   // Called where the verified record will render, so it takes the same day heading.
   const echoTurn = () =>
-    echo && (
+    echoes.map((echo) => (
       <Fragment key={echo.local}>
         {dayHeading(echo.at)}
         <MessageEchoTurn echo={echo} writer={discussion?.deviceId} />
       </Fragment>
-    );
+    ));
   const messageIds = [
     ...chats.flatMap((thread) => [
       ...thread.comments.map((comment) =>
@@ -160,7 +160,7 @@ export function ChatPanel({
           </>
         }
         composer={
-          <MessageEchoContext value={setEcho}>
+          <MessageEchoContext value={echoHost}>
             <AnnotationInput
               connectionPresentation={connectionPresentation}
               archived={archived}
@@ -183,7 +183,7 @@ export function ChatPanel({
           </MessageEchoContext>
         }
       >
-        {!chats.length && !legacy.length && !echo && (
+        {!chats.length && !legacy.length && !echoes.length && (
           <div className="chat-empty">
             <span aria-hidden="true">○</span>
             <h3>{text.chatEmpty}</h3>
@@ -193,7 +193,7 @@ export function ChatPanel({
           </div>
         )}
         {history}
-        {!own && echo && <section data-testid="chat-thread">{echoTurn()}</section>}
+        {!own && echoes.length > 0 && <section data-testid="chat-thread">{echoTurn()}</section>}
         {legacy.length > 0 && (
           <AskPanel
             readOnly={archived}
