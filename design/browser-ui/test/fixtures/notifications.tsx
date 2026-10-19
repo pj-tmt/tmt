@@ -72,11 +72,17 @@ export function Notifications() {
         <button type="button" onClick={() => admit(1)}>
           Admit one
         </button>
+        <button type="button" onClick={() => admit(3)}>
+          Admit three
+        </button>
         <button type="button" onClick={() => admit(5)}>
           Admit five
         </button>
         <button type="button" onClick={() => setExcluded(['1', '4'])}>
           Withdraw one and four
+        </button>
+        <button type="button" onClick={() => setExcluded(['2'])}>
+          Withdraw two
         </button>
         <button
           type="button"

@@ -354,7 +354,9 @@ Escape or Dismiss restores the connected, visible focus origin from before entry
 Other owners retain Escape. Opaque square cards use shared roles, a 1px edge,
 no shadow and no animation. Visual line clamps retain the complete text in the
 accessibility tree. A separate persistent polite status announces each newly
-displayed event once in FIFO order; count and timer changes do not reannounce
+displayed event once in FIFO order and holds only currently eligible text: an
+active withdrawal drops its item (clearing an emptied status) and never
+re-announces surviving cards. Count and timer changes do not reannounce
 the interactive stack. Wiring hosts must use one reply announcer, replacing any
 existing modal live-region relocation with this suspension contract.
 
