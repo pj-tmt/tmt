@@ -527,6 +527,43 @@ describe('native dependency notices selection', () => {
       "if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'"
     );
     expect(chrome).toContain('retention-days: 7');
+    // Chromium's system packages go through the bounded apt action, never `--with-deps`' own
+    // unbounded apt-get update. The list is Playwright's `ubuntu24.04-x64` tools + chromium set for
+    // the pinned version; a version bump must refresh the list here and in the job together.
+    const playwright = JSON.parse(
+      readFileSync(
+        new URL('../../../extensions/tmt-colab/typescript/app/package.json', import.meta.url),
+        'utf8'
+      )
+    ).devDependencies['@playwright/test'];
+    expect(playwright).toBe('1.63.0');
+    expect(chrome).not.toContain('--with-deps');
+    expect(chrome).toContain('runs-on: ubuntu-24.04');
+    expect(chrome).toContain('timeout-minutes: 10');
+    const packages = [
+      ...(
+        chrome.match(
+          /uses: \.\/\.github\/actions\/apt-install\n {8}with:\n {10}packages: >-\n((?: {12}.+\n)+)/
+        )?.[1] ?? ''
+      )
+        .split(/\s+/)
+        .filter(Boolean),
+    ];
+    expect(packages).toEqual([
+      ...['xvfb', 'fonts-noto-color-emoji', 'fonts-unifont', 'libfontconfig1', 'libfreetype6'],
+      ...['xfonts-cyrillic', 'xfonts-scalable', 'fonts-liberation', 'fonts-ipafont-gothic'],
+      ...['fonts-wqy-zenhei', 'fonts-tlwg-loma-otf', 'fonts-freefont-ttf'],
+      ...['libasound2t64', 'libatk-bridge2.0-0t64', 'libatk1.0-0t64', 'libatspi2.0-0t64'],
+      ...['libcairo2', 'libcups2t64', 'libdbus-1-3', 'libdrm2', 'libgbm1', 'libglib2.0-0t64'],
+      ...['libnspr4', 'libnss3', 'libpango-1.0-0', 'libx11-6', 'libxcb1', 'libxcomposite1'],
+      ...['libxdamage1', 'libxext6', 'libxfixes3', 'libxkbcommon0', 'libxrandr2'],
+    ]);
+    expect(chrome).toContain(
+      'run: pnpm --filter @tmt/colab-app exec playwright install chromium\n'
+    );
+    expect(chrome.indexOf('actions/apt-install')).toBeLessThan(
+      chrome.indexOf('playwright install chromium')
+    );
     expect(chrome).toContain("COLAB_CHROME_REQUIRED: '1'");
     expect(chrome).toContain(
       'COLAB_CHROME_FIXTURE_EXECUTABLE: ${{ steps.fixture.outputs.executable }}'

@@ -49,15 +49,6 @@ owns Java/Node/firebase-tools pins. Remote uses hosted Temurin; Colab's digest-p
 image uses the same pins, `--rm --init --network none`, a read-only extension mount
 and no credentials. Both fail closed within step bounds, without retries or cache.
 
-`colab-chrome` runs `e2e/chrome.spec.ts` against the native fallback chrome. `colab_chrome`
-selects app-suite inputs, `ci.yml`, or `chrome.rs`, `socket.rs`, `assets.rs` and
-`tests/socket.rs`, in PR, merge-group and main-full runs. The job builds the `tmt-colab`
-`socket` test fixture, sets `COLAB_CHROME_REQUIRED=1` (a missing fixture fails, never skips)
-and applies the complete-listed-case guard (`colab-native-spec-report.mjs`) with one worker
-and no retries. `Native package matrix` requires it: selected means success, unselected
-means skipped; no required name changes. It restores caches without saving, except
-Chromium on main.
-
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process
@@ -94,6 +85,16 @@ Its import guard confines production to the leaf and excludes React from the sta
 entry. The component rule keeps full native scope; this is not product adoption
 or broader advisory browser coverage. E2E/artifacts prepare checked CSS; all three native
 stages retain the actual Rust embedded-input guard.
+
+`colab-chrome` runs `e2e/chrome.spec.ts` against the native fallback chrome. `colab_chrome`
+selects app-suite inputs, `ci.yml`, or `chrome.rs`, `socket.rs`, `assets.rs` and
+`tests/socket.rs`, in PR, merge-group and main-full runs. The job builds the `tmt-colab`
+`socket` test fixture, sets `COLAB_CHROME_REQUIRED=1` (a missing fixture fails, never skips)
+and applies the complete-listed-case guard (`colab-native-spec-report.mjs`) with one worker
+and no retries. `Native package matrix` requires it: selected means success, unselected
+means skipped; no required name changes. It restores caches without saving, except
+Chromium on main, and installs Chromium's system packages through the bounded apt action
+rather than Playwright's own unbounded `apt-get`.
 
 ## Trusted main verification
 

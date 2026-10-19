@@ -251,8 +251,9 @@ jobs:
     name: Colab chrome spec (Chromium)
     needs: changes
     if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.colab_chrome == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Pinned to the image whose package names the Chromium list below was taken from.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     env:
@@ -278,9 +279,21 @@ jobs:
         with:
           path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
           key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-      - name: Install Chromium and Linux dependencies
+      # Playwright's with-deps installer runs its own unbounded apt-get update. The same packages go
+      # through the bounded shared action instead: Playwright 1.63.0's `ubuntu24.04-x64` tools and
+      # Chromium dependencies (refresh the list, and the test that pins it, when that version moves).
+      - uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            xvfb fonts-noto-color-emoji fonts-unifont libfontconfig1 libfreetype6 xfonts-cyrillic
+            xfonts-scalable fonts-liberation fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf
+            fonts-freefont-ttf libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64
+            libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3
+            libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3
+            libxkbcommon0 libxrandr2
+      - name: Install Chromium
         working-directory: typescript
-        run: pnpm --filter @tmt/colab-app exec playwright install --with-deps chromium
+        run: pnpm --filter @tmt/colab-app exec playwright install chromium
       - name: Save Chromium on main only
         if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
