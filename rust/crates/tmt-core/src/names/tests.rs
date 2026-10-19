@@ -127,3 +127,49 @@ fn herdr_shaped_names_are_names_while_no_driver_claims_them() {
     }
     assert_eq!(validate_existing_name(" "), Err(NameError::EmptyOrControl));
 }
+
+#[test]
+fn a_new_name_is_bounded_in_scalar_values_after_trim_and_nfkc() {
+    assert!(validate_name(&"a".repeat(NAME_LIMIT)).is_ok());
+    assert_eq!(
+        validate_name(&"a".repeat(NAME_LIMIT + 1)),
+        Err(NameError::TooLong)
+    );
+    // The edges are trimmed before counting.
+    assert!(validate_name(&format!("\u{3000}{}\u{feff}", "a".repeat(NAME_LIMIT))).is_ok());
+    // Scalar values, not bytes: 64 two-byte letters and 64 four-byte letters fit.
+    assert!(validate_name(&"é".repeat(NAME_LIMIT)).is_ok());
+    assert!(validate_name(&"\u{16ea0}".repeat(NAME_LIMIT)).is_ok());
+    // A combining sequence counts as the one scalar NFKC composes it to.
+    assert!(validate_name(&"e\u{301}".repeat(NAME_LIMIT)).is_ok());
+    assert_eq!(
+        validate_name(&"e\u{301}".repeat(NAME_LIMIT + 1)),
+        Err(NameError::TooLong)
+    );
+    // Compatibility forms count as what they expand to: one ligature is three scalars.
+    assert!(validate_name(&"ﬃ".repeat(21)).is_ok());
+    assert_eq!(validate_name(&"ﬃ".repeat(22)), Err(NameError::TooLong));
+    // The refusal names the limit.
+    assert!(NameError::TooLong.to_string().contains("64"));
+}
+
+#[test]
+fn the_limit_never_applies_to_a_name_an_identity_already_holds() {
+    let held = "a".repeat(65_536);
+    let name = validate_existing_name(&held).unwrap();
+    assert_eq!(name.display_name(), held);
+    assert_eq!(name.canonical_name(), held);
+    assert_eq!(validate_name(&held), Err(NameError::TooLong));
+}
+
+#[test]
+fn control_and_target_refusals_keep_their_own_reasons_for_long_text() {
+    assert_eq!(
+        validate_name(&format!("{}\0", "a".repeat(100))),
+        Err(NameError::EmptyOrControl)
+    );
+    assert_eq!(
+        validate_name(&"\0".repeat(100)),
+        Err(NameError::EmptyOrControl)
+    );
+}

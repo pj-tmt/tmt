@@ -9,6 +9,9 @@ in `contracts/`.
 - `tmt-core::names` canonicalizes with an ECMAScript whitespace trim, NFKC and root-locale
   lowercase from pinned ICU data, never case folding or compiler-dependent casing. A
   dependency upgrade must not renormalize stored keys. Names are global in the database.
+  A new name (create, add, `name`/`this`, rename) is at most 64 Unicode scalar values after
+  that trim and NFKC, else `INVALID_NAME` naming the limit; an identity that already holds a
+  longer name keeps it and stays listable and addressable (`validate_existing_name`).
 - Metadata and self-reported status are descriptive, untrusted data with no permission,
   availability or prompt authority. Expired status stays inspectable but is not current.
 - `identity_metadata` owns validation and conditional expectation evaluation; storage

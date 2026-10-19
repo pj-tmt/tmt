@@ -420,6 +420,40 @@ describe('native durable identity process boundary', () => {
     });
   });
 
+  it('bounds a new name at 64 characters while a name an identity already holds still resolves', async () => {
+    await withSandbox(async (sandbox) => {
+      const sixtyFour = 'n'.repeat(64);
+      const sixtyFive = 'n'.repeat(65);
+      const created = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', sixtyFour, '--json'])
+      );
+      expect(created.name).toBe(sixtyFour);
+      const refused = await runCli(sandbox, ['identity', 'create', sixtyFive, '--json']);
+      expect(refused.status).toBe(1);
+      expect((expectError(refused, 'INVALID_NAME').error as { message: string }).message).toContain(
+        '64'
+      );
+
+      // A longer name that an identity already holds stays listable and addressable.
+      withDatabase(sandbox.database, (database) =>
+        database
+          .prepare('UPDATE identities SET name = ?, canonical_name = ? WHERE id = ?')
+          .run(sixtyFive, sixtyFive, created.id)
+      );
+      const held = { ...created, name: sixtyFive, canonicalName: sixtyFive };
+      expectJsonSuccess(await runCli(sandbox, ['identity', 'show', sixtyFive, '--json']), {
+        identity: held,
+      });
+      expectJsonSuccess(await runCli(sandbox, ['identity', 'list', '--json']), {
+        identities: [held],
+      });
+      // A long name nobody holds is refused as a name, not reported missing.
+      const unheld = await runCli(sandbox, ['identity', 'show', 'm'.repeat(65), '--json']);
+      expect(unheld.status).toBe(1);
+      expectError(unheld, 'INVALID_NAME');
+    });
+  });
+
   it('rejects grammar errors before opening storage', async () => {
     await withSandbox(async (sandbox) => {
       const syntax = await runCli(sandbox, ['identity', 'create', 'Alice', 'extra', '--json']);

@@ -113,3 +113,32 @@ fn notes_identity_id_requires_saved_canonical_v4_uuid() {
         );
     }
 }
+
+#[test]
+fn a_new_name_over_the_limit_stops_before_repository_access_but_a_held_one_resolves() {
+    let long = "a".repeat(65);
+    for lifetime in [Lifetime::Temporary, Lifetime::Saved] {
+        assert!(matches!(
+            create_or_resolve(&mut ForbiddenRepository, &long, lifetime),
+            Err(IdentityError::InvalidName(crate::names::NameError::TooLong))
+        ));
+        assert!(matches!(
+            create_auto_named(&mut ForbiddenRepository, &long, lifetime),
+            Err(IdentityError::InvalidName(crate::names::NameError::TooLong))
+        ));
+    }
+    // An identity that already holds a longer name stays addressable.
+    let holder = Holder(Identity {
+        name: long.clone(),
+        canonical_name: long.clone(),
+        ..identity("identity-1", Lifetime::Saved)
+    });
+    let found = find_by_name(&holder, &long).unwrap().expect("held name");
+    assert_eq!(found.id, "identity-1");
+    assert_eq!(holder.list_identities().unwrap().len(), 1);
+    // A long name nobody holds is refused as a name, not reported missing.
+    assert!(matches!(
+        find_by_name(&holder, &"b".repeat(65)),
+        Err(IdentityError::InvalidName(crate::names::NameError::TooLong))
+    ));
+}
