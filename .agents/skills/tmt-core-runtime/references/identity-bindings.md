@@ -189,9 +189,10 @@ delivery. They install and launch nothing.
 - An independent provider hook, attributed by pane ancestry, records only the pane's main
   provider: the nearest provider process above the hook with no built-in provider above it up
   to the verified pane. The pane process itself may be that provider after a shell exec.
-  - A nested provider's hook is refused before any context lookup or session write, and a row
-    that already holds its key does not change. Examples are a daemon-hosted Claude worker,
-    and a provider started from another provider's tool shell, Claude and Codex in any order.
+  - A nested provider's hook is refused before any context publication or session write, and
+    a row that already holds its key does not change. Examples are a daemon-hosted Claude
+    worker, and a provider started from another provider's tool shell, Claude and Codex in any
+    order.
   - When Claude sets `CLAUDE_PID`, it must equal the main provider's PID. A present value that
     is not a nonzero `u32`, or is not UTF-8, refuses. Without it (an older Claude), the main
     provider is admitted as before.
