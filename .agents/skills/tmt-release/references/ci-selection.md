@@ -19,325 +19,268 @@ excluding fences, inline code and HTML comments; it does not fetch URLs or valid
 
 - PRs use the merge-base diff. Merge groups use the common ancestor of fetched
   `origin/main` and `merge_group.head_sha` through the queue head, covering every
-  pending change. The event's `base_sha` can be an earlier queued commit and is
-  insufficient. Fetch full history; missing objects cannot produce a passing
-  empty selection. Include deletions and both sides of renames.
-- Ordered component-map rules select native work. Shared, unknown and unreadable
-  inputs conservatively retain full native verification. Prose with no build or
-  runtime consumers selects only Code quality. Selection is computed over every
-  changed path, and the selector records owner, rule, selection and map digest for
-  each; the run summary lists the first 100 paths in detail and groups the rest by
-  rule with counts.
-- If every native-selecting path is Ops-owned, scope is `ops`: retain its
-  Cargo checks, architecture guard, native tests and E2E file under the existing
-  job names, and skip unchanged CLI runtime builds, packed installs and tooling
-  unit tests. Any shared, CLI-owned or unknown native input requires full scope.
-- Colab browser source and test/spec trees select Code quality and their existing
-  browser lanes without the full native gate. Native chrome CSS, hosted-build
-  inputs, entry/build/config files, public assets, vectors, native skill text and
-  unknown inputs retain full verification. The renderer-style generator is checked
-  by the unconditional app quality/build commands; browser selectors are independent.
-- The exact Colab `contracts/colab-v1.md` prose path selects Code quality, whose
-  app unit tests check shipped-skill error codes against it; native jobs do not
-  read it. Contract vectors and unknown contract paths retain full native scope.
-- Workspace Rust checks cover every retained member; no retired product exclusions
-  or producers remain. Reject empty Remote test discovery before execution.
+  pending change; the event's `base_sha` is insufficient. Fetch full history:
+  missing objects cannot yield a passing empty selection. Include deletions and
+  both sides of renames.
+- Ordered component-map rules select native work. Shared, unknown or unreadable
+  inputs retain full verification; prose without build/runtime consumers selects
+  only Code quality. Selection covers every path, recording owner, rule, selection
+  and map digest; summaries detail the first 100 paths and group the rest by rule/count.
+- Scope is `ops` only when every native-selecting path is Ops-owned: retain its
+  Cargo checks, architecture guard, native tests and E2E under existing names;
+  skip unchanged CLI builds, packed installs and tooling unit tests. Shared,
+  CLI-owned or unknown native inputs require full scope.
+- Colab browser source/test/spec trees select Code quality and browser lanes
+  without the full native gate.
+  Native chrome CSS, hosted-build inputs, entry/build/config, public assets,
+  vectors, native skills and unknown inputs retain full verification. Unconditional
+  app quality/build checks the renderer-style generator; browser selectors are independent.
+- Colab `contracts/colab-v1.md` prose selects Code quality, whose app unit tests
+  check shipped-skill error codes; native jobs do not read it. Contract vectors
+  and unknown contract paths retain full scope.
+- Workspace Rust checks retain every member, without retired product exclusions
+  or producers. Reject empty Remote discovery before execution.
 
-The Remote and Colab Firestore Rules emulator suites run as selected steps inside `Unit tests` (no new
-required context). `remote_firestore` selects Remote's suite, fixtures, `rules.rs` or `ci.yml`;
-`colab_firestore` selects Colab's `firestore/`, `deploy-declaration-*` vectors, emulator suite or `ci.yml`.
-All selected inputs require full native scope so the job runs. Remote uses hosted Temurin 21
-(`JAVA_HOME_21_X64`), Node 22.23.2 and firebase-tools 15.29.0. Colab builds its digest-pinned emulator
-Dockerfile with the same pins, then runs `--rm --init --network none` with only its extension mounted
-read-only and no credentials. Both suites fail closed within their step bounds, without retry or cache.
+Remote and Colab Rules emulators are selected steps in `Unit tests`, requiring
+full scope. `remote_firestore` covers Remote's suite, fixtures, `rules.rs` or
+`ci.yml`; `colab_firestore` covers Colab's `firestore/`, `deploy-declaration-*`
+vectors, emulator suite or `ci.yml`. The [workflow](../../../../.github/workflows/ci.yml)
+owns Java/Node/firebase-tools pins. Remote uses hosted Temurin; Colab's digest-pinned
+image uses the same pins, `--rm --init --network none`, a read-only extension mount
+and no credentials. Both fail closed within step bounds, without retries or cache.
 
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process
-and MSRV workers. MSRV reads `rust/Cargo.toml` and checks every retained workspace
-package target. Full and Ops scopes require every selected worker. Required-check
-names stay stable; `none` skips the aggregate. Invalid scope, missing/extra worker
-results and failed or unexpectedly skipped work fail closed.
-Native process verification discovers every retained suite without a product blacklist.
+and MSRV. MSRV reads `rust/Cargo.toml` and checks every retained package target;
+process verification discovers every retained suite without a product blacklist.
+Full/Ops scopes require every selected worker; `none` skips the aggregate. Invalid
+scope, missing/extra results, failure or unexpected skips fail closed; names stay stable.
 
-For current small packages, apt acquisition allows three attempts per phase (60 s for update, 120 s for install), with 10 s termination grace and 5/10 s backoff; native-process contracts have a 20 min job budget without changing test deadlines. After the first install timeout, the shared action removes only Azure from the verified runner-image mirror list for remaining attempts; unexpected source/list layouts are logged and left unchanged.
+The [apt action](../../../../.github/actions/apt-install/action.yml) allows three
+attempts per phase (60 s update, 120 s install), 10 s termination grace and 5/10 s
+backoff for small packages. Its first install timeout removes only Azure from a
+verified runner-image mirror list; unexpected layouts are logged and unchanged.
+Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
-`Docker E2E` gates the two shard jobs selected by
-`typescript/scripts/e2e-shards.mjs` and committed `test/e2e/shard-weights.json`.
-Full native scope requires both shards (the first also runs adapter tests), scoped
-component work requires the first, and no native selection requires neither.
-The shard guard rejects any retained scenario in zero or two shards. Actual Vitest
-and `e2e-shards.mjs` discovery cover the same retained files.
-The Docker jobs use pinned Node and the built-in-only wrapper on the host;
-pnpm activation and the frozen dependency install belong to the image, not the host.
-Only the hosted `ubuntu-latest` E2E mirror builder uses `cleanup: false`, delegating its build-resource lifetime to job-VM disposal; the fallback and any persistent runner retain default cleanup.
+`Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
+`test/e2e/shard-weights.json`: full scope requires both (shard 1 also runs adapters),
+component scope requires shard 1, and no native selection requires neither.
+Vitest and the splitter discover identical retained files; the guard rejects zero
+or double membership. Pinned Node runs the built-in-only wrapper on the host;
+pnpm activation/frozen install belong to the image. Only the hosted `ubuntu-latest`
+mirror builder uses `cleanup: false` and job-VM disposal; fallback/persistent
+runners retain default cleanup.
 
-`Native package matrix` gates
-every selected native result and validates the event's `macos` classification:
-false only for merge groups, where both macOS build/smoke results must be exactly
-`skipped`; full-scope PRs require success. Linux rows remain required. Release
-verification still includes macOS. Follow the
-[runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md) for the
-Rosetta process wrapper, exact installed-byte architecture admission and advisory
-native Intel coverage.
+`Native package matrix` requires every selected native result. Its event-derived
+`macos` flag is false only for merge groups, where both macOS build/smoke results
+must be exactly skipped; full-scope PRs require success. Linux stays required;
+release verification includes macOS. The [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md)
+owns Rosetta wrapping, installed-byte architecture admission and advisory Intel coverage.
 
-The private browser presentation leaf is verified inside `Code quality`: its
-frozen-lock tool install ignores lifecycle scripts, and nonempty filtered check/test
-commands cover generated CSS equality, type/lint/format and package tests. The tooling
-import guard keeps production inside the leaf and the static entry free of React.
-Its component rule retains full native verification; this is not product adoption
-or broader advisory browser coverage. E2E/artifact stages prepare checked CSS, and
-all three native stages retain the actual Rust embedded-input guard.
+`Code quality` verifies the private browser leaf with frozen, lifecycle-script-free
+installation and nonempty filtered CSS-equality/type/lint/format/package checks.
+Its import guard confines production to the leaf and excludes React from the static
+entry. The component rule keeps full native scope; this is not product adoption
+or broader advisory browser coverage. E2E/artifacts prepare checked CSS; all three native
+stages retain the actual Rust embedded-input guard.
 
 ## Trusted main verification
 
-Every main push selects complete CI verification after a bounded read confirms
-its event SHA is still current main. One admitted run finishes without cancellation;
-one pending run is replaced by newer pushes. Superseded events skip verification
-and seed work. All workers keep the admitted SHA, including both Rules suites,
-native sync, notices, both Docker shards and all runtime/packed targets. PR/MG
-selection and the four required names stay unchanged. PR title/Agent metadata
-steps enforce only PR/MG events; main still runs the actual code and frontend checks.
+Each main push selects full CI only after a bounded read admits its SHA as current
+main. An admitted run finishes without cancellation; newer pushes replace one
+pending run, while superseded events skip verification/seeding. All workers use
+the admitted SHA, including both Rules suites, native sync, notices, both Docker
+shards and all runtime/packed targets. PR/MG selection/required names are unchanged;
+main runs code/frontend checks while PR title/Agent steps apply only to PR/MG.
 
-`Complete trusted-main verification` requires the exact full worker inventory and
-flags; missing, extra, failed, cancelled or skipped obligations refuse. It grants
-no publication authorization and does not change release cut admission. A main-only
-failure job reports bounded run/SHA/job evidence on #3054 with the workflow token;
-only that job has issue-write permission. Repeated notification reads the bot's
-run/attempt marker before one POST; uncertain writes never retry. Capacity or API
-failures remain visible. Seeds cannot supply complete-verification evidence.
+`Complete trusted-main verification` requires the exact worker inventory/flags;
+missing, extra, failed, cancelled or skipped work refuses. It grants no publication
+or cut admission. Only the main-failure job has issue-write permission: it reports
+bounded run/SHA/job evidence on #3054, checking the bot run/attempt marker before
+one POST. Uncertain writes never retry; capacity/API failures stay visible.
+Seeds cannot supply complete-verification evidence.
 
 ## Cache ownership
 
-Docker E2E PR/merge-group shards restore only exact main-owned dependency archives; the purpose-specific main seed exports Cargo target/debug and registry, while misses build cold and real compiler failures never retry cold.
+Docker PR/MG shards restore exact main-owned dependency archives; the purpose-specific
+main seed exports Cargo target/debug and registry. Misses build cold; real compiler
+failures never retry cold. Pinned `Swatinem/rust-cache` has one main-ref writer per
+key: workspace for shared dev dependencies, process for its dev/release builds
+(`native-process-rust`), MSRV for its toolchain, each runtime target for its cache.
+Only admitted main-full or `verify=false` seed events write; PRs, merge groups and
+other workers restore only. The process cache is cold until its first main save.
+CI disables dev debug info/incremental compilation; release profiles follow manifests.
+[Native release verification](native-release.md#cli-upgrade-proof) owns release/adapter caches.
 
-Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
-main-only writer per key: workspace tests for shared dev dependencies, process
-contracts for their existing dev/release builds under `native-process-rust`, MSRV
-for its toolchain, and each runtime target for its own cache. These CI writers use the
-seed classification (`verify=false`) or admitted main-full event, and the main ref. PRs, merge groups
-and other workers only restore; the process cache is cold until its first main save.
-Dev debug information and incremental compilation
-are disabled in CI; release profiles keep their manifest policy.
-Release build and adapter cache ownership is described in [native release verification](native-release.md#cli-upgrade-proof).
+CI consumers and `colab-browser.yml` use [install-ci-rust.sh](../../../../scripts/install-ci-rust.sh)
+to retain the requested host toolchain before restore, preserving components,
+targets and manifest MSRV; runner-image extras are removed only on disposable Actions VMs.
+`native-intel.yml` retains Intel `runtime-${TARGET}` setup; the upgrade proof keeps
+its `RUSTUP_TOOLCHAIN` and source-scoped `CARGO_TARGET_DIR`. Pairing/project-release,
+bundle/prepare metadata and cut workflows keep their own environment families,
+without CI dev-debug settings; release prepare/version injection use separate
+product/target keys. [Workflow definitions](../../../../.github/workflows) own these
+settings. Keys bind compiler/platform/environment/manifests; exact hits do not prove
+complete feature/profile population.
 
-CI cache consumers and `colab-browser.yml` use `scripts/install-ci-rust.sh` to
-retain only the requested host toolchain before restore, preserving components,
-targets and manifest-driven MSRV. The helper removes runner-image extras only in
-disposable Actions jobs. `native-intel.yml` keeps its Intel-host
-`runtime-${TARGET}` setup; `native-release-upgrade-prove.yml` keeps its distinct
-`RUSTUP_TOOLCHAIN` and source-scoped `CARGO_TARGET_DIR` environment.
-`remote-pairing.yml`, `project-release.yml`, `native-release-bundle.yml`, metadata
-gates in `native-release-prepare.yml` and `release.yml` retain their environment
-families without CI's dev-debug setting. Release builds in
-`native-release-prepare.yml` and `release-version-injection.yml` keep separate
-product/target keys. Cache keys retain compiler, platform, environment and
-manifest identities; an exact hit does not certify complete feature/profile
-population.
-
-Weekly/manual seeding has no diff and selects full native scope; the Rust aggregate
-validates its workers while outer verification gates remain skipped. Main-full
-verification retains the same cache owners and keys. Feature-branch dispatches
-only restore.
+Weekly/manual seeds have no diff and select full scope: the Rust aggregate validates
+workers, outer verification gates skip. Main-full keeps the same owners/keys;
+feature-branch dispatches restore only.
 
 ## Advisory browser selection
 
-Colab's separate advisory workflow selects `colab_harness` for its client, model
-and contract-vector paths, its workflow, shared Cargo manifest/lockfile and pnpm
-lockfile. Empty/unknown PR diffs select nothing. PRs run Chromium; weekly/manual
-runs keep Chromium/Firefox strict and prove Linux WebKitGTK refusal, while a
-separate macOS job runs strict WebKit corpus and interop; macOS never runs on PRs
-or merge groups. There is no main-push trigger.
-Rust cache restores never save. Browser cache keys include OS, architecture and
-pinned Playwright version; only successful main-ref runs save. Reports are
-primitive-library evidence, not product or publication acceptance.
+[Colab browser verification](../../../../.github/workflows/colab-browser.yml) is
+advisory, outside required aggregates, with no main-push or merge-group trigger.
+No lane authorizes publication.
+`colab_harness` selects client/model/contract vectors, its workflow, shared Cargo
+manifest/lockfile and pnpm lockfile; empty/unknown PR diffs select nothing. PRs run
+Chromium; weekly/manual runs require strict Chromium/Firefox and Linux WebKitGTK
+refusal, plus separate strict macOS WebKit corpus/interop. macOS never runs on PR/MG.
+Rust restores never save; browser keys bind OS/architecture/pinned Playwright, and only
+successful main-ref runs save. Reports prove primitives, not product acceptance.
 
-The same workflow's `colab-app` job runs the app's Playwright component specs
-(`@tmt/colab-app test:browser`: Chromium, one worker, no retries, no Rust). It
-selects `colab_app` for the app, colab-client and browser-ui paths, the workflow and
-the pnpm lockfile, and also runs weekly and manually. The specs that need the native
-Colab executables skip with a named reason there, so the run proves the browser
-components only. It keeps a bounded run log and failure traces for seven days and is
-advisory like the rest of the workflow. Component shards use whole-file duration weights in
-`e2e/shard-weights.json`, through the shared `typescript/scripts/colab-acceptance-shards.mjs`
-helper. The helper and workflow matrix share a guarded shard count; every spec runs exactly
-once, including new files with the default weight. The 20-minute job limit, one worker,
-no retries and 30-second test limit remain. Dot and JSON reporters share the existing results
-artifact (`results.json` holds per-test durations) for refitting weights; record source runs,
-method and variance, and verify full test-ID equality before changing the split.
+`colab-app` uses `colab_app` for app/colab-client/browser-ui paths, workflow and pnpm lockfile,
+plus weekly/manual events. `@tmt/colab-app test:browser` runs Chromium with one
+worker/no retries/no Rust; native-executable specs skip with a named reason.
+Bounded logs/failure traces last seven days. Whole-file weights in
+`e2e/shard-weights.json` use `typescript/scripts/colab-acceptance-shards.mjs`;
+helper/matrix share a guarded count, assigning each spec exactly once, including
+new default-weight files. Keep the 20-minute job/30-second test limits, one worker
+and no retries. Dot/JSON reporters share the results artifact (`results.json`
+per-test durations); refits record source runs/method/variance and verify full
+test-ID equality before changing the split.
 
-The advisory `colab-hosted` PR job runs the hosted bundle spec when `colab_hosted` or
-`colab_hosted_emulator` selects it. `selectHostedReaderEmulator` in `ci-scope.mjs` owns the
-latter: hosted-reader inputs (including Objects, Catchup and reader keys), Colab's signed-proof
-client source, native producer/composer inputs and Remote's production Rust, assets and SDK
-source; client tests, Remote test/docs trees and the test-only Colab source pin stay out.
-Its selected qualifier uses `.github/actions/hosted-reader-emulator`: runner Java 21,
-`firebase-tools@15.29.0`, a populated Firestore emulator cache and the unchanged owner wrapper,
-with private state, loopback demo Auth/Firestore and Chromium. It runs after the ordinary spec
-because it rebuilds Remote with `test-emulator`. Full label/weekly/manual acceptance runs the
-same action once, on shard 1 after ordinary acceptance, whatever its result, unless the run is
-cancelled; build-hash recording stays before it. It stays advisory,
-never runs on main pushes or merge groups, and adds no permission or required aggregate.
-On failure the action retains proof test-results and the two demo-emulator logs for three days; the wrapper copies only those logs before removing its private world.
+`colab-hosted` PRs run the bundle spec for `colab_hosted` or `colab_hosted_emulator`.
+`selectHostedReaderEmulator` in `ci-scope.mjs` selects hosted-reader inputs (Objects,
+Catchup/reader keys), signed-proof client, native producer/composer and Remote
+production Rust/assets/SDK; it excludes client tests, Remote tests/docs and the
+test-only Colab pin. The [shared action](../../../../.github/actions/hosted-reader-emulator/action.yml)
+owns Java/firebase-tools pins and populated cache, using the unchanged owner wrapper,
+private state, loopback demo Auth/Firestore and Chromium. The qualifier follows the
+ordinary spec because it rebuilds Remote with `test-emulator`. Full label/weekly/manual
+acceptance runs it once on shard 1 after ordinary acceptance, even on failure,
+unless cancelled; build hashes are recorded first. It adds no permission/aggregate;
+on failure, the action retains proof test-results and two demo-emulator logs for
+three days. The wrapper copies only those logs before removing its private world.
 
-The same workflow runs advisory real-binary Colab acceptance weekly, manually,
-or on a PR carrying `colab-acceptance`. Only adding that exact label can start
-acceptance from a label event; removing a label never starts it. Label edits skip
-the existing selector and interop jobs. Job-level concurrency keeps those edits
-from cancelling in-flight checks; acceptance never cancels an active run.
-The acceptance job is a matrix of two shards (`fail-fast: false`, one concurrency
-group and one artifact per shard). Each shard runs whole spec files, balanced by
-measured time (`typescript/scripts/colab-acceptance-shards.mjs` with the weights in
-`acceptance/shard-weights.json`; every file lands in exactly one shard). Each shard
-checks the default PR merge ref and records both the PR head
-and tested merge SHA in `tested-head.txt`. It builds the app before one build of
-all three executables, and runs Chromium with one worker on Ubuntu x64 within
-30 minutes. It restores Rust dependencies without saving and retains only source,
-build hashes and test outcomes with bounded assertion locations/timeouts for seven
-days, never raw error values, private traces or profiles. Unexpected outcomes also
-print the bounded summary from the private JSON report for triage.
-It remains outside required aggregates and does not authorize publication.
+Real-binary acceptance runs weekly/manually or on `colab-acceptance` PRs. Only adding
+that exact label triggers acceptance; removing it never does. Label edits skip
+selector/interop; job concurrency prevents cancelling in-flight checks. Two shards
+use `fail-fast: false`, separate concurrency/artifacts and whole-file duration
+weights (`colab-acceptance-shards.mjs`, `acceptance/shard-weights.json`), exactly once
+per file. Each tests the default merge ref and records head/merge SHAs in
+`tested-head.txt`, builds the app then all three executables once, and runs Ubuntu
+x64 Chromium with one worker in 30 minutes. Rust restores never save. Seven-day
+evidence retains only source/build hashes/outcomes with bounded assertion
+locations/timeouts, never raw errors/private traces/profiles. Unexpected outcomes
+print the bounded private-JSON summary; acceptance never cancels active runs.
 
 ## Workspace compilation and partitions
 
-Full native verification calls `workspace-partitions.yml` under the existing
-workspace worker ID. Its producer retains independent Cargo/libtest discovery,
-separate doctests, the dev build and selected native-sync proofs; Ops scope keeps
-its original Cargo/architecture path. `partitions` is the K parameter; required CI
-uses 2. Each consumer runs on its own hosted Ubuntu VM, admits the producer's
-source/run/toolchain and archive digest separately from its execution attempt,
-proves its exact slice before execution, then reports actual PASS identities. The always-run collector rejects
-missing, skipped, failed, overlapping or foreign results before the caller can
-satisfy the native aggregate. It never replaces identity proof with counts.
+Full scope calls `workspace-partitions.yml` under the workspace worker ID; Ops
+keeps Cargo/architecture verification. The producer retains independent Cargo/libtest
+discovery, separate doctests, dev build and selected native sync. Required `partitions`
+(K) is 2. Each Ubuntu consumer admits producer source/run/toolchain/archive digest
+separately from execution attempt, proves its slice and records actual PASS identities.
+The always-run collector rejects missing/skipped/failed/overlapping/foreign results
+before native aggregation; counts never replace exact non-ignored case coverage.
 
-The pinned nextest installer is shared by producer and consumers. Consumers also
-install the same pinned Rust toolchain for the native tests that run Cargo metadata.
-The isolated nextest run receives the real Cargo executable in `CARGO`; producer
-and consumer identities record actual Cargo/rustc versions. Consumers only extract
-and run the archive; they restore no Cargo cache and issue no build.
-Producer-only cache writes retain main admission. Phase evidence records compile,
-listing, archive, extraction and execution; Actions step times retain setup,
-transfer, selected emulators and collection costs. Separate VM ownership avoids a
-shared-host cleanup domain; any local heavy proof still needs Infra's run grant.
-Failed commands drain captured output into the job log before throwing, so failing
-test names, details and summary remain visible there as well as in the full phase artifact.
-The producer receipt is available only after the entire job and both artifact
-uploads succeed. It binds the original attempt, exact manifest bytes, archive
-hash/size and immutable inventory/closure artifact IDs and digests. Manifest and
-result schema 2 distinguish that producer from each actual execution attempt;
-result artifact names carry both. Cargo-built runtime examples remain explicit
-archive inputs; consumers verify restored executable paths before tests.
+Producer/consumers share pinned nextest and record actual Cargo/rustc versions.
+Consumers install pinned Rust for tests using Cargo metadata, pass real Cargo in
+`CARGO`, extract/run without cache restore or build. Only the admitted main producer
+writes caches. Phase evidence covers compile/list/archive/extract/execute; Actions
+steps retain setup/transfer/emulator/collection cost. Separate VMs own cleanup;
+local heavy proofs require Infra's run grant. Failed commands drain captured output
+before throwing, keeping names/details/summary in job logs and phase artifacts.
 
-The collector selects the latest actual successful execution for each partition
-within at most three attempts of the same producer generation. A newer failed,
-cancelled or incomplete execution refuses collection; it never falls back to an
-older success. GitHub can copy retained successful jobs under new IDs, so attempt
-start times plus an exact earlier-success fingerprint distinguish those copies
-from new executions. Unavailable/ambiguous metadata, changed source/toolchain,
-expired/missing/duplicate artifacts, digest mismatch or different producer refuses
-collection. The recovery metadata reader allows GET only, at most 20 requests in
-90 seconds; the three-attempt K=3 case needs at most 14. A single attempt makes
-no recovery REST calls and adds no job or step. Only the collector receives an
-`actions: read` token; its reusable caller sets the corresponding ceiling.
+Only a fully successful producer job and both uploads yield its receipt, binding
+original attempt, exact manifest bytes, archive hash/size and immutable inventory/
+closure IDs/digests. Schema 2 separates producer from actual execution attempt;
+result names contain both. Cargo-built runtime examples are archive inputs and
+consumers verify restored executable paths before testing.
 
-Workspace downloads use `actions/download-artifact@v8` with
-`digest-mismatch: error` (v4 only warns). Uploads stay on v4. Selection uses original
-artifact IDs and retains `selection.json` with the exact job/artifact identities
-and result hashes alongside the unchanged aggregate counts. The collector still
-proves every non-ignored case ran exactly once; reuse never replaces test proof.
+Recovery admits K=2 or 3; collection selects each partition's latest actual success
+within three attempts of one producer generation. Newer failed/cancelled/incomplete executions refuse,
+never falling back. Attempt start time plus exact earlier-success fingerprint
+identifies copied retained jobs with new IDs. Ambiguous/unavailable metadata,
+changed source/toolchain, expired/missing/duplicate artifacts, digest mismatch or
+different producer refuses. Recovery reads GET only, <=20 requests/90 seconds;
+single attempts make no recovery calls or added job/step. Only the collector has
+`actions: read`, with the reusable caller's matching ceiling.
 
-Failed-jobs recovery is qualified for the unchanged-source K=2 lane within these
-bounds ([run 39128389438, attempt 2](https://github.com/pj-tmt/tmt/actions/runs/39128389438/attempts/2)).
-It retained the attempt-1 producer and partition-1 result, executed partition 2
-on attempt 2, and proved the exact case union. Fresh CI job-wall time totaled
-4.90 runner-minutes versus 71.47 for the initial full-scope attempt, excluding
-queue time and retained copies. A production planner replay reproduced the
-selection with 8 metadata GETs; the hosted collector emits no request counter.
-The [qualification record](https://github.com/pj-tmt/tmt/issues/3571#issuecomment-6250385665)
-includes transfer and aggregate timings. These measurements do not establish a
-PR median improvement. Missing, expired or ambiguous evidence, or a changed
-producer generation, requires re-run all jobs. This qualification grants no
-publication or workflow-dispatch authority.
-PR median uses the five-run K2 series; the PR gate p90 stays
-at 1095 s, below the observed 1190 s macOS-queue outlier (n=5, p90=max).
+Downloads use `actions/download-artifact@v8`, `digest-mismatch: error`; uploads use
+v4. Original artifact IDs and `selection.json` retain job/artifact identities/result
+hashes with unchanged aggregate counts and exact-once proof. Failed-jobs recovery
+is [qualified for unchanged-source K=2](https://github.com/pj-tmt/tmt/issues/3571#issuecomment-6250385665)
+within these bounds; missing/expired/ambiguous evidence or changed producer requires
+re-run all jobs. This grants no publication/workflow-dispatch authority.
 The four workspace job p90 budgets use the weekly report's 31–35 samples for both
-events; other MG limits stay unchanged. Infra reverts if those runs exceed
-the pre-rollout 886 s MG median wall or 13.9 workspace runner-minutes, or show an
-unexplained equivalence failure.
+events; other MG limits stay unchanged.
+Infra reverts if those runs exceed the pre-rollout 886 s MG median wall or 13.9
+workspace runner-minutes, or show an unexplained equivalence failure.
+Budget provenance stays in the JSON below.
 
 ## Gate-time budgets
 
-`node typescript/scripts/ci-gate-time.mjs` (read-only REST, no CI run, about 85 requests) measures the
-last 40 successful `ci.yml` PR and merge-group runs, ordered by creation then run ID: gate wall (run
-creation to the last selected required context), per-job wall and queue, the controlling job and
-runner-minutes, with the median and nearest-rank p90. Skipped jobs and negative spans (reused job copies in a retried run) have no sample. The controlling job
-is the last non-aggregate job to complete before the gate ends. It reads the budgets and lists
-every value over its limit; it also lists budgeted jobs with no sample (a renamed job would otherwise stop being checked). It never blocks a PR (timing is too noisy for that).
+`node typescript/scripts/ci-gate-time.mjs` uses read-only REST (~85 requests) for the
+last 40 successful `ci.yml` PR/MG runs, ordered by creation then ID. It reports gate
+wall (creation to last selected required context), per-job wall/queue, controlling
+job and runner-minutes with median/nearest-rank p90. Skips and negative reused-copy
+spans have no sample; the controlling worker is the last non-aggregate before gate
+end. Over-budget values and budgeted jobs without samples stay visible; timing
+never blocks PRs. [ci-gate-budgets.json](../../../../typescript/scripts/ci-gate-budgets.json)
+owns figures/provenance: gate median/p90 and job p90. Exceeding a figure is over
+budget; increases need Infra's written note on #3283.
 
-[`typescript/scripts/ci-gate-budgets.json`](../../../../typescript/scripts/ci-gate-budgets.json) is the one owner
-of the budgets: the gate median and p90 for PRs and merge groups, and a p90 per required job. They start at
-#3230's frozen baseline (2026-10-15) and are tightened as #3047 slices land. A gate or job is over budget when
-its measured median (gate only) or p90 exceeds the figure. Raising a budget needs a written note from the Infra
-lead on #3283.
+Monday hygiene compares budgets: two consecutive over-budget weeks require an
+issue to the dominating suite's squad for sharding/consumers/trimming. Expected
 
-The Monday hygiene pass runs the script and compares it with the budgets. A job over budget for two
-consecutive weeks gets an issue for the squad whose suite dominates it, asking for a shard, a consumer
-or a trim. A PR expected to add more than about 20 s to a required job says so in its body and updates
-the shard weights or assignment (`typescript/test/e2e/shard-weights.json`, or
-`extensions/tmt-colab/typescript/app/acceptance/shard-weights.json`) in the same PR.
+> 20-second job growth must be stated in the PR and update weights/assignment there
+> (`typescript/test/e2e/shard-weights.json` or Colab `acceptance/shard-weights.json`).
 
 ## Verification
 
 ### Release gate parity
 
-`.github/release-parity.json` records current release verification coverage, owned by
-infra. Its whole-job entries inventory every executable step in `native-release.yml`,
-`release.yml` and their local reusable workflows. Publication-policy and incident
-entries name narrower checks; `coverage: policy` means regression tests, not live
-publication or actual-archive proof. `releaseOnly` gives the reason a stage has no
-equivalent pre-merge execution: live draft, publication or release state that no pull
-request can reach. A `releaseOnly` entry cannot carry a `followUp`; a gap is closed with a
-counterpart or a concrete reason, never marked open.
+Infra's `.github/release-parity.json` inventories executable steps in `native-release.yml`,
+`release.yml` and local reusables. Publication-policy/incident entries are narrower;
+`coverage: policy` means regression tests, not publication or actual archives.
+`releaseOnly` requires a concrete live-state reason no PR can reach and cannot
+carry `followUp`; each gap needs a counterpart or that reason, never an open marker.
 
-A `preMerge` counterpart names a job in `ci.yml` selected by a ci-scope output; a selector
-with its own module (the release rehearsal's `release-rehearsal.mjs`) names it as `selection.source`,
-and the guard requires that file to emit the output. A job that runs on every verification
-event uses `selection.kind: "always"` with the `step` that proves the incident (for example
-`code-quality`'s PR title check); the guard rejects an `if` that depends on a path selection and a
-step the job does not have. The rehearsed prepare stages (`build`,
-`assemble`, `verify`, the upgrade proof stages, `gates-dry` and the bundle's `prepare` call) and the
-packaging incidents map to `release-rehearsal`. The manifest's `incidents` keys list the recorded
-release failures; each row names the release step that caught it and a counterpart or a concrete
-release-only reason. Adding an incident also extends the guard's incident list and tests.
+A `preMerge` counterpart names a `ci.yml` job selected by a ci-scope output. Separate
+selectors (such as
+`release-rehearsal.mjs`) name `selection.source`, which must emit the output.
+Always-selected verification uses `selection.kind: "always"` and the actual incident
+step; the guard rejects path-dependent conditions or absent steps. The manifest
+maps rehearsed prepare/packaging stages to `release-rehearsal`; each incident names
+the release failure step and counterpart/release-only reason. Extend guard incident
+lists/tests when adding an incident.
 
-For a release workflow change, review its coverage and update the recorded step
-inventory and SHA-256 of the admitted job definition. `node
-typescript/scripts/release-parity.mjs inventory` prints the current definitions;
-it does not update the manifest. A changed command, condition, target matrix or
-called workflow needs the same review even if the step name is unchanged.
-The guard rejects unmapped/stale workflows, jobs, steps and publication policies,
-invalid counterpart jobs/selectors and unsupported workflow structure. It follows
-local reusable workflow calls; external reusable release workflows and alias/flow
-job or step mappings require extending admission with tests before use. Manifest
-fingerprints require review, rather than establishing semantic equivalence by hash.
+For workflow changes review coverage and update executable-step inventory/admitted
+job SHA-256. `node typescript/scripts/release-parity.mjs inventory` prints definitions
+without updating the manifest. Changed commands/conditions/matrices/called workflows
+need review even with unchanged names. The guard rejects stale/unmapped workflows,
+jobs, steps, publication policies, invalid counterparts/selectors or unsupported
+structure. Local reusables are followed; external reusables or alias/flow job/step
+mappings need admission tests before use. Fingerprints require review and never
+establish semantic equivalence.
 
 Run `node typescript/scripts/release-parity.mjs check` and, from `typescript/`,
 `corepack pnpm exec vp test run --config vitest.config.ts
 test/tooling/release-parity.test.ts test/tooling/release-workflow.test.ts`.
-`Code quality` runs the cheap parity guard for PRs and merge groups, including
-prose-only changes. The manifest records existing coverage only.
-
-From `typescript/`, run the selection and workflow guards for a selection change:
+Code quality runs parity for PR/MG, including prose-only changes; the manifest records existing coverage.
+Selection/workflow changes also run:
 
 ```sh
 corepack pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/e2e-shards.test.ts
 corepack pnpm check:tooling
 ```
 
-Also run `actionlint` on every changed workflow and the selected layer's checks.
-Review positive and negative path selections, cumulative queue diffs, shard
-membership and exact aggregate results. A selection test never substitutes for
-the runtime, archive or browser proof it selects.
+Run `actionlint` on changed workflows and the selected layer's checks. Review positive/
+negative selections, cumulative queue diffs, shard membership and exact aggregates;
+selection never substitutes for runtime/archive/browser proof.
 
 ## Prepared Infra tick summary
 
@@ -345,105 +288,69 @@ the runtime, archive or browser proof it selects.
 hourly Infra lead tick. Run it manually beside the existing tick before changing
 its cron prompt; the lead compares the two reports after the script lands.
 The script does not judge reviews, attribute causes, arm PRs or publish releases.
-A new output directory first records a bootstrap boundary with **zero API calls**:
-"baseline established; details from the next tick." This is not a health report.
-Run the same command again to collect evidence after that boundary:
+A new output directory establishes a zero-call bootstrap boundary, not a health
+report. Run the command again for evidence after that boundary:
 
 ```sh
 node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
-node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --review-map /tmp/infra-review-map.json
 ```
 
-`--bootstrap` explicitly establishes that boundary in an output directory whose
-historical collection refused before creating a cursor. It cannot replace an
-existing cursor or combine with `--since`. Earlier failure details and review
-history are intentionally omitted; old runs that change after the boundary are
-still eligible, and observed active runs remain tracked through completion.
-An older active run that completes before the first observation is outside
-coverage. Historical recurrence starts from observed post-boundary evidence.
+`--bootstrap` can establish a boundary after historical refusal only without an
+existing cursor or `--since`. It omits earlier failure/review history; changed old
+runs remain eligible, observed active runs stay tracked, and recurrence begins at
+observed post-boundary evidence. Older active runs completed before first observation
+are outside coverage. The reviewed map includes every applicable shared path/lead
+and its #606 source line, for example
+`{"rules":[{"prefix":".github/","leads":["tmt-lead","tmt-infra-lead"],"source":"#606 shared paths, lines 17-19"}]}`.
+Unmapped shared paths/missing exact-head statements are anomalies. JSON retains
+exact comment/head/stated lead; statements (including NO-GO) never imply acceptance.
+Guide-index changes are conservatively flagged at file level for lead inspection.
 
-The caller supplies a reviewed path-to-lead map with a #606 source line, for
-example `{"rules":[{"prefix":".github/","leads":["tmt-lead","tmt-infra-lead"],"source":"#606 shared paths, lines 17-19"}]}`.
-This is an example, not a complete ownership map: include every applicable
-shared path and affected lead. Unmapped shared paths and missing exact-head lead
-statements are anomalies. The JSON keeps each exact comment, head and stated lead;
-presence of a statement never means scripted acceptance. Guide-index changes
-are conservatively flagged at file level for the lead to inspect.
+All calls share 80 requests/120 seconds, including failures; the catalogue has its
+stricter inner bound. REST is GET-only, with two fixed read-only GraphQL exceptions:
+queue positions and one <=100-PR review batch. Queue errors/failure/>100 entries print
+`queue coverage unavailable`, never timestamp-derived positions. Review cost is
+logged in `calls.jsonl`; missing/invalid cost, errors or >20 points refuses. The
+batch binds listed heads to file counts/paths and comment bodies/URLs, reading
+the first 100 files and last 100 comments. Pagination uses full REST/final
+exact-head/file-count verification for that PR only.
+Truncated/foreign/duplicate evidence or changed heads refuse, never empty healthy sweeps.
+Draft visibility needs push permission; changing counts/identities, missing evidence
+or exhaustion refuses. Failed workers exclude propagated aggregates. Test recurrence
+uses observed log tokens/distinct PR/MG contexts; missing/oversize logs are unavailable,
+not causes or successes. Raw logs use the packed command owner's 16 MiB ceiling;
+other reads keep its default. Public-install failures join exact tag-bearing job
+labels to unique published records; missing/draft/ambiguous joins are unavailable,
+and multiple failed hosts count as one release.
 
-Remote calls are GET-only REST, with **two fixed read-only GraphQL queries**:
-one for queue positions and one batch for the recent PR cohort. All calls,
-catalogue reads, logs and both queries share
-80 API calls / 120 seconds; the existing consistent catalogue reader keeps its
-stricter inner budget. Queue query failure, errors or more than 100 entries print
-`queue coverage unavailable`; positions are never inferred from timestamps.
-Draft visibility requires repository push permission; missing evidence, changing
-counts/identities or exhaustion refuses collection rather than printing healthy
-partial results. Failed workers exclude propagated aggregate-only gates. Named
-test recurrence uses observed log tokens and distinct PR/merge-group contexts;
-missing logs remain unavailable evidence, not a cause or a successful test.
-Raw job logs use the packed command owner's existing 16 MiB capture ceiling;
-other reads keep its default. Oversize logs remain explicitly unavailable.
-Public-install failures join the workflow's exact tag-bearing job label to a
-unique published catalogue record; missing, draft or ambiguous evidence stays
-unavailable. Multiple failed hosts count as one affected release.
+Health counts use `per_page=1` for 24-hour/tick windows, including >1,000 totals.
+Details enumerate created-window failure/timed-out/action-required/stale slices,
+refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progress
+searches have no created filter, tracking older reruns; other active states stay
+within the window. Unobserved older reruns starting/finishing between ticks and
+workflow `startup_failure` are outside detail coverage, explicitly stated in reports.
+Only unseen failed attempts incur job/log reads; observed tokens remain for 24-hour recurrence.
+Reviews cover open PRs updated since `since` plus PRs merged in the interval; both
+updated-desc walks stop at the first older row.
 
-Run health uses `per_page=1` count reads for the 24-hour and tick windows,
-including totals above GitHub's 1,000-result search cap. Details enumerate only
-failure, timed-out, action-required and stale status slices in the created
-window; every enumerated slice refuses explicitly at 1,000 matches, before
-walking beyond GitHub's searchable evidence. Queued and in-progress discovery
-has no created filter, so older active reruns are tracked; other active states
-are included inside the window. An unobserved older rerun that starts and
-finishes between ticks remains outside coverage, which every report states.
-Workflow `startup_failure` conclusions are not searchable by status and are outside
-detail coverage; the report states this gap. Only failed attempts absent from the previous cursor incur job/log analysis.
-Previously observed test evidence stays in the cursor for 24-hour recurrence.
-Review evidence covers **open PRs updated since `since`, plus PRs merged in that
-interval**; both updated-desc walks stop on the first older row. One fixed
-`InfraTickReviews` query binds each listed head to its changed-file count,
-complete paths and comment bodies/URLs. Its cost is recorded in `calls.jsonl`;
-missing/invalid cost, GraphQL errors or cost above 20 points refuses collection.
-The batch admits at most 100 PRs. If files or the last 100 comments need another
-page, only that PR uses the complete REST walk and final exact-head/file-count
-check. Truncation without pagination, changed heads and foreign/duplicate evidence
-refuse rather than producing an empty healthy review sweep. Statements stay
-facts for lead judgement, including explicit NO-GO comments.
+Quiet one-page acquisition costs `17 + P` calls (`P` catalogue pages), plus tracked/
+new failure details, extra list pages, one nonempty review query and per-PR REST fallbacks.
+Bootstrap has no historical detail reads. Explicit `--since` without a cursor opts
+into <=24-hour historical collection; terminal job/log cache can survive refusal,
+but unbounded/heavily paginated windows may not converge. Bootstrap starts a new
+observer, not a repair of an oversized incremental window. Split backlog with
+`--since UTC --until UTC`, without resetting the cursor, then collect the remainder.
+There is no pending-window checkpoint/automatic retry. Use at most two manual
+invocations per window (<=160 calls); after two refusals stop, split or escalate.
+A transient `Truncated REST evidence` may allow one retry in the same directory;
+`--until` fixes its end and the cursor stays unchanged.
 
-A quiet invocation with one page per listing costs `17 + P` calls, where `P`
-is the release catalogue's page count: two health counts, nine status searches,
-one queue query, repository visibility, `P+2` catalogue reads and two PR walks.
-Add tracked-run reads, new failed-attempt job pages/logs, extra list pages, and
-one review query for a nonempty PR cohort, plus REST pagination fallbacks only
-for PRs that do not fit the batch. A 20–30 PR window with a 50-call non-review
-acquisition fits one 51-call invocation when every PR fits one page. Bootstrap
-avoids all historical detail reads, independent of the
-number of old failures and reviews. An explicit `--since` without a cursor opts
-into historical collection within 24 hours; qualified terminal job/log evidence
-can be reused after refusal, but **convergence is not guaranteed** for an unbounded
-history or heavily paginated
-window. Bootstrap starts a new observer; it does not repair an oversized
-incremental window. For a backlog, use `--since UTC --until UTC` to collect a
-smaller window without resetting the cursor, then collect the remainder.
-
-`calls.jsonl` appends each invocation's network endpoint, method, outcome and
-elapsed milliseconds (including the fixed queue query); cache hits do not appear
-as new network calls. It records no credentials, response bodies or raw logs.
-Each invocation stays inside 80 calls / 120 seconds, including failed calls;
-refusals name the acquisition stage and cohort PR count. There is no pending-window
-checkpoint or automatic retry. Use at most two invocations for a window (160 calls
-maximum); after a second refusal stop, split the window or escalate. A transient
-"Truncated REST evidence" refusal can
-occur when a listing changes; retry the same output directory once with the cursor
-unchanged. `--until` keeps the requested end fixed for that retry. No incomplete
-or bootstrap report claims healthy coverage.
-
-`summary.md` lists anomalies first (up to 20, with an explicit pointer to the full
-JSON), coverage and host disk/load. `summary.json` keeps the complete evidence and
-local cache paths. `cursor.json` advances atomically only after a complete report;
-refusal or unavailable coverage returns nonzero and leaves the cursor intact.
-An empty anomaly list is stated explicitly only after complete collection. Known
-GitHub credential values are redacted from output. No secrets or raw logs belong
-in a posted summary. Shared guide line/byte limits have one owner,
-`typescript/scripts/guide-budgets.json`, used by both the summary and guide guard;
-this extraction changes no limit. The prepared report is input for the lead's
-judgement, never a replacement for it.
+`calls.jsonl` records network endpoint/method/outcome/elapsed time and review query
+cost; cache hits are not calls. It stores no credentials, response bodies or raw logs.
+Refusals name the acquisition stage and cohort PR count. `summary.md` puts up to 20 anomalies first, pointing to
+complete `summary.json` evidence/cache paths, with coverage and host disk/load. `cursor.json`
+advances atomically only for a complete report; refusal/unavailable coverage returns
+nonzero. Only complete reports can explicitly state no anomalies. Known GitHub
+credentials are redacted; posted summaries contain no secrets/raw logs.
+[guide-budgets.json](../../../../typescript/scripts/guide-budgets.json) owns shared
+guide line/byte limits used by the summary and guard. Reports remain input for lead judgement.
