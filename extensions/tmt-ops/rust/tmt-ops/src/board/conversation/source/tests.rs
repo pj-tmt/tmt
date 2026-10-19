@@ -347,3 +347,56 @@ fn literal_selection_keeps_wide_and_combining_glyphs_whole() {
         Effect::Act(Request::Copy{text,..}) if text=="漢字 e\u{301}")
     );
 }
+
+#[test]
+fn a_linked_name_can_be_drag_selected_and_still_opens_its_menu_on_click() {
+    let mut app = fixture("Mention #tmt:worker here");
+    app.references = crate::board::inventory::Inventory::from_listed(
+        &[],
+        &Ok(json!({"identities":[{"id":MEMBER,"name":"worker","canonicalName":"worker"}]})),
+    );
+    let buffer = draw(&mut app, 100, 36);
+    let (x, y) = (0..buffer.area.height)
+        .find_map(|y| {
+            (0..buffer.area.width)
+                .find(|x| {
+                    let line: String = (*x..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect();
+                    line.starts_with("Mention worker here")
+                })
+                .map(|x| (x + 8, y))
+        })
+        .expect("resolved mention is painted in the body");
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    assert!(app.menu.is_none(), "Down must permit a first drag");
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 6, y);
+    assert!(
+        matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+6,y),Effect::Act(Request::Copy{text,..}) if text=="worker")
+    );
+    assert!(app.menu.is_none());
+    draw(&mut app, 100, 36);
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x, y);
+    assert!(
+        app.menu.is_some(),
+        "an actual click still opens the existing member menu"
+    );
+    assert!(app.conversation.borrow().selection.is_none());
+}
+
+#[test]
+fn the_actual_read_focus_footer_explains_rendered_selection() {
+    let mut app = fixture("literal passage");
+    app.focus = 1;
+    let buffer = draw(&mut app, 100, 36);
+    let footer: String = buffer
+        .content
+        .chunks(100)
+        .last()
+        .unwrap()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(footer.contains("select text to copy"), "{footer}");
+}

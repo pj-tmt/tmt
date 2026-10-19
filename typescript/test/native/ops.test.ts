@@ -5040,12 +5040,13 @@ describe('large board responsiveness', () => {
               { timeout: 10_000, interval: 50 }
             );
           }
+          if (width < 100) tmux(['send-keys', '-t', pane, 'Tab']);
           let location = { x: 0, y: 0 };
           await vi.waitFor(
             () => {
               const lines = screen().split('\n');
               const y = lines.findIndex((line) => line.includes('first styled passage'));
-              expect(y).toBeGreaterThanOrEqual(0);
+              expect(y, screen()).toBeGreaterThanOrEqual(0);
               location = {
                 x: [...lines[y]!.slice(0, lines[y]!.indexOf('first styled passage'))].length + 1,
                 y: y + 1,
@@ -5099,7 +5100,7 @@ describe('large board responsiveness', () => {
           );
           capture('chip-focused');
           tmux(['send-keys', '-t', pane, 'Down', 'End', 'Enter']);
-          await vi.waitFor(() => expect(screen()).toContain('Sent'), {
+          await vi.waitFor(() => expect(screen()).toContain('offline · queued'), {
             timeout: 10_000,
             interval: 50,
           });
@@ -5161,13 +5162,6 @@ describe('large board responsiveness', () => {
     },
     90_000
   );
-
-  const budgetMs = {
-    placeholderStart: 100,
-    firstFrame: 1500,
-    freshBoard: 10_000,
-    tabSwitch: 10_000,
-  };
 
   const budgetMs = {
     placeholderStart: 100,

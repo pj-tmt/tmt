@@ -205,10 +205,16 @@ fn final_member_links_hit_the_painted_name_in_both_conversation_placements() {
             row: y as u16,
             modifiers: KeyModifiers::NONE,
         });
+        app.member_link_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: x as u16,
+            row: y as u16,
+            modifiers: KeyModifiers::NONE,
+        });
         let anchor = app
             .menu
             .as_ref()
-            .expect("painted name opens its existing member menu")
+            .expect("a click on the painted name opens its existing member menu")
             .anchor
             .unwrap();
         assert_eq!(

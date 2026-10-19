@@ -705,6 +705,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         let mut line = paint_hints(&hints, look, Role::Text);
         line.spans.insert(0, Span::raw(" "));
         line
+    } else if let Some(hint) = app
+        .rendered_selection_hint()
+        .filter(|_| app.member_link_hint().is_none())
+    {
+        Line::styled(hint, look.role(Role::Muted))
     } else if let Some(hint) = app.member_link_hint() {
         if matches!(
             app.shell.tab,

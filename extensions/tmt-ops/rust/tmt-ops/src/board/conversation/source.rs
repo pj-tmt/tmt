@@ -314,6 +314,40 @@ impl App {
         let id = self.target_row(&target)?["id"].as_str()?.to_owned();
         Some(((self.view.as_ref()?.me_id.clone(), id), target))
     }
+    pub(in crate::board) fn rendered_selection_at(&self, point: ratatui::layout::Position) -> bool {
+        !self.modal_open()
+            && self
+                .conversation
+                .borrow()
+                .source_surfaces
+                .iter()
+                .any(|surface| surface.area.contains(point))
+    }
+    pub(in crate::board) fn rendered_selection_hint(&self) -> Option<&'static str> {
+        if self.focused() != Pane::Replies
+            || self.input.is_some()
+            || self.modal_open()
+            || self.searching
+        {
+            return None;
+        }
+        let state = self.conversation.borrow();
+        if state.source_areas.is_empty() && state.response_area.is_none_or(|area| area.is_empty()) {
+            return None;
+        }
+        Some(
+            if state
+                .selection
+                .as_ref()
+                .and_then(Source::selected)
+                .is_some()
+            {
+                "select text to copy · y copy · Enter + Quote · Esc clear"
+            } else {
+                "select text to copy · Shift+arrows select · Esc back"
+            },
+        )
+    }
     pub(in crate::board) fn conversation_source_escape(&mut self) -> bool {
         self.conversation.borrow_mut().selection.take().is_some()
     }
@@ -345,8 +379,12 @@ impl App {
         {
             return None;
         }
-        let target = self.conversation_target()?;
+        let target = self.conversation_target();
         let mut state = self.conversation.borrow_mut();
+        if event.code == KeyCode::Char('@') && event.modifiers.is_empty() {
+            state.selection = None;
+            return None;
+        }
         let movement = matches!(
             event.code,
             KeyCode::Left
@@ -361,7 +399,7 @@ impl App {
                 let surface = state
                     .source_surfaces
                     .iter()
-                    .find(|surface| surface.target == target)?
+                    .find(|surface| Some(&surface.target) == target.as_ref())?
                     .clone();
                 state.selection = Some(Source {
                     text: surface.text.clone(),
