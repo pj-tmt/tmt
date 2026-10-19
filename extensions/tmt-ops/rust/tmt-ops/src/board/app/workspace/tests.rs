@@ -2649,14 +2649,26 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 app.workspace_form.as_mut().unwrap().stage = Stage::Result("Source timers paused. Membership removal was not confirmed. Refresh before another operation; no automatic retry.".into());
             }
         }
-        "conversation" => {
+        "conversation" | "composer-empty" | "composer-2" | "composer-6" | "composer-8" => {
             let target = app.workspace.selected.clone().unwrap();
             let send = app
                 .send_target(RowTarget::Workspace(target), false)
                 .unwrap();
             app.compose_row(send, crate::action::Verb::Talk, "product".into());
-            app.input.as_mut().unwrap().text =
-                "Draft remains with the exact recipient while the workspace resizes.".into();
+            // The focused input shows its whole draft up to six rows, then scrolls.
+            let rows = |count: usize| {
+                (1..=count)
+                    .map(|line| format!("draft line {line}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            app.input.as_mut().unwrap().text = match scene {
+                "composer-empty" => "".into(),
+                "composer-2" => rows(2).into(),
+                "composer-6" => rows(6).into(),
+                "composer-8" => rows(8).into(),
+                _ => "Draft remains with the exact recipient while the workspace resizes.".into(),
+            };
         }
         _ => {}
     }
