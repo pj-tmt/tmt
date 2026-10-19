@@ -1,3 +1,4 @@
+import { pageAction } from '../test/page-actions.js';
 import { expect, test, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { capturePath } from './captures.js';
@@ -136,7 +137,7 @@ for (const width of [390, 1280])
 
 // The Save button with nothing to save is the design system's disabled role: dim text, and no
 // hover colour even with the pointer on it.
-for (const width of [390, 1280])
+for (const width of [390, 1024, 1280, 1440])
   for (const theme of ['light', 'dark'] as const)
     test(`link edit Save is dim and unhighlighted while disabled at ${width} ${theme}`, async ({
       page,
@@ -148,6 +149,10 @@ for (const width of [390, 1280])
       const save = page.getByRole('button', { name: text.save, exact: true });
       await expect(save).toBeDisabled();
       await save.hover({ force: true });
+      // Actions use the standard action text size; the metadata and code keep their compact density.
+      await expect(save).toHaveCSS('font-size', '14px');
+      await expect(page.locator('.source > span label')).toHaveCSS('font-size', '11px');
+      await expect(page.locator('#source-edit')).toHaveCSS('font-size', '12px');
       const colors = await page.evaluate(() => {
         const probe = document.createElement('span');
         probe.style.color = 'var(--tmt-ui-color-disabled-text)';
@@ -274,3 +279,25 @@ test('a request that was not sent can be sent again with the next deliberate Sav
   await expect.poll(async () => (await saves(page)).length).toBe(2);
   await expect(page.getByText('Not sent', { exact: true })).toHaveCount(0);
 });
+
+for (const theme of ['light', 'dark'] as const)
+  test(`the owner Source toolbar separates action text from metadata and code at 1024 ${theme}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 800 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.goto('/');
+    await page.evaluate(async () => (await import('../test/ask-page-browser.tsx')).mount());
+    await (await pageAction(page, 'Source')).click();
+    const source = page.locator('#ask-page-fixture .source');
+    const save = source.getByRole('button', { name: text.save, exact: true });
+    const area = source.locator('#source-edit');
+    await expect(save).toBeDisabled();
+    await expect(save).toHaveCSS('font-size', '14px');
+    await expect(source.locator(':scope > span label')).toHaveCSS('font-size', '11px');
+    await expect(area).toHaveCSS('font-size', '12px');
+    await area.fill('<main>Edited source</main>');
+    await expect(save).toBeEnabled();
+    await expect(save).toHaveCSS('font-size', '14px');
+    await page.screenshot({ path: capturePath(`source-toolbar-owner-1024-${theme}.png`) });
+  });
