@@ -93,9 +93,9 @@ describe('E2E ls row projection', () => {
     });
   });
 
-  // Each case starts from the valid live row above and changes only the address keys, so a
+  // Each case starts from a valid live row and changes only the address keys, so a
   // rejection can only come from the address check.
-  it.each([
+  const addressDefects: [string, string[], Record<string, unknown>][] = [
     ['both address keys missing', ['address', 'driver'], {}],
     ['the address key missing', ['address'], {}],
     ['the driver key missing', ['driver'], {}],
@@ -104,10 +104,51 @@ describe('E2E ls row projection', () => {
     ['an undefined driver', [], { driver: undefined }],
     ['a null address and driver', [], { address: null, driver: null }],
     ['a driver that is not the address prefix', [], { driver: 'codex' }],
-  ])('rejects a live row with %s', (_name, drop, patch) => {
+  ];
+
+  it.each(addressDefects)('rejects a live row with %s', (_name, drop, patch) => {
     const row = live(patch) as Record<string, unknown>;
     for (const key of drop) delete row[key];
     expect(() => rows(row)).toThrow();
+  });
+
+  // `tmt ls <name>` reports one identity with its pane as a document.
+  const named = (patch: Record<string, unknown> = {}) => ({
+    target: 'Name',
+    identity: { id: 'id' },
+    presence: 'active',
+    pane: {
+      id: '%1',
+      target: 'my session:3.0',
+      location: { host: 'tmux', session: 'my session', window: '3' },
+    },
+    address: 'tmux:%1',
+    driver: 'tmux',
+    ...patch,
+  });
+  const inspected = (json: unknown) => withoutAddress(result(json)).json;
+
+  it.each([
+    ['a tmux pane address', {}],
+    ['an agent session address', { address: 'claude:abc', driver: 'claude' }],
+  ])('accepts a live named row with %s and removes the address keys', (_name, patch) => {
+    expect(inspected(named(patch))).toEqual({
+      target: 'Name',
+      identity: { id: 'id' },
+      presence: 'active',
+      pane: { id: '%1', target: 'my session:3.0' },
+    });
+  });
+
+  it.each(addressDefects)('rejects a live named row with %s', (_name, drop, patch) => {
+    const row = named(patch) as Record<string, unknown>;
+    for (const key of drop) delete row[key];
+    expect(() => inspected(row)).toThrow();
+  });
+
+  it('leaves an offline named row without an address alone', () => {
+    const base = { target: 'Name', identity: { id: 'id' }, presence: 'offline', pane: null };
+    expect(inspected({ ...base, address: null, driver: null })).toEqual(base);
   });
 
   it.each([
