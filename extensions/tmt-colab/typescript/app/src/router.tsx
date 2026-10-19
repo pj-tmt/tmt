@@ -1098,9 +1098,12 @@ function Page() {
       return;
     }
     setDraftsReady(false);
-    const current = new DraftSession(store, snapshot.id, setDraftsUnsaved);
-    session.current = current;
     let live = true;
+    // Only the live session presents: a write that settles after leaving never sets the notice.
+    const current = new DraftSession(store, snapshot.id, (unsaved) => {
+      if (live) setDraftsUnsaved(unsaved);
+    });
+    session.current = current;
     void current.load().then((saved) => {
       if (!live) return;
       // Text typed before the read finished is newer than anything stored.

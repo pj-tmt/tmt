@@ -110,11 +110,24 @@ let holdAttachmentUploads = false;
 let releaseAttachmentUpload: (() => void) | undefined;
 /** Reload-surviving stand-in for the encrypted device store (its crypto has unit tests). */
 let releaseDraftRead: (() => void) | undefined;
+let releaseDraftWrites: (() => void) | undefined;
 export function finishDraftRead() {
   releaseDraftRead?.();
   releaseDraftRead = undefined;
 }
-function sessionDrafts(mode: 'session' | 'failing', wait?: Promise<void>): DraftStore {
+/** Lets the held draft writes of the first page finish (the `split` store). */
+export function releaseDraftWrite() {
+  releaseDraftWrites?.();
+}
+/** `split`: the first page's writes wait for `releaseDraftWrite` and then succeed; every other
+ * page's writes fail. */
+function sessionDrafts(mode: 'session' | 'failing' | 'split', wait?: Promise<void>): DraftStore {
+  const held =
+    mode === 'split'
+      ? new Promise<void>((resolve) => {
+          releaseDraftWrites = resolve;
+        })
+      : undefined;
   const name = (page: string) => `colab-fixture-drafts:${page}`;
   const read = (page: string) =>
     new Map<string, ComposerEdit>(JSON.parse(sessionStorage.getItem(name(page)) ?? '[]'));
@@ -124,7 +137,8 @@ function sessionDrafts(mode: 'session' | 'failing', wait?: Promise<void>): Draft
       return read(page);
     },
     async apply(page, changes) {
-      if (mode === 'failing') return false;
+      if (mode === 'failing' || (mode === 'split' && page !== id(1))) return false;
+      await held;
       const drafts = read(page);
       for (const [key, edit] of changes) {
         drafts.delete(key);
@@ -156,7 +170,7 @@ export async function mount(
     statusAgents?: boolean;
     /** Hold only notification completion, after the ordinary record and status are admitted. */
     holdStatusNotice?: boolean;
-    drafts?: 'session' | 'failing';
+    drafts?: 'session' | 'failing' | 'split';
     /** Hold the existing draft-store read to test shortcut lifetime fences. */
     holdDraftRead?: boolean;
     /** In-memory storage; a file name steers the outcome: `refuse`, `unknown`, `stale`. */
@@ -815,6 +829,8 @@ export async function mount(
           title: 'Another fixture page',
           source: '<p id="other-page">Another fixture page</p>',
           own: {},
+          // The split draft store needs a composer on the second page too.
+          ...(options.drafts === 'split' ? { binding } : {}),
         };
       return {
         id: id(1),
