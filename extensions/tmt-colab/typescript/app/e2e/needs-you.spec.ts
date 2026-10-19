@@ -71,6 +71,38 @@ test('confirmed and waiting-for-agent sections leave the count; zero is a stable
   expect((await zero.boundingBox())!.width).toBe(before!.width);
 });
 
+for (const via of ['keyboard', 'pointer'] as const)
+  test(`the list emptying under a ${via}-opened menu focuses the nothing-waits mark, not the body`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await run(page, 'mount');
+    await run(page, 'chipPage', { count: 1 });
+    const trigger = page.getByRole('button', { name: 'Needs you: 1', exact: true });
+    if (via === 'keyboard') await trigger.press('Enter');
+    else await trigger.click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await run(page, 'change', '<h1>Project notes</h1><p>Nothing is left to answer.</p>');
+    const zero = page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true });
+    await expect(zero).toBeFocused();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    // A programmatic target only: Tab does not stop on it again.
+    await expect(zero).toHaveAttribute('tabindex', '-1');
+    await page.keyboard.press('Shift+Tab');
+    await expect(zero).not.toBeFocused();
+  });
+
+test('the list emptying with the menu closed does not take focus', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'chipPage', { count: 1 });
+  await expect(page.getByRole('button', { name: 'Needs you: 1', exact: true })).toBeVisible();
+  await run(page, 'change', '<h1>Project notes</h1><p>Nothing is left to answer.</p>');
+  const zero = page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true });
+  await expect(zero).toBeVisible();
+  await expect(zero).not.toBeFocused();
+});
+
 test('the header opens the next unanswered question without changing its retained draft', async ({
   page,
 }) => {
