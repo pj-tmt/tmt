@@ -58,13 +58,11 @@ None of this proves real Chrome key persistence across MV3 worker restarts.
 
 ## Session continuity
 
-The SDK README owns `reopenSession`'s opt-in bounded policy and typed outcomes. Test the
-same-origin/key fence, deadline/cancellation and single-flight series independently of
-Colab's connection state owner. Only a verified fresh-open retained-grant proof ends admission
-as revoked/expired; opaque or unverifiable admission stays non-terminal. Pin terminal no-retry,
-nonce/request/run correlation, prior-bundle uncertainty and no publication after abort.
-After admission, original-outcome observation must prove one core send total even when
-its original acknowledgment was lost. Never make helper recovery silently resend.
+The [SDK README](../../../../extensions/tmt-remote/typescript/remote-client/README.md) owns
+`reopenSession` usage; the [signed-envelope contract](../../../../contracts/remote-channel-v1.md#signed-envelopes)
+owns bounded admission, key/origin fences and typed outcomes. Tests pin correlation,
+cancellation/no-late-publication and terminal no-retry, then prove original-outcome observation
+causes one Core send total after a lost acknowledgment. Recovery must never resend.
 
 ## Hosted Firebase asset
 

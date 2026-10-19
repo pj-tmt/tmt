@@ -29,21 +29,12 @@ cannot clear it; writes/close precede lease release. Empty/missing/unwritable re
 of healthy exit. Inspect the local file alongside `status`; use `serve --foreground` for terminal
 troubleshooting. Do not reset state or automatically restart after uncertain startup.
 
-Serve also owns the optional lease-bound object service: one attempt per static Local
-declaration before door readiness, bounded by the same 250 ms absolute setup budget as
-websocket demand, explicit shutdown after Site, and Drop on early exit.
-An absent or refusing listener is silent at startup; unsafe, malformed and storage
-failures still warn. Setup failure leaves the ordinary door running. Only Colab declares Local;
-without its adapter's admission, operations are refused before ledger effects.
-Validated Local websocket demand can reactivate an absent/ended channel;
-failure still forwards without an origin. The [object-backend guide](object-backends.md)
-owns the bounded single-flight lifecycle; ordinary discovery shapes are unchanged.
-The owner-only internal `sync.activate` operation uses the same hook to request v3.
-There is no public command or implicit activation on status/read/channel loss. Serve
-registers a native factory only for verified selected public config, enabled release
-declarations and an existing active Firestore sign-in. Missing/unsafe inputs refuse native
-activation without replacing the existing Local channel or disabling the ordinary door. Older running doors need a restart to gain the surface, then explicit
-re-activation, as defined by the [carrier contract](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier).
+Serve owns the lease-bound `ObjectService`; [object-backends.md](object-backends.md#modules)
+owns startup/demand setup, degradation, single-flight budgets and shutdown. Only an admitted
+Colab Local declaration enables it; ordinary door discovery promises no object readiness.
+The [v3 carrier contract](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier) owns explicit
+internal activation, verified factory inputs and restart/re-activation. Native refusal preserves
+the existing Local channel and ordinary door; status/read/channel loss never activate it.
 
 ## Discovery and restart implementation
 
@@ -138,12 +129,10 @@ preserves its Session, cookie and held work, then reads the original operation. 
 acknowledgment gets one fresh read-only admission attempt; refusal shows access loss plus unknown
 outcome and
 `tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
-The shared-presentation `/settings` page composes the SDK for admitted forms, frozen outcomes and
-original-ID reading; its separate page bundle imports the single served SDK. Shared CSS supplies presentation only. Management identity
-limits are cumulative: 1000 per caller, 4000 installation-wide, including expired rows. The
-30-day deadline bounds outcome availability, not row deletion. Capacity refuses new adoption
-before effects; show the local settings/devices CLI path without automatic retries or storage
-reset, and preserve any original unknown outcome. Compaction is deferred.
+The shared-presentation `/settings` page uses the served SDK and this management owner;
+[browser-pages.md](browser-pages.md#settings-page) owns controls and captures. The
+[management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol) owns retained-identity
+caps, expiry, capacity recovery and original-outcome rules; no automatic retry or storage reset.
 
 Focused native evidence includes `cargo test --offline --locked -p tmt-remote` (management storage,
 signed admission, settings fault, deterministic management process interruption, CLI/state and existing lifecycle), plus SDK package check/test/build
@@ -302,8 +291,6 @@ missing/refusing declarations never select fixture bytes. Real-project acceptanc
 separate owner authorization. The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery)
 owns recorded readiness; status is not a provider probe.
 
-The settings page's explicit Firestore read shares `StatusViews.layers`' evidence owner with
-Operations. Its bounded record snapshot happens outside live/Store locks, then the signed
-management owner revalidates the grant before disclosure. Empty-input settings reads and
-ordinary status retain their original exact shapes. No provider query or deployment is
-triggered by either projection.
+The [record evidence owner](architecture-internals.md#deployment-record) is shared by status,
+Operations and opt-in signed settings. The snapshot is outside live/Store locks; management
+revalidates the current grant before disclosure. Ordinary shapes stay unchanged.

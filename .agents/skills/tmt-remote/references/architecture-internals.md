@@ -35,11 +35,8 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `object_service`                                 | Lease-bound `ObjectService`: initial/demand single-flight Local setup, readiness, origins, admitted observation/upload; v3 bindings/awaiters share setup and dispatch; serve injects the shared native project factory; production Colab-only Local |
 | `tmt-extension-objects` (leaf)                   | Remote-owned protocol leaf, consumed by Remote `object_service` and Colab `object_channel`: canonical IDs/encodings, object and v3 sync DTOs/bounds, strict JSON and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 
-`operations` projects permitted `agents.list` rows from one public Core list read. It forwards
-only validated `session.activity` state/sinceMs and samples one owner `observedAtMs` when the Core
-list read returns; viewers clamp negative elapsed values to zero.
-The SDK tolerates absent or malformed optional evidence. The [channel contract](../../../../contracts/remote-channel-v1.md)
-owns the shape and advisory semantics; no Core state, extra read, scope or bound is added.
+`operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
+owns activity validation, post-read observation time and advisory decoding.
 
 Rules that are easy to get wrong:
 
@@ -166,31 +163,17 @@ exact read-back, never another mutation. The pure runner persists the adapter's 
 and optional HTTP class on unknown steps; absence keeps old record bytes and version unchanged.
 Human/JSON project that metadata; neither diagnostics nor helper bytes enter the plan digest.
 
-Database, selected sign-in providers and indexes precede the Rules release. Index allocation
-counts unrelated live field configurations against the Spark ceiling and preserves existing
-index/TTL settings. Google OAuth and uninitialized Auth remain fixed owner steps. Ruleset
-lookup is bounded and compares exact source before another create; exhausted lookup refuses.
-Rules switching requires a single writer for the project: no provider atomic precondition
-exists. The adapter re-reads immediately before the last switch and checks full source after
-it; visible drift refuses, while ambiguity after a possible effect is unknown with no binding.
-Fake process/HTTP tests use a vendored layout stub and canary credentials, never real login.
-Real account/project provisioning remains separately authorized acceptance, not fixture proof.
+The [shipped deployment contract](../../../../contracts/remote-channel-v1.md#native-remote-selection) owns step ordering,
+index/Rules fences, owner-only console actions and single-writer limitations. Fake process/HTTP
+tests use a vendored layout stub and canary credentials, never real login or project acceptance.
 
-Automation previews and saves one draft identity without provider effects; a terminal may
-confirm one captured plan, or continue its unfinished saved digest without another question. `deploy_cli`
-owns the short preview (`--details` shows the full plan), existing inventory observations,
-and `progress`'s terminal-only live line/elapsed clock. Local `DeployPort` notifications name
-steps without changing effects or persistence; its heartbeat is joined and the line cleared
-before final output or errors. Non-interactive/JSON output is unchanged;
-`deploy_command` retains the inputs/record across consent, and `deploy_run` keeps
-the creation/release fences. Only a new terminal confirmation may abandon a known or unknown
-unreleased Version only while its release is pending; it never supersedes unknown web-app/site/config creation. Preview keeps a changed unfinished intent visible without refusing it;
-`deploy_run` gates replacement before calls and archives accepted unfinished runs as `superseded`
-in the additive `supersededRuns` list, preserving checkpoints and step outcomes. Missing history
-remains omitted, so existing records read unchanged. Explicit digest authorization names the whole envelope; foreign
-Rules replacement is covered by the whole plan digest. Sign-in providers are explicit inputs. Command
-registration wires factories into `deploy_cli`, the single declaration/setup/login/record
-sequencing owner; fixtures drive that same owner and the shipped binary.
+`deploy_cli` owns argv, short/full preview and terminal-only `progress`; `deploy_command`
+retains captured inputs across consent; pure `deploy_run` owns transitions and persistence.
+Progress notifications do not change effects or records; the joined heartbeat clears before
+final output/errors. The [authorization contract](../../../../contracts/remote-channel-v1.md#authorized-deploy)
+owns interactive consent, digest authorization, supersession and creation/release fences;
+the [owner runbook](firestore-owner-runbook.md) owns commands and recovery steps.
+
 `deploy_discovery` enumerates trusted enabled mounts and invokes their fixed public
 `deploy-declaration --json` commands through supplied `TMT_EXECUTABLE`, with a neutral cwd,
 explicit environment allow-list, a 10 s cold-launch bound and existing waited cleanup.
@@ -201,42 +184,16 @@ plan/Rules owners. No installed-root/receipt parser or artifact-path read exists
 An old unsupported command means no declaration; malformed/failed replies are unavailable.
 Optional Hosting capture uses the fixed `hosting-bundle --json` command after declaration
 validation and before provider setup, with a separate bounded stream and waited child cleanup.
-Discovery pairs each admitted raw declaration with its validated bundle; `hosting` does not parse
-those bytes. It composes their bounded file set and deterministic gzip/ServingConfig, including the
-public declaration file owned by the [contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations),
-and names captured site/web-app creation and foreign replacement in the same frozen envelope.
-The contract owns its schema, bounds, route allow-list and non-atomic publication order.
-The real port inventories Hosting and executes the frozen steps through the same deploy runner.
-`hosting` computes the [live-content identity](../../../../contracts/remote-channel-v1.md#extension-backend-declarations).
-The adapter captures it with prepared content and passes it only in its private helper request;
-the helper uses its prefix for labels/read-back without a second hash implementation. Full
-file/config checks remain; no frozen plan/record field or old-label migration is added.
-The helper owns the [user-file inventory projection](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
-for every staged/live Version check, including the two reserved init paths and retained-fingerprint fence.
-An omitted `uploadRequiredHashes` is empty. Optional cause file counts contain no identifiers
-and do not enter the frozen envelope or its digest.
-Unsupported lazy factories refuse declared Hosting before login or record setup. Concrete stage
-substeps save resource handles and the frozen envelope in the versioned checkpoint; v1/v2 records
-remain readable without conversion. Unknown creates are reconciled by bounded identity lookup,
-never repeated on uncertain absence for web-app/Version creates; other absent idempotent work
-can reapply. App creation observes its Operation within the apply budget; pending work blocks
-later effects and needs the same command rerun. Expired unfinalized stages require a fresh explicit
-plan. Joint read-back alone saves a verified public configuration
-and same-project web.app entry with Complete; the remote-link producer consumes that type later.
-Release POST/read-back compares validated site/release-ID identity across the two documented live
-name forms, retaining the received name. The [contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
-owns exact admission and the forward-only record boundary; no mutation retry or extra read is added.
-Site.appId selects a validated public app config after any recorded app identity. Fresh/existing
-unassociated sites use the same explicit appId-only configure step; nonempty associations are never
-repointed. Joint verification binds that association.
-An omitted WebApp displayName is empty only inside an otherwise admitted app; malformed names refuse.
-The contract owns app selection, partial
-availability and the single-writer limitation. Fake-provider evidence is not real project/browser acceptance.
-Installed Colab supplies its release declaration through the fixed public command; production never substitutes Remote fixture data.
-`remote_link` derives the strict public descriptor, canonical fragment and corruption checksum
-only from the record's typed verified Complete publication. Deploy output and the lock-free
-re-print use that pure owner; no second save, schema version, repair, provider or browser call.
-The contract owns the descriptor schema; partial/unknown or unverified records yield no link.
+Discovery pairs each admitted raw declaration with its validated bundle; pure `hosting`
+composes captured bytes, deterministic gzip and ServingConfig. The [composition contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations)
+owns the public declaration file, content identity, app/site selection, staged handles, optional
+diagnostics, user-file projection (including reserved init paths) and forward-only recovery.
+Rust `hosting` alone hashes content identity; the adapter supplies it privately to the helper,
+which uses it for labels/read-back without a second hash implementation. The same deploy runner
+executes Hosting and Rules, and joint verification alone records Complete.
+`remote_link` derives descriptors only from that typed verified publication; the
+[link contract](../../../../contracts/remote-channel-v1.md#extension-backend-declarations) owns read-only reprinting and refusal.
+
 For offline declaration-vector regeneration, run from `rust/`:
 
 ```sh
@@ -258,24 +215,14 @@ The offline Hosting view includes the declaration file without another input. Fo
 `deploy_tools` resolves the installed Firebase launcher's realpath and exact supported package
 layout, then resolves Node from that launcher's absolute or env-node shebang, excluding
 relative PATH entries. The embedded helper's compatibility gate still precedes credentials.
-No-declaration output touches neither provider nor deployment record. Plan-only inventory
-checks live plus planned field configurations and composites separately; allocation rechecks each ceiling.
-An admitted Field indexConfig with omitted indexes has an empty list; malformed configurations refuse.
-Installed Colab acceptance and real-project proof still require separate owner authorization;
-running `status --layers` now reads recorded deployment evidence without a provider call.
-`DeployRecordEvidence` takes one bounded lock-free snapshot per request; missing/draft is
-empty, damaged state is unknown and never repaired. The pure `readiness::from_record`
-projection recognizes finished database/sign-in steps, usable verified Rules bindings and digest-derived
-composite step outcomes from the authorized canonical index set. Index states, legacy unknown handling and
-copy are owned by the [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery). A failed
-run before Rules preserves its old binding; an incomplete Rules attempt reports partial
-Rules and withdraws it; an incomplete possible Hosting release does the same. This describes recorded outcomes, not live provider currentness.
-
-The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines
-sharing's tier/quota requirement satisfaction by no-paid-plan policy and its required browser/native
-usage guard. A Complete run with verified factual prerequisites reads enabled with the limits note;
-no billing/headroom observation is invented, and missing facts remain unknown. The projection adds no
-provider call, runtime guard check or quota source; exhausted/unavailable guards refuse at use time.
+No-declaration output touches neither provider nor deployment record. The
+[composition contract](../../../../contracts/remote-channel-v1.md#proposal-firestore-auth-and-rules) owns bounded
+index inventory/allocation; live evidence is not quota usage. Only an admitted Field indexConfig
+may omit its indexes as empty; malformed configurations refuse.
+`DeployRecordEvidence` takes one bounded lock-free snapshot per request. Pure
+`readiness::from_record` and the SDK share the [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery)
+for factual outcomes, legacy/missing/damaged evidence, binding withdrawal and guard-based
+tier/quota satisfaction. Status never probes, repairs, measures headroom or checks a runtime guard.
 
 The default-off `test-emulator` Cargo feature is private proof support: from the isolated checkout, build `CARGO_BUILD_JOBS=2 cargo build --offline --locked --manifest-path rust/Cargo.toml -p tmt-remote --bin tmt-remote --features test-emulator` into that checkout's `rust/target`. The shared `firebase_auth` HTTP constructor routes only with both `FIREBASE_AUTH_EMULATOR_HOST` and `FIRESTORE_EMULATOR_HOST` set to loopback `host:port` and a `demo-` project; partial/unsafe inputs or unknown URLs refuse typed, with no redirects, ambient proxy or official-host fallback. Serve prints one fixed activation line on stderr. Default builds ignore the variables; feature builds without them stay production. The never-ships guard pins default/dependency/release-command exclusion; Colab owns the integrated emulator proof. Its sign-in command is `tmt-remote --remote <name> sync sign-in --project demo-<id> --json`; sign-in/revoke reject `--no-open` by design because neither opens a browser.
 
@@ -292,24 +239,15 @@ serving lease and database. The writer retains a fail-fast `Guard` for a plan/ru
 `Document::update` re-admits the private current bytes and deployment identity under its
 bounded write lock, then owns staging, fsync, rename and directory sync. The CLI supplies
 its exact selected retry command, including authorization/output flags, without storing it.
-Readers never take `deploy.lock`: an opened snapshot is a complete old or new record, so a
-long deployment cannot block status. Malformed, oversized or unsafe state is refused, never
-reset. Save failure stops effects; a directory-sync failure after rename does not mean the
-visible publication rolled back. Staging cleanup only removes admitted deployment staging
-names under the writer lock; the shared entry reserves `.deploy.json.tmt-staging`, while
-admission still cleans only the old admitted `.deploy-<uuid>` names. Existing status/stop, settings, store and machine-key owners
-keep the deployment identity and binding. Bound records persist the immutable project/region
-with the first authorized run; plan-only drafts stay unbound v1 records. The writer checks it
-before provider creation, login or inventory. Project-local v1 previews are unbound; reads never
-infer a region or convert a file. The old
-single path is refused without migration. `remote_selector` owns explicit/default/local resolution;
-`remote_catalog` applies each edit once to Document's freshly validated current bytes;
-reads stay observational and private mode remains 0600. It owns public references, never
-grants or deployment authority. The contract owns
-[native selection](../../../../contracts/remote-channel-v1.md#native-remote-selection). A conflicting
-target leaves record and staging untouched. Foreign Rules replacement consent is the whole frozen plan digest, including its live
-fingerprint; the run refuses a changed foreign fingerprint before the Rules effect. The contract
-owns the one-deployer/tenant boundary and single-writer-project limitation.
+Readers never take `deploy.lock`: snapshots see a complete old or new record, never block on
+the deployment, and refuse malformed/oversized/unsafe state without reset. Save failure stops
+effects; a post-rename directory-sync failure does not prove rollback. Staging cleanup removes
+only admitted deployment names under the writer lock: `.deploy.json.tmt-staging` is reserved
+by Document; legacy cleanup admits only `.deploy-<uuid>`. The [selection contract](../../../../contracts/remote-channel-v1.md#native-remote-selection)
+owns deployment identity/region, legacy-path refusal and catalog targeting; `remote_selector`
+resolves targets and `remote_catalog` applies each edit once to Document's freshly validated
+bytes. References remain private 0600 data, never grants or deployment authority. Foreign
+replacement consent/fingerprint and the single-deployer boundary stay in the [deployment contract](../../../../contracts/remote-channel-v1.md#authorized-deploy).
 
 The Firestore settings projection takes its record snapshot outside live/Store locks and
 revalidates the current browser grant before disclosure. Only the explicit opt-in read adds

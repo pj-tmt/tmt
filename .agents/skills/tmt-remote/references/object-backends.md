@@ -60,12 +60,10 @@ late candidates and wakes queued demands. Serve joins the setup worker before ex
 ObjectService shutdown and before releasing the lease; early paths retain Drop cleanup.
 
 The [native sealed-document carrier](../../../../contracts/remote-channel-v1.md#native-sealed-document-carrier)
-adds explicit internal `sync.activate` to this same setup owner and v3 bus. Ordinary Local
-activation still uses the legacy negotiation. `register_native` injects a trusted
-`sync::Registration`; serve currently registers no production factory, so activation is
-typed unavailable without touching provider state. A failed native candidate leaves the
-previous bus intact, and LocalFs still opens fail-closed. Production registration follows
-the native provider merge and the Colab accepting adapter rollout.
+adds explicit internal activation to this setup owner and v3 bus; ordinary Local negotiation
+is unchanged. `register_native` injects `sync::Registration`; [serve's native owner](door-and-discovery.md#native-firestore-sign-in-and-transport)
+supplies the production factory and project lifecycle. A failed native candidate preserves the
+previous bus, and LocalFs still opens fail-closed. Missing factory/input is typed unavailable.
 
 `object_service/sync` binds generation-scoped client contexts, validates declared paths,
 fields and query results, and exposes `query_page_bytes` for one-frame provider paging.
@@ -73,9 +71,9 @@ fields and query results, and exposes `query_page_bytes` for one-frame provider 
 `sync/interests` owns bounded awaiters and coalesced wake/terminal state. The existing
 `dispatch` queue/workers service object and sync requests, with one native notice announcer.
 Neither the carrier nor its announcer polls the provider or holds documents/cursors.
-Cancel and service shutdown join awaiters before completion. Auth cancellation, minute
-budget checkpoints and finish/writer ordering belong to the later shared project owner,
-not per-space factories. The normative contract owns DTOs, byte bounds and activation.
+Cancel and service shutdown join awaiters before completion. Auth cancellation, shared minute
+checkpoints and finish/writer ordering belong to [serve's project owner](door-and-discovery.md#native-firestore-sign-in-and-transport),
+not per-space factories. The carrier contract owns DTOs, byte bounds and activation.
 
 Origins (`object_service/origins.rs`, shared with `Mounts` through the `mount::OriginSink`
 trait, so mounts name neither the service nor the protocol) are the only owner of origin
@@ -221,16 +219,10 @@ original stays unsettled, every handle of that `LocalFs` refuses new adoption (o
 existing originals continues), and a restart refuses readiness while the unsettled original or
 an unrepresentable aggregate remains. There is no manual resolution command.
 
-The bound is demonstrated, not assumed: the footprint tests build populations (one
-namespace per tiny object, block-straddling payloads, many objects in one namespace,
-pending staging, discarded/expired/removed tombstones, unknown originals, and
-differing, larger-than-intent and identical-but-different-inode destinations) and check
-the modeled physical bytes (each distinct inode once, 4 KiB blocks, 4 KiB directories, 128
-bytes per entry, real ledger growth) against the charge; the ledger test measures the
-largest journal. It is a logical model, not `st_blocks`: a filesystem with larger blocks
-may exceed it, and nothing here claims power-loss durability. The differing-destination
-cases are created by out-of-band fixture corruption; `LocalFs` itself never creates foreign
-bytes, and the tests prove its response, not that such bytes occur.
+Footprint tests compare distinct-inode allocation, ledger/journal growth and tombstones with
+the charge, including foreign-destination corruption. This is a logical model (4 KiB blocks and
+directories, 128 bytes per entry), not `st_blocks` or power-loss proof; larger filesystem blocks
+may exceed it. Corruption fixtures prove the response to foreign bytes, not their occurrence.
 
 ## Adding an adapter
 
