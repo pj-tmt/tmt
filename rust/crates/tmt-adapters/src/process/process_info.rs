@@ -1,8 +1,22 @@
 //! Native selected-process acquisition. Callers retain policy and ps fallback.
 
-use super::runtime::ProcessObservation;
+use super::{
+    ancestry::{ProcessLink, StartOrder},
+    runtime::ProcessObservation,
+};
 use std::time::Instant;
 use tmt_core::endpoint::ProcessIncarnation;
+
+/// One native read of a process: start (whole seconds, and the subsecond
+/// part), state and parent.
+struct Info {
+    seconds: u64,
+    /// `None` when the platform's value is out of range; only the start order
+    /// needs it, so `observe` does not depend on it.
+    micros: Option<u32>,
+    state: u8,
+    parent: u64,
+}
 
 pub(super) fn observe(pid: u64, deadline: Instant) -> Option<ProcessObservation> {
     if Instant::now() >= deadline {
@@ -10,13 +24,30 @@ pub(super) fn observe(pid: u64, deadline: Instant) -> Option<ProcessObservation>
     }
     let pid = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
     let observation =
-        platform::info(pid).and_then(|(seconds, state, _)| observation(pid as u64, seconds, state));
+        platform::info(pid).and_then(|info| observation(pid as u64, info.seconds, info.state));
     // A late read is never current evidence. No background work survives it.
     if Instant::now() >= deadline {
         Some(ProcessObservation::Unknown)
     } else {
         observation
     }
+}
+
+/// A process, its parent and its start order from the same native read, so
+/// no other process can take the pid between them. `None` when the read is
+/// unavailable or late.
+pub(super) fn link(pid: u64, deadline: Instant) -> Option<ProcessLink> {
+    if Instant::now() >= deadline {
+        return None;
+    }
+    let raw = i32::try_from(pid).ok().filter(|pid| *pid > 0)?;
+    let info = platform::info(raw)?;
+    let observation = observation(pid, info.seconds, info.state)?;
+    (Instant::now() < deadline).then_some(ProcessLink {
+        observation,
+        parent: info.parent,
+        start: StartOrder::precise(info.seconds, info.micros?),
+    })
 }
 
 pub(super) fn parent(pid: u64, deadline: Instant) -> Option<u64> {
@@ -63,13 +94,14 @@ mod platform {
         Some(u64::from(tmt_sys::bsd_info(pid)?.pbi_ppid))
     }
 
-    pub(super) fn info(pid: i32) -> Option<(u64, u8, u64)> {
+    pub(super) fn info(pid: i32) -> Option<super::Info> {
         let info = tmt_sys::bsd_info(pid)?;
         if info.pbi_pid != pid as u32 || info.pbi_start_tvsec == 0 {
             return None;
         }
         // Darwin sys/proc.h states; proc_pidinfo returns the same BSD process
-        // start timeval used by ps. Subseconds deliberately remain discarded.
+        // start timeval used by ps. The token keeps whole seconds, as ps
+        // does; only the ancestry start order uses the microseconds.
         let state = match info.pbi_status {
             1 => return None, // SIDL: defer process creation to ps
             2 => b'R',        // SRUN
@@ -78,7 +110,14 @@ mod platform {
             5 => b'Z',        // SZOMB
             _ => return None,
         };
-        Some((info.pbi_start_tvsec, state, u64::from(info.pbi_ppid)))
+        Some(super::Info {
+            seconds: info.pbi_start_tvsec,
+            micros: u32::try_from(info.pbi_start_tvusec)
+                .ok()
+                .filter(|micros| *micros < 1_000_000),
+            state,
+            parent: u64::from(info.pbi_ppid),
+        })
     }
 }
 
@@ -98,7 +137,7 @@ mod platform {
         stat(pid).map(|(_, _, parent)| parent)
     }
 
-    pub(super) fn info(pid: i32) -> Option<(u64, u8, u64)> {
+    pub(super) fn info(pid: i32) -> Option<super::Info> {
         let (state, ticks, parent) = stat(pid)?;
         let hz = u64::try_from(sysconf(SysconfVar::CLK_TCK).ok()??)
             .ok()
@@ -113,7 +152,13 @@ mod platform {
             .trim()
             .parse::<u64>()
             .ok()?;
-        Some((boot.checked_add(ticks / hz)?, state, parent))
+        Some(super::Info {
+            seconds: boot.checked_add(ticks / hz)?,
+            // btime has whole seconds; the subsecond part comes from the ticks.
+            micros: u32::try_from(ticks % hz * 1_000_000 / hz).ok(),
+            state,
+            parent,
+        })
     }
 
     pub(super) fn parse_stat(pid: i32, bytes: &[u8]) -> Option<(u8, u64, u64)> {
@@ -151,7 +196,7 @@ mod platform {
     pub(super) fn parent(_: i32) -> Option<u64> {
         None
     }
-    pub(super) fn info(_: i32) -> Option<(u64, u8, u64)> {
+    pub(super) fn info(_: i32) -> Option<super::Info> {
         None
     }
 }
@@ -179,6 +224,26 @@ mod tests {
         assert_eq!(
             parent(pid, deadline),
             Some(nix::unistd::getppid().as_raw() as u64)
+        );
+    }
+
+    #[test]
+    fn a_native_link_is_the_observation_and_parent_of_one_read() {
+        let pid = u64::from(std::process::id());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let link = link(pid, deadline).expect("native link");
+        assert_eq!(Some(link.observation), observe(pid, deadline));
+        assert_eq!(link.parent, nix::unistd::getppid().as_raw() as u64);
+        assert_eq!(
+            super::link(pid, Instant::now()),
+            None,
+            "a late read is no link"
+        );
+        // The subsecond start reaches the order, not only whole seconds.
+        let info = platform::info(pid as i32).unwrap();
+        assert_eq!(
+            link.start,
+            StartOrder::precise(info.seconds, info.micros.unwrap())
         );
     }
 

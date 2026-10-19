@@ -120,6 +120,12 @@ pub trait CommandRunner {
         None
     }
 
+    /// A process with its parent and start order from one native read, or
+    /// None to retain the bounded ps fallback.
+    fn process_link(&self, _pid: u64, _deadline: Instant) -> Option<ancestry::ProcessLink> {
+        None
+    }
+
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError>;
 }
 
@@ -128,6 +134,10 @@ pub trait CommandRunner {
 impl<R: CommandRunner + ?Sized> CommandRunner for &R {
     fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
         (**self).process_parent(pid, deadline)
+    }
+
+    fn process_link(&self, pid: u64, deadline: Instant) -> Option<ancestry::ProcessLink> {
+        (**self).process_link(pid, deadline)
     }
 
     fn process_observation(
@@ -169,6 +179,10 @@ impl CommandRunner for SupervisedProbeRunner {
         process_info::parent(pid, deadline)
     }
 
+    fn process_link(&self, pid: u64, deadline: Instant) -> Option<ancestry::ProcessLink> {
+        process_info::link(pid, deadline)
+    }
+
     fn process_observation(
         &self,
         pid: u64,
@@ -198,6 +212,10 @@ impl CommandRunner for SupervisedProbeRunner {
 impl CommandRunner for UnixCommandRunner {
     fn process_parent(&self, pid: u64, deadline: Instant) -> Option<u64> {
         process_info::parent(pid, deadline)
+    }
+
+    fn process_link(&self, pid: u64, deadline: Instant) -> Option<ancestry::ProcessLink> {
+        process_info::link(pid, deadline)
     }
 
     fn process_observation(
