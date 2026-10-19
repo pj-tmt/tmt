@@ -415,6 +415,10 @@ test('archiving from a row confirms, says it cannot be undone yet, and sends one
 }) => {
   await mount(page);
   const row = rows(page).filter({ hasText: 'Gamma notes' });
+  await expect(row.getByRole('button', { name: 'Archive Gamma notes' })).toHaveAttribute(
+    'aria-haspopup',
+    'dialog',
+  );
   await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
   const dialog = confirmDialog(page, 'Archive “Gamma notes”?');
   await expect(dialog).toContainText(

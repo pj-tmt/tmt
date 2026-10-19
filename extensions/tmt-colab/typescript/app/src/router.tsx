@@ -851,6 +851,7 @@ function Page() {
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const needsYouMenuFocus = useRef(false);
   // The list the reader came from, when it was scoped to a project: history state, not the address.
   const fromScope = useRouterState({
     select: (state) => (state.location.state as { scope?: unknown }).scope,
@@ -1612,6 +1613,7 @@ function Page() {
           <div className="page-header-meta">
             {questionLayer.ready && reviewLayer.ready && readingLayer.ready && (
               <NeedsYouHeader
+                menuFocus={needsYouMenuFocus}
                 href={(item) =>
                   router.history.createHref(
                     router.buildLocation({

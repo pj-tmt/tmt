@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import {
+  Fragment,
+  type MutableRefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   UiTheme,
   DropdownMenu,
@@ -21,10 +29,14 @@ export function NeedsYouHeader({
   items,
   href,
   onPick,
+  menuFocus,
 }: {
   items: readonly NeedsYouCandidate[];
   href(item: NeedsYouCandidate): string;
   onPick(item: NeedsYouCandidate): void;
+  /** Owned by the host: whether an open menu held focus when this header went away. The header
+   * remounts while its layers reparse, so the flag has to outlive one instance. */
+  menuFocus: MutableRefObject<boolean>;
 }) {
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   const [open, setOpen] = useState(false);
@@ -34,16 +46,35 @@ export function NeedsYouHeader({
     if (!items.length) {
       setOpen(false);
       report(false);
-    }
-  }, [items.length, report]);
+    } else menuFocus.current = false;
+  }, [items.length, report, menuFocus]);
+  // The list emptied under an open menu: the menu and its trigger are gone and focus fell to the
+  // body. The mark that replaces them takes it, again after a remount, until focus moves on.
+  const nothingWaits = useCallback(
+    (mark: HTMLSpanElement | null) => {
+      if (!mark || !menuFocus.current) return;
+      const active = mark.ownerDocument.activeElement;
+      if (!active || active === mark.ownerDocument.body) mark.focus({ preventScroll: true });
+    },
+    [menuFocus],
+  );
   function choose(item: NeedsYouCandidate) {
     pending.current = item.id;
+    menuFocus.current = false;
     setOpen(false);
     report(false);
   }
   if (!items.length)
     return (
-      <span className="needs-you-header needs-you-header-empty" aria-label={text.needsYouNothing}>
+      <span
+        ref={nothingWaits}
+        tabIndex={-1}
+        onBlur={() => {
+          menuFocus.current = false;
+        }}
+        className="needs-you-header needs-you-header-empty"
+        aria-label={text.needsYouNothing}
+      >
         <span aria-hidden="true">
           ✓<span className="needs-you-wide"> {text.needsYouNothingWord}</span>
         </span>
@@ -55,6 +86,7 @@ export function NeedsYouHeader({
         <DropdownMenu
           open={open}
           onOpenChange={(value) => {
+            if (!value) menuFocus.current = false;
             setOpen(value);
             report(value);
           }}
@@ -91,6 +123,9 @@ export function NeedsYouHeader({
           <DropdownMenuContent
             className="needs-you-header-menu"
             align="end"
+            onFocusCapture={() => {
+              menuFocus.current = true;
+            }}
             onCloseAutoFocus={(event) => {
               const id = pending.current;
               pending.current = undefined;

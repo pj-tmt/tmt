@@ -183,6 +183,7 @@ function ArchiveAction({ page, operate }: { page: PageSummary; operate(): void }
         variant="text"
         label={t.archivePage(pageTitle(page))}
         icon={<Archive />}
+        hasPopup="dialog"
         onActivate={operate}
       />
     </span>

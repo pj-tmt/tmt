@@ -84,7 +84,10 @@ retain that hint for readings), while plain menu selection still jumps to its lo
 Only the diamond takes the attention colour. Through 640px the visible label is `◆ N ▾`,
 with `Needs you: N` as its accessible name. At zero, neutral `✓ Nothing waits` is plain
 text without a caret or action; compact headers retain the check and accessible name.
-The slot keeps its width across that transition. The shared DropdownMenu supplies grouped
+The slot keeps its width across that transition. When the list empties while the menu is open
+(keyboard focus inside it), the mark takes focus (`tabindex=-1`, not a Tab stop) instead of the
+body, and keeps it across the header's remount while the page layers reparse; focus elsewhere,
+or a menu that was already closed, is left alone. The page owns that one flag. The shared DropdownMenu supplies grouped
 labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header
 and safe-area padding, so opening it does not shift the authored page. Menu rows contain a one-line target title and muted
 agent. Groups are `Please decide` (proposals), `Please read`, `Please answer`, then `Please confirm`, each with its count.

@@ -2580,7 +2580,8 @@ ordinary header selection retains the local scroll/focus behavior below.
 Picking a target only scrolls and focuses its first available action (or its retained content
 when read-only); a compact question group opens on its first unanswered question. It never
 marks read, answers, confirms or sends. At zero the header shows neutral `✓ Nothing waits`,
-without a menu; compact headers show `✓` with the same accessible name. Neither a menu count
+without a menu; compact headers show `✓` with the same accessible name. If the list empties
+while the menu is open, that mark takes keyboard focus rather than the body. Neither a menu count
 nor a rendered target grants writer admission.
 
 **Channel.** The `colab.render.questions` request carries a closed `reviews` array of
