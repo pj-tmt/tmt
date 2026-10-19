@@ -334,7 +334,12 @@ Menu uses a native top-layer surface with a transparent catching backdrop and
 one open menu per document. It closes before invoking the host command, returning
 focus before another dialog opens. Arrows, Home/End and typeahead move among
 enabled items; Tab closes. The host owns checked state, command keys, disabled
-reasons and menuitem/radio/checkbox semantics. Description content is informational.
+reasons and menuitem/radio/checkbox semantics. An optional `description` is a non-interactive
+first block of the open surface (12px text in the secondary colour, a rule below it) and the menu's accessible description
+(`aria-describedby` on the `role="menu"` element). It is not an item and not a focus stop: opening
+focuses the first enabled item (the last when the trigger was opened with ArrowUp), or the surface
+when none is enabled, and arrows, Home/End and typeahead walk only the enabled items. A menu with
+a description but no enabled item still opens; with neither, its trigger is disabled.
 Placement uses the visual viewport: below, then above if more room, then constrained
 scrolling when neither side fits; right edges align and horizontal placement clamps.
 A menu inside a drawer dismisses before that drawer on Escape. Input autocomplete

@@ -62,7 +62,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 .tmt-ui-drawer-notice {

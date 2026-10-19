@@ -49,7 +49,7 @@
   border-style: solid;
 }
 .tmt-ui-chips-add:disabled {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   border-color: var(--tmt-ui-surface-rule);
   cursor: default;
 }
@@ -110,7 +110,7 @@
   background: var(--tmt-ui-surface-selection);
 }
 .tmt-ui-chips-option:disabled {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   cursor: default;
 }
 .tmt-ui-chips-option span {

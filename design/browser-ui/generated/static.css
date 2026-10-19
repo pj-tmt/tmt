@@ -842,7 +842,7 @@ svg.tmt-ui-mark {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 .tmt-ui-drawer-notice {
@@ -962,7 +962,7 @@ svg.tmt-ui-mark {
   white-space: nowrap;
 }
 .tmt-ui-menu-field-label {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
 }
 .tmt-ui-menu-surface {
   position: fixed;
@@ -1009,13 +1009,13 @@ svg.tmt-ui-mark {
   outline-offset: -2px;
 }
 .tmt-ui-menu-item:disabled {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   cursor: default;
 }
 .tmt-ui-menu-description {
   padding: 12px;
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 .tmt-ui-menu-description p {
@@ -1024,7 +1024,7 @@ svg.tmt-ui-mark {
 .tmt-ui-menu-reason {
   display: block;
   padding: 0 12px 8px;
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 
@@ -1305,7 +1305,7 @@ svg.tmt-ui-mark {
   border-style: solid;
 }
 .tmt-ui-chips-add:disabled {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   border-color: var(--tmt-ui-surface-rule);
   cursor: default;
 }
@@ -1366,7 +1366,7 @@ svg.tmt-ui-mark {
   background: var(--tmt-ui-surface-selection);
 }
 .tmt-ui-chips-option:disabled {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   cursor: default;
 }
 .tmt-ui-chips-option span {
