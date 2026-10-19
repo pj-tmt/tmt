@@ -281,6 +281,155 @@ fn suppressed_missing_and_failed_openers_do_not_leave_an_automatic_offer_or_leak
 }
 
 #[test]
+fn manual_pairing_survives_plain_short_link_open_and_failure() {
+    use tmt_invoke::open::{Env, Flag, Outcome};
+    let h = Harness::new(FAST);
+    let mut manual = open(&h);
+    let descriptor = h.pairing.descriptor(&h.origin).unwrap();
+    let env = Env {
+        terminal: true,
+        ..Env::default()
+    };
+    let forbidden = |_: &str| -> Outcome { panic!("suppressed opener must not run") };
+    for (flag, json_output, opener, state) in [
+        (
+            Flag::NoOpen,
+            false,
+            Some(&forbidden as &dyn Fn(&str) -> Outcome),
+            "skipped",
+        ),
+        (
+            Flag::Open,
+            true,
+            Some(&forbidden as &dyn Fn(&str) -> Outcome),
+            "skipped",
+        ),
+        (Flag::Unset, false, None, "no-opener"),
+    ] {
+        let result = tmt_remote::open::open_page_with(
+            &h.root.join("remote"),
+            "/settings",
+            flag,
+            true,
+            json_output,
+            &env,
+            opener,
+        )
+        .unwrap();
+        assert_eq!(result.state, state);
+        assert!(!result.opened);
+        assert_eq!(h.pairing.descriptor(&h.origin).unwrap(), descriptor);
+        assert_eq!(h.grants(), 0);
+    }
+    for succeeds in [true, false] {
+        let calls = std::cell::Cell::new(0);
+        let launch = |url: &str| {
+            calls.set(calls.get() + 1);
+            assert_eq!(url, format!("{}/settings", h.origin));
+            if succeeds {
+                Outcome::Opened
+            } else {
+                Outcome::Failed("private-opener-canary".into())
+            }
+        };
+        let result = tmt_remote::open::open_page_with(
+            &h.root.join("remote"),
+            "/settings",
+            Flag::Open,
+            true,
+            false,
+            &env,
+            Some(&launch),
+        )
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(result.opened, succeeds);
+        assert_eq!(result.state, if succeeds { "opened" } else { "failed" });
+        assert!(
+            !serde_json::to_string(&result)
+                .unwrap()
+                .contains("private-opener-canary")
+        );
+        assert_eq!(h.pairing.descriptor(&h.origin).unwrap(), descriptor);
+        assert_eq!(
+            h.grants(),
+            0,
+            "plain opening gives an unpaired browser no grant"
+        );
+    }
+    let device = Device::browser(&h, 81);
+    let pending = submit(
+        &h,
+        device.body(&manual.descriptor, &manual.code, &device.key),
+        Some(h.origin.clone()),
+    );
+    assert_eq!(manual.owner.next()["event"], "candidate");
+    manual.owner.answer("confirm");
+    assert_eq!(manual.owner.next()["reason"], "paired");
+    assert_eq!(pending.join().unwrap().0, 200);
+    assert_eq!(
+        h.grants(),
+        1,
+        "only the original manual ceremony grants access"
+    );
+}
+
+#[test]
+fn cancellation_and_enrollment_mac_guesses_share_the_offer_failure_limit() {
+    use ed25519_dalek::Signer;
+    for mixed in [false, true] {
+        let h = Harness::new(FAST);
+        let offered = automatic(&h, "/");
+        let code = canonical::pairing_code(
+            offered["link"]
+                .as_str()
+                .unwrap()
+                .split_once("#auto=")
+                .unwrap()
+                .1,
+        )
+        .unwrap();
+        let descriptor = h.pairing.descriptor(&h.origin).unwrap();
+        let device = Device::browser(&h, 82);
+        let mut wrong = code;
+        wrong[0] ^= 1;
+        for attempt in 0..tmt_remote::pairing::MAX_FAILURES {
+            let mut body = device.body(&descriptor, &wrong, &device.key);
+            if !mixed || attempt > 0 {
+                body["cancel"] = json!(true);
+                let mac: [u8; 32] = canonical::base64url_bytes(body["mac"].as_str().unwrap(), 32)
+                    .unwrap()
+                    .try_into()
+                    .unwrap();
+                let bytes = canonical::cancellation(&device.enrollment(&descriptor), &mac).unwrap();
+                body["signature"] =
+                    json!(canonical::base64url(&device.key.sign(&bytes).to_bytes()));
+            }
+            assert_eq!(h.post(&body.to_string(), Some(&h.origin)).0, 404);
+            if attempt + 1 < tmt_remote::pairing::MAX_FAILURES {
+                assert_eq!(
+                    h.pairing.descriptor(&h.origin).unwrap()["offerId"],
+                    descriptor["offerId"]
+                );
+            }
+        }
+        assert!(
+            h.pairing.descriptor(&h.origin).is_none(),
+            "three code guesses must erase the offer (mixed={mixed})"
+        );
+        assert_eq!(
+            h.post(
+                &device.body(&descriptor, &code, &device.key).to_string(),
+                Some(&h.origin)
+            )
+            .0,
+            404
+        );
+        assert_eq!(h.grants(), 0);
+    }
+}
+
+#[test]
 fn confirmed_pairing_issues_one_grant_and_a_verifiable_receipt() {
     let h = Harness::new(FAST);
     let Offered {

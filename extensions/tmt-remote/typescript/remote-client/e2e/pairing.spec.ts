@@ -3,7 +3,16 @@ import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:c
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
-import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -394,6 +403,75 @@ async function expectAutomaticLabels(page: Page, blocked: boolean) {
   await expect(page.locator('#state-label')).toHaveText(blocked ? 'Not connected' : 'Waiting');
 }
 
+/** Commands stay whole without overflowing the real pairing notice at either width. */
+async function expectUnbrokenPairingCommands(page: Page) {
+  const viewport = page.viewportSize();
+  const originalTheme = await page.evaluate(() =>
+    matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+  );
+  try {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      for (const width of [390, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        const commands = await page.locator('#status code').evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const box = node.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            return {
+              text: node.textContent,
+              whiteSpace: getComputedStyle(node).whiteSpace,
+              fragments: range.getClientRects().length,
+              left: box.left,
+              right: box.right,
+            };
+          }),
+        );
+        const detail = JSON.stringify({ head: SOURCE_HEAD, theme, width, commands });
+        expect(commands.length, detail).toBeGreaterThan(0);
+        for (const command of commands) {
+          expect(command.whiteSpace, detail).toBe('nowrap');
+          expect(command.fragments, detail).toBe(1);
+          expect(command.left, detail).toBeGreaterThanOrEqual(0);
+          expect(command.right, detail).toBeLessThanOrEqual(width);
+        }
+      }
+    }
+  } finally {
+    await page.emulateMedia({ colorScheme: originalTheme });
+    if (viewport) await page.setViewportSize(viewport);
+  }
+}
+
+test('native plain opening preserves a manual offer and leaves an unpaired browser unpaired', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const page = await browser.newPage();
+  const descriptor = await page.request.get(`${origin}/sdk/pair-offer`);
+  const original = await descriptor.json();
+  const bin = join(root, 'opener-bin');
+  await mkdir(bin);
+  for (const name of ['open', 'xdg-open']) await symlink('/usr/bin/printf', join(bin, name));
+  const answer = JSON.parse(
+    execFileSync(BINARY, ['launch', '/', '--open'], {
+      env: { ...env, PATH: `${bin}:${env.PATH ?? ''}` },
+      encoding: 'utf8',
+    }),
+  ) as { version: number; link: string; opened: boolean; state: string };
+  expect(answer).toEqual({ version: 1, link: `${origin}/`, opened: true, state: 'opened' });
+  await page.goto(answer.link);
+  await expect(page.locator('#state-label')).toHaveText('Not paired');
+  expect(page.url()).toBe(`${origin}/`);
+  expect(await (await page.request.get(`${origin}/sdk/pair-offer`)).json()).toEqual(original);
+  expect(
+    JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })).devices,
+  ).toHaveLength(0);
+  expect(original).toEqual(offer.descriptor);
+  // The existing teardown owner closes the still-live manual command and joins serve.
+});
+
 test('native automatic opening is single-use, strips history and reuses a paired browser', async () => {
   const page = await browser.newPage();
   const requests: { url: string; referer: string }[] = [];
@@ -452,6 +530,7 @@ test('native automatic opening is single-use, strips history and reuses a paired
       'This link no longer works. Open the page again from the machine with tmt remote open.',
     );
     await expect(stranger.locator('#status code')).toHaveText('tmt remote open');
+    await expectUnbrokenPairingCommands(stranger);
     expect(stranger.url()).toBe(`${origin}/pair`);
     expect(list().devices).toHaveLength(1);
     await expectAutomaticLabels(stranger, true);
@@ -530,6 +609,7 @@ test('native automatic transport failure offers reopening before manual pairing'
     'Could not connect this browser. Open the page again from the machine with tmt remote open. If it still fails, run tmt remote pair there.',
   );
   await expect(page.locator('#status code')).toHaveText(['tmt remote open', 'tmt remote pair']);
+  await expectUnbrokenPairingCommands(page);
   expect(page.url()).toBe(`${origin}/pair`);
   await expect(page.locator('#pair')).toBeHidden();
   await expectAutomaticLabels(page, true);

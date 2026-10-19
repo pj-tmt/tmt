@@ -39,8 +39,9 @@ the existing Local channel and ordinary door; status/read/channel loss never act
 ## Open a local page
 
 Run `tmt remote open /` or `tmt remote open /settings` to open the running local door.
-The native opener connects a new browser with read-only access, without terminal word comparison;
-printed/shared links stay short and code-free. `--no-open` and `--json` print only the short result
+The native opener connects a new browser with read-only access, without terminal word comparison,
+except for the [manual-offer plain-open rule](../../../../contracts/remote-channel-v1.md#native-automatic-opens).
+Printed/shared links stay short and code-free. `--no-open` and `--json` print only the short result
 and create no pairing offer. Manual `tmt remote pair` remains the advanced path, including explicit
 sending policy. Inspect new device IDs, issue times and origins with `tmt remote devices --json`;
 serve also logs each automatic enrollment without its code. If the browser refuses a used or

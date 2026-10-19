@@ -361,6 +361,14 @@ impl Pairing {
             self.changed.notify_all();
         }
     }
+    fn failed_code(&self, slot: &mut Option<Offer>) {
+        let offer = slot.as_mut().expect("admitted offer");
+        offer.failures += 1;
+        if offer.failures >= MAX_FAILURES {
+            end(slot, End::TooManyFailures);
+            self.changed.notify_all();
+        }
+    }
     pub fn shutdown(&self) {
         let mut slot = self.lock();
         end(&mut slot, End::Cancelled);
@@ -388,20 +396,17 @@ impl Pairing {
             return Submission::Refused;
         };
         if cancel {
-            if offer.automatic.is_none()
-                || candidate.kind != "browser"
-                || crypto::verify_mac(&offer.code, &candidate.enrollment, &candidate.mac).is_err()
-                || !canonical::cancellation(&candidate.enrollment, &candidate.mac).is_ok_and(
-                    |bytes| {
-                        crypto::verify_signature(
-                            &candidate.public_key,
-                            &bytes,
-                            &candidate.signature,
-                        )
-                        .is_ok()
-                    },
-                )
-            {
+            if offer.automatic.is_none() || candidate.kind != "browser" {
+                return Submission::Refused;
+            }
+            if crypto::verify_mac(&offer.code, &candidate.enrollment, &candidate.mac).is_err() {
+                self.failed_code(&mut slot);
+                return Submission::Refused;
+            }
+            if !canonical::cancellation(&candidate.enrollment, &candidate.mac).is_ok_and(|bytes| {
+                crypto::verify_signature(&candidate.public_key, &bytes, &candidate.signature)
+                    .is_ok()
+            }) {
                 return Submission::Refused;
             }
             let live = self
@@ -444,11 +449,7 @@ impl Pairing {
             _ => {}
         }
         if crypto::verify_mac(&offer.code, &candidate.enrollment, &candidate.mac).is_err() {
-            offer.failures += 1;
-            if offer.failures >= MAX_FAILURES {
-                end(&mut slot, End::TooManyFailures);
-                self.changed.notify_all();
-            }
+            self.failed_code(&mut slot);
             return Submission::Refused;
         }
         if !possession(&candidate) {

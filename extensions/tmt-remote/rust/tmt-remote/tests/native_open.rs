@@ -101,14 +101,63 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
         "the shared human printer omits the final period"
     );
     assert!(h.pairing.descriptor(&h.origin).is_none());
-    h.pairing.open().unwrap();
-    let output = call(&["launch", "/", "--open"]);
-    assert!(!output.status.success());
-    let error: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(
-        error["error"]["message"],
-        "A manual pairing is still open. Finish or cancel it first."
-    );
+    let (manual, events) = h.pairing.open().unwrap();
+    let descriptor = h.pairing.descriptor(&h.origin).unwrap();
+    for succeeds in [false, true] {
+        for name in ["open", "xdg-open"] {
+            fs::remove_file(bin.join(name)).unwrap();
+            symlink(
+                if succeeds {
+                    "/usr/bin/printf"
+                } else {
+                    "/usr/bin/false"
+                },
+                bin.join(name),
+            )
+            .unwrap();
+        }
+        for command in ["launch", "open"] {
+            let output = call(&[command, "/settings", "--open"]);
+            assert!(
+                output.status.success(),
+                "{command}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            if command == "launch" {
+                let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+                assert_eq!(
+                    value,
+                    serde_json::json!({"version":1,"link":format!("{}/settings",h.origin),"opened":succeeds,"state":if succeeds {"opened"} else {"failed"}})
+                );
+            } else {
+                let line = String::from_utf8(output.stdout).unwrap();
+                assert_eq!(
+                    line.trim(),
+                    if succeeds {
+                        format!("✓ Opened {}/settings", h.origin)
+                    } else {
+                        format!(
+                            "warning: Could not open the browser. Open {}/settings yourself",
+                            h.origin
+                        )
+                    }
+                );
+            }
+            assert_eq!(h.pairing.descriptor(&h.origin).unwrap(), descriptor);
+            assert!(matches!(
+                events.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ));
+            assert_eq!(h.store.lock().unwrap().grants().unwrap().len(), 0);
+        }
+    }
+    h.pairing.refuse(&manual.offer_id);
+    assert!(matches!(
+        events
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap(),
+        tmt_remote::pairing::PairingEvent::Ended(tmt_remote::pairing::End::Refused)
+    ));
     assert!(
         core.calls()
             .iter()

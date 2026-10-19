@@ -16,7 +16,7 @@ pub fn command(extension: bool) -> Command {
         } else {
             OutputModes::HumanAndJson
         },
-        details: "Only a short path on the running local door is accepted. New browsers receive read-only access. Printed links never contain a pairing code. --no-open suppresses opening.",
+        details: "Only a short path on the running local door is accepted. New browsers receive read-only access. While a manual pairing is open, the page opens without connecting a new browser. Printed links never contain a pairing code. --no-open suppresses opening.",
     };
     tmt_cli_style::command(&spec)
         .hide(extension)
@@ -85,4 +85,14 @@ pub fn run(args: &ArgMatches, extension: bool) -> Result<(), RemoteError> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn open_help_states_what_happens_while_manual_pairing_is_open() {
+        let help = super::command(false).render_long_help().to_string();
+        let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(help.contains("Only a short path on the running local door is accepted. New browsers receive read-only access. While a manual pairing is open, the page opens without connecting a new browser. Printed links never contain a pairing code. --no-open suppresses opening."), "{help}");
+    }
 }

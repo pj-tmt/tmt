@@ -11,7 +11,7 @@ The automatic form is hidden before paint; the SDK either reuses/cancels with th
 or enrolls exactly the read-only default, then replaces the same tab with its validated target.
 No code enters logs, requests, ordinary output or continuation links. Used/cancelled/expired
 codes show a plain refusal and a machine-side reopen command; transport/storage failures add
-manual pairing as the fallback and do not claim that a grant was refused. Commands use code styling.
+manual pairing as the fallback and do not claim that a grant was refused. Commands use code styling and stay unbroken within the pairing status.
 A same-document fragment change restarts capture/erasure and cancels the previous page attempt. Browser fixtures cover erasure before SDK loading, first enrollment,
 returning-browser cancellation, another profile's replay refusal and code-free Back/Forward.
 

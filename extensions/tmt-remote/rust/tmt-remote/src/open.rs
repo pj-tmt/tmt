@@ -85,40 +85,51 @@ pub fn open_page_with(
         result.state = "no-opener";
         return Ok(result);
     };
-    let answer = control::request(directory, &json!({"op":"auto-pair","target":target}))
-        .map_err(|error| match error.code.as_str() {
-            "REMOTE_PAIRING_BUSY" => RemoteError::new(
-                "REMOTE_PAIRING_BUSY",
-                "A manual pairing is still open. Finish or cancel it first.",
-            ),
-            "REMOTE_CONTROL_UNSUPPORTED" => control::outdated_serve(),
-            _ => RemoteError::new(
-                "REMOTE_OPEN_UNAVAILABLE",
-                "Could not get the browser link ready, so nothing was opened. Try again.",
-            ),
-        })?
-        .ok_or_else(control::outdated_serve)?;
-    // This private control answer is never serialized or used in a diagnostic.
-    let id = answer["offerId"]
-        .as_str()
-        .filter(|id| crate::canonical::uuid(id).is_ok())
-        .ok_or_else(control::outdated_serve)?;
-    let ephemeral = answer["link"].as_str().filter(|link| {
-        link.strip_prefix(&format!("{origin}/pair#auto="))
-            .is_some_and(|code| code.len() == 26 && crate::canonical::pairing_code(code).is_ok())
-    });
-    let Some(ephemeral) = ephemeral else {
-        let _ = control::request(directory, &json!({"op":"auto-cancel","offerId":id}));
-        return Err(control::outdated_serve());
+    let answer = match control::request(directory, &json!({"op":"auto-pair","target":target})) {
+        Ok(Some(answer)) => Some(answer),
+        // No offer was made: open plainly without changing the manual ceremony.
+        Err(error) if error.code == "REMOTE_PAIRING_BUSY" => None,
+        Ok(None) => return Err(control::outdated_serve()),
+        Err(error) => {
+            return Err(match error.code.as_str() {
+                "REMOTE_CONTROL_UNSUPPORTED" => control::outdated_serve(),
+                _ => RemoteError::new(
+                    "REMOTE_OPEN_UNAVAILABLE",
+                    "Could not get the browser link ready, so nothing was opened. Try again.",
+                ),
+            });
+        }
     };
-    match launch(ephemeral) {
+    // This private control answer is never serialized or used in a diagnostic.
+    let (id, link) = if let Some(answer) = answer.as_ref() {
+        let id = answer["offerId"]
+            .as_str()
+            .filter(|id| crate::canonical::uuid(id).is_ok())
+            .ok_or_else(control::outdated_serve)?;
+        let ephemeral = answer["link"].as_str().filter(|link| {
+            link.strip_prefix(&format!("{origin}/pair#auto="))
+                .is_some_and(|code| {
+                    code.len() == 26 && crate::canonical::pairing_code(code).is_ok()
+                })
+        });
+        let Some(ephemeral) = ephemeral else {
+            let _ = control::request(directory, &json!({"op":"auto-cancel","offerId":id}));
+            return Err(control::outdated_serve());
+        };
+        (Some(id), ephemeral)
+    } else {
+        (None, result.link.as_str())
+    };
+    match launch(link) {
         Outcome::Opened => {
             result.opened = true;
             result.state = "opened";
         }
         // Opener detail may contain arbitrary strings; never copy it into output.
         _ => {
-            let _ = control::request(directory, &json!({"op":"auto-cancel","offerId":id}));
+            if let Some(id) = id {
+                let _ = control::request(directory, &json!({"op":"auto-cancel","offerId":id}));
+            }
             result.state = "failed";
         }
     }
