@@ -953,7 +953,8 @@ mod named_surface_tests {
         app.overview_rows.borrow_mut().clear();
         if scene == "task" || scene == "notice" {
             app.shell.tab = crate::board::shell::OpsTab::Overview;
-            app.overview_view = crate::board::overview::monitor::View::Agents;
+            // The agents list shows no free text; a squad's "now" line is the task surface.
+            app.overview_view = crate::board::overview::monitor::View::Squads;
             app.focus = 0;
         } else {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
@@ -1188,20 +1189,16 @@ mod named_surface_tests {
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot.roster.members.get_mut(MEMBER).unwrap().name = "night-2".into();
         snapshot.rows.get_mut(&test_target()).unwrap()["name"] = serde_json::json!("night-2");
+        snapshot.roster.squads[0].name = "night-2".into();
         app.overview_rows.borrow_mut().clear();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        let index = app
-            .workspace_rows()
-            .iter()
-            .position(|row| row.target == test_target())
             .unwrap();
         let row = app
             .hits
             .borrow()
             .iter()
-            .find(|hit| hit.target == crate::board::app::HitTarget::Row(index))
+            .find(|hit| hit.target == crate::board::app::HitTarget::Row(0))
             .cloned()
             .unwrap();
         let links = app.member_links.borrow();
@@ -1212,7 +1209,9 @@ mod named_surface_tests {
             .collect();
         assert_eq!(task_links.len(), 2);
         assert!(
-            task_links.iter().all(|hit| hit.area.x >= row.x + 60),
+            task_links
+                .iter()
+                .all(|hit| hit.surface.x > row.x + 13 && hit.area.x >= hit.surface.x),
             "task links must stay in the Now column, not the same named NAME column: {task_links:?}"
         );
     }

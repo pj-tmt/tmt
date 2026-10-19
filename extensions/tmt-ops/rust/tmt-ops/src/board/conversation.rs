@@ -371,7 +371,7 @@ impl Session {
                 sources,
                 mentions,
             };
-            let transcript = self.merge_pane_output(mapped, width, look, inventory);
+            let transcript = self.merge_pane_output(mapped, width, gutter, look, inventory);
             let anchor_text = transcript.anchor_text;
             // Visual rows keep the transcript's source rows for anchors and, through
             // the transcript's own map, for the retained response lines.

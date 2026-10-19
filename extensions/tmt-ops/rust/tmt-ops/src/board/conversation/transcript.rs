@@ -186,6 +186,7 @@ impl Session {
         &self,
         mapped: Mapped,
         width: usize,
+        gutter: usize,
         look: Look,
         inventory: &super::super::inventory::Inventory,
     ) -> RenderedTranscript {
@@ -395,6 +396,8 @@ impl Session {
                             .unwrap_or(0);
                         for link in body.mentions.iter_mut().flatten() {
                             link.occurrence += next_mention;
+                            // The grouped painter indents a final's lines by the gutter.
+                            link.column += gutter;
                         }
                         next_mention += count;
                         let mut end = header + 1;

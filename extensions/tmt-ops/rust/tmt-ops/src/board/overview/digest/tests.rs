@@ -72,7 +72,10 @@ fn narrow_cost_rows_keep_the_full_window_before_the_price_basis_note() {
                 depth,
             };
             let mut app = valued_board();
-            app.view.as_mut().unwrap().look = look;
+            let view = app.view.as_mut().unwrap();
+            view.look = look;
+            // A squad's saved look would win over the one under test.
+            view.home.as_mut().unwrap().workspace.squad_looks.clear();
             for (amount, coverage, expected) in [
                 (Some("≈ $37.20 at list price"), "", "≈ $37.20"),
                 (Some("~≈ $37.20 at list price"), " · 1/2", "~≈ $37.20"),
