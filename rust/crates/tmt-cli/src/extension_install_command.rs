@@ -14,7 +14,7 @@ use list_upgrade::listing;
 #[cfg(test)]
 use list_upgrade::shadowing_in;
 use repair::repair_extension;
-pub(crate) use skills::retired_squad_note;
+pub(crate) use skills::retired_squad_hint;
 use skills::{global_dir, settle_skills};
 #[cfg(test)]
 use skills::{published_document, published_lines};

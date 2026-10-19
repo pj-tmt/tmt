@@ -133,7 +133,10 @@ still exist; it reads and verifies nothing, so a damaged leftover is reported to
 `tmt extension install` and `tmt upgrade` print it as `retiredSquadHint` (text, and JSON on
 `extension install` and `upgrade`): the directory is left as it is, `tmt extension install ops --yes`
 when Ops is absent, that Ops moves the Squad config and data on first use (a running former
-board defers that until it exits), and the leftover links and directory to remove by hand.
+board defers that until it exits), `tmt extension hooks disable squad` when hook consent for
+`squad` is recorded (the consent is never withdrawn for the user), and the leftover links and
+directory to remove by hand. `native_install::release_prefix` is the one place that maps a release's
+executable to its installation prefix; the hint and the managed inspection both use it.
 Squad-only prefixes are not an installed Ops: `tmt extension ls` and `tmt upgrade` list no Ops row.
 
 ## CLI prefix move
