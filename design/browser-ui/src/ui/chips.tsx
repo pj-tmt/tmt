@@ -141,13 +141,20 @@ export function Chips({
     const pending = removalFocus.current;
     if (!pending || items.some((item) => item.id === pending.removed)) return;
     removalFocus.current = null;
-    const target =
-      (pending.after && controls.current.get(pending.after)) ||
-      (pending.before && controls.current.get(pending.before)) ||
-      input.current ||
-      focusFallback?.();
-    if (target?.isConnected && !target.matches(':disabled') && !target.closest('[inert]'))
+    // A successor the same host update disabled or hid does not end the search;
+    // the host fallback is asked only when no earlier candidate took focus.
+    for (const candidate of [
+      () => (pending.after ? controls.current.get(pending.after) : undefined),
+      () => (pending.before ? controls.current.get(pending.before) : undefined),
+      () => input.current,
+      () => focusFallback?.(),
+    ]) {
+      const target = candidate();
+      if (!target?.isConnected || target.matches(':disabled') || target.closest('[inert]'))
+        continue;
       target.focus();
+      if (target.ownerDocument.activeElement === target) return;
+    }
   }, [items, focusFallback]);
   function remove(
     item: SelectionItem,

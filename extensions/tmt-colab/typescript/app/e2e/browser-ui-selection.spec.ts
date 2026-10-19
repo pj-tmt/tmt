@@ -215,6 +215,31 @@ test('external input remains hit-testable/editable with stable DOM; caps and rem
   await expect(page.getByLabel('Chips Send count')).toHaveText('0');
 });
 
+for (const activation of ['Enter', 'click'] as const) {
+  test(`chip removal ${activation} skips a successor the same host update disabled`, async ({
+    page,
+  }) => {
+    await gallery(page);
+    const input = page.getByRole('combobox', { name: 'Chips search' });
+    await input.click();
+    await input.pressSequentially('Be');
+    await input.press('Enter');
+    await expect(page.getByLabel('Chips add count')).toHaveText('1');
+    await input.press('Escape');
+    await expect(input).toHaveAttribute('aria-expanded', 'false');
+    await page.getByRole('button', { name: 'Chips lock survivors off', exact: true }).click();
+    const alpha = page.getByRole('button', { name: 'Remove Alpha', exact: true });
+    if (activation === 'Enter') await alpha.press('Enter');
+    else await alpha.click();
+    await expect(page.getByLabel('Chips remove count')).toHaveText('1');
+    // A native button turns Enter into its trusted click.
+    await expect(page.getByLabel('Chips event')).toHaveText('click:true');
+    await expect(page.getByRole('button', { name: 'Remove Beta', exact: true })).toBeDisabled();
+    // The disabled successor is skipped and no previous chip exists, so the input wins.
+    await expect(input).toBeFocused();
+    await expect(page.getByRole('button', { name: 'After chips', exact: true })).not.toBeFocused();
+  });
+}
 test('blocked, modified, prevented, composing and removed-option paths never commit or send', async ({
   page,
 }) => {

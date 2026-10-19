@@ -27,6 +27,7 @@ import {
   Button,
   useLayerController,
   type SelectionEvent,
+  type SelectionItem,
 } from '../../../src/ui/index.js';
 
 const choices = [
@@ -157,7 +158,7 @@ export function SelectionFixtures() {
 function ChipsCase({ nested = false }: { nested?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [items, setItems] = useState([
+  const [items, setItems] = useState<SelectionItem[]>([
     { id: 'alpha', label: 'Alpha', removeLabel: 'Remove Alpha' },
   ]);
   const [outside, setOutside] = useState(0);
@@ -170,6 +171,7 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
   const [mounted, setMounted] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  const [disableSurvivors, setDisableSurvivors] = useState(false);
   const fallback = useRef<HTMLButtonElement>(null);
 
   const controller = useLayerController({
@@ -194,6 +196,9 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
       </Button>
       <Button onClick={() => setUncertain(!uncertain)}>
         Chips unknown {uncertain ? 'on' : 'off'}
+      </Button>
+      <Button onClick={() => setDisableSurvivors(!disableSurvivors)}>
+        Chips lock survivors {disableSurvivors ? 'on' : 'off'}
       </Button>
       {mounted && (
         <Chips
@@ -224,7 +229,12 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
           onRemove={(item, event) => {
             setRemoves((count) => count + 1);
             setProof(`${event.nativeEvent.type}:${event.nativeEvent.isTrusted}`);
-            setItems((values) => values.filter((value) => value.id !== item.id));
+            // The same host update may also disable every surviving chip.
+            setItems((values) =>
+              values
+                .filter((value) => value.id !== item.id)
+                .map((value) => (disableSurvivors ? { ...value, disabled: true } : value)),
+            );
           }}
           emptyLabel="No eligible choices"
           readOnly={readOnly}
@@ -236,9 +246,11 @@ function ChipsCase({ nested = false }: { nested?: boolean }) {
                 ? 'Read-only: retained chips'
                 : blocked
                   ? 'Working: draft retained'
-                  : items.length >= 2
-                    ? 'Capacity reached: remove a chip to add another'
-                    : undefined
+                  : items.some((item) => item.disabled)
+                    ? 'Unavailable: chip locked by host'
+                    : items.length >= 2
+                      ? 'Capacity reached: remove a chip to add another'
+                      : undefined
           }
         />
       )}
