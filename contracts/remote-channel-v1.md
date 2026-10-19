@@ -57,7 +57,10 @@ outside v1. Invite links are multi-use by default (as today), with optional sing
 The provider/policy inputs, single-use option, join guide, local auto-pairing and machine-join flow
 remain later stages: this positioning change adds no flag, sign-in implementation or invite mode.
 The current [anonymous bootstrap](#hosted-anonymous-bootstrap), Rules and local terminal ceremony
-remain unchanged. Local auto-pairing's terminal-confirmation choice is not decided here.
+remain unchanged. In the stage-3 proposal, local auto-pairing needs no terminal confirmation by
+default; manual `tmt remote pair` stays for advanced cases. The one-time code is carried only on a
+browser's first open and removed from the address bar immediately. Every link tmt prints or the
+owner shares stays the short form with no code.
 
 ## Transport binding: `loopback-http`
 
