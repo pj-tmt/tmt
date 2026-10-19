@@ -60,7 +60,8 @@ export class ActivityTracker {
       activity.state === 'unknown' ||
       activity.state === 'ended'
     )
-      return { ...result, kind: 'unknown' };
+      // Working is known, but an incomplete clock cannot identify this Ask's turn.
+      return activity.state === 'working' ? result : { ...result, kind: 'unknown' };
     if (activity.state === 'working') {
       if (since >= turn.anchor) turn.working = true;
       turn.finished = undefined;

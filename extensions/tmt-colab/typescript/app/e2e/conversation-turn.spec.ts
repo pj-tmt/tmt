@@ -1102,6 +1102,14 @@ for (const surface of ['chat', 'thread'] as const)
           mkdirSync(captures, { recursive: true });
           await page.screenshot({ path: `${captures}/all-chips-${surface}-${width}-${theme}.png` });
         }
+        // A known working agent with an unclassifiable turn clock keeps plain Sent.
+        await run(page, 'conversationActivity', { kind: 'sent', chipState: 'working' });
+        await expect(window.getByTestId('ask-state')).toHaveText('Sent');
+        await expect(input.getByRole('img', { name: 'working', exact: true })).toBeVisible();
+        if (captures)
+          await page.screenshot({
+            path: `${captures}/clock-incomplete-${surface}-${width}-${theme}.png`,
+          });
         for (const observation of [
           { chipState: 'idle' },
           { chipState: 'working', ageMs: 120_000 },
