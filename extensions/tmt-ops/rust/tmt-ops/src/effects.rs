@@ -264,6 +264,21 @@ pub fn copy(
     Ok(Copied::Clipboard)
 }
 
+/// One bounded `tmux show -sv <option>` on the invoker's server. Any failure,
+/// including a missing tmux, is `None`: the caller treats it as unsupported.
+pub fn tmux_option(socket: &str, option: &str) -> Option<String> {
+    tmux(Path::new("tmux"), socket, &["show", "-sv", option], b"")
+        .ok()
+        .filter(|value| !value.is_empty())
+}
+
+/// Whether tmux sends Shift+Enter as `CSI 13;2 u` once the board asks for
+/// modifyOtherKeys. The reader parses only that `csi-u` form; tmux's default
+/// `xterm` form (`CSI 27;2;13 ~`) would be dropped, so nothing is requested then.
+pub fn tmux_reports_shift_enter(extended_keys: &str, format: &str) -> bool {
+    matches!(extended_keys, "on" | "always") && format == "csi-u"
+}
+
 /// The invoker's tmux server socket, from `TMUX` (`socket,pid,session`).
 pub fn tmux_socket() -> Option<String> {
     let tmux = std::env::var("TMUX").ok()?;
@@ -294,6 +309,24 @@ pub fn focus(core: &Core, target: &str) -> Result<Focus, SquadError> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn shift_enter_is_requested_only_for_extended_keys_in_the_csi_u_form() {
+        for (extended, format, wanted) in [
+            ("on", "csi-u", true),
+            ("always", "csi-u", true),
+            ("on", "xterm", false),
+            ("off", "csi-u", false),
+            ("", "", false),
+            ("on", "", false),
+        ] {
+            assert_eq!(
+                tmux_reports_shift_enter(extended, format),
+                wanted,
+                "{extended:?} {format:?}"
+            );
+        }
+    }
 
     #[test]
     fn only_http_links_with_a_host_open() {

@@ -43,10 +43,36 @@ pub trait Screen {
 /// Only the terminal owner changes this flag; the panic hook needs the same
 /// ownership evidence as ordinary cleanup so it never pops an unowned stack.
 static KEYBOARD_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Same ownership rule for the modifyOtherKeys request tmux needs to tell
+/// Shift+Enter from Enter.
+static MODIFY_OTHER_KEYS_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// `CSI > 4 ; 1 m` asks for keys without a legacy encoding only (Shift+Enter,
+/// Ctrl+Enter, Shift+Tab); Alt+Enter and Ctrl+letters keep their old bytes.
+/// `CSI > 4 ; 0 m` releases the request.
+fn write_modify_other_keys(output: &mut impl io::Write, on: bool) -> io::Result<()> {
+    output.write_all(if on { b"\x1b[>4;1m" } else { b"\x1b[>4;0m" })?;
+    output.flush()
+}
+
+/// Inside tmux only: one read of the server's options at start. A failure or
+/// any other setting means no request.
+fn tmux_shift_enter() -> bool {
+    let Some(socket) = crate::effects::tmux_socket() else {
+        return false;
+    };
+    let option = |name| crate::effects::tmux_option(&socket, name).unwrap_or_default();
+    crate::effects::tmux_reports_shift_enter(
+        &option("extended-keys"),
+        &option("extended-keys-format"),
+    )
+}
 
 #[derive(Default)]
 pub struct Crossterm {
     enhanced: bool,
+    /// tmux was asked for Shift+Enter (see `tmux_shift_enter`).
+    shift_enter: bool,
     output: Option<io::Stdout>,
 }
 
@@ -59,6 +85,12 @@ fn push_keyboard(output: &mut io::Stdout) -> io::Result<()> {
     )
 }
 
+fn request_shift_enter(output: &mut io::Stdout) -> io::Result<()> {
+    // Mark ownership before writing: partial output also needs cleanup.
+    MODIFY_OTHER_KEYS_ACTIVE.store(true, Ordering::Relaxed);
+    write_modify_other_keys(output, true)
+}
+
 impl Screen for Crossterm {
     fn enable_keyboard_enhancement(&mut self) -> io::Result<bool> {
         // A missing/unsupported reply is a capability observation, not a failure.
@@ -66,8 +98,11 @@ impl Screen for Crossterm {
         self.enhanced = supports_keyboard_enhancement().unwrap_or(false);
         if self.enhanced {
             push_keyboard(self.output.as_mut().expect("terminal entered"))?;
+        } else if tmux_shift_enter() {
+            self.shift_enter = true;
+            request_shift_enter(self.output.as_mut().expect("terminal entered"))?;
         }
-        Ok(self.enhanced)
+        Ok(self.enhanced || self.shift_enter)
     }
 
     fn query_background(&mut self) -> io::Result<tmt_cli_style::theme::background::QueryReply> {
@@ -86,6 +121,8 @@ impl Screen for Crossterm {
         )?;
         if self.enhanced {
             push_keyboard(output)?;
+        } else if self.shift_enter {
+            request_shift_enter(output)?;
         }
         Ok(())
     }
@@ -96,6 +133,11 @@ impl Screen for Crossterm {
             execute!(io::stdout(), PopKeyboardEnhancementFlags)
         } else {
             Ok(())
+        };
+        let keyboard = if MODIFY_OTHER_KEYS_ACTIVE.swap(false, Ordering::Relaxed) {
+            keyboard.and(write_modify_other_keys(&mut io::stdout(), false))
+        } else {
+            keyboard
         };
         let screen = execute!(
             io::stdout(),
@@ -242,6 +284,16 @@ mod tests {
             self.log.borrow_mut().push("leave");
             Ok(())
         }
+    }
+
+    #[test]
+    fn the_modify_other_keys_request_is_mode_one_and_its_reset_is_mode_zero() {
+        let mut on = Vec::new();
+        write_modify_other_keys(&mut on, true).unwrap();
+        assert_eq!(on, b"\x1b[>4;1m");
+        let mut off = Vec::new();
+        write_modify_other_keys(&mut off, false).unwrap();
+        assert_eq!(off, b"\x1b[>4;0m");
     }
 
     #[test]

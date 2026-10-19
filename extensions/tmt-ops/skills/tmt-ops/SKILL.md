@@ -1045,10 +1045,14 @@ Talk, reply and annotation use a multiline editor. Left/Right and Home/End move 
 caret; Shift with movement selects; Backspace/Delete remove selected text or a
 grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
 a newline when enhanced keyboard reporting is active; Alt+Enter and Ctrl+J work
-without it, and Ctrl+N remains available. The stable info line names Alt+Enter,
-which works in both modes. For Shift+Enter through
-tmux, enable `set -g extended-keys on`; tmux 3.5 or later also supports
-`set -g extended-keys-format csi-u`. Ops does not change tmux settings.
+without it, and Ctrl+N remains available. The input box grows with its content up to
+six rows, then scrolls; the info line and footer stay in place. The info line and the
+footer name Shift+Enter when the terminal reports it and Alt+Enter otherwise
+(Alt+Enter and Ctrl+J always work). Shift+Enter inside tmux needs
+`set -g extended-keys on` (or `always`) and `set -g extended-keys-format csi-u`
+(tmux 3.5 or later); Ops reads these two options once at start, asks the terminal for
+the extended keys only when both are set, and releases them on exit. Ops never
+changes tmux settings.
 Esc leaves input without sending. Direct-message drafts and their quote/paste
 attachments are session-only: they survive view/layout/resize and membership changes,
 but do not survive restarting the TUI. An accepted request clears only the submitted

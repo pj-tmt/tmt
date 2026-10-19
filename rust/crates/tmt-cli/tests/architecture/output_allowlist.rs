@@ -68,6 +68,12 @@ pub const EXACT_BODIES: &[Exact] = &[
     },
     Exact {
         package: "tmt-ops",
+        file: "board/terminal.rs",
+        function: "write_modify_other_keys",
+        reason: "the modifyOtherKeys request that lets tmux tell Shift+Enter from Enter, a terminal protocol rather than styling",
+    },
+    Exact {
+        package: "tmt-ops",
         file: "board/notes.rs",
         function: "<module>",
         reason: "the ESC constant that strips escape sequences from untrusted note text",

@@ -245,7 +245,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     ]));
     sections.push(section("editor", "message editor", &[
         ("Enter", "while typing, send to the displayed recipient; while @ completion is open, Enter/Tab insert the selected reference instead"),
-        ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced terminal key reporting"),
+        ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced key reporting (in tmux: extended-keys on and extended-keys-format csi-u)"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A/E: line edges"),
         ("click / drag", "place the caret or select text; terminal IME commits arrive as ordinary input"),

@@ -81,7 +81,7 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
     }
     assert!(!text.contains("all parties") && !text.contains("since "));
     let input = app.input_band.get().expect("admitted idle input");
-    assert_eq!(input.height, 4);
+    assert_eq!(input.height, 2);
     assert_eq!(
         input.bottom(),
         app.conversation.borrow().pane.unwrap().bottom()
@@ -271,7 +271,7 @@ fn responsive_and_short_focus_keep_an_admitted_editor_and_its_uuid() {
                 .input_band
                 .get()
                 .expect("usable conversation retains its input");
-            assert_eq!(input.height, 4);
+            assert_eq!(input.height, 2);
             assert_eq!(input.intersection(pane), input);
         }
         assert_eq!(app.workspace.selected, selected);

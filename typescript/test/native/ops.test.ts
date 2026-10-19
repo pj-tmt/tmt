@@ -5481,6 +5481,127 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
+  it('tmux gives the board a new-line key (Shift+Enter with csi-u, else Alt+Enter) while Enter still sends', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
+      if (found.status !== 0) throw new Error('Build/install tmux for isolated keyboard tests');
+      const executable = found.stdout.trim();
+      const socket = path.join(sandbox.root, 'keys.sock');
+      sandbox.env.PATH = [path.dirname(executable), sandbox.env.PATH].join(path.delimiter);
+      sandbox.env.TERM = 'xterm-256color';
+      sandbox.env.NO_COLOR = '1';
+      const config = path.join(sandbox.root, 'keys.tmux.conf');
+      // `extended-keys-format` is tmux 3.5 or later; older servers keep the Alt+Enter fallback.
+      const [, major = 0, minor = 0] = /(\d+)\.(\d+)/
+        .exec(spawnSync(executable, ['-V'], { encoding: 'utf8' }).stdout)
+        ?.map(Number) ?? [0, 0, 0];
+      const csiU = major > 3 || (major === 3 && minor >= 5);
+      writeFileSync(
+        config,
+        `set -g extended-keys on\n${csiU ? 'set -g extended-keys-format csi-u\n' : ''}`
+      );
+      const tmux = (args: string[]) => {
+        const result = spawnSync(executable, ['-S', socket, ...args], {
+          env: sandbox.env,
+          encoding: 'utf8',
+          timeout: 5000,
+        });
+        if (result.status !== 0) throw new Error(`Private tmux failed: ${result.stderr}`);
+        return result.stdout.trimEnd();
+      };
+      await identity(sandbox, 'Ben');
+      await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      tmux([
+        '-f',
+        config,
+        'new-session',
+        '-d',
+        '-s',
+        'keys',
+        '-c',
+        sandbox.root,
+        '-x',
+        '160',
+        '-y',
+        '36',
+        '/bin/sh',
+      ]);
+      const server = Number(tmux(['display-message', '-p', '#{pid}']));
+      const pane = tmux(['display-message', '-p', '#{pane_id}']);
+      const screen = () => tmux(['capture-pane', '-p', '-t', pane]);
+      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+      try {
+        expect(tmux(['show', '-sv', 'extended-keys'])).toBe('on');
+        if (csiU) expect(tmux(['show', '-sv', 'extended-keys-format'])).toBe('csi-u');
+        tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${quote(sandbox.cli.executable)} ops ui --squad product --reset-view`,
+        ]);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(() => expect(screen()).toContain('room product'), {
+          timeout: 30_000,
+          interval: 50,
+        });
+        tmux(['send-keys', '-t', pane, 'Right']);
+        await vi.waitFor(() => expect(screen()).toMatch(/^[ \t]+▾ product[ \t]+/m), {
+          timeout: 10_000,
+          interval: 25,
+        });
+        tmux(['send-keys', '-t', pane, 'End']);
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        tmux(['send-keys', '-t', pane, '-l', 'first line']);
+        // tmux turns S-Enter into CSI 13;2u only because Ops asked for extended keys.
+        tmux(['send-keys', '-t', pane, csiU ? 'S-Enter' : 'M-Enter']);
+        tmux(['send-keys', '-t', pane, '-l', 'second line']);
+        await vi.waitFor(
+          () => {
+            const text = screen();
+            expect(text).toContain('first line');
+            expect(text).toContain('second line');
+            // The line under the input names the key tmux actually delivers.
+            expect(text).toContain(csiU ? 'Shift+⏎ new line' : 'Alt+⏎ new line');
+            const lines = text.split('\n');
+            expect(lines.findIndex((line) => line.includes('second line'))).toBe(
+              lines.findIndex((line) => line.includes('first line')) + 1
+            );
+          },
+          { timeout: 10_000, interval: 25 }
+        );
+        const inbox = async () =>
+          (await runCli(sandbox, ['inbox', '--identity', 'worker', '--json'])).stdout;
+        expect(await inbox()).not.toContain('first line');
+        if (process.env.TMT_SHIFT_ENTER_CAPTURE)
+          writeFileSync(process.env.TMT_SHIFT_ENTER_CAPTURE, screen());
+        tmux(['send-keys', '-t', pane, 'Enter']);
+        await vi.waitFor(async () => expect(await inbox()).toContain('first line\\nsecond line'), {
+          timeout: 30_000,
+          interval: 100,
+        });
+        tmux(['send-keys', '-t', pane, 'Escape']);
+        tmux(['send-keys', '-t', pane, 'q']);
+        await vi.waitFor(
+          () =>
+            expect(tmux(['display-message', '-p', '-t', pane, '#{pane_current_command}'])).not.toBe(
+              'tmt-ops'
+            ),
+          { timeout: 10_000, interval: 25 }
+        );
+      } finally {
+        spawnSync(executable, ['-S', socket, 'kill-server'], { env: sandbox.env, timeout: 5000 });
+        await vi.waitFor(() => expect(() => process.kill(server, 0)).toThrow(), {
+          timeout: 10_000,
+          interval: 25,
+        });
+      }
+    });
+  }, 120_000);
+
   it('named view layers restore independently, reset one layer and retain controls through reload', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
