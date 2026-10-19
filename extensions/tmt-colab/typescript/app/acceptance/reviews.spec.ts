@@ -44,7 +44,7 @@ test('a section confirmed in the browser is a resolved thread to the CLI, and an
         .poll(async () => {
           const response = await first
             .context()
-            .request.get(new URL('api/pages', first.url()).href);
+            .request.get(new URL('api/pages', `${door.mounts}colab/`).href);
           expect(response.status()).toBe(200);
           const body = (await response.json()) as {
             pages: { pageId: string; summary?: { needsYou: number; waiting: boolean } }[];

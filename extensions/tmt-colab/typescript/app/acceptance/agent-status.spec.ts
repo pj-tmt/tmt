@@ -63,16 +63,19 @@ test('the served Agents view reads the admitted directory without sending or reo
             }),
         };
     expect(manifest.distAssets).toHaveLength(11);
-    const mount = new URL('./', page.url());
+    const mount = new URL(`${door.mounts}colab/`);
     for (const asset of manifest.distAssets) {
       const served = await browser.context.request.get(new URL(asset.path, mount).href);
       expect(served.status(), asset.path).toBe(200);
-      expect(
-        createHash('sha256')
-          .update(await served.body())
-          .digest('hex'),
-        asset.path,
-      ).toBe(asset.sha256);
+      let bytes = await served.body();
+      if (asset.path === 'index.html') {
+        // The served entry carries exactly one verified mount marker; the rest is the built entry.
+        const marker = `<meta name="tmt-colab-mount" content="${mount.pathname}">`;
+        const html = bytes.toString('utf8');
+        expect(html.split(marker), asset.path).toHaveLength(2);
+        bytes = Buffer.from(html.replace(marker, ''));
+      }
+      expect(createHash('sha256').update(bytes).digest('hex'), asset.path).toBe(asset.sha256);
     }
     const opened = operations.filter((value) => value === 'session.open').length;
     await (await pageAction(page, 'Agents')).click();

@@ -6,8 +6,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   const page = 'page' in host ? host.page() : host;
   const header = host.locator('.page-header-actions:visible');
   const drawer = page.locator('.tmt-ui-drawer[open]');
-  if (await drawer.isVisible()) {
-    // The first covered-header press dismisses only; the action needs a second press.
+  // The first covered-header press dismisses only; the action needs a second press.
+  const dismissDrawer = async () => {
     const button = await page
       .locator('.tmt-ui-header:visible button:visible')
       .first()
@@ -15,7 +15,8 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
     if (!button) throw new Error('Open drawer has no visible header return target');
     await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
     await drawer.waitFor({ state: 'hidden' });
-  }
+  };
+  if (await drawer.isVisible()) await dismissDrawer();
   if (name === 'Files' || name === 'Agents') {
     const direct = host.getByRole('button', { name: directName, exact: true });
     await header.or(direct).first().waitFor();
@@ -48,7 +49,15 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
       await page.mouse.click(button.x + button.width / 2, button.y + button.height / 2);
       await previous.waitFor({ state: 'hidden' });
     }
-    await trigger.click();
+    try {
+      await trigger.click({ timeout: 5_000 });
+    } catch (error) {
+      // A deep link such as `#t=` opens its drawer once the page has loaded, which can be after the
+      // check above; dismiss that drawer and press again.
+      if (!(await drawer.isVisible())) throw error;
+      await dismissDrawer();
+      await trigger.click();
+    }
   }
   return page.getByRole(name.startsWith('Theme:') ? 'menuitemradio' : 'menuitem', {
     name:
