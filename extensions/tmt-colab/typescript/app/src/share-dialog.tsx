@@ -36,18 +36,18 @@ const errors: Record<string, string> = {
     'Result unknown: the request may have committed. Retry only these exact bytes before expiry.',
 };
 const audienceOptions: readonly ManagementOption<ManagementView['page']['sharing']>[] = [
-  { value: 'private', label: 'Private' },
-  { value: 'link', label: 'Link' },
-  { value: 'public', label: 'Public (loopback only)' },
+  { value: 'private', label: 'Named members only' },
+  { value: 'link', label: 'Anyone with the link' },
+  { value: 'public', label: 'Anyone on this computer' },
 ];
 const historyOptions: readonly ManagementOption<payload.HistoryMode>[] = [
-  { value: 'shared', label: 'Shared' },
-  { value: 'current', label: 'Current' },
+  { value: 'shared', label: 'Recent history too' },
+  { value: 'current', label: 'Current page only' },
 ];
 const roleOptions: readonly ManagementOption<payload.Role>[] = [
-  { value: 'viewer', label: 'viewer' },
-  { value: 'commenter', label: 'commenter' },
-  { value: 'editor', label: 'editor' },
+  { value: 'viewer', label: 'Read' },
+  { value: 'commenter', label: 'Comment' },
+  { value: 'editor', label: 'Edit' },
 ];
 export function ShareDialog({
   port,
@@ -72,6 +72,7 @@ export function ShareDialog({
     selection: Selection;
     label: string;
     detail: string;
+    confirmLabel?: string;
   } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null),
     [ack, setAck] = useState<Acknowledgment | null>(null);
@@ -144,8 +145,8 @@ export function ShareDialog({
       setPhase('error');
     }
   }
-  function review(selection: Selection, label: string, detail = '') {
-    setAction({ selection, label, detail });
+  function review(selection: Selection, label: string, detail = '', confirmLabel?: string) {
+    setAction({ selection, label, detail, confirmLabel });
     setError('');
     setPhase('confirm');
   }
@@ -236,8 +237,8 @@ export function ShareDialog({
         {error && <p role="alert">{error}</p>}
         {pending && phase !== 'done' && (
           <p>
-            Closing forgets this request and any link seed. Its effects may already have committed;
-            a lost seed requires Reset link.
+            Closing forgets this request and any new sharing secret; the change may already be
+            saved. If you lose the secret, use Replace link.
           </p>
         )}
         {phase === 'error' &&
@@ -254,10 +255,13 @@ export function ShareDialog({
             <h3>{action.label}</h3>
             <p>{action.detail || 'Apply this change to the selected page?'}</p>
             <p>
-              History mode: {view?.page.history}. Changes apply at the latest verified revision{' '}
-              {view?.revision}.
+              New readers:{' '}
+              {view?.page.history === 'shared' ? 'Recent history too' : 'Current page only'}.
+              Changes apply at the latest verified revision {view?.revision}.
             </p>
-            <button onClick={() => void submit()}>Confirm {action.label.toLowerCase()}</button>{' '}
+            <button onClick={() => void submit()}>
+              {action.confirmLabel ?? `Confirm ${action.label.toLowerCase()}`}
+            </button>{' '}
             <button
               onClick={() => {
                 setAction(null);
@@ -311,6 +315,9 @@ export function ShareDialog({
               <p className="management-id">Page ID: {pageId}</p>
               <p>Verified revision {view.revision}</p>
               <p>Last edit: {localTime(view.page.lastUpdateAtMs)}</p>
+              {view.page.history === 'shared' && (
+                <p>Later joins receive the current key and up to 63 earlier keys.</p>
+              )}
             </details>
             <section aria-label="Page lifecycle">
               <h3>Retention and lifecycle</h3>
@@ -326,10 +333,10 @@ export function ShareDialog({
                   }
                   review(
                     { operation: 'retention.set', value: { pageId, days } },
-                    'Set retention',
+                    'Set access expiry',
                     days === null
-                      ? 'Keep this page until it is explicitly deleted.'
-                      : `Set retention to ${days} days after the last page update. Expiry never deletes your local copy.`,
+                      ? 'Keep this page on this computer until you delete it.'
+                      : `Access expires after ${days} days without a page update. Expiry does not delete your local copy.`,
                   );
                 }}
               >
@@ -339,11 +346,11 @@ export function ShareDialog({
                     checked={forever}
                     onChange={(e) => setForever(e.target.checked)}
                   />
-                  Keep forever
+                  Keep on this computer until I delete it
                 </label>
                 {!forever && (
                   <label>
-                    Retention days
+                    Days after the last change
                     <input
                       name="days"
                       type="number"
@@ -355,36 +362,36 @@ export function ShareDialog({
                     />
                   </label>
                 )}
-                <button>Set retention</button>
+                <button>Set access expiry</button>
               </form>
               <button
                 disabled={view.page.archived}
                 onClick={() =>
                   review(
                     { operation: 'page.archive', value: { pageId } },
-                    'Archive page',
-                    'Hide this page from the active list and freeze writes. Owner reading and management metadata remain available. There is no unarchive control.',
+                    'Archive and stop edits',
+                    'Remove this page from the active list and stop new writes. The owner can still read it; there is no restore action here.',
                   )
                 }
               >
-                Archive page
+                Archive and stop edits…
               </button>{' '}
               <button
                 onClick={() =>
                   review(
                     { operation: 'page.delete', value: { pageId } },
                     'Delete page',
-                    `Delete page ${pageId}? Access will cease and backend ciphertext will be removed. Copies already made cannot be recalled. This page cannot be restored by replay. If no other readable page remains, deletion will stay acknowledged, awaiting verification.`,
+                    `Stop access and remove stored page data for ${pageId}. Copies already made cannot be taken back, and this page cannot be restored.`,
                   )
                 }
               >
-                Delete page
+                Delete page…
               </button>
             </section>
             <section>
               <h3>Sharing</h3>
               <BrowserMenu
-                label="Audience"
+                label="Who can open this page"
                 items={audienceOptions.map((option) => ({
                   key: option.value,
                   label: option.label,
@@ -404,17 +411,26 @@ export function ShareDialog({
                     (view.page.sharing === 'public' && mode !== 'public');
                   review(
                     { operation: 'page.share', value: { pageId, mode } },
-                    `Make ${mode}`,
                     mode === 'public'
-                      ? `Public is loopback-only. Publishing this page publishes ${view.page.history === 'shared' ? 'its shared history, including deleted text, snapshots, comments and agent replies' : 'the new current epoch and everything protected by its key thereafter'}. Previously public content cannot be made private again.`
+                      ? 'Let anyone on this computer read this page?'
                       : narrowing
-                        ? `Existing links are revoked and affected pages rotate to fresh epochs: ${[...new Set([pageId, ...view.links.flatMap((link) => link.pages)])].sort().join(', ')}. Previously public content cannot be made private again. Link sharing needs a new link identity.`
-                        : 'Link mode does not reactivate old links. Create a new link explicitly.',
+                        ? 'Stop access through existing links?'
+                        : 'Allow access by link?',
+                    mode === 'public'
+                      ? `This shares ${view.page.history === 'shared' ? 'recent history too, including deleted text, snapshots, comments and replies' : 'the page as it is now and everything added from now, including comments, replies and attachments'}. Content made public cannot be taken back.`
+                      : narrowing
+                        ? `Existing links stop working on these pages: ${[...new Set([pageId, ...view.links.flatMap((link) => link.pages)])].sort().join(', ')}; new content is shared only with the remaining audience. Copies already made and content previously made public cannot be taken back; create a new link to share by link again.`
+                        : 'Existing links are not reopened. Create a new sharing link for the people you want to invite.',
+                    mode === 'public'
+                      ? 'Allow anyone on this computer'
+                      : narrowing
+                        ? 'Stop access through existing links'
+                        : 'Allow access by link',
                   );
                 }}
               />
               <BrowserMenu
-                label="History mode"
+                label="What people who join later see"
                 items={historyOptions.map((option) => ({
                   key: option.value,
                   label: option.label,
@@ -434,25 +450,27 @@ export function ShareDialog({
                       value: { pageId, mode },
                     },
                     'Change history',
-                    'This applies to later joins. Already-held keys cannot be recalled.',
+                    'Applies to people who join later. Access already given stays.',
                   );
                 }}
               />
+              <p>Applies to people who join later. Access already given stays.</p>
               <p>
                 {view.page.history === 'shared'
-                  ? `${view.links.length ? 'Anyone with this link' : 'If you create a link, its readers'} can read the shared history, including deleted text, snapshots, comments and agent replies. Only the 64 most recent epochs are shared; older history is not shared.`
-                  : 'A new link reads everything in the current epoch since its last advance, with no earlier epochs. Named-member joins rotate to a current-view baseline.'}
+                  ? 'New readers also get recent history, including deleted text, snapshots and comments. Very old history is not included. Nothing already shared is taken back.'
+                  : 'A link reads everything since the last history start, including comments and replies. A new member starts from the page as it is now.'}
               </p>
               <button
                 onClick={() =>
                   review(
                     { operation: 'epoch.advance', value: { pageId } },
-                    'Advance epoch',
-                    'Rotate this page with a current-view baseline to cut the current-history window. Old-epoch edits will not be reissued automatically.',
+                    "Start the page's history from now?",
+                    'The page keeps its current content. People who join later with "Current page only" see it from here on. Existing links keep working, and anything already shared stays shared.',
+                    'Start new history',
                   )
                 }
               >
-                Advance epoch
+                Start new history…
               </button>
             </section>
             <section>
@@ -470,7 +488,7 @@ export function ShareDialog({
                   {m.id !== view.ownerMember && (
                     <>
                       <BrowserMenu
-                        label="Member role"
+                        label="What this member can do"
                         items={roleOptions.map((option) => ({
                           key: option.value,
                           label: option.label,
@@ -492,8 +510,8 @@ export function ShareDialog({
                                 role,
                               },
                             },
-                            'Change member role',
-                            `Affected pages: ${m.pages.join(', ')}`,
+                            'Change member access',
+                            `Give this member ${roleOptions.find((option) => option.value === role)!.label.toLowerCase()} access on ${m.pages.join(', ')}. Content already received cannot be taken back.`,
                           );
                         }}
                       />
@@ -504,12 +522,12 @@ export function ShareDialog({
                               operation: 'member.remove',
                               value: { memberId: m.id, pages: m.pages },
                             },
-                            'Remove member',
-                            `Remove this member and rotate affected pages: ${m.pages.join(', ')}. Already copied keys/content cannot be recalled.`,
+                            "Remove this member's access",
+                            `Stop this membership on ${m.pages.join(', ')} and keep future content for the remaining people. Earlier copies cannot be taken back, and a separate link they still hold can continue to grant access.`,
                           )
                         }
                       >
-                        Remove member
+                        Remove this member’s access…
                       </button>
                     </>
                   )}
@@ -523,8 +541,8 @@ export function ShareDialog({
                       operation: 'member.add',
                       value: { memberId, role, signKey, encKey, pages: [pageId] },
                     },
-                    'Add member',
-                    `Grant ${role} access under ${view.page.history} history. Page membership grants no agent access.`,
+                    'Give this member access',
+                    `Give ${roleOptions.find((option) => option.value === role)!.label.toLowerCase()} access to this page with ${view.page.history === 'shared' ? 'recent history too' : 'the page as it is now'}. This gives page access, not access to send requests to your agents.`,
                   );
                 }}
               >
@@ -541,7 +559,7 @@ export function ShareDialog({
                   </label>
                 ))}
                 <BrowserMenu<payload.Role>
-                  label="New member or link role"
+                  label="Permission for this new recipient"
                   items={roleOptions.map((option) => ({
                     key: option.value,
                     label: option.label,
@@ -552,24 +570,25 @@ export function ShareDialog({
                   valueLabel={roleOptions.find((option) => option.value === role)?.label ?? role}
                   onSelect={setRole}
                 />
-                <button>Add member</button>
+                <button>Give this member access…</button>
               </form>
               <button
                 disabled={view.page.sharing === 'private'}
                 onClick={() =>
                   review(
                     { operation: 'link.add', value: newLink(role, [pageId]) },
-                    'Create link',
-                    `Grant ${role} bearer access under ${view.page.history} history. You can copy the link once, right after it is created. Shared links open read-only, whatever their role.`,
+                    'Create a sharing link',
+                    `Anyone with this link gets ${roleOptions.find((option) => option.value === role)!.label.toLowerCase()} access to ${view.page.history === 'shared' ? 'the page and recent history' : 'everything since the last history start'}; the browser opens it read-only whatever its permission. You can copy the link once, right after it is created.`,
                   )
                 }
               >
-                Create link
+                Create a sharing link…
               </button>
               {view.links.map((l) => (
                 <div className="recipient" key={l.id}>
                   <span>
-                    {l.id} ({l.role})
+                    {l.id} ({roleOptions.find((option) => option.value === l.role)?.label ?? l.role}
+                    )
                   </span>
                   <button
                     onClick={() =>
@@ -582,12 +601,12 @@ export function ShareDialog({
                             replacement: newLink(l.role, l.pages),
                           },
                         },
-                        'Reset link',
-                        `Revoke the old link and every device certified by it; rotate affected pages: ${l.pages.join(', ')}. A new ID/seed must be distributed only to intended holders.`,
+                        'Replace link',
+                        `The old link and devices opened from it lose access on ${l.pages.join(', ')}. Share the new link only with intended readers.`,
                       )
                     }
                   >
-                    Reset link
+                    Replace link…
                   </button>
                   <button
                     onClick={() =>
@@ -596,18 +615,19 @@ export function ShareDialog({
                           operation: 'link.remove',
                           value: { linkId: l.id, pages: l.pages, replacement: null },
                         },
-                        'Remove link',
-                        `Revoke this link and its certified devices; rotate affected pages: ${l.pages.join(', ')}.`,
+                        'Stop access through this link',
+                        `The link and devices opened from it lose access on ${l.pages.join(', ')}; no replacement link is created. Earlier copies cannot be taken back.`,
                       )
                     }
                   >
-                    Remove link
+                    Stop access through this link…
                   </button>
                 </div>
               ))}
               <p>
-                Remote device and agent grants are separate controls. Removing a device does not
-                exclude a holder of a surviving link seed; use Reset link to exclude that holder.
+                Removing a device does not stop someone who still has a working sharing link;
+                replace that link to exclude its holder. Remote device and agent access are separate
+                controls.
               </p>
             </section>
           </>

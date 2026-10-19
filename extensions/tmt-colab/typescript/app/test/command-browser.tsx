@@ -6,12 +6,14 @@ import { createRoot } from 'react-dom/client';
 import { ShareDialog } from '../src/share-dialog.js';
 import type { ManagementPort, ManagementView } from '../src/management.js';
 
+const params = new URLSearchParams(location.search);
+const shareCopy = params.has('share-copy');
 const pageId = '11111111-1111-4111-8111-111111111111';
 const view: ManagementView = {
   page: {
     pageId,
     sharing: 'link',
-    history: 'shared',
+    history: params.get('history') === 'current' ? 'current' : 'shared',
     archived: false,
     epoch: '1',
     retentionDays: 30,
@@ -23,8 +25,10 @@ const view: ManagementView = {
   root: 'A'.repeat(43),
   revision: '1',
   ownerMember: 'owner',
-  members: [],
-  links: [],
+  members: shareCopy ? [{ id: 'reviewer', role: 'viewer', pages: [pageId] }] : [],
+  links: shareCopy
+    ? [{ id: '22222222-2222-4222-8222-222222222222', role: 'viewer', pages: [pageId] }]
+    : [],
 };
 const port: ManagementPort = {
   read: async () => view,
