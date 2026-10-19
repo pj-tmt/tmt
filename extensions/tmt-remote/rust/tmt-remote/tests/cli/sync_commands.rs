@@ -103,6 +103,10 @@ fn ended_status_purges_the_secret_and_an_empty_revoke_is_idempotent() {
         .unwrap();
     assert!(run.status.success());
     assert!(String::from_utf8_lossy(&run.stdout).contains(presentation::SIGN_IN_ENDED));
+    assert!(
+        String::from_utf8_lossy(&run.stdout)
+            .contains("Page access for this machine is not available yet.")
+    );
     assert!(!path.exists());
     for _ in 0..2 {
         let run = pilot

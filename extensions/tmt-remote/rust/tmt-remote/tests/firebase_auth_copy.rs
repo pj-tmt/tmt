@@ -1,6 +1,9 @@
 //! Final UX copy and secret-free JSON projections; no provider or filesystem.
 use serde_json::json;
-use tmt_remote::firebase_auth::{AuthState, Status, presentation};
+use tmt_remote::{
+    firebase_auth::{AuthState, Status, presentation},
+    remote_selector::ClientKind,
+};
 fn status(state: AuthState, expires_at_ms: Option<u64>, notice: bool) -> Status {
     Status {
         state,
@@ -15,7 +18,7 @@ fn expiring_copy_waits_until_after_the_fixed_date_and_json_never_uses_zero() {
     let end = 1_794_441_600_000;
     let value = status(AuthState::Active, Some(end), true);
     assert_eq!(
-        presentation::status_line(&value, end - 12 * 86_400_000).unwrap(),
+        presentation::status_line(&value, end - 12 * 86_400_000, ClientKind::Imported).unwrap(),
         "Firestore sign-in ends on 2026-11-12 (in 12 days). After that, run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
     assert_eq!(
@@ -25,7 +28,8 @@ fn expiring_copy_waits_until_after_the_fixed_date_and_json_never_uses_zero() {
     assert!(
         presentation::status_line(
             &status(AuthState::Active, Some(end), false),
-            end - 31 * 86_400_000
+            end - 31 * 86_400_000,
+            ClientKind::Imported
         )
         .is_none()
     );
@@ -43,7 +47,7 @@ fn expiring_copy_waits_until_after_the_fixed_date_and_json_never_uses_zero() {
 fn ended_and_unknown_lines_name_the_actual_next_step_without_renewal_copy() {
     let ended = status(AuthState::ReSignInNeeded, None, false);
     assert_eq!(
-        presentation::status_line(&ended, 0).unwrap(),
+        presentation::status_line(&ended, 0, ClientKind::Imported).unwrap(),
         "Firestore sign-in has ended. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
     assert_eq!(
@@ -51,7 +55,7 @@ fn ended_and_unknown_lines_name_the_actual_next_step_without_renewal_copy() {
         json!({"state":"needs-renewal","expiresAtMs":null})
     );
     assert_eq!(
-        presentation::SIGN_IN_UNCONFIRMED,
+        presentation::sign_in_unconfirmed(ClientKind::Imported),
         "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity. Page access for this machine is not available yet."
     );
     assert_eq!(
@@ -62,23 +66,76 @@ fn ended_and_unknown_lines_name_the_actual_next_step_without_renewal_copy() {
 #[test]
 fn human_command_outputs_abbreviate_uid_and_active_sign_in_says_nothing_changed() {
     assert_eq!(
-        presentation::signed_in("fixture-identity-long", false),
+        presentation::signed_in("fixture-identity-long", false, ClientKind::Imported),
         "Signed in to Firestore as fixture-. Page access for this machine is not available yet."
     );
     assert_eq!(
-        presentation::signed_in("fixture-identity-long", true),
+        presentation::signed_in("fixture-identity-long", true, ClientKind::Imported),
         "Already signed in as fixture-. Nothing changed."
     );
     assert_eq!(
-        presentation::revoked(Some("fixture-identity-long")),
+        presentation::revoked(Some("fixture-identity-long"), ClientKind::Imported),
         "Revoked the Firestore sign-in fixture-. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
     assert_eq!(
-        presentation::revoked(None),
+        presentation::revoked(None, ClientKind::Imported),
         "Already revoked. Run `tmt remote sync sign-in` to create a new identity. Page access for this machine is not available yet."
     );
     assert_eq!(
         presentation::REVOKE_UNCONFIRMED,
         "Revoke not confirmed. Run `tmt remote sync revoke` again; nothing else changed."
+    );
+}
+
+#[test]
+fn owners_do_not_get_the_imported_remote_page_access_limitation() {
+    let end = 1_794_441_600_000;
+    for line in [
+        presentation::signed_in("fixture-identity-long", false, ClientKind::Owned),
+        presentation::status_line(
+            &status(AuthState::Active, Some(end), true),
+            end - 1,
+            ClientKind::Owned,
+        )
+        .unwrap(),
+        presentation::status_line(
+            &status(AuthState::ReSignInNeeded, None, false),
+            end,
+            ClientKind::Owned,
+        )
+        .unwrap(),
+        presentation::sign_in_unconfirmed(ClientKind::Owned),
+        presentation::revoked(Some("fixture-identity-long"), ClientKind::Owned),
+    ] {
+        assert!(
+            !line.contains("Page access for this machine is not available yet"),
+            "{line}"
+        );
+        assert!(!line.contains("owner must admit"), "{line}");
+    }
+}
+
+#[test]
+fn owner_identity_facts_do_not_promise_access_transfer_or_rebinding() {
+    assert_eq!(
+        presentation::signed_in("fixture-identity-long", false, ClientKind::Owned),
+        "Signed in to Firestore as fixture-."
+    );
+    assert_eq!(
+        presentation::status_line(
+            &status(AuthState::ReSignInNeeded, None, false),
+            0,
+            ClientKind::Owned
+        )
+        .unwrap(),
+        "Firestore sign-in has ended. Run `tmt remote sync sign-in` to create a new identity."
+    );
+    assert_eq!(
+        presentation::sign_in_unconfirmed(ClientKind::Owned),
+        "Firestore did not confirm the sign-in. Nothing was retried. Signing in again may create a second sign-in identity."
+    );
+    assert_eq!(
+        presentation::revoked(None, ClientKind::Owned),
+        "Already revoked. Run `tmt remote sync sign-in` to create a new identity."
     );
 }

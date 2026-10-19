@@ -2426,11 +2426,14 @@ remote selector, with no progress labels, local probes or default changes. Copyi
 them. Opening the owner's page link is a browser-only instruction: Colab's existing token self-join
 admits that browser uid with the link's role. It does not admit the machine's native sync uid.
 An active native sign-in reuses its uid; after it ends, signing in creates a new identity.
-Page access for a joining machine is not shipped: there is neither native share-link self-join
-nor an owner-to-Firebase-uid enrollment command. Machine page access remains stage 5 of #3861;
+Page access through an imported remote is not shipped: there is neither native share-link self-join
+nor an owner-to-Firebase-uid enrollment command. Imported machine page access remains stage 5 of #3861;
 #3868 only integrates local browser opening.
 The existing CLI grammar, JSON shape and public link bytes remain unchanged; fixed sign-in
-diagnostics state the machine-page-access limitation.
+diagnostics state this limitation only for imported references. The selector carries its owned/imported
+provenance into presentation without changing authority or JSON. The serving owner uses its own
+project and publishes its bound uid; this does not rebind an existing space to a new uid. Help that
+cannot know the selection scopes the limitation to remotes added with `tmt remote add`.
 
 ### Native sealed-document carrier
 
