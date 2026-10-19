@@ -1,7 +1,9 @@
 import type { ComposerConnectionPresentation } from '../router.js';
-import { BrowserAction } from '@tmt/browser-ui/react';
+import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
+import { LoaderCircle } from 'lucide-react';
 import { useId, useRef, type ReactNode } from 'react';
 import {
+  answerOf,
   canonicalQuestionThread,
   currentAnswer,
   QUESTION_SHORT_POINTS,
@@ -44,6 +46,7 @@ export function QuestionCard({
   replyLabel,
   onOpenReply,
   onSend,
+  onRetry,
   retryInput,
 }: {
   question: Question;
@@ -65,6 +68,8 @@ export function QuestionCard({
   replyLabel?: string;
   onOpenReply?(): void;
   onSend?(): void;
+  /** Sends the kept draft again after a failed send. */
+  onRetry?(): void;
   retryInput?: AskRetryInput;
 }) {
   const heading = useId();
@@ -76,9 +81,14 @@ export function QuestionCard({
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const disabled = blocked || busy || recorded || !discussion;
-  const compose = !answer || changing;
+  // From Send until the verified record arrives, the card shows the answer being sent where the
+  // verified one will stand. It is display only: nothing here is a record, and a failure drops it.
+  const echoing = !readOnly && (busy || recorded) && body !== undefined;
+  const echo = echoing ? answerOf(question, body) : undefined;
+  const pendingMark = useBusyMark(echoing);
+  const compose = !echoing && (!answer || changing);
   const changeAction =
-    answer && !readOnly && !changing ? (
+    !readOnly && (echoing || (answer && !changing)) ? (
       <BrowserAction
         label="Change answer"
         type="button"
@@ -124,10 +134,18 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
-        {answer && (
-          <div className="question-answer">
-            <p>{pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}</p>
+        {(answer || echoing) && (
+          <div className="question-answer" data-echo={echoing || undefined}>
+            <p>{echo ?? (pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText)}</p>
             {changeAction}
+            <span className="question-pending" aria-hidden="true">
+              {echoing && (
+                // The same wordless mark as a sent message's echo, on the shared busy-mark delay.
+                <span className="comment-echo-mark" data-shown={pendingMark || undefined}>
+                  <LoaderCircle />
+                </span>
+              )}
+            </span>
           </div>
         )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
@@ -220,9 +238,23 @@ export function QuestionCard({
             )}
           </>
         )}
-        {busy && <p role="status">Sending…</p>}
-        {!busy && recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
-        {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
+        {!readOnly && error && (!connectionPresentation || recorded) && (
+          // Only a failure takes a line: the alert and its Retry stand on one row.
+          <div className="question-status">
+            <p role="alert">{error}</p>
+            {onRetry && (
+              <BrowserAction
+                label="Retry"
+                type="button"
+                variant="text"
+                disabled={disabled}
+                onActivate={(event) => {
+                  if (event.isTrusted) onRetry();
+                }}
+              />
+            )}
+          </div>
+        )}
         {sharedAsk && <p className="question-shared-ask">{sharedAsk}</p>}
         {onOpenReply && (
           <BrowserAction

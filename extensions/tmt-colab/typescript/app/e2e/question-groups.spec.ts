@@ -309,16 +309,18 @@ test('a successful local callback cannot supply a verified answer or close the q
   await rows.first().click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
-  await expect(
-    activeCard(page).getByText('Answer recorded; waiting for the verified view.'),
-  ).toBeVisible();
+  // The answer is shown at once as an echo that no record backs: the line still waits, the count
+  // does not move, and no status step is spelled out.
+  const echo = activeCard(page).locator('.question-answer');
+  await expect(echo).toHaveAttribute('data-echo', 'true');
+  await expect(echo.locator('> p')).toHaveText('Keep it');
+  await expect(activeCard(page).getByText(/Sending…|waiting for the verified view/)).toHaveCount(0);
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'true');
   await expect(rows.first()).toContainText('Waiting for you');
   await expect(group.locator('.question-compact-heading')).toHaveText(
     'Questions from Agent 1 · 2 of 2 waiting',
   );
   expect(await run(page, 'discussionProof')).toHaveLength(1);
-  await expect(activeCard(page).locator('.question-answer')).toHaveCount(0);
   await run(page, 'releaseQuestionView');
   await expect(rows.first()).toContainText('Answered: Keep it');
   await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
@@ -339,9 +341,7 @@ test('a delayed verified answer preserves a question the reader explicitly opene
   await rows.first().click();
   await activeCard(page).getByLabel('Keep it', { exact: true }).check();
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
-  await expect(
-    activeCard(page).getByText('Answer recorded; waiting for the verified view.'),
-  ).toBeVisible();
+  await expect(activeCard(page).locator('.question-answer')).toHaveAttribute('data-echo', 'true');
   await rows.nth(2).click();
   await activeCard(page).getByLabel('Your answer', { exact: true }).fill('A newer local draft.');
   await run(page, 'releaseQuestionView');
@@ -354,6 +354,76 @@ test('a delayed verified answer preserves a question the reader explicitly opene
     'A newer local draft.',
   );
   expect(await run(page, 'discussionProof')).toHaveLength(1);
+});
+
+test('an echo is replaced in place by the verified answer, with nothing inserted or moved', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount', { holdQuestionView: true });
+  await run(page, 'questionGroup');
+  const group = page.locator('[data-question-group]');
+  const rows = group.locator('.question-line');
+  await rows.first().click();
+  const card = activeCard(page);
+  await card.getByLabel('Keep it', { exact: true }).check();
+  // An idle card has no status line: only a failure takes one.
+  await expect(card.locator('.question-status')).toHaveCount(0);
+  await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
+  const answer = card.locator('.question-answer');
+  await expect(answer).toHaveAttribute('data-echo', 'true');
+  // Unconfirmed past 0.4 s, the echo gains a mark with no words; no button turns busy.
+  const mark = card.locator('.question-pending .comment-echo-mark');
+  await expect(mark).toHaveCSS('visibility', 'visible');
+  await expect(mark).toHaveText('');
+  await expect(card.locator('.question-pending')).toHaveAttribute('aria-hidden', 'true');
+  const measure = () =>
+    page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document
+          .querySelector(`.question-card:not([hidden]) ${selector}`)!
+          .getBoundingClientRect();
+        return { top: rect.top, height: rect.height };
+      };
+      return {
+        answer: box('.question-answer'),
+        controls: box('.question-controls'),
+      };
+    });
+  const echoed = await measure();
+  await expect(card.locator('.question-status')).toHaveCount(0);
+  await run(page, 'releaseQuestionView');
+  await expect(rows.first()).toContainText('Answered: Keep it');
+  await rows.first().click();
+  await expect(answer).not.toHaveAttribute('data-echo');
+  await expect(card.locator('.question-pending .comment-echo-mark')).toHaveCount(0);
+  await expect(answer.locator('> p')).toHaveText('Keep it');
+  const verified = await measure();
+  expect(verified.answer).toEqual(echoed.answer);
+  await expect(card.locator('.question-status')).toHaveCount(0);
+});
+
+test('an answer verified within 0.4 s never shows the pending mark', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await run(page, 'questionGroup');
+  const group = page.locator('[data-question-group]');
+  const rows = group.locator('.question-line');
+  await rows.first().click();
+  await page.evaluate(() => {
+    const seen = { mark: false };
+    (window as unknown as { markSeen: typeof seen }).markSeen = seen;
+    new MutationObserver(() => {
+      if (document.querySelector('.question-card .comment-echo-mark[data-shown]')) seen.mark = true;
+    }).observe(document.body, { subtree: true, childList: true, attributes: true });
+  });
+  await activeCard(page).getByLabel('Keep it', { exact: true }).check();
+  await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
+  await expect(rows.first()).toContainText('Answered: Keep it');
+  await page.waitForTimeout(600);
+  expect(
+    await page.evaluate(() => (window as unknown as { markSeen: { mark: boolean } }).markSeen.mark),
+  ).toBe(false);
 });
 
 for (const width of [1440, 390])

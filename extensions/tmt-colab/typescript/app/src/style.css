@@ -1609,6 +1609,22 @@ body:has(.needs-you-header-menu) {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+/* The failure line, present only while there is a failure: the alert and its Retry on one row. */
+.question-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.question-status > p {
+  margin: 0;
+}
+/* The slot the pending mark appears in: held open so the mark moves nothing. */
+.question-pending {
+  display: inline-block;
+  inline-size: 1.5em;
+  color: var(--tmt-ui-color-secondary);
+  text-align: center;
+}
 .question-history {
   margin-top: 16px;
 }
