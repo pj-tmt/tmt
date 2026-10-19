@@ -217,10 +217,21 @@ async function run() {
     getComputedStyle(button).backgroundColor === tokenColor('--tmt-ui-surface-selection'),
     'Pressed icon lost its selection fill',
   );
-  for (const state of [{ busy: true }, { disabled: true }]) {
+  await act(() => root.render(action({ busy: true })));
+  await act(() => button.click());
+  check(activations === 1, 'Busy action delivered an activation');
+  check(
+    !button.disabled && button.getAttribute('aria-disabled') === 'true',
+    'Busy icon action is not a focusable aria-disabled control',
+  );
+  check(
+    getComputedStyle(button).color !== tokenColor('--tmt-ui-color-disabled-text'),
+    'Busy icon action used disabled text',
+  );
+  for (const state of [{ disabled: true }]) {
     await act(() => root.render(action(state)));
     await act(() => button.click());
-    check(activations === 1, 'Busy/disabled action delivered an activation');
+    check(activations === 1, 'Disabled action delivered an activation');
     const style = getComputedStyle(button);
     check(style.backgroundColor === 'rgba(0, 0, 0, 0)', 'Disabled text icon has a fill');
     check(style.borderTopColor === 'rgba(0, 0, 0, 0)', 'Disabled text icon has a visible edge');
@@ -344,7 +355,11 @@ async function run() {
             Math.abs(labelBounds.left - bounds.left - (bounds.right - labelBounds.right)) <= 1,
             `Action label is off center: ${description}, busy=${busy}`,
           );
-          check(currentButton.disabled === busy, `Busy activation fence changed: ${description}`);
+          check(
+            !currentButton.disabled &&
+              (currentButton.getAttribute('aria-disabled') === 'true') === busy,
+            `Busy is not a focusable aria-disabled control: ${description}`,
+          );
           const mark = currentButton.querySelector('.tmt-ui-action-mark');
           if (busyMark === undefined) {
             check(mark === null, `No-mark action reserved a mark: ${description}`);
@@ -357,9 +372,10 @@ async function run() {
               mark?.getAttribute('aria-hidden') === 'true',
               `Mark lost decoration: ${description}`,
             );
+            // A busy shorter than the 400 ms delay never reveals the mark.
             check(
-              getComputedStyle(mark!).visibility === (busy ? 'visible' : 'hidden'),
-              `Mark visibility disagrees with busy state: ${description}`,
+              getComputedStyle(mark!).visibility === 'hidden',
+              `Short busy flashed its mark: ${description}`,
             );
           }
           if (stretched)
@@ -372,6 +388,28 @@ async function run() {
       }
     }
   }
+  const markShown = () =>
+    getComputedStyle(host.querySelector('.tmt-ui-action-mark')!).visibility === 'visible';
+  const wait = (ms: number) => act(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  const slowAction = (busy: boolean) => (
+    <BrowserAction
+      type="button"
+      label="Reconnect"
+      variant="primary"
+      busy={busy}
+      busyMark="◌"
+      onActivate={onActivate}
+    />
+  );
+  await act(() => root.render(slowAction(true)));
+  await wait(300);
+  check(!markShown(), 'Busy mark showed before 400 ms');
+  await wait(200);
+  check(markShown(), 'Slow busy did not show its mark after 400 ms');
+  await act(() => root.render(slowAction(false)));
+  check(markShown(), 'Busy mark dropped before its 400 ms minimum');
+  await wait(500);
+  check(!markShown(), 'Busy mark stayed after its minimum');
   for (const state of [{}, { disabled: true }, { busy: true }]) {
     await act(() =>
       root.render(
