@@ -1,11 +1,9 @@
-import type { ComponentMap } from './ci-scope.mjs';
 import type { DraftAsset, DraftRelease } from './release-draft-assets.mjs';
 
 export function selectPrevious(input: {
   releases: readonly DraftRelease[];
   product: string;
   candidateTag: string;
-  map?: ComponentMap;
 }): DraftRelease | null;
 export function selectSupportFloor(input: {
   releases: readonly DraftRelease[];
@@ -31,11 +29,6 @@ export interface UpgradePlan {
   previous: string | null;
   floor: string | null;
   driver: string | null;
-  /** Present only when the selected previous release is a declared predecessor. */
-  previousDriver?: string;
-  previousDriverSha?: string;
-  driverSha?: string;
-  requiresCliSha?: string;
   files: Record<string, string>;
 }
 export interface LocalCandidate {
@@ -55,11 +48,6 @@ export function fetchUpgrade(input: {
   directory: string;
   /** A rehearsal's verified local bundle replaces the candidate release. */
   local?: LocalCandidate;
-  map?: ComponentMap;
-  observeCli?: (
-    release: DraftRelease,
-    registration: string
-  ) => { sha: string; status: 'ahead' | 'behind' | 'identical' | 'diverged' };
 }): UpgradePlan;
 export function proveStaged(input: {
   directory: string;
@@ -69,7 +57,6 @@ export function proveStaged(input: {
   run: (script: string, args: string[]) => void;
   skill?: string;
   sourceRoot?: string;
-  map?: ComponentMap;
 }): { previous: string | null };
 export const ACCEPTANCE_TEST: string;
 export function acceptanceApplicability(sourceRoot: string): 'applicable' | 'predates';

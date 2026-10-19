@@ -34,14 +34,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runPackedCommand } from './packed-command.mjs';
-import {
-  archivePrefix,
-  componentOfProduct,
-  predecessorOfProduct,
-  productOfTag,
-  upgradeSupportFloor,
-} from './native-release-policy.mjs';
-import { componentMap } from './ci-scope.mjs';
+import { archivePrefix, productOfTag, upgradeSupportFloor } from './native-release-policy.mjs';
 import { ghApi } from './release-draft-assets.mjs';
 import { retryReleaseRead } from './release-read-retry.mjs';
 import { compareVersions, publishedReleases, versionOfTag } from './release-versions.mjs';
@@ -59,69 +52,14 @@ const MANIFEST = 'dist-manifest.json';
 const PLAN = 'plan.json';
 const ASSET_LIMIT = 80 * 1024 * 1024;
 
-/** Published tag ancestry relative to the successor's CLI registration, not release dates. */
-function cliAncestry(release, registration, observeCli) {
-  if (!observeCli) throw new Error('Cross-product proof needs published CLI tag ancestry.');
-  const observation = observeCli(release, registration);
-  if (
-    typeof observation?.sha !== 'string' ||
-    !COMMIT.test(observation.sha) ||
-    !['ahead', 'behind', 'identical', 'diverged'].includes(observation?.status) ||
-    (observation.status === 'identical') !== (observation.sha === registration)
-  )
-    throw new Error(`Unknown CLI ancestry for ${release.tag_name}.`);
-  return observation;
-}
-
-/** The newest CLI drives the candidate; a rename also needs the newest strict older ancestor. */
-function upgradeDrivers({ releases, product, previousProduct, map, observeCli }) {
-  const published = publishedReleases(releases, 'cli');
-  const [driver] = published;
-  if (!driver)
-    throw new Error('An extension or driver upgrade proof needs a published CLI release.');
-  if (previousProduct === product) return { driver, previousDriver: null, provenance: {} };
-  if (predecessorOfProduct(map, product) !== previousProduct)
-    throw new Error('Cross-product proof requires the declared immediate predecessor.');
-  const requiresCliSha = componentOfProduct(map, product).requiresCliSha;
-  if (!COMMIT.test(requiresCliSha ?? ''))
-    throw new Error('Cross-product proof needs the exact requiresCliSha registration.');
-  const current = cliAncestry(driver, requiresCliSha, observeCli);
-  if (!['ahead', 'identical'].includes(current.status))
-    throw new Error(`Newest published CLI ${driver.tag_name} does not contain registration.`);
-  for (const release of published.slice(1)) {
-    const observation = cliAncestry(release, requiresCliSha, observeCli);
-    if (observation.status !== 'behind') continue;
-    return {
-      driver,
-      previousDriver: release,
-      provenance: {
-        previousDriver: release.tag_name,
-        previousDriverSha: observation.sha,
-        driverSha: current.sha,
-        requiresCliSha,
-      },
-    };
-  }
-  throw new Error('No published CLI is a strict pre-registration ancestor.');
-}
-
 /** The newest published release of a product below the candidate's version, or null. */
-export function selectPrevious({ releases, product, candidateTag, map = componentMap() }) {
+export function selectPrevious({ releases, product, candidateTag }) {
   const candidate = versionOfTag(candidateTag, product);
-  const own = publishedReleases(releases, product).find(
-    (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
+  return (
+    publishedReleases(releases, product).find(
+      (release) => compareVersions(versionOfTag(release.tag_name, product), candidate) < 0
+    ) ?? null
   );
-  if (own) return own;
-  let predecessor = predecessorOfProduct(map, product);
-  while (predecessor) {
-    const previous = publishedReleases(releases, predecessor).find(
-      (release) => compareVersions(versionOfTag(release.tag_name, predecessor), candidate) < 0
-    );
-    if (previous) return previous;
-    if (publishedReleases(releases, predecessor).length) return null;
-    predecessor = predecessorOfProduct(map, predecessor);
-  }
-  return null;
 }
 
 /** Historical candidates at/below the floor retain their original single-source proof. */
@@ -230,16 +168,7 @@ export function localCandidate({ directory, product, tag }) {
  * `plan.json` with the tags and the digests. A product with no earlier published release stages
  * nothing: there is nothing to upgrade from.
  */
-export function fetchUpgrade({
-  releases,
-  download,
-  product,
-  tag,
-  directory,
-  local,
-  map = componentMap(),
-  observeCli,
-}) {
+export function fetchUpgrade({ releases, download, product, tag, directory, local }) {
   const candidate = local ? local.release : releases.find((release) => release.tag_name === tag);
   if (!candidate) throw new Error(`There is no release ${tag}.`);
   if (local) {
@@ -253,7 +182,7 @@ export function fetchUpgrade({
         `The synthetic candidate ${tag} is not newer than the published ${newest.tag_name}.`
       );
   }
-  const previous = selectPrevious({ releases, product, candidateTag: tag, map });
+  const previous = selectPrevious({ releases, product, candidateTag: tag });
   const floor = selectSupportFloor({ releases, product, candidateTag: tag });
   const plan = {
     product,
@@ -268,19 +197,11 @@ export function fetchUpgrade({
     const targets = archiveTargets({ release: candidate, product });
     if (targets.length === 0) throw new Error(`Release ${tag} has no archive to upgrade to.`);
     let driverRelease = null;
-    let previousDriverRelease = null;
     if (product !== 'cli') {
-      const drivers = upgradeDrivers({
-        releases,
-        product,
-        previousProduct: productOfTag(previous.tag_name),
-        map,
-        observeCli,
-      });
-      driverRelease = drivers.driver;
-      previousDriverRelease = drivers.previousDriver;
+      [driverRelease] = publishedReleases(releases, 'cli');
+      if (!driverRelease)
+        throw new Error('An extension or driver upgrade proof needs a published CLI release.');
       plan.driver = driverRelease.tag_name;
-      Object.assign(plan, drivers.provenance);
     }
     for (const target of targets) {
       const stage = (release, kind, releaseProduct, source = download) => {
@@ -296,7 +217,7 @@ export function fetchUpgrade({
         }
       };
       stage(candidate, 'candidate', product, local?.download);
-      stage(previous, 'previous', productOfTag(previous.tag_name));
+      stage(previous, 'previous', product);
       if (floor && floor.tag_name !== previous.tag_name) stage(floor, 'floor', product);
       if (floor) {
         const bootstraps = candidate.assets.filter(({ name }) => name === 'install.sh');
@@ -311,7 +232,6 @@ export function fetchUpgrade({
         plan.files[name] = asset.digest;
       }
       if (driverRelease) stage(driverRelease, 'driver', 'cli');
-      if (previousDriverRelease) stage(previousDriverRelease, 'previous-driver', 'cli');
     }
   }
   writeFileSync(path.join(directory, PLAN), `${JSON.stringify(plan, null, 2)}\n`);
@@ -319,7 +239,7 @@ export function fetchUpgrade({
 }
 
 /** Both proofs recheck fetch's staged digests before consuming matching-host archives. */
-function stagedUpgrade({ directory, product, tag, target, map = componentMap() }) {
+function stagedUpgrade({ directory, product, tag, target }) {
   const plan = JSON.parse(readFileSync(path.join(directory, PLAN), 'utf8'));
   if (plan.product !== product || plan.tag !== tag) {
     throw new Error(`The staged assets are for ${plan.tag}, not for ${tag}.`);
@@ -333,31 +253,11 @@ function stagedUpgrade({ directory, product, tag, target, map = componentMap() }
       throw new Error('Staged plan is missing the declared support floor.');
   }
   if (!plan.previous) return { previous: null };
-  const previousProduct = productOfTag(plan.previous);
-  const crossProduct = previousProduct !== product;
+  if (productOfTag(plan.previous) !== product)
+    throw new Error('Cross-product upgrade proofs are not supported.');
   const provenanceFields = ['previousDriver', 'previousDriverSha', 'driverSha', 'requiresCliSha'];
-  if (crossProduct) {
-    if (
-      product === 'cli' ||
-      predecessorOfProduct(map, product) !== previousProduct ||
-      typeof plan.previousDriverSha !== 'string' ||
-      !COMMIT.test(plan.previousDriverSha) ||
-      typeof plan.driverSha !== 'string' ||
-      !COMMIT.test(plan.driverSha) ||
-      typeof plan.requiresCliSha !== 'string' ||
-      !COMMIT.test(plan.requiresCliSha) ||
-      componentOfProduct(map, product).requiresCliSha !== plan.requiresCliSha ||
-      plan.previousDriverSha === plan.driverSha ||
-      plan.previousDriverSha === plan.requiresCliSha ||
-      typeof plan.previousDriver !== 'string' ||
-      typeof plan.driver !== 'string' ||
-      compareVersions(versionOfTag(plan.previousDriver, 'cli'), versionOfTag(plan.driver, 'cli')) >=
-        0
-    )
-      throw new Error('Staged cross-product plan has invalid CLI registration provenance.');
-  } else if (provenanceFields.some((field) => Object.hasOwn(plan, field))) {
+  if (provenanceFields.some((field) => Object.hasOwn(plan, field)))
     throw new Error('Same-product plan must not carry cross-product driver provenance.');
-  }
   const prefix = `${target}/`;
   const files = Object.entries(plan.files).filter(([name]) => name.startsWith(prefix));
   if (files.length === 0) throw new Error(`The staged assets have no files for ${target}.`);
@@ -379,7 +279,7 @@ function stagedUpgrade({ directory, product, tag, target, map = componentMap() }
     };
   };
   const now = staged('candidate', product);
-  const before = staged('previous', productOfTag(plan.previous));
+  const before = staged('previous', product);
   if (plan.floor && !Object.hasOwn(plan.files, path.posix.join(target, 'candidate', 'install.sh')))
     throw new Error('Staged candidate install.sh has no recorded digest.');
   return {
@@ -387,23 +287,19 @@ function stagedUpgrade({ directory, product, tag, target, map = componentMap() }
     now,
     before,
     driver: product === 'cli' ? null : staged('driver', 'cli'),
-    previousProduct,
-    previousDriver: crossProduct ? staged('previous-driver', 'cli') : null,
     floor: plan.floor && plan.floor !== plan.previous ? staged('floor', product) : null,
     bootstrap: plan.floor ? path.join(directory, target, 'candidate', 'install.sh') : null,
   };
 }
 
 /** Run the existing installer/migration verifier; return null for the first product release. */
-export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot, map }) {
-  const { previous, now, before, driver, previousProduct, previousDriver, floor, bootstrap } =
-    stagedUpgrade({
-      directory,
-      product,
-      tag,
-      target,
-      map,
-    });
+export function proveStaged({ directory, product, tag, target, run, skill, sourceRoot }) {
+  const { previous, now, before, driver, floor, bootstrap } = stagedUpgrade({
+    directory,
+    product,
+    tag,
+    target,
+  });
   if (!previous) return { previous: null };
   const common = [
     '--archive',
@@ -458,16 +354,6 @@ export function proveStaged({ directory, product, tag, target, run, skill, sourc
         driver.archive,
         '--driver-manifest',
         driver.manifest,
-        ...(previousDriver
-          ? [
-              '--previous-product',
-              previousProduct,
-              '--previous-driver-archive',
-              previousDriver.archive,
-              '--previous-driver-manifest',
-              previousDriver.manifest,
-            ]
-          : []),
       ]
     );
   }
@@ -892,7 +778,6 @@ function main(argv, environment) {
     const plan = fetchUpgrade({
       releases,
       download: ghAssetDownloader({ repository }),
-      observeCli: ghCliAncestry({ repository }),
       product: values.product,
       tag: values.tag,
       directory: values.directory,

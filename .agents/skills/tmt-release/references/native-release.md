@@ -401,21 +401,6 @@ acceptance. The write-token `fetch` of `native-release-upgrade.yml` is called on
 bundle on main, so a pull request can only reach the local fetch; the publication path's upgrade
 job keeps its jobs and outputs (`release-workflow.test.ts` evaluates the conditions).
 
-When the selected previous release is a declared predecessor, fetch requires the successor's
-`requiresCliSha`, resolves published CLI tags by REST, and checks ancestry against that registration.
-The newest published CLI must contain it; the previous driver is the newest strict ancestor before
-it (drafts and divergent commits cannot substitute). Both drivers use the existing digest-checked
-staging path, with captured tag/commit provenance rechecked before emitting the verifier's second
-driver arguments. Same-product staging keeps one driver. The one extension verifier accepts the
-complete former-product/previous-driver pair only for Squad -> Ops: the old CLI establishes Squad
-and skill consent; the new CLI replaces it, checks reported removal order, owner/target migration,
-list/repeat/old-archive refusal, unchanged application bytes and absence of CLI links.
-Default PR CI does not run the historical two-real-CLI scenario. Explicit matching-host qualification
-uses the digest-recorded staging directory described in [installation fixtures](installation-fixtures.md#prepared-squad-to-ops-qualification),
-with separately admitted builds; the first published Ops release still requires its ordinary token-free proof.
-Reported JSON removal order and final durable state do not independently prove internal lock,
-syscall or failure timing.
-
 **Rehearsal publication gates.** The same rehearsal runs `gates-dry` in the prepare workflow:
 `publication-gates.mjs dry --product P --tag <synthetic tag> --sha <candidate> [--on-main]` evaluates
 `channel`, `immutability`, `monotonic` and `migration` for the candidate from published releases and
