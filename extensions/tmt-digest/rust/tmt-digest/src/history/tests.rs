@@ -629,3 +629,23 @@ fn settlements_and_coverage_are_read_back_for_a_window_without_changing_the_stor
         None
     );
 }
+
+#[test]
+fn a_refused_window_names_every_accepted_value_and_each_one_parses_back() {
+    for given in ["", "1h", "24H", "week"] {
+        assert_eq!(
+            Window::parse(given).unwrap_err(),
+            "Use 24h, 7d or lifetime",
+            "{given:?}"
+        );
+    }
+    for window in Window::ALL {
+        assert_eq!(Window::parse(window.text()).unwrap().text(), window.text());
+        assert!(Window::parse("x").unwrap_err().contains(window.text()));
+    }
+    assert_eq!(
+        Window::ALL.map(Window::text),
+        ["24h", "7d", "lifetime"],
+        "the CLI lists the windows in this order"
+    );
+}
