@@ -93,7 +93,7 @@ member whose labels offer a choice. `row_chips` ends that label's chip with `▾
 (`row_chips::offers_choice` finds it again); each painter reports where the chip landed
 (`scene::Painted::spot` for the template painters, `RowPaint::choices` for the Rows pane)
 into `App::chip_hits`, which `App::mouse` reads before row hits.
-Details of the reader thread: [refresh-and-meter.md](references/refresh-and-meter.md#extension-labels).
+Details of the reader thread: [refresh-and-meter.md](references/refresh-and-meter.md#refresh-worker).
 
 ## References
 
