@@ -372,3 +372,185 @@ fn a_large_caller_variable_still_fits_the_cache() {
     cache.remember(key.clone(), "budget", 100);
     assert_eq!(cache.lookup(&key, 101).as_deref(), Some("budget"));
 }
+
+/// A version 2 document written before nested keys still reads: a binding
+/// key keeps its JSON exactly, and a caller key still matches.
+#[test]
+fn version_2_binding_and_caller_hints_still_read_and_never_match_a_nested_key() {
+    let directory = TestDirectory::new();
+    let cache = Refusals::in_directory(&directory.path);
+    let host = host(&directory);
+    let harness = HarnessId::new("claude").unwrap();
+    let coordinates = CallerSession {
+        session: ProviderSessionId::new("thread").unwrap(),
+        runtime_pid: Some(30),
+    };
+    let set = caller(&[("FAKE_PANE_ID", "f1".into())]);
+    let ids = ["a".to_owned()];
+    let external = Key::caller(&harness, &coordinates, &host, &set, &ids);
+    let Target::Caller {
+        coordinates: digest,
+        ..
+    } = &external.target
+    else {
+        unreachable!()
+    };
+    let version_2 = format!(
+        r#"{{"version":2,"entries":[{{"key":{{"harness":"claude","session":"thread","runtime_pid":30,"target":{{"binding":{{"binding":"binding","pane":"%1","pane_pid":20,"pane_incarnation":"pane-start","host":"tmux","server":"server","socket":"/tmp/test.sock","server_pid":10,"server_incarnation":"server-start"}}}}}},"refused_at_ms":100,"layer":"binding"}},{{"key":{{"harness":"claude","session":"thread","runtime_pid":30,"target":{{"caller":{{"host":"fake","coordinates":"{digest}"}}}}}},"refused_at_ms":100,"layer":"native-admission"}}]}}"#
+    );
+    fs::write(&cache.path, &version_2).unwrap();
+    assert_eq!(cache.lookup(&key(), 101).as_deref(), Some("binding"));
+    assert_eq!(
+        cache.lookup(&external, 101).as_deref(),
+        Some("native-admission")
+    );
+    // A binding key's JSON is unchanged.
+    let written = serde_json::to_string(&key()).unwrap();
+    assert!(version_2.contains(&written), "{written}");
+    // The same caller beside tmux variables is a nested key: neither hint
+    // matches it, with or without the tmux binding.
+    let nested_caller = CallerEnvironment {
+        tmux: Some("/tmp/test.sock,10,0".into()),
+        pane: Some("%1".into()),
+        ..caller(&[("FAKE_PANE_ID", "f1".into())])
+    };
+    for tmux in [None, Some(&binding())] {
+        let nested = Key::nested(&harness, &coordinates, &host, &nested_caller, tmux, &ids);
+        assert_eq!(cache.lookup(&nested, 101), None);
+        cache.remember(nested.clone(), "main-provider", 102);
+        assert_eq!(cache.lookup(&nested, 103).as_deref(), Some("main-provider"));
+    }
+    // Without tmux variables the nested digest still differs from the
+    // external one: it has its own tag.
+    assert_ne!(
+        Key::nested(&harness, &coordinates, &host, &set, None, &ids),
+        external
+    );
+}
+
+/// A nested key changes with each raw tmux variable, set or not, and with
+/// every field of the tmux binding, as well as with the external side.
+#[test]
+fn a_nested_key_follows_both_tmux_variables_and_the_tmux_binding() {
+    use std::os::unix::ffi::OsStringExt;
+    let directory = TestDirectory::new();
+    let host = host(&directory);
+    let harness = HarnessId::new("claude").unwrap();
+    let coordinates = CallerSession {
+        session: ProviderSessionId::new("thread").unwrap(),
+        runtime_pid: Some(30),
+    };
+    let ids = ["a".to_owned()];
+    let with =
+        |tmux: Option<std::ffi::OsString>, pane: Option<std::ffi::OsString>| CallerEnvironment {
+            tmux,
+            pane,
+            ..caller(&[("FAKE_PANE_ID", "f1".into())])
+        };
+    let tmux = || Some(std::ffi::OsString::from("/tmp/test.sock,10,0"));
+    let pane = || Some(std::ffi::OsString::from("%1"));
+    let not_text = |bytes: &[u8]| Some(std::ffi::OsString::from_vec(bytes.to_vec()));
+    let key = |environment: &CallerEnvironment, bound: Option<&Binding>, ids: &[String]| {
+        Key::nested(&harness, &coordinates, &host, environment, bound, ids)
+    };
+    let base = key(&with(tmux(), pane()), Some(&binding()), &ids);
+    assert_eq!(base, key(&with(tmux(), pane()), Some(&binding()), &ids));
+    let mut changed = vec![
+        ("no tmux binding", key(&with(tmux(), pane()), None, &ids)),
+        (
+            "TMUX unset",
+            key(&with(None, pane()), Some(&binding()), &ids),
+        ),
+        (
+            "TMUX_PANE unset",
+            key(&with(tmux(), None), Some(&binding()), &ids),
+        ),
+        (
+            "TMUX empty",
+            key(&with(Some("".into()), pane()), Some(&binding()), &ids),
+        ),
+        (
+            "TMUX_PANE empty",
+            key(&with(tmux(), Some("".into())), Some(&binding()), &ids),
+        ),
+        (
+            "TMUX value",
+            key(
+                &with(Some("/tmp/o.sock,1,0".into()), pane()),
+                Some(&binding()),
+                &ids,
+            ),
+        ),
+        (
+            "TMUX_PANE value",
+            key(&with(tmux(), Some("%2".into())), Some(&binding()), &ids),
+        ),
+        (
+            "TMUX not text",
+            key(
+                &with(not_text(b"/tmp/\xff"), pane()),
+                Some(&binding()),
+                &ids,
+            ),
+        ),
+        (
+            "TMUX_PANE not text",
+            key(&with(tmux(), not_text(b"%\xff")), Some(&binding()), &ids),
+        ),
+        (
+            "the external bindings",
+            key(&with(tmux(), pane()), Some(&binding()), &["b".into()]),
+        ),
+        (
+            "the external target",
+            key(
+                &CallerEnvironment {
+                    tmux: tmux(),
+                    pane: pane(),
+                    ..caller(&[("FAKE_PANE_ID", "f2".into())])
+                },
+                Some(&binding()),
+                &ids,
+            ),
+        ),
+    ];
+    // The two variables are not one value: moving bytes between them is a change.
+    assert_ne!(
+        key(&with(Some("ab".into()), Some("c".into())), None, &ids),
+        key(&with(Some("a".into()), Some("bc".into())), None, &ids)
+    );
+    for field in [
+        "binding",
+        "pane",
+        "pane_pid",
+        "pane_incarnation",
+        "server",
+        "socket",
+        "server_pid",
+        "server_incarnation",
+    ] {
+        let mut bound = binding();
+        match field {
+            "binding" => bound.id = "replacement".into(),
+            "pane" => bound.pane_id = "%2".into(),
+            "pane_pid" => bound.pane_pid = 21,
+            "pane_incarnation" => bound.pane_incarnation = Some("replacement".into()),
+            "server" => bound.server.server_id = "other-server".into(),
+            "socket" => bound.server.socket_path = "/tmp/other.sock".into(),
+            "server_pid" => bound.server.server_pid = 11,
+            "server_incarnation" => bound.server.server_start_time = "replacement".into(),
+            _ => unreachable!(),
+        }
+        changed.push((field, key(&with(tmux(), pane()), Some(&bound), &ids)));
+    }
+    for (change, other) in changed {
+        assert_ne!(other, base, "{change} must re-run admission");
+    }
+    // No raw tmux value is kept.
+    let stored =
+        serde_json::to_string(&key(&with(tmux(), Some("%77".into())), None, &ids)).unwrap();
+    assert!(
+        !stored.contains("test.sock") && !stored.contains("%77"),
+        "{stored}"
+    );
+}

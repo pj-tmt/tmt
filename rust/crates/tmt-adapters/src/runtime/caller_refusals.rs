@@ -8,7 +8,9 @@ use tmt_core::binding::{Binding, session::HarnessId};
 pub const TTL_MS: u64 = 10 * 60 * 1_000;
 const ENTRIES: usize = 32;
 const BYTES: u64 = 64 * 1024;
-/// Version 2 added external caller keys; an older document is a miss.
+/// Version 2 added external caller keys; an older document is a miss. A
+/// nested caller key is a new target that a version 2 reader only fails to
+/// parse, which is a miss too, so it keeps the version.
 const VERSION: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -21,27 +23,60 @@ pub struct Key {
 }
 
 /// What the refused attempt was scheduled for: a binding the caller's pane
-/// locator selected, or an external caller that has no such locator.
+/// locator selected, an external caller that has no such locator, or a
+/// caller that names tmux and one external host.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 enum Target {
-    Binding {
-        binding: String,
-        pane: String,
-        pane_pid: u64,
-        pane_incarnation: Option<String>,
-        host: String,
-        server: String,
-        socket: String,
-        server_pid: u64,
-        server_incarnation: String,
-    },
+    Binding(Pane),
     Caller {
         host: String,
         /// SHA-256 of the caller's coordinates (`caller_digest`); no raw
         /// environment value is kept.
         coordinates: String,
     },
+    /// Either pane can own a nested caller, and only the worker's nested
+    /// proof tells which, so the key holds both sides: a change to either
+    /// runs admission again. The tmux binding is in it when the tmux pane
+    /// is bound; it is never the owner.
+    Nested {
+        tmux: Option<Pane>,
+        host: String,
+        /// `caller_digest` over the external host's coordinates and the raw
+        /// `TMUX` and `TMUX_PANE` values.
+        coordinates: String,
+    },
+}
+
+/// A stored binding's pane and server, as one refusal key holds it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Pane {
+    binding: String,
+    pane: String,
+    pane_pid: u64,
+    pane_incarnation: Option<String>,
+    host: String,
+    server: String,
+    socket: String,
+    server_pid: u64,
+    server_incarnation: String,
+}
+
+impl Pane {
+    fn of(binding: &Binding) -> Self {
+        Self {
+            binding: binding.id.clone(),
+            pane: binding.pane_id.clone(),
+            pane_pid: binding.pane_pid,
+            pane_incarnation: binding.pane_incarnation.clone(),
+            host: binding.server.host.as_str().into(),
+            server: binding.server.server_id.clone(),
+            socket: binding.server.socket_path.clone(),
+            server_pid: binding.server.server_pid,
+            server_incarnation: binding.server.server_start_time.clone(),
+        }
+    }
 }
 
 impl Key {
@@ -50,17 +85,7 @@ impl Key {
             harness: harness.as_str().into(),
             session: coordinates.session.as_str().into(),
             runtime_pid: coordinates.runtime_pid,
-            target: Target::Binding {
-                binding: binding.id.clone(),
-                pane: binding.pane_id.clone(),
-                pane_pid: binding.pane_pid,
-                pane_incarnation: binding.pane_incarnation.clone(),
-                host: binding.server.host.as_str().into(),
-                server: binding.server.server_id.clone(),
-                socket: binding.server.socket_path.clone(),
-                server_pid: binding.server.server_pid,
-                server_incarnation: binding.server.server_start_time.clone(),
-            },
+            target: Target::Binding(Pane::of(binding)),
         }
     }
 
@@ -80,7 +105,31 @@ impl Key {
             runtime_pid: coordinates.runtime_pid,
             target: Target::Caller {
                 host: host.name.clone(),
-                coordinates: caller_digest(host, environment, binding_ids),
+                coordinates: caller_digest(host, environment, binding_ids, false),
+            },
+        }
+    }
+
+    /// A caller that names tmux and one external host: the tmux pane's
+    /// binding when it has one, and the external caller's coordinates with
+    /// the tmux variables, so a corrected tmux environment runs admission
+    /// again even when no tmux binding changed.
+    pub fn nested(
+        harness: &HarnessId,
+        coordinates: &CallerSession,
+        host: &DriverRecord,
+        environment: &CallerEnvironment,
+        tmux: Option<&Binding>,
+        binding_ids: &[String],
+    ) -> Self {
+        Self {
+            harness: harness.as_str().into(),
+            session: coordinates.session.as_str().into(),
+            runtime_pid: coordinates.runtime_pid,
+            target: Target::Nested {
+                tmux: tmux.map(Pane::of),
+                host: host.name.clone(),
+                coordinates: caller_digest(host, environment, binding_ids, true),
             },
         }
     }
@@ -88,11 +137,13 @@ impl Key {
 
 /// A fixed-size digest over a length-prefixed encoding: the host's name,
 /// each declared caller variable in sorted order with whether it is set and
-/// its raw bytes (lossless when not text), then the sorted binding IDs.
+/// its raw bytes (lossless when not text), then the sorted binding IDs. A
+/// nested digest has its own tag and then `TMUX` and `TMUX_PANE` the same way.
 fn caller_digest(
     host: &DriverRecord,
     environment: &CallerEnvironment,
     binding_ids: &[String],
+    nested: bool,
 ) -> String {
     use sha2::{Digest, Sha256};
     use std::os::unix::ffi::OsStrExt;
@@ -100,8 +151,24 @@ fn caller_digest(
         hash.update((bytes.len() as u64).to_be_bytes());
         hash.update(bytes);
     }
+    fn value(hash: &mut Sha256, value: Option<&std::ffi::OsStr>) {
+        match value {
+            Some(value) => {
+                field(hash, &[1]);
+                field(hash, value.as_bytes());
+            }
+            None => field(hash, &[0]),
+        }
+    }
     let mut hash = Sha256::new();
-    field(&mut hash, b"tmt-caller-coordinates-1");
+    field(
+        &mut hash,
+        if nested {
+            b"tmt-nested-caller-coordinates-1"
+        } else {
+            b"tmt-caller-coordinates-1"
+        },
+    );
     field(&mut hash, host.name.as_bytes());
     let mut names: Vec<&String> = host
         .capabilities
@@ -113,19 +180,23 @@ fn caller_digest(
     field(&mut hash, &(names.len() as u64).to_be_bytes());
     for name in names {
         field(&mut hash, name.as_bytes());
-        match environment.driver_env.get(name) {
-            Some(value) => {
-                field(&mut hash, &[1]);
-                field(&mut hash, value.as_bytes());
-            }
-            None => field(&mut hash, &[0]),
-        }
+        value(
+            &mut hash,
+            environment
+                .driver_env
+                .get(name)
+                .map(|value| value.as_os_str()),
+        );
     }
     let mut ids: Vec<&String> = binding_ids.iter().collect();
     ids.sort();
     field(&mut hash, &(ids.len() as u64).to_be_bytes());
     for id in ids {
         field(&mut hash, id.as_bytes());
+    }
+    if nested {
+        value(&mut hash, environment.tmux.as_deref());
+        value(&mut hash, environment.pane.as_deref());
     }
     hash.finalize()
         .iter()
