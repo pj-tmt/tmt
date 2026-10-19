@@ -46,3 +46,25 @@ it('owns symmetric toggle inset and row rhythm independently of the old host pad
   expect(css).toContain("grid-template-areas: 'title actions' 'meta actions';");
   expect(css).not.toContain('__compact-max-width__');
 });
+
+it('puts an optional leading control in its own column before the title', () => {
+  const html = renderToStaticMarkup(
+    <BrowserList label="Pages">
+      <BrowserListRow
+        title="Selectable"
+        metadata="now"
+        state="Private"
+        leading={<input type="checkbox" aria-label="Select Selectable" />}
+      />
+      <BrowserListRow title="Plain" metadata="now" state="Private" />
+    </BrowserList>,
+  );
+  const [selectable, plain] = html.split('</li>');
+  expect(selectable).toContain('data-leading="true"');
+  expect(selectable).toMatch(/tmt-ui-list-leading"><input[^>]*aria-label="Select Selectable"/);
+  expect(selectable.indexOf('tmt-ui-list-leading')).toBeLessThan(
+    selectable.indexOf('tmt-ui-list-title'),
+  );
+  expect(plain).not.toContain('data-leading');
+  expect(plain).not.toContain('tmt-ui-list-leading');
+});

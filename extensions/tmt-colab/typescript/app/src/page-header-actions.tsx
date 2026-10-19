@@ -1,6 +1,7 @@
 import { RemoteMoreMenu, useRemoteHeaderSource } from './remote-header.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
+import { useMedia } from './use-media.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -62,14 +63,6 @@ function PageHeaderIcon({
 }
 
 const compactQuery = '(max-width: 640px)';
-function subscribeCompact(changed: () => void) {
-  const media = matchMedia(compactQuery);
-  media.addEventListener('change', changed);
-  return () => media.removeEventListener('change', changed);
-}
-function isCompact() {
-  return matchMedia(compactQuery).matches;
-}
 
 /** Page-local commands use the shared Menu presentation owner. */
 export function PageHeaderActions({
@@ -95,7 +88,7 @@ export function PageHeaderActions({
   readOnly?: boolean;
   onSelect(action: PageHeaderAction): void;
 }) {
-  const compact = useSyncExternalStore(subscribeCompact, isCompact);
+  const compact = useMedia(compactQuery);
   const remoteAvailable = useRemoteHeaderSource();
   const MoreMenu = compact && remoteAvailable ? RemoteMoreMenu : BrowserMenu;
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);

@@ -43,3 +43,23 @@ describe('menu item separator', () => {
     expect(css).toContain('.tmt-ui-menu-item[data-separated] {\n  border-top: 1px solid');
   });
 });
+
+describe('menu text trigger', () => {
+  it('shows the text and the chevron, named by its label, without a field label', () => {
+    const html = renderToStaticMarkup(
+      <BrowserMenu
+        label="Add to project"
+        triggerText="Add to project"
+        items={items}
+        onSelect={() => {}}
+        openRequest={3}
+      />,
+    );
+    expect(html).toContain('aria-label="Add to project"');
+    expect(html).toContain('tmt-ui-menu-value">Add to project</span>');
+    expect(html).not.toContain('tmt-ui-menu-field-label');
+    expect(html).not.toContain('tmt-ui-icon-action');
+    // A request a menu mounts with opens nothing.
+    expect(html).not.toContain('<dialog');
+  });
+});

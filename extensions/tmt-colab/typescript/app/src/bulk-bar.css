@@ -1,0 +1,22 @@
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  box-sizing: border-box;
+  min-height: 40px;
+  margin-top: 12px;
+  padding: 4px 12px;
+  border: 1px solid var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-selection);
+}
+.bulk-bar-count {
+  font-weight: 600;
+}
+.bulk-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-inline-start: auto;
+}

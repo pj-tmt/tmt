@@ -22,6 +22,7 @@ import {
   projectNameError,
   withProject,
   type PageSort,
+  type ProjectChange,
 } from './projects.js';
 import { AUTHOR_BYTES } from './bootstrap.js';
 import { HeaderSlot } from './header-slot.js';
@@ -30,7 +31,10 @@ import { inScope, knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ManagementError } from './management.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
-import { runPageOperation, type PageOperation } from './page-operations.js';
+import { runPageOperations, type PageOperation } from './page-operations.js';
+import { operationStatus } from './page-operation-status.js';
+import { usePageListKeys } from './page-list-keys.js';
+import { BulkBar } from './bulk-bar.js';
 import { pageTitle, pageUpdate } from './page-index.js';
 import {
   editFromSearch,
@@ -194,11 +198,14 @@ function PageProjectsMenu({
   names,
   toggle,
   create,
+  openRequest,
 }: {
   page: PageSummary;
   names: readonly string[];
   toggle(page: PageSummary, name: string): void;
   create(page: PageSummary): void;
+  /** A new value opens the menu: the `l` shortcut. */
+  openRequest?: number;
 }) {
   const carried = new Set(page.projects ?? []);
   const full = carried.size >= 8;
@@ -206,6 +213,7 @@ function PageProjectsMenu({
     <BrowserMenu
       label={t.projectsFor(pageTitle(page))}
       icon={<Tag />}
+      openRequest={openRequest}
       items={[
         ...names.map((name) => {
           const blocked = full && !carried.has(name);
@@ -352,34 +360,75 @@ export function Home() {
   const [dialog, setDialog] = useState<
     { kind: 'new'; initial: string[] } | { kind: 'manage' } | undefined
   >();
-  const [operation, setOperation] = useState<{ kind: PageOperation; page: PageSummary }>();
+  const [operation, setOperation] = useState<{ kind: PageOperation; pages: PageSummary[] }>();
   const [operating, setOperating] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  // Only pages the list shows count: a filter, a tab or a refresh drops the rest from the selection.
+  const chosen = pages.filter((page) => selectedIds.has(page.id));
+  function toggleSelected(pageId: string) {
+    setSelectedIds((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(pageId)) next.add(pageId);
+      return next;
+    });
+  }
   async function confirmOperation() {
     if (!operation || !port || operating) return;
-    const { kind, page } = operation;
-    const title = pageTitle(page);
+    const { kind, pages: targets } = operation;
     setOperating(true);
-    const outcome = await runPageOperation(port, page.id, kind);
+    const batch = await runPageOperations(port, targets, kind);
     setOperating(false);
     setOperation(undefined);
-    if (outcome.state === 'failed') {
-      const code = outcome.failure.code as keyof typeof t.operationFailures;
-      setStatus({ text: t.operationFailures[code] ?? t.operationFailures.UNKNOWN, failed: true });
-      // A lost acknowledgment may have changed the page: show what the owner has.
-      if (code === 'UNKNOWN') await router.invalidate();
+    setStatus(operationStatus(batch, kind, targets.length));
+    const finished = new Set(batch.done.map((page) => page.id));
+    if (finished.size)
+      setSelectedIds((previous) => new Set([...previous].filter((id) => !finished.has(id))));
+    // A lost acknowledgment may have changed the page: show what the owner has.
+    if (finished.size || batch.failed?.failure.code === 'UNKNOWN') await router.invalidate();
+  }
+  /** Add or remove one project on every selected page that does not have it yet (or still has it). */
+  async function changeProject(name: string, present: boolean) {
+    const changes: ProjectChange[] = [];
+    let full = 0;
+    for (const page of chosen) {
+      if (Boolean(page.projects?.includes(name)) === present) continue;
+      const change = withProject(page, name, present);
+      if (change === 'capacity') full += 1;
+      else changes.push(change);
+    }
+    if (!changes.length) {
+      setStatus({
+        text: full ? t.skippedFull(full) : t.nothingToChange,
+        failed: full > 0,
+      });
       return;
     }
-    setStatus({
-      text:
-        outcome.state === 'awaiting'
-          ? t.awaiting(title)
-          : kind === 'page.archive'
-            ? t.archived(title)
-            : t.deleted(title),
-      failed: false,
-    });
-    await router.invalidate();
+    const outcome = await writing.save(changes);
+    if (outcome.failure !== undefined) {
+      setStatus({ text: writing.failureText(outcome.failure), failed: true });
+      return;
+    }
+    const done = present
+      ? t.addedToProject(name, changes.length)
+      : t.removedFromProject(name, changes.length);
+    setStatus({ text: full ? `${done} ${t.skippedFull(full)}` : done, failed: false });
   }
+  const [projectsRequest, setProjectsRequest] = useState<{ pageId: string; count: number }>();
+  const section = useRef<HTMLElement>(null);
+  usePageListKeys({
+    section,
+    managed: !!port,
+    selecting: chosen.length > 0,
+    select: toggleSelected,
+    clearSelection: () => setSelectedIds(new Set()),
+    projects: (pageId) =>
+      setProjectsRequest((previous) => ({ pageId, count: (previous?.count ?? 0) + 1 })),
+    archive: (pageId) => {
+      if (archived) return;
+      const targets = pageId === undefined ? chosen : pages.filter((page) => page.id === pageId);
+      if (targets.length) setOperation({ kind: 'page.archive', pages: targets });
+    },
+  });
   const writing: ProjectWriting = {
     async save(changes) {
       const outcome = await applyProjectChanges(port!, changes);
@@ -480,6 +529,18 @@ export function Home() {
               <BrowserListRow
                 key={p.id}
                 data-page-id={p.id}
+                data-selected={selectedIds.has(p.id) ? '' : undefined}
+                leading={
+                  port ? (
+                    <input
+                      type="checkbox"
+                      className="page-select"
+                      aria-label={t.selectPage(pageTitle(p))}
+                      checked={selectedIds.has(p.id)}
+                      onChange={() => toggleSelected(p.id)}
+                    />
+                  ) : undefined
+                }
                 title={
                   <>
                     <HomeTitleLink page={p} hints={titleHints} scope={scope} />
@@ -528,6 +589,9 @@ export function Home() {
                       <OpenInNewTabAction page={p} />
                       <PageProjectsMenu
                         page={p}
+                        openRequest={
+                          projectsRequest?.pageId === p.id ? projectsRequest.count : undefined
+                        }
                         names={projectNames}
                         toggle={(page, name) => void toggleOnPage(page, name)}
                         create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
@@ -535,12 +599,12 @@ export function Home() {
                       {!p.archived && (
                         <ArchiveAction
                           page={p}
-                          operate={() => setOperation({ kind: 'page.archive', page: p })}
+                          operate={() => setOperation({ kind: 'page.archive', pages: [p] })}
                         />
                       )}
                       <PageListActions
                         page={p}
-                        operate={(kind, page) => setOperation({ kind, page })}
+                        operate={(kind, page) => setOperation({ kind, pages: [page] })}
                       />
                     </>
                   ) : undefined
@@ -578,37 +642,59 @@ export function Home() {
     </>
   );
   return (
-    <section className="home">
+    <section className="home" ref={section}>
       <p className="eyebrow">{text.pages}</p>
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
-      <div className="page-list-controls">
-        <div className="page-list-search">
-          <PageListSearch
-            edit={edit}
-            onChange={setEdit}
-            resetKey={resetKey}
-            projects={counts}
-            authors={authors}
-            onApply={apply}
-            onClear={() => {
-              replaceDraft(editFromSearch([], ''));
-              if (filter.needsYou) setSearch({ needs: undefined });
-            }}
+      {chosen.length > 0 ? (
+        <BulkBar
+          count={chosen.length}
+          projects={projectNames}
+          carried={projectNames.filter((name) =>
+            chosen.some((page) => page.projects?.includes(name)),
+          )}
+          archiving={!archived}
+          onAdd={(name) => void changeProject(name, true)}
+          onRemove={(name) => void changeProject(name, false)}
+          onNewProject={() => setDialog({ kind: 'new', initial: chosen.map((page) => page.id) })}
+          onArchive={() => setOperation({ kind: 'page.archive', pages: chosen })}
+          onDelete={() => setOperation({ kind: 'page.delete', pages: chosen })}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      ) : (
+        <div className="page-list-controls">
+          <div className="page-list-search">
+            <PageListSearch
+              edit={edit}
+              onChange={setEdit}
+              resetKey={resetKey}
+              projects={counts}
+              authors={authors}
+              onApply={apply}
+              onClear={() => {
+                // Escape on an empty search leaves it, so the list's keys work from the page again.
+                if (!filtered && edit.value === '' && edit.tokens.length === 0) {
+                  (document.activeElement as HTMLElement | null)?.blur();
+                  return;
+                }
+                replaceDraft(editFromSearch([], ''));
+                if (filter.needsYou) setSearch({ needs: undefined });
+              }}
+            />
+          </div>
+          <BrowserMenu
+            label={t.sort}
+            valueLabel={sortLabel}
+            items={(['updated', 'title'] as const).map((key) => ({
+              key,
+              label: t.sortOptions[key],
+              role: 'menuitemradio' as const,
+              checked: sort === key,
+            }))}
+            onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
           />
         </div>
-        <BrowserMenu
-          label={t.sort}
-          valueLabel={sortLabel}
-          items={(['updated', 'title'] as const).map((key) => ({
-            key,
-            label: t.sortOptions[key],
-            role: 'menuitemradio' as const,
-            checked: sort === key,
-          }))}
-          onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
-        />
-      </div>
+      )}
       {port ? (
         <BrowserTabs
           label={t.views}
@@ -626,7 +712,7 @@ export function Home() {
         <>
           <PageOperationDialog
             operation={operation?.kind}
-            title={operation ? pageTitle(operation.page) : ''}
+            titles={operation ? operation.pages.map(pageTitle) : []}
             busy={operating}
             onConfirm={() => void confirmOperation()}
             onCancel={() => setOperation(undefined)}

@@ -1,3 +1,4 @@
+import type { PageSummary } from './transport.js';
 import {
   managementFailure,
   type Acknowledgment,
@@ -40,4 +41,31 @@ export async function runPageOperation(
   } catch {
     return { state: 'awaiting' };
   }
+}
+
+export interface BatchOutcome {
+  /** The pages whose statement the owner acknowledged, in order. */
+  done: PageSummary[];
+  /** The part of `done` whose log could not be read back yet. */
+  awaiting: PageSummary[];
+  /** The page that stopped the batch, with why; the pages after it were not tried. */
+  failed?: { page: PageSummary; failure: ManagementError };
+}
+
+/** One signed statement at a time, each through its own read, prepare, send and verify: the owner
+ * log admits them in order, and the first refusal stops the batch so nothing later is attempted. */
+export async function runPageOperations(
+  port: ManagementPort,
+  pages: readonly PageSummary[],
+  operation: PageOperation,
+  signal?: AbortSignal,
+): Promise<BatchOutcome> {
+  const outcome: BatchOutcome = { done: [], awaiting: [] };
+  for (const page of pages) {
+    const result = await runPageOperation(port, page.id, operation, signal);
+    if (result.state === 'failed') return { ...outcome, failed: { page, failure: result.failure } };
+    outcome.done.push(page);
+    if (result.state === 'awaiting') outcome.awaiting.push(page);
+  }
+  return outcome;
 }

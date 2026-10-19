@@ -56,6 +56,9 @@ for (const width of [1440, 390])
       }
       const actions = first.getByRole('button', { name: /^Actions for/ });
       await expect(actions).toBeFocused();
+      // The next row's checkbox leads its title in the Tab order.
+      await page.keyboard.press('Tab');
+      await expect(rows.nth(1).getByRole('checkbox', { name: 'Select Beta update' })).toBeFocused();
       await page.keyboard.press('Tab');
       await expect(rows.nth(1).getByRole('link', { name: 'Beta update' })).toBeFocused();
       await actions.click();

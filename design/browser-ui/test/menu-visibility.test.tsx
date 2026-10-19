@@ -16,6 +16,8 @@ vi.mock('react', async (original) => ({
   useLayoutEffect: (effect: () => (() => void) | undefined) => {
     hooks.effect = effect;
   },
+  // The host-shortcut request effect has nothing to do while the menu is rendered by hand.
+  useEffect: () => undefined,
 }));
 vi.mock('../src/overlay.js', () => ({
   restoreOverlayFocus: vi.fn(),

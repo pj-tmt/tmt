@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -31,12 +32,18 @@ export interface BrowserMenuProps<Key extends string = string> {
   icon?: ReactNode;
   /** A field's selected value; omitting it uses the icon action trigger. */
   valueLabel?: string;
+  /** Without a value: a text trigger (the text and a chevron) in place of the icon action; the
+   * accessible name stays `label`. For a command that opens a choice, not a field with a value. */
+  triggerText?: string;
   /** With `valueLabel`: `crumb` is a borderless text trigger that inherits the surrounding font
    * (a header crumb); the value truncates with an ellipsis and the chevron stays visible. */
   variant?: 'field' | 'crumb';
   description?: ReactNode;
   /** Presentation transitions only; commands and selected values remain host-owned. */
   onOpenChange?(open: boolean): void;
+  /** A host shortcut: each new value opens the menu once, as the trigger does. The first value a
+   * menu mounts with opens nothing. */
+  openRequest?: number;
 }
 
 /** Only transient visibility/focus live here; selected values and commands remain host-owned. */
@@ -47,9 +54,11 @@ export function BrowserMenu<Key extends string>({
   disabled = false,
   icon,
   valueLabel,
+  triggerText,
   variant = 'field',
   description,
   onOpenChange,
+  openRequest,
 }: BrowserMenuProps<Key>) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -66,6 +75,16 @@ export function BrowserMenu<Key extends string>({
     visibility.current.callback?.(open);
   }
   const enabled = items.flatMap((item, index) => (item.disabled ? [] : [index]));
+  const requested = useRef(openRequest);
+  useEffect(() => {
+    const fresh = openRequest !== undefined && openRequest !== requested.current;
+    requested.current = openRequest;
+    if (!fresh || disabled || (!enabled.length && !description)) return;
+    first.current = 'first';
+    setOpen(true);
+    // Only a new request opens it: the current items and flags are read as they stand.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
   function close(refocus = true) {
     dialog.current?.close();
     report(false);
@@ -143,13 +162,13 @@ export function BrowserMenu<Key extends string>({
   }
   return (
     <span className="tmt-ui-menu">
-      {valueLabel !== undefined ? (
+      {valueLabel !== undefined || triggerText !== undefined ? (
         <button
           ref={trigger}
           type="button"
           className="tmt-ui-menu-trigger"
           {...(variant === 'crumb' ? { 'data-variant': 'crumb' } : {})}
-          aria-label={`${label}: ${valueLabel}`}
+          aria-label={valueLabel === undefined ? label : `${label}: ${valueLabel}`}
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
@@ -162,8 +181,10 @@ export function BrowserMenu<Key extends string>({
             }
           }}
         >
-          {variant === 'field' && <span className="tmt-ui-menu-field-label">{label}</span>}
-          <span className="tmt-ui-menu-value">{valueLabel}</span>
+          {variant === 'field' && valueLabel !== undefined && (
+            <span className="tmt-ui-menu-field-label">{label}</span>
+          )}
+          <span className="tmt-ui-menu-value">{valueLabel ?? triggerText}</span>
           <ChevronDown className="tmt-ui-icon" aria-hidden="true" />
         </button>
       ) : (

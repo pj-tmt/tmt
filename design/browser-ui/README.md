@@ -214,6 +214,9 @@ input values scroll internally, while React command text wraps. There is no
 clipboard helper, command parser or page-wide code reset in the leaf. See the
 [command contract](../gui-components.md#commands-and-inline-code).
 
+`BrowserListRow` takes an optional `leading` control (a selection checkbox) in its own column before
+the title; the compact layout keeps it beside both the title and the metadata.
+
 Tabs has a named horizontal tablist, native tab buttons and persistent panels.
 The host supplies ordered `tabs` (stable `id`, `tabId`, `panelId`, label and optional
 state), `selected`, `onSelect(id, reason, originalEvent)` and a panel renderer.
@@ -294,7 +297,11 @@ remain host-owned.
 
 ## Drawer and Menu
 
-Value-menu triggers use a centered ChevronDown icon in the shared icon box.
+Value-menu triggers use a centered ChevronDown icon in the shared icon box. A menu without a value
+can pass `triggerText` for a text trigger (the text and a chevron, accessible name `label`) in place
+of the icon action: a command that opens a choice rather than a field that holds one. A host
+shortcut opens a menu by passing it a new `openRequest` number (a value it mounts with opens
+nothing); the menu then behaves as if its trigger had been pressed.
 
 Drawer and Menu render in place; native top-layer promotion keeps ancestor overflow and transforms from clipping them. Keep the mount point visible. Drawer uses native modal containment at every width, without body scroll locking.
 Its independently scrolling body uses `overscroll-behavior: contain`. It leaves
