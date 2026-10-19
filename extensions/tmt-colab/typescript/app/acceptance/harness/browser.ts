@@ -257,6 +257,21 @@ export interface UnpairedBrowser {
   requests: { url: string; body: string | null }[];
 }
 
+/** A fresh browser profile with no pairing, as the default browser is when an opener hands it a link. */
+export async function freshBrowser(world: AcceptanceWorld, name: string): Promise<UnpairedBrowser> {
+  const profile = path.join(world.root, `profile-${name}`);
+  fs.mkdirSync(profile, { mode: 0o700 });
+  const context = await chromium.launchPersistentContext(profile, { headless: true });
+  world.onFailure(() => attachOwnPublications(context));
+  world.onDispose((stage) => closeContext(context, stage));
+  const requests: UnpairedBrowser['requests'] = [];
+  context.on('request', (request) =>
+    requests.push({ url: request.url(), body: request.postData() }),
+  );
+  const page = await context.newPage();
+  return { context, page, requests };
+}
+
 /**
  * Open a reader link in a fresh Chromium profile that never paired with the door. The profile
  * is its own origin storage, so nothing from an owner or paired device is shared with it.
@@ -268,17 +283,8 @@ export async function openReaderLink(
   name: string,
   beforeNavigate?: (page: Page) => void | Promise<void>,
 ): Promise<UnpairedBrowser> {
-  const profile = path.join(world.root, `profile-${name}`);
-  fs.mkdirSync(profile, { mode: 0o700 });
-  const context = await chromium.launchPersistentContext(profile, { headless: true });
-  world.onFailure(() => attachOwnPublications(context));
-  world.onDispose((stage) => closeContext(context, stage));
-  const requests: UnpairedBrowser['requests'] = [];
-  context.on('request', (request) =>
-    requests.push({ url: request.url(), body: request.postData() }),
-  );
-  const page = await context.newPage();
-  await beforeNavigate?.(page);
-  await page.goto(new URL(readerPath, `${door.address}/`).href);
-  return { context, page, requests };
+  const browser = await freshBrowser(world, name);
+  await beforeNavigate?.(browser.page);
+  await browser.page.goto(new URL(readerPath, `${door.address}/`).href);
+  return browser;
 }

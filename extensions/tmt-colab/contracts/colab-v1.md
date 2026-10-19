@@ -3611,6 +3611,18 @@ failing opener warns once and keeps the printed link without undoing creation.
 `serve --json` and `page create --json` report `opened: true|false`; page creation
 still emits exactly one JSON document with the short-link fallback.
 
+When Colab decides to open, it calls Remote's hidden `tmt remote launch <short-target> --open`
+once through the invoking core (target `/colab/` or `/p/<id>`; 15-second deadline), and
+Remote opens the browser and connects an unpaired one. The launch URL and its code never reach
+Colab, its output or its logs. The answer `{version:1,link,opened,state}` with `state` one of
+`opened`, `skipped`, `no-opener` or `failed` sets `opened` and the row; `failed` warns once.
+A versioned `{version:1,error}` is Remote's answer: Colab prints the short link with that
+message and does not open a second time, and a call with no complete answer warns that Remote
+did not answer in time and opens nothing more. A usage error, an unknown version or state, or
+unreadable output means an older Remote, and Colab uses the platform opener above, never a
+guessed URL. A suppressed open (`--no-open`, `--json`, the setting or the environment) calls
+no seam, so no offer exists.
+
 `tmt colab settings [open on|off] [--json]` shows or sets the one setting, stored as
 `{"open":true|false}` in `<dataRoot>/colab/settings.json` (default on; unknown keys ignored; a
 damaged file reads as the default with a warning). JSON: `{open,source:"default"|"settings.json"}`.

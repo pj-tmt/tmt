@@ -140,11 +140,43 @@ exec {core} "$@"
             "{calls:?}"
         );
         assert!(
-            calls
-                .iter()
-                .all(|s| s == "remote status --machine --json" || s == "remote devices --json"),
+            calls.iter().all(|s| s == "remote status --machine --json"
+                || s == "remote devices --json"
+                || s.starts_with("remote launch ")),
             "unexpected call or fallback: {calls:?}"
         );
+    }
+    /// Wraps a core so `remote launch ...` answers `reply` with `exit`; everything else is delegated.
+    /// Colab passes only a short target, so the answer needs no secret.
+    fn with_launch(&self, core: &std::path::Path, exit: u32, reply: &str) -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let path = self.root.join(format!(
+            "core-launch-{}",
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = remote ] && [ "$2" = launch ]; then
+printf '%s\n' "$*" >> {calls}
+printf '%s\n' {reply}
+exit {exit}
+fi
+exec {core} "$@"
+"#,
+            calls = quote(self.root.join("launch.calls").to_str().unwrap()),
+            reply = quote(reply),
+            core = quote(core.to_str().unwrap()),
+        );
+        tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
+        path
+    }
+    /// The `remote launch` arguments Colab passed to the wrapped core.
+    fn launch_calls(&self) -> Vec<String> {
+        fs::read_to_string(self.root.join("launch.calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
     fn command_with_door(&self, status: &str) -> Command {
         let mut cmd = self.command();
@@ -5485,6 +5517,26 @@ fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
     assert_eq!(opened[0], home, "{opened:?}");
 }
 #[test]
+fn serve_opens_the_space_home_through_remotes_launch_seam() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let core = pilot.with_launch(
+        &pilot.remote_core(Some(DOOR), Serve::Fail),
+        0,
+        LAUNCH_OPENED,
+    );
+    let mut serving = Serving::start(&pilot, core, &["--open"]);
+    let text = Serving::wait_for(&serving.out, "create");
+    assert!(
+        text.contains(&format!("opened in your browser: {PAGE_LINK}")),
+        "{text}"
+    );
+    serving.stop(Signal::SIGTERM);
+    // Remote did the opening: Colab used no plain opener and passed only the short target.
+    assert!(pilot.opened().is_empty());
+    assert_eq!(pilot.launch_calls(), ["remote launch /colab/ --open"]);
+}
+#[test]
 fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
     let pilot = Pilot::new(None);
     pilot.opener(0);
@@ -5605,6 +5657,17 @@ fn page_create_opener_matrix_is_independent_of_terminal_and_json() {
                     );
                     let expected = setting && matches!(environment, "local" | "forwarded");
                     pilot.assert_creation_acquisitions(1);
+                    // No offer exists unless an open was decided: suppression never calls Remote.
+                    let launches: Vec<_> = pilot
+                        .creation_calls()
+                        .into_iter()
+                        .filter(|call| call.starts_with("remote launch "))
+                        .collect();
+                    assert_eq!(
+                        launches.len(),
+                        usize::from(expected || environment == "no-opener" && setting),
+                        "{tty}/{json_output}/{setting}/{environment}: {launches:?}"
+                    );
                     let calls = pilot.opened();
                     assert_eq!(
                         calls.len(),
@@ -5672,6 +5735,139 @@ fn page_create_without_terminal_opens_once_and_failure_or_no_door_keeps_creation
         }
     }
 }
+const LAUNCH_OPENED: &str =
+    r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":true,"state":"opened"}"#;
+/// Creates a page with the door answering and `launch` replying `(exit, reply)`; returns the output.
+fn create_with_launch(
+    pilot: &Pilot,
+    exit: u32,
+    reply: &str,
+    extra: &[&str],
+) -> std::process::Output {
+    let core = pilot.with_launch(&pilot.creation_core(Some(CREATION_DOOR), None), exit, reply);
+    let mut command = pilot.command();
+    command
+        .env_remove("CI")
+        .env("DISPLAY", ":fixture")
+        .env("TMT_EXECUTABLE", core)
+        .args(["page", "create", "--title", "Created"])
+        .args(extra);
+    command.output().unwrap()
+}
+#[test]
+fn a_page_opens_through_remotes_launch_seam_with_only_the_short_target() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let out = create_with_launch(&pilot, 0, LAUNCH_OPENED, &["--json"]);
+    assert!(out.status.success(), "{out:?}");
+    let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["opened"], true);
+    let short = result["shortLink"].as_str().unwrap();
+    assert!(short.starts_with("http://127.0.0.1:53253/p/"), "{short}");
+    // Remote opened the browser; Colab did not use the plain opener or learn any launch URL.
+    assert!(pilot.opened().is_empty());
+    let target = short.strip_prefix("http://127.0.0.1:53253").unwrap();
+    assert_eq!(
+        pilot.launch_calls(),
+        [format!("remote launch {target} --open")]
+    );
+    let shown = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !shown.contains("auto=") && !shown.contains("/pair"),
+        "{shown}"
+    );
+}
+#[test]
+fn remotes_other_launch_states_keep_the_short_link_and_never_open_twice() {
+    for (reply, opened, shows) in [
+        (
+            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"skipped"}"#,
+            false,
+            None,
+        ),
+        (
+            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"no-opener"}"#,
+            false,
+            None,
+        ),
+        (
+            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":false,"state":"failed"}"#,
+            false,
+            Some("Could not open the browser (Remote could not start the browser)"),
+        ),
+    ] {
+        let pilot = Pilot::new(None);
+        pilot.opener(0);
+        let out = create_with_launch(&pilot, 0, reply, &[]);
+        assert!(out.status.success(), "{out:?}");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
+        assert_eq!(text.contains("opened in your browser"), opened, "{text}");
+        if let Some(shows) = shows {
+            assert!(text.contains(shows), "{text}");
+        }
+        assert!(pilot.opened().is_empty(), "{reply}");
+        assert_eq!(pilot.launch_calls().len(), 1);
+    }
+    // A versioned error is Remote's answer: print the short link with its reason and open nothing.
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let busy = r#"{"version":1,"error":{"code":"REMOTE_PAIRING_BUSY","message":"A manual pairing is still open. Finish or cancel it first."}}"#;
+    let out = create_with_launch(&pilot, 1, busy, &[]);
+    assert!(out.status.success(), "{out:?}");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
+    assert!(text.contains("A manual pairing is still open"), "{text}");
+    assert!(pilot.opened().is_empty());
+}
+#[test]
+fn a_remote_without_the_seam_leaves_the_plain_opener_and_never_a_guessed_url() {
+    // Usage error, an unknown version, an unknown state and unreadable output all mean version skew.
+    for (exit, reply) in [
+        (2, ""),
+        (
+            0,
+            r#"{"version":2,"link":"http://127.0.0.1:53253/p/12345678","opened":true,"state":"opened"}"#,
+        ),
+        (
+            0,
+            r#"{"version":1,"link":"http://127.0.0.1:53253/p/12345678","opened":true,"state":"launched"}"#,
+        ),
+        (0, "not json"),
+    ] {
+        let pilot = Pilot::new(None);
+        pilot.opener(0);
+        let out = create_with_launch(&pilot, exit, reply, &["--json"]);
+        assert!(out.status.success(), "{exit} {reply}: {out:?}");
+        let result: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(result["opened"], true, "{exit} {reply}");
+        assert_eq!(pilot.opened(), [result["shortLink"].as_str().unwrap()]);
+    }
+}
+#[test]
+fn suppressed_opening_never_calls_remote_so_no_offer_exists() {
+    // The last of the two flags wins, so `--no-open` after `--open` still suppresses.
+    for extra in [vec!["--no-open"], vec!["--open", "--no-open"]] {
+        let pilot = Pilot::new(None);
+        pilot.opener(0);
+        let out = create_with_launch(&pilot, 0, LAUNCH_OPENED, &extra);
+        assert!(out.status.success(), "{out:?}");
+        assert!(pilot.launch_calls().is_empty(), "{extra:?}");
+        assert!(pilot.opened().is_empty());
+    }
+}
 #[test]
 fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
     let pilot = Pilot::new(None);
@@ -5700,6 +5896,54 @@ fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
         format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
     );
     assert_eq!(fs::read(&database).unwrap(), before);
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn explicit_open_hands_the_short_target_to_remotes_launch_seam() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    seed_page_with_title(&pilot, "Existing page");
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let core = pilot.with_launch(&pilot.door_core(DOOR, None), 0, LAUNCH_OPENED);
+    for args in [vec!["open"], vec!["open", &PAGE[..8]]] {
+        let result = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+        let text = String::from_utf8_lossy(&result.stdout);
+        assert!(text.contains("opened in your browser:"), "{text}");
+        assert!(!text.contains("auto="), "{text}");
+    }
+    assert!(pilot.opened().is_empty());
+    assert_eq!(
+        pilot.launch_calls(),
+        [
+            "remote launch /colab/ --open".to_owned(),
+            format!("remote launch /p/{} --open", &PAGE[..8])
+        ]
+    );
+    // Suppressed or JSON-only requests create no offer.
+    for args in [
+        vec!["open", PAGE, "--no-open"],
+        vec!["open", PAGE, "--json"],
+    ] {
+        let result = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+    }
+    assert_eq!(pilot.launch_calls().len(), 2);
     serving.stop(Signal::SIGTERM);
 }
 #[test]
