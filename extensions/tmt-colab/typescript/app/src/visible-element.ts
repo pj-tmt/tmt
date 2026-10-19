@@ -19,5 +19,7 @@ export function visibleElement(node: HTMLElement | null): boolean {
       bottom = Math.min(bottom, box.bottom);
     }
   }
+  // Ancestors that do not overlap each other leave no clip for the node to show through.
+  if (left >= right || top >= bottom) return false;
   return rect.right > left && rect.left < right && rect.bottom > top && rect.top < bottom;
 }
