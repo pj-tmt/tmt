@@ -100,6 +100,15 @@ fn time_ticks([first, middle, last_label]: &[String; 3], width: usize) -> String
     cells.into_iter().collect()
 }
 
+/// Splits the track into one run per exact bucket. The remainder cells go to
+/// buckets spread evenly along the track, so the plot meets the TOK column at
+/// every width and no two runs differ by more than one cell.
+fn bar_widths(track: usize, buckets: usize) -> Vec<usize> {
+    (0..buckets)
+        .map(|index| track * (index + 1) / buckets - track * index / buckets)
+        .collect()
+}
+
 pub struct Scene {
     node: Node,
     rows: u16,
@@ -155,8 +164,7 @@ impl Scene {
         if spark_width < data.buckets {
             return Err("Spark rows need one cell per exact bucket".into());
         }
-        let stretch = spark_width / data.buckets;
-        let padding = spark_width % data.buckets;
+        let widths = bar_widths(spark_width, data.buckets);
         let scale = quantize::scale(data.rows.iter().flat_map(|row| row.values.iter().copied()))
             .unwrap_or(0);
         let mut heading = vec![
@@ -194,9 +202,8 @@ impl Scene {
                 } else {
                     quantize::glyph(*reading, scale)
                 };
-                pieces.push(json!({"id":format!("spark-{provider}-bar-{index}"),"text":glyph.repeat(stretch)}));
+                pieces.push(json!({"id":format!("spark-{provider}-bar-{index}"),"text":glyph.repeat(widths[index])}));
             }
-            pieces.push(json!({"id":"padding","text":" ".repeat(padding)}));
             let total = text::fit_line(
                 &row.total,
                 7,
@@ -214,7 +221,7 @@ impl Scene {
             rows.push(json!({"id":format!("provider-{provider}"),"pieces":pieces}));
         }
         if !data.no_data && data.show_axis {
-            rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(&data.axis,spark_width-padding)}]}));
+            rows.push(json!({"id":"time","pieces":[{"id":"axis-padding","text":" ".repeat(name_width+1)},{"id":"time-ticks","text":time_ticks(&data.axis,spark_width)}]}));
         }
         let row_count = rows.len() as u16;
         let node = template()
@@ -375,40 +382,22 @@ mod tests {
             .unwrap();
         assert_eq!(
             line(&buffer, 1),
-            format!(
-                "Claude   {}{}  {:>7}  {:>8}",
-                "█".repeat(72),
-                " ".repeat(3),
-                "720",
-                "60%"
-            )
+            format!("Claude   {}  {:>7}  {:>8}", "█".repeat(75), "720", "60%")
         );
         assert_eq!(
             line(&buffer, 2),
-            format!(
-                "Codex    {}{}  {:>7}  {:>8}",
-                "▄".repeat(72),
-                " ".repeat(3),
-                "360",
-                "30%"
-            )
+            format!("Codex    {}  {:>7}  {:>8}", "▄".repeat(75), "360", "30%")
         );
         assert_eq!(
             line(&buffer, 3),
-            format!(
-                "unknown  {}{}  {:>7}  {:>8}",
-                "▂".repeat(72),
-                " ".repeat(3),
-                "120",
-                "10%"
-            )
+            format!("unknown  {}  {:>7}  {:>8}", "▂".repeat(75), "120", "10%")
         );
         let axis = line(&buffer, 4);
         assert!(axis.starts_with("         −60m"));
-        assert!(axis.chars().take(81).collect::<String>().ends_with("now"));
-        assert_eq!(axis.chars().skip(81).collect::<String>(), " ".repeat(22));
+        assert!(axis.chars().take(84).collect::<String>().ends_with("now"));
+        assert_eq!(axis.chars().skip(84).collect::<String>(), " ".repeat(19));
         assert!(line(&buffer, 0).ends_with("TOK  % of all"));
-        for x in 9..81 {
+        for x in 9..84 {
             assert_eq!(buffer[(x, 1)].fg, buffer[(x, 2)].fg);
         }
         assert_eq!(
@@ -420,6 +409,77 @@ mod tests {
                 .count(),
             1
         );
+    }
+    #[test]
+    fn plot_fills_its_whole_track_and_meets_tok_at_every_width_and_bucket_count() {
+        for buckets in [12, 24] {
+            for width in [80_u16, 103, 126, 160, 200] {
+                let mut source = data();
+                source.buckets = buckets;
+                for row in &mut source.rows {
+                    row.values = vec![Some(60); buckets];
+                }
+                let quota = quota_width(width, &source);
+                let scene = Scene::new(&source, width, quota).unwrap();
+                let tail = if quota > 0 {
+                    usize::from(quota) + QUOTA_GAP_WIDTH
+                } else {
+                    0
+                };
+                let track = usize::from(width) - (9 + NUMERIC_TRACK_WIDTH + 8 + tail);
+                let mut buffer = Buffer::empty(Rect::new(0, 0, width, 5));
+                let hits = scene
+                    .paint(&mut buffer, &Theme::default(), Depth::TrueColor, &[], None)
+                    .unwrap();
+                let case = format!("{buckets} buckets at {width} (quota {quota})");
+                let heading: Vec<char> = line(&buffer, 0).chars().collect();
+                for (y, total) in [(1, "720"), (2, "360"), (3, "120")] {
+                    let row: Vec<char> = line(&buffer, y).chars().collect();
+                    assert!(row[9..9 + track].iter().all(|ch| *ch != ' '), "{case}");
+                    assert_eq!(
+                        row[9 + track..9 + track + 9].iter().collect::<String>(),
+                        format!("  {total:>7}"),
+                        "{case}"
+                    );
+                }
+                assert_eq!(
+                    heading[9 + track + 2..9 + track + 9]
+                        .iter()
+                        .collect::<String>(),
+                    format!("{:>7}", "TOK"),
+                    "{case}"
+                );
+                let axis: Vec<char> = line(&buffer, 4).chars().collect();
+                assert_eq!(
+                    axis[9 + track - 3..9 + track].iter().collect::<String>(),
+                    "now",
+                    "{case}"
+                );
+                assert!(axis[9 + track..].iter().all(|ch| *ch == ' '), "{case}");
+                let mut runs: Vec<(i32, usize)> = hits
+                    .iter()
+                    .filter(|hit| {
+                        hit.id
+                            .as_ref()
+                            .is_some_and(|id| id.last().unwrap().starts_with("spark-0-bar-"))
+                    })
+                    .map(|hit| (hit.rect.x, hit.rect.width as usize))
+                    .collect();
+                runs.sort();
+                assert_eq!(runs.len(), buckets, "{case}");
+                assert_eq!(runs.iter().map(|run| run.1).sum::<usize>(), track, "{case}");
+                let (low, high) = (
+                    runs.iter().map(|run| run.1).min().unwrap(),
+                    runs.iter().map(|run| run.1).max().unwrap(),
+                );
+                assert!(high - low <= 1, "{case}: widths {low}..{high}");
+                let mut next = 9;
+                for (x, run) in runs {
+                    assert_eq!(x, next, "{case}");
+                    next += run as i32;
+                }
+            }
+        }
     }
     #[test]
     fn rows_clip_hits_and_preserve_unknown_zero_and_no_color_at_supported_widths() {
