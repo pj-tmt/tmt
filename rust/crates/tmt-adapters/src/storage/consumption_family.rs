@@ -64,7 +64,7 @@ impl Storage {
         }
         let mut statement = connection
             .prepare(
-                "SELECT file,child,base,state,touched_ms FROM consumption_family_files WHERE identity_id=? ORDER BY file",
+                "SELECT file,child,parent,base,state,touched_ms FROM consumption_family_files WHERE identity_id=? ORDER BY file",
             )
             .map_err(|e| classify(e, "Read consumption family"))?;
         let rows = statement
@@ -74,17 +74,19 @@ impl Storage {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
                 ))
             })
             .map_err(|e| classify(e, "Read consumption family"))?;
         let mut members = Vec::new();
         for row in rows {
-            let (file, child, base, state, touched) =
+            let (file, child, parent, base, state, touched) =
                 row.map_err(|e| classify(e, "Read consumption family"))?;
             let member = Member {
                 file,
                 child,
+                parent,
                 base: serde_json::from_str(&base).map_err(|_| corrupt())?,
                 state: State::read(&serde_json::from_str(&state).map_err(|_| corrupt())?)
                     .ok_or_else(corrupt)?,
@@ -159,12 +161,13 @@ pub(super) fn apply(connection: &Connection, id: &str, write: &Write) -> Result<
         let touched = i64::try_from(member.touched_ms).map_err(|_| corrupt())?;
         connection
             .execute(
-                "INSERT INTO consumption_family_files(identity_id,file,child,base,state,touched_ms) VALUES(?,?,?,?,?,?) \
-                 ON CONFLICT(identity_id,file) DO UPDATE SET child=excluded.child,base=excluded.base,state=excluded.state,touched_ms=excluded.touched_ms",
+                "INSERT INTO consumption_family_files(identity_id,file,child,parent,base,state,touched_ms) VALUES(?,?,?,?,?,?,?) \
+                 ON CONFLICT(identity_id,file) DO UPDATE SET child=excluded.child,parent=excluded.parent,base=excluded.base,state=excluded.state,touched_ms=excluded.touched_ms",
                 params![
                     id,
                     member.file,
                     member.child,
+                    member.parent,
                     counts_json(&member.base)?,
                     state_json(&member.state)?,
                     touched

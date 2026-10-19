@@ -409,10 +409,14 @@ cachedInputTokens}` rows in ascending `driver` order, holding **deltas for that
   subagent, and an auto-review (`source.subagent.other = "guardian"`), as a rollout of
   its own whose header names its parent. A started session counts toward the seat that
   owns the **root** of its parent chain, so a review of a subagent counts toward the same
-  seat; one that is itself another seat's bound session counts only toward that seat.
-  Core reads only the header and the token counters of rollouts whose chain ends at a
-  bound session, never the conversation, and reads nothing of a rollout whose root is not
-  a seat's session. Counting starts when Core first scans a seat's started sessions: what
+  seat; one that is, or later becomes, another seat's bound session counts only toward
+  that seat, with everything it started (what it already added here stays). To place a
+  new rollout, Core reads its first line (the session header) and keeps only its id and
+  parent; it reads token counters only of rollouts whose chain ends at a bound session,
+  never the conversation, and no counters or conversation of a rollout whose root is not
+  a seat's session. A started session nobody wrote to for 24 hours is folded into a closed
+  sum and forgotten: if it wakes later, it and what it then starts are not counted (a
+  bounded undercount; the seat's own session is unaffected). Counting starts when Core first scans a seat's started sessions: what
   they had already consumed is not counted, so the step is not new usage and a seat's
   history shows no spike when the rule ships; a session started later counts from its
   first token. While Core is still finding or following them, `complete` is false.

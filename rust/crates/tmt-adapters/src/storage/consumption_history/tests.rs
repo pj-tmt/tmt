@@ -1242,6 +1242,7 @@ mod family {
         Member {
             file: file(n),
             child,
+            parent: "00000000-0000-4000-8000-0000000000ff".into(),
             base: serde_json::from_value(json!({"input":1,"output":0,"cached":0})).unwrap(),
             state: State::read(&json!({
                 "value":{"inputTokens":input,"outputTokens":1,"cachedInputTokens":0,

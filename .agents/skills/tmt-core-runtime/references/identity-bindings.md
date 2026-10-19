@@ -255,8 +255,10 @@ delivery. They install and launch nothing.
   `runtime/consumption/family.rs`): the sampler is a fresh process each tick and the driver
   state is 1 KiB, so the per-rollout cursors live in `consumption_family` and
   `consumption_family_files` (schema 58) and commit in the same transaction as the sample.
-  Placement reads a rollout's first line (`parent_thread_id`) only, scans the day directories
-  from the scan position with a bounded number of headers and reads per tick, and baselines
+  Placement reads each new rollout's first line (the session header, up to 64 KiB, which also
+  carries its working directory) for `id` and `parent_thread_id` only and keeps nothing else;
+  token counters are read only for rollouts whose chain ends at the bound session. It scans the
+  day directories from the scan position with a bounded number of headers and reads per tick, and baselines
   what existed at the first scan; the state carries only the summed contribution, which a
   hook-driven read keeps unchanged. `Stored::after` is the test stand-in for the commit.
   The Claude scan gets half the hook's remaining deadline and keeps validated counts

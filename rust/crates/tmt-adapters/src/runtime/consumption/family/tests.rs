@@ -10,8 +10,9 @@ use std::{
 const ROOT: &str = "00000000-0000-4000-8000-000000000001";
 const OTHER_SEAT: &str = "00000000-0000-4000-8000-0000000000aa";
 
+/// Distinct from the bound session and the other seat.
 fn id(n: u32) -> String {
-    format!("00000000-0000-4000-8000-{n:012}")
+    format!("00000000-0000-4000-8000-{:012}", n + 1000)
 }
 
 fn real_now() -> u64 {
@@ -88,6 +89,7 @@ struct Seat<'a> {
     main: PathBuf,
     others: HashSet<String>,
     stored: Option<Stored>,
+    entries: usize,
 }
 
 impl<'a> Seat<'a> {
@@ -98,6 +100,7 @@ impl<'a> Seat<'a> {
             main,
             others: HashSet::new(),
             stored: None,
+            entries: SCAN_ENTRIES,
         }
     }
 
@@ -112,6 +115,7 @@ impl<'a> Seat<'a> {
                 now,
                 deadline: Instant::now() + Duration::from_secs(30),
                 corrupt: false,
+                entries: self.entries,
             },
             self.stored.clone(),
         )
@@ -339,6 +343,7 @@ fn another_session_or_an_unreadable_family_is_replaced_not_extended() {
                 now: now + 10_000,
                 deadline: Instant::now() + Duration::from_secs(30),
                 corrupt,
+                entries: SCAN_ENTRIES,
             },
             stored,
         )
@@ -597,4 +602,77 @@ fn the_worst_case_state_with_a_family_still_fits_the_opaque_bound() {
     let state = codex_with(&sessions.root(), &main, None, Some(&contribution), now).unwrap();
     let document = serde_json::to_string(&state.document()).unwrap();
     assert!(document.len() < 700, "{} bytes: {document}", document.len());
+}
+
+#[test]
+fn a_followed_child_that_becomes_another_seats_session_stops_counting_here_with_what_it_started() {
+    let sessions = Sessions::new();
+    let main = root_rollout(&sessions);
+    let mut seat = Seat::new(&sessions, ROOT, main);
+    let now = real_now();
+    seat.tick(now);
+    let child = sessions.rollout(T1, &id(1), Some(ROOT));
+    sessions.usage(&child, 100, 10, 0);
+    let grandchild = sessions.rollout(T2, &id(2), Some(&id(1)));
+    sessions.usage(&grandchild, 20, 2, 0);
+    let steady = sessions.rollout("2026-10-19T09-30-00", &id(3), Some(ROOT));
+    sessions.usage(&steady, 7, 1, 0);
+    let before = seat.tick(now + 5_000);
+    assert_eq!(before.contribution.counts, counts(127, 13, 0));
+    assert_eq!(seat.followed().len(), 3);
+    // A seat is resumed onto the child: it now belongs there, with what it started.
+    seat.others.insert(id(1));
+    sessions.usage(&child, 150, 15, 0);
+    sessions.usage(&grandchild, 30, 3, 0);
+    sessions.usage(&steady, 9, 1, 0);
+    let after = seat.tick(now + 10_000);
+    // What they added here stays; from now on only the other rollout still counts.
+    assert_eq!(after.contribution.counts, counts(127 + 2, 13, 0));
+    assert_eq!(seat.followed(), [id(3).as_str()]);
+    assert_eq!(after.write.deletes.len(), 2);
+    // A new rollout started by the departed child is not placed here either.
+    let late = sessions.rollout("2026-10-19T09-40-00", &id(4), Some(&id(1)));
+    sessions.usage(&late, 50, 5, 0);
+    let again = seat.tick(now + 15_000);
+    assert_eq!(again.contribution.counts, counts(129, 13, 0));
+    assert_eq!(seat.followed(), [id(3).as_str()]);
+}
+
+#[test]
+fn a_listing_cut_short_never_moves_the_scan_past_the_day_it_could_not_finish() {
+    let sessions = Sessions::new();
+    let main = root_rollout(&sessions);
+    let mut seat = Seat::new(&sessions, ROOT, main);
+    let now = real_now();
+    seat.tick(now);
+    // A family rollout on the first day, and a second day with too many names.
+    let first = sessions.rollout("2026-10-19T09-30-00", &id(1), Some(ROOT));
+    sessions.usage(&first, 10, 1, 0);
+    for n in 0..8u32 {
+        let time = format!("2026-10-20T08-00-{n:02}");
+        let other = sessions.rollout(&time, &id(50 + n), Some(&id(9_000)));
+        sessions.usage(&other, 1, 1, 0);
+    }
+    let late = sessions.rollout("2026-10-20T09-00-00", &id(2), Some(ROOT));
+    sessions.usage(&late, 40, 4, 0);
+    // Room for the first day and part of the second.
+    seat.entries = 5;
+    let cut = seat.tick(now + 5_000);
+    assert!(!cut.contribution.complete);
+    let scan = seat.stored.as_ref().unwrap().header.scan.clone().unwrap();
+    assert_eq!(
+        scan, "2026-10-20T00-00-00",
+        "the position stops at the start of the day not listed whole"
+    );
+    assert!(seat.followed().contains(&id(1).as_str()));
+    // With room, the second day is read from its start and nothing was skipped.
+    seat.entries = SCAN_ENTRIES;
+    let whole = seat.tick(now + 10_000);
+    assert!(whole.contribution.complete);
+    assert!(seat.followed().contains(&id(2).as_str()));
+    assert_eq!(whole.contribution.counts, counts(50, 5, 0));
+    // The whole second day was listed: the position reaches its newest placed name
+    // (a rollout already followed from the cut-short listing is not placed again).
+    let scan = seat.stored.as_ref().unwrap().header.scan.clone().unwrap();
+    assert!(scan.as_str() >= "2026-10-20T08-00-07", "{scan}");
 }

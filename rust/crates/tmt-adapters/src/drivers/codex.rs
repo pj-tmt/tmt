@@ -843,6 +843,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
                 now: now_ms,
                 deadline,
                 corrupt: input.corrupt,
+                entries: crate::runtime::consumption::family::SCAN_ENTRIES,
             },
             input.stored,
         )

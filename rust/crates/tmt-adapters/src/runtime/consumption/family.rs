@@ -27,7 +27,7 @@ pub const QUIET_MS: u64 = 24 * 60 * 60 * 1000;
 /// Followed rollouts per family. Past it the family reports itself incomplete.
 pub const MAX_MEMBERS: usize = 1024;
 /// Directory entries listed per tick: names only, so a busy day stays cheap.
-const SCAN_ENTRIES: usize = 65_536;
+pub const SCAN_ENTRIES: usize = 65_536;
 /// Rollout headers read per tick.
 const CLASSIFY_PER_TICK: usize = 64;
 /// Followed rollouts read per tick (headers aside).
@@ -107,6 +107,8 @@ pub struct Member {
     /// Relative to the sessions root.
     pub file: String,
     pub child: String,
+    /// The session this one was started by: the bound session or another followed one.
+    pub parent: String,
     /// The rollout's counters when counting began (zero for one found live).
     pub base: Counts,
     /// Its own counters and read cursor; only the sums and the cursor are kept.
@@ -118,6 +120,7 @@ impl Member {
     /// A stored row names a rollout under the sessions tree by its own name.
     pub fn valid(&self) -> bool {
         relative_rollout(&self.file).is_some_and(|(_, id)| id == self.child)
+            && uuid::Uuid::parse_str(&self.parent).is_ok()
             && self.base.valid()
             && self.state.value.counts().covers(self.base)
             && self.state.family.is_none()
@@ -172,6 +175,8 @@ pub struct Tick<'a> {
     pub deadline: Instant,
     /// The stored family could not be read: it is replaced, not extended.
     pub corrupt: bool,
+    /// Directory names listed per tick; [`SCAN_ENTRIES`] in production.
+    pub entries: usize,
 }
 
 /// The union of two at-most splits: a model appearing in both is summed, and a
@@ -411,8 +416,32 @@ impl Run<'_> {
     /// Follow every rollout that grew; fold the ones nobody writes to.
     fn follow(&mut self) -> Option<()> {
         let now = self.tick.now;
+        // A followed rollout may since have become another seat's bound session
+        // (a seat resumed onto it): from now on it counts only there, with
+        // everything it started. What it added here stays.
+        let mut departed: HashSet<String> = self
+            .members
+            .iter()
+            .filter(|member| self.tick.others.contains(&member.child))
+            .map(|member| member.child.clone())
+            .collect();
+        loop {
+            let before = departed.len();
+            for member in &self.members {
+                if departed.contains(&member.parent) {
+                    departed.insert(member.child.clone());
+                }
+            }
+            if departed.len() == before {
+                break;
+            }
+        }
         let mut kept_members = Vec::with_capacity(self.members.len());
         for mut member in std::mem::take(&mut self.members) {
+            if departed.contains(&member.child) {
+                self.fold(&member)?;
+                continue;
+            }
             let path = self.tick.root.join(&member.file);
             let quiet = now.saturating_sub(member.touched_ms) > QUIET_MS;
             // One stat, not a trusted open: the read below opens it that way.
@@ -460,9 +489,10 @@ impl Run<'_> {
         Some(())
     }
 
-    /// The day directories from `from` on, in order. A day that cannot be read
-    /// is reported as missing evidence.
-    fn days(&mut self, from: (u32, u32, u32)) -> Vec<(String, PathBuf)> {
+    /// The day directories from `from` on, in order, and the earliest creation
+    /// time that could not be listed (a directory that cannot be read): the
+    /// scan position never passes it.
+    fn days(&mut self, from: (u32, u32, u32)) -> (Vec<(String, PathBuf)>, Option<String>) {
         let list = |directory: &Path| -> Option<Vec<(u32, String)>> {
             let mut names = Vec::new();
             for entry in fs::read_dir(directory).ok()? {
@@ -479,14 +509,21 @@ impl Run<'_> {
             Some(names)
         };
         let mut days = Vec::new();
+        let mut ceiling: Option<String> = None;
+        let mut unreadable = |time: String, run: &mut Self| {
+            run.complete = false;
+            if ceiling.as_ref().is_none_or(|old| time < *old) {
+                ceiling = Some(time);
+            }
+        };
         let root = self.tick.root;
         let Some(years) = list(root) else {
-            self.complete = false;
-            return days;
+            unreadable(format!("{:04}-01-01T00-00-00", from.0), self);
+            return (days, ceiling);
         };
         for (year, year_name) in years.into_iter().filter(|(year, _)| *year >= from.0) {
             let Some(months) = list(&root.join(&year_name)) else {
-                self.complete = false;
+                unreadable(format!("{year:04}-01-01T00-00-00"), self);
                 continue;
             };
             for (month, month_name) in months
@@ -495,7 +532,7 @@ impl Run<'_> {
             {
                 let directory = root.join(&year_name).join(&month_name);
                 let Some(found) = list(&directory) else {
-                    self.complete = false;
+                    unreadable(format!("{year:04}-{month:02}-01T00-00-00"), self);
                     continue;
                 };
                 for (_, day_name) in found
@@ -509,7 +546,7 @@ impl Run<'_> {
                 }
             }
         }
-        days
+        (days, ceiling)
     }
 
     /// Place the rollouts created since the last tick: a rollout whose parent
@@ -532,20 +569,28 @@ impl Run<'_> {
             .collect();
         let mut found = Vec::new();
         let mut visited = 0usize;
-        let mut listing_complete = true;
-        'days: for (prefix, directory) in self.days(from) {
+        let (days, mut ceiling) = self.days(from);
+        // A day listed only in part, or not at all, caps the scan position at
+        // its start: every earlier day was listed whole.
+        let cap = |ceiling: &mut Option<String>, prefix: &str| {
+            let start = format!("{}T00-00-00", prefix.replace('/', "-"));
+            if ceiling.as_ref().is_none_or(|old| start < *old) {
+                *ceiling = Some(start);
+            }
+        };
+        'days: for (prefix, directory) in days {
             let Ok(entries) = fs::read_dir(&directory) else {
-                listing_complete = false;
+                cap(&mut ceiling, &prefix);
                 continue;
             };
             for entry in entries {
                 visited += 1;
-                if visited > SCAN_ENTRIES || self.expired() {
-                    listing_complete = false;
+                if visited > self.tick.entries || self.expired() {
+                    cap(&mut ceiling, &prefix);
                     break 'days;
                 }
                 let Ok(entry) = entry else {
-                    listing_complete = false;
+                    cap(&mut ceiling, &prefix);
                     continue;
                 };
                 let Ok(name) = entry.file_name().into_string() else {
@@ -647,10 +692,12 @@ impl Run<'_> {
         let cut = unhandled
             .clone()
             .or_else(|| handled.iter().map(|(time, _)| time.clone()).max());
+        let listing_complete = ceiling.is_none();
         let old = self.header.scan.clone();
-        // A listing that was cut short may have skipped a name below the newest
-        // one placed, so the position stays where it was.
-        let cut = cut.filter(|_| listing_complete);
+        let cut = cut.map(|cut| match &ceiling {
+            Some(ceiling) if *ceiling < cut => ceiling.clone(),
+            _ => cut,
+        });
         if let Some(cut) = cut.filter(|cut| old.as_deref().is_none_or(|old| cut.as_str() >= old)) {
             let mut edge = if old.as_deref() == Some(cut.as_str()) {
                 std::mem::take(&mut self.header.edge)
@@ -705,9 +752,11 @@ impl Run<'_> {
                 _ => (zero, Counts::default()),
             }
         };
+        let Some(parent) = meta.parent else { return };
         let member = Member {
             file: candidate.relative.clone(),
             child: meta.id,
+            parent,
             base,
             state,
             touched_ms: now,

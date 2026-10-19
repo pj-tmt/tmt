@@ -16,6 +16,7 @@ CREATE TABLE consumption_family_files (
  identity_id TEXT NOT NULL REFERENCES consumption_family(identity_id) ON DELETE CASCADE,
  file TEXT NOT NULL CHECK (length(CAST(file AS BLOB)) BETWEEN 1 AND 4096),
  child TEXT NOT NULL CHECK (length(child) BETWEEN 1 AND 256),
+ parent TEXT NOT NULL CHECK (length(parent) BETWEEN 1 AND 256),
  base TEXT NOT NULL CHECK (length(CAST(base AS BLOB)) BETWEEN 2 AND 256),
  state TEXT NOT NULL CHECK (length(CAST(state AS BLOB)) BETWEEN 2 AND 2048),
  touched_ms INTEGER NOT NULL CHECK (typeof(touched_ms) = 'integer' AND touched_ms > 0),
@@ -31,7 +32,7 @@ BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
 CREATE TRIGGER consumption_family_files_advances_change_cursor_on_insert AFTER INSERT ON consumption_family_files
 BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
 CREATE TRIGGER consumption_family_files_advances_change_cursor_on_update AFTER UPDATE ON consumption_family_files
-WHEN OLD.identity_id IS NOT NEW.identity_id OR OLD.file IS NOT NEW.file OR OLD.child IS NOT NEW.child OR OLD.base IS NOT NEW.base OR OLD.state IS NOT NEW.state OR OLD.touched_ms IS NOT NEW.touched_ms
+WHEN OLD.identity_id IS NOT NEW.identity_id OR OLD.file IS NOT NEW.file OR OLD.child IS NOT NEW.child OR OLD.parent IS NOT NEW.parent OR OLD.base IS NOT NEW.base OR OLD.state IS NOT NEW.state OR OLD.touched_ms IS NOT NEW.touched_ms
 BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
 CREATE TRIGGER consumption_family_files_advances_change_cursor_on_delete AFTER DELETE ON consumption_family_files
 BEGIN UPDATE change_cursor SET value = value + 1 WHERE id = 1; END;
