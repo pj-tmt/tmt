@@ -113,15 +113,11 @@ function PageFloatingActions({
   canSelect: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
   const [placement, setPlacement] = useState<{
     right: number;
     bottom: number;
     visibility: 'visible' | 'hidden';
   }>({ right: 24, bottom: 24, visibility: 'hidden' });
-  useEffect(() => {
-    button.current?.setAttribute('aria-keyshortcuts', enabled ? 'c Escape' : 'c');
-  }, [enabled]);
   useEffect(() => {
     const place = () => {
       const box = host?.getBoundingClientRect();
@@ -212,7 +208,7 @@ function PageFloatingActions({
             type="button"
             variant="primary"
             label={text.selectionMode}
-            buttonRef={button}
+            ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
             pressed={enabled}
             icon={
               <>
