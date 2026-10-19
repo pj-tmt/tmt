@@ -195,7 +195,7 @@ never runs a hook; ownership and a stat fingerprint are re-checked before each
 delivery. Capture is per connection and transactional, delivery is bounded and
 never changes a command's result, and a nested `tmt` captures nothing. Extension
 summaries are untrusted informational data. With no consent file a command spawns
-nothing. Verified former-product replacement withdraws the former extension's hook consent; consent never transfers to its successor.
+nothing.
 
 ### Core command surface
 
@@ -416,7 +416,7 @@ own module/drawing boundaries and verification.
   Ops uses CAS; cron/checklists live in
   [`ops.db`](.agents/skills/tmt-ops-dev/references/data-and-state.md#ops-state-database).
   `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice warns once on CLI stderr; the UI projects the same notice through App without out-of-band terminal writes.
-  `board_switch` owns the consented former-board switch: only its replacement launch drops retired `--tabs`, preserving the journal argv; startup runs neither. No Ops
+  No Ops
   data enters `config.json` or Core's database.
 - **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches selectable squad and canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.

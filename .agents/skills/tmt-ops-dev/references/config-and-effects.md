@@ -111,65 +111,12 @@ and refuse after completion, even with an initially absent config. After cutover
 board watching follows `ops.toml` only. Metadata detection notices an exact legacy
 config that reappears; it is never read or merged.
 
-`tmt ops migration switch --yes` owns board discovery, stopping, cutover and
-same-pane relaunch. The installer calls the same operation before deleting former
-Squad. Nothing at command or board startup runs it: a `ps` plus one `lsof` per
-foreground pane process made `ops ui` wait seconds before its first frame on a
-board with many panes (#2342). A deferred migration shows its pending notice, and the
-user or the installer runs the switch. `--socket` targets an explicit tmux socket when
-caller context is unavailable; `--prefix` must match the current receipt-verified Ops
-installation. Other servers are never scanned.
-
-Ordinary eligible boards are same-user foreground processes in panes on that
-socket whose kernel executable path is under the verified prefix's
-`lib/tmt-squad/` and whose argv parses as the former `board` command. This
-evidence remains usable after an earlier upgrade deleted the former installation.
-Only the live legacy clock holder may instead use its lease PID and pane, a
-same-user foreground process in that pane on the selected socket, a process
-start no later than the original lease acquisition, and known former-board argv
-(`tmt-squad`, `tmt-sq` or `sq`, with `board` or `ui`). This consented exception
-allows an old clock's kernel path to be outside the former installation or
-unavailable. A name, title, argv[0] or lease PID alone is never authority.
-Captured PID/start, argv, tty, ancestry, foreground and lease ownership are
-rechecked before TERM; ordinary boards also retain executable provenance checks.
-Process start evidence uses the existing second-resolution `ps` observation.
-A holder that cannot be verified stays running; the accepted automatic offer
-names its pane and the manual exit/retry step once. Only the board PID is signalled;
-shells, unrelated processes, existing Ops boards, panes and servers are not killed.
-
-On Linux the switch reads exact NUL-delimited `/proc/<pid>/cmdline`; on macOS,
-`ps` text must match the kernel path or former link name, `board`, and only known
-flags with `--tabs`/`--squad` values restricted to `[a-z0-9-,]`. The clock-holder
-exception admits a named former program outside that namespace and `ui`, with
-the same bounded flags and values.
-Deliberately forged argv[0] can retire another invocation of the same retiring binary; this bounded one-time risk is accepted.
-
-The switch preserves pane IDs, cwd, explicit `--squad` and `--popup`. Its private
-journal keeps the original argv. Only a consented replacement launch omits the
-retired `--tabs` pair and shows a first-frame migration notice; it opens Overview
-unless an explicit squad selects Agents, without guessing a recipient or filter.
-Ordinary `ui --tabs` still refuses. A shell-launched board restarts through the same shell,
-inheriting its environment; a dedicated pane respawns with the tmux pane environment.
-Both set `TMT_EXECUTABLE` to current Core. Process environments are never captured
-from `ps`. The original shell must regain the foreground; dedicated panes are
-retained across exit and respawned without `-k`. Unavailable or changed evidence
-leaves the board running. Successful relaunch requires acknowledgment after the
-first loaded Ops draw.
-
-`<dataRoot>/.ops-board-switch-v1.json` is separate from the migration journal:
-private 0600, same-user regular files with no-follow opens, at most 32 boards and
-1 MiB, serialized by the shared `Guard` on `.ops-board-switch.d/switch.lock` (Ops' own 0700 directory; a second
-switch is refused naming the holder's PID and start time). A switch without tmux retains an
-empty pending record that binds to the chosen socket before any board effect.
-On a consented retry, an older still-running record can acquire freshly verified
-clock-lease provenance without replacing its saved identity or launch progress.
-Launch details are synced before
-TERM; launch submission is recorded before its effect, so an interrupted retry
-recognizes acknowledged Ops processes instead of launching duplicates. Uncertain
-submission is retained and reported rather than blindly resubmitted. Readiness
-markers and the record are removed after completion. Failures retain partial
-progress, the recovery command and former install evidence when still available;
-they never roll back cutover or bypass configuration CAS fences.
+Nothing stops, switches or relaunches a former board: the Squad installation is retired
+(#3836, [install architecture](../../tmt-core-runtime/references/install-architecture.md#retired-squad-installation))
+and no `migration` command exists. A live old clock defers the migration as above; the
+invocation and the board name the holder (PID and pane) and ask the user to quit that
+board (`q`), after which Ops retries. No command startup scans panes or processes for
+former boards (#2342).
 
 ## Team preset
 

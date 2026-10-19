@@ -10,13 +10,12 @@ pub use post_upgrade::{
     POST_UPGRADE_RESTART_BOUND, PostUpgradeObservation, observe_before_upgrade, post_upgrade_hint,
 };
 mod remove;
+mod retired_squad;
 pub use online::{
     ReleaseInstallRequest, default_install_prefix, install_release, latest_release_version,
 };
-pub use remove::{
-    ProductRemoval, finish_product_replacement, plan_product_removal, remove_product,
-    uninstall_extension,
-};
+pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
+pub use retired_squad::{RetiredSquad, retired_squad};
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{

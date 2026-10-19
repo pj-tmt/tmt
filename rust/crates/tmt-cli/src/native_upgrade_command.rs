@@ -172,6 +172,16 @@ fn finish(
     } else {
         None
     };
+    // A leftover Squad installation is not upgraded or replaced; say so on every
+    // completed upgrade until it is removed.
+    let squad_hint = failure
+        .is_none()
+        .then(|| {
+            // <prefix>/lib/tmt/releases/<id>/tmt
+            let prefix = report.installation.active_executable.ancestors().nth(5)?;
+            crate::extension_install_command::retired_squad_note(prefix)
+        })
+        .flatten();
     let named_hints = picker_hint
         .map(|hint| ("pickerHint", hint))
         .into_iter()
@@ -180,6 +190,7 @@ fn finish(
                 .as_deref()
                 .map(|hint| ("formerPrefixHint", hint)),
         )
+        .chain(squad_hint.as_deref().map(|hint| ("retiredSquadHint", hint)))
         .collect::<Vec<_>>();
     publish_products_with_hints(
         Some(report),

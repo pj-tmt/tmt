@@ -4,29 +4,8 @@
 use super::{Product, invalid, publication::Layout};
 use std::{fs, io, path::Path};
 
-/// Finalize a rename only after the new installation verifies. Historical
-/// command names are never overwrite authority: foreign links stay untouched.
-pub fn finish_product_replacement(prefix: &Path, product: Product) -> io::Result<ProductRemoval> {
-    let Some(former) = product.former() else {
-        return Ok(ProductRemoval::default());
-    };
-    match fs::symlink_metadata(prefix.join(former.namespace)) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(ProductRemoval::default());
-        }
-        Err(error) => return Err(error),
-        Ok(_) => {}
-    }
-    let new = Layout::existing_product(prefix, product)?;
-    let _new_lock = crate::file_lock::exclusive(&new.root.join("install.lock"))?;
-    new.current()?
-        .ok_or_else(|| invalid("New product has no verified activation."))?;
-    new.check_links(true)?;
-    former_product_removal(prefix, product, true)
-}
-
-/// Full uninstall uses the same verified former identity and link fence as
-/// replacement, without requiring a successor installation to exist.
+/// Full uninstall removes a verified former installation behind the same link
+/// fence, without requiring a current installation to exist.
 fn former_product_removal(
     prefix: &Path,
     product: Product,

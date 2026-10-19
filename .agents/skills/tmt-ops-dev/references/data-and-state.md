@@ -232,9 +232,8 @@ codecs; the database stores bytes. Constructing or reading an absent store creat
   upgrade hint (`tmt extension upgrade ops` or `tmt upgrade`) and changes nothing.
 - **Other owners.** `ops.toml` edits go through the leaf's `Document` (one lock around the
   compare-and-replace; the same `SQUAD_CONFIG_CHANGED` refusal when the file moved on). The
-  board switch holds the leaf's `Guard` for its whole run and names the holder on
-  contention. The cron clock stays a lease in `cron/clock.json` (expiry and takeover are its
-  contract); the leaf has no lease primitive.
+  cron clock stays a lease in `cron/clock.json` (expiry and takeover are its contract); the
+  leaf has no lease primitive.
 
 ## Checklist storage and service
 

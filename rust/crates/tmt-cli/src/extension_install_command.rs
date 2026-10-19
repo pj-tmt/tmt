@@ -2,7 +2,6 @@
 //! the official extensions over the native installer. The product table is
 //! fixed; nothing here discovers an extension from archive data or PATH.
 
-mod board_switch;
 mod install;
 mod list_upgrade;
 mod post_upgrade;
@@ -15,6 +14,7 @@ use list_upgrade::listing;
 #[cfg(test)]
 use list_upgrade::shadowing_in;
 use repair::repair_extension;
+pub(crate) use skills::retired_squad_note;
 use skills::{global_dir, settle_skills};
 #[cfg(test)]
 use skills::{published_document, published_lines};
@@ -209,11 +209,7 @@ fn installed(product: Product, prefix: &Path) -> Result<bool, Failure> {
                     ),
                     1,
                 )),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    native_install::inspect_former_product(product, prefix)
-                        .map(|former| former.is_some())
-                        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))
-                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
                 Err(error) => Err(failure("EXTENSION_INSTALLATION_INVALID", error)),
             }
         }

@@ -17,9 +17,8 @@ pub enum PostUpgradeCheck {
     RemoteDoor,
 }
 
-/// Read-only installation identity before a product rename or a move to a new
-/// namespace. This is never a selectable product, a dispatch alias or a
-/// completion candidate.
+/// Read-only installation identity before a move to a new namespace. This is
+/// never a selectable product, a dispatch alias or a completion candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormerProduct {
     pub name: &'static str,
@@ -27,10 +26,6 @@ pub struct FormerProduct {
     pub namespace: &'static str,
     pub tag_prefix: &'static str,
     pub links: &'static [&'static str],
-    pub renamed_skills: &'static [(&'static str, &'static str)],
-    /// Whether the former installation could be on the PR channel, so its
-    /// receipts may carry PR provenance. A same-product move keeps that.
-    pub pr_channel: bool,
 }
 
 impl FormerProduct {
@@ -54,15 +49,6 @@ impl Product {
 
     pub const fn former(self) -> Option<&'static FormerProduct> {
         match self {
-            Self::Ops => Some(&FormerProduct {
-                name: "squad",
-                executable: "tmt-squad",
-                namespace: "lib/tmt-squad",
-                tag_prefix: "tmt-squad-v",
-                links: &["tmt-squad", "tmt-sq"],
-                renamed_skills: &[("tmt-squad", "tmt-ops")],
-                pr_channel: false,
-            }),
             // The CLI keeps its identity and command names; only the install
             // prefix moved. The old layout stays readable for rollback.
             Self::Cli => Some(&FormerProduct {
@@ -71,8 +57,6 @@ impl Product {
                 namespace: "lib/tmux-team",
                 tag_prefix: "v",
                 links: &["tmt", "tmux-team"],
-                renamed_skills: &[],
-                pr_channel: true,
             }),
             _ => None,
         }
