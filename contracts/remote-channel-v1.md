@@ -4,8 +4,8 @@
 sharing over Firestore (native sync and the hosted browser client) is shipped. Cloud agent operations
 through Firestore or Cloudflare, including their operation encryption profile, remain proposals.
 Shipped means published code with fixture/emulator proof; real-account acceptance remains open.
-This document owns device identity, trust grants, wire values, admitted operations, the extension
-channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
+This document owns host-driver authentication, local device identity/grants, wire values, operations,
+the extension channel API and backend bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
 seams before runtime/SDK code. The
 [security design](https://github.com/wkh237/tmt/issues/478#issuecomment-5910827518),
 [M1 ruling](https://github.com/wkh237/tmt/issues/478#issuecomment-5911118171) and
@@ -14,7 +14,145 @@ its inputs. The owner's 2026-10-02 decisions on [#955](https://github.com/wkh237
 supersede the M1 rules for mandatory hold, per-agent allowlists, own-results-only reads, forced
 grant expiry and serve windows.
 
-## User path
+## Owners and layers
+
+Remote owns its listeners, provider transports and private state. Core owns its public dispatch,
+request and input-safety semantics independently of Remote authentication. Remote uses only the
+fixed public Core APIs/JSON commands: Core has no dependency on Remote device keys, pairing or
+trust grants, and no Remote base-trust check is added to Core. Its existing safety checks remain.
+Colab owns page/epoch/role/writer admission and content cryptography through the
+[extension channel API](#extension-channel-api); content verification grants no machine access.
+
+## Host driver authentication
+
+Each host driver has exactly one authentication gate; gates never stack. Device trust is a
+local-driver concern, not a shared Remote base credential required by every backend. Here driver
+means a Remote hosting/transport backend, not Core's host adapter.
+
+| Driver responsibility | Local (`loopback-http`, shipped)                                      | Firestore page sharing (shipped boundary)                                            |
+| --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Establish identity    | Pair the device key to the machine and exact origin.                  | Firebase Auth supplies the authenticated uid.                                        |
+| Authorize             | Remote's persisted device grant, rechecked at the local effect fence. | Deployed Security Rules evaluate `request.auth` and the extension's declared policy. |
+| Link                  | The local pairing offer/link and door entry.                          | The verified public Remote descriptor and the extension's share link.                |
+| Revoke                | Disable the local grant and end its sessions.                         | Enforce identity/policy loss through Firebase Auth and deployed Rules.               |
+| Progress detection    | Observe admitted pairing/session/operation state.                     | Observe Auth and Rules/transport outcomes through the existing bounded client.       |
+
+These are driver obligations, not a new code trait, wire schema or shipped join wizard. Local
+keeps its device key, origin binding, Host checks and every effect/revocation fence below.
+Firestore's only authentication/authorization gate is Firebase Auth plus deployed Security Rules:
+Remote adds no pairing, device signature or Remote-side admission service/hook in front of Firestore.
+Public-config/declaration validation, bounds, budget guards and no-retry uncertainty remain; they
+are not a second device-trust gate. A Firebase uid is not a paired local device or an operations grant.
+Colab's existing content, page, epoch, role and writer checks remain application-owned on
+publication and read. They add no Remote device proof to Firestore and grant no machine access.
+
+### Proposal: deploy-selected sign-in and authorization policy
+
+**Target design, not shipped (#3861).** Deployment selects sign-in providers and authorization
+policy. The approved provider set is anonymous, Google, Email link (passwordless) and GitHub.
+GitHub requires an owner-created OAuth app and console entry of its client ID/secret; the future
+deploy stops with a fixed owner-console instruction, like the existing Google owner step. No secret
+belongs in a share link. Policies are link holders or an email allow-list; company-domain policy is
+outside v1. Invite links are multi-use by default (as today), with optional single-use at creation.
+The provider/policy inputs, single-use option, join guide, local auto-pairing and machine-join flow
+remain later stages: this positioning change adds no flag, sign-in implementation or invite mode.
+The current [anonymous bootstrap](#hosted-anonymous-bootstrap), Rules and local terminal ceremony
+remain unchanged. In the stage-3 proposal, local auto-pairing needs no terminal confirmation by
+default; manual `tmt remote pair` stays for advanced cases. The one-time code is carried only on a
+browser's first open and removed from the address bar immediately. Every link tmt prints or the
+owner shares stays the short form with no code.
+
+## Transport binding: `loopback-http`
+
+**Shipped local driver.** The door, threat model, pairing, device grants and signed-message
+rules in this section belong only to this driver; they are not a Firebase authentication layer.
+The common byte primitives may be reused by other codecs without importing local device trust.
+References to cloud operation encryption point to the retained, superseded proposals below,
+not a requirement on shipped Firestore page sharing. No protocol field or local safety gate changes.
+
+The door address is `http://127.0.0.1:<port>/`. Remote operations live under `/r/<16 lowercase
+base32>/`, a stable per-machine prefix that is not a credential; extensions live under its
+`x/<extension>/` subtree. Under the prefix, exactly the four POST operation routes below and that
+subtree exist, and no path reaches both. Only the running remote binds IPv4 loopback by default.
+Require exact numeric Host/bound port, reject forwarded-host authority, ambient bearer
+authentication, duplicate framing headers, queries/fragments, percent escapes/dot segments or extra
+slashes on remote routes. Cookies are admitted only as the door session described under signed
+envelopes. No unauthenticated GET inventory.
+
+| HTTP route        | Message-layer action                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `POST /append`    | One signed request or session.open control envelope; authenticate before durable adoption/core access. |
+| `POST /subscribe` | One signed subscribe control; bounded long-poll, signed response batch/cursor. No SSE.                 |
+| `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
+| `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
+
+The Remote-owned short-entry table forwards exactly `GET /colab`, `GET /colab/`,
+`GET /p/<id>` and `GET /read/<id>` in place to Colab's public mount entry, without a
+Remote redirect. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; query,
+`tmt-session`, extra segments and upgrades refuse. Thread targets and reader capabilities
+stay in browser fragments, never server paths. Navigation permits absent Origin or the
+exact door Origin; cross-origin Origin and cross-site fetch metadata receive generic HTML 403.
+Shared Host/framing admission and mount reply/deadline bounds remain unchanged.
+
+Short entries never resolve a cookie/session, forward device context or trigger object setup.
+Only the existing forwarded-header allowlist reaches Colab, with Remote-computed Host and
+`tmt-mount`. The response is whatever Colab's public entry returns: Remote adds no catalog or
+page lookup, strips `Set-Cookie`, rejects `101`, forces `Cache-Control: no-store` and retains
+its existing Referrer-Policy rule. No unauthenticated GET inventory is added. Unmounted,
+unsafe, missing or unavailable Colab sockets give the generic refusal page with the existing
+mount status, independent of ID existence. The cookie remains scoped to `Path=/r/<prefix>/x/`;
+ordinary mounted APIs/assets/WebSockets and anonymous admission are unchanged. Adding a route
+or extension to the static Remote-owned table requires a contract change; extensions cannot
+register root entries. Colab owns short-ID resolution and the browser's eventual app URL.
+
+Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
+framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
+style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+The landing, pairing, settings and error pages share this policy and embed the shared TMT SVG favicon as data; images cannot make network requests.
+`GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
+`GET /sdk/pair-offer` returns only the current unconfirmed offer's
+`{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
+or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The code remains
+exclusively in the captured fragment. Old `/pair/<descriptor>` paths refuse; no compatibility route
+remains. `GET /` serves a static pairing landing page; malformed pairing-page paths receive generic
+HTML errors with their refusal status. These pages load only the embedded same-origin
+`GET /sdk/pages.css` stylesheet, using the shared design tokens (the same `header` group as Colab's header) and system font
+fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET /sdk/remote-v1.js` serves the device SDK as
+`text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version, not a
+build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
+the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
+identity and the mounted extension that contains `path`, including a valid enabled public short
+entry in the same Remote-owned table, or null. It
+scopes honest use, such as which extension a page certifies keys for, and is not a security
+boundary: mounted extensions share one browser trust domain and only owner-installed extensions
+mount. None of these routes reads the door cookie or grants authority.
+
+Route action and envelope kind/operation must agree. Body is one UTF-8 JSON document, Content-Type
+application/json, one Content-Length, no transfer encoding, at most one request/connection;
+Connection: close. Header/body acquisition times out within five seconds; pairing max 16 KiB,
+headers max 8 KiB. The four POST message-layer routes in the table are suffixes of the remote route prefix. Envelope
+payload bounds come from core capabilities plus a fixed 8 KiB metadata budget; base64 wire bound is
+exactly `4 * ceil(decodedLimit / 3) + 8192`. Subscribe bounds include at most 50
+metadata/notification entries; full core bodies use a separate bounded result request, never an
+unbounded batch. Core subprocess deadline is 15 seconds and advertised output cap is enforced;
+failed write observation is uncertain.
+
+Except for the bounded enrollment form on /pair, unsigned/unknown/revoked/expired requests receive
+HTTP 404 with body `{}` and no machine key/inventory. Edge may verify the same Ed25519 envelope
+before handing it to the message service; its authorization is still rechecked there. Other HTTP
+outcomes only report delivery: 200 for signed response, 202 for adopted request, 400/413 for bounded
+framing, 429 for edge rate refusal and 503 for unconfirmed transport. Never infer logical
+acceptance/failure from HTTP alone.
+
+An add-on's exact HTTP Origin must match the envelope/grant origin. Pending pairing checks the
+proposed origin, then terminal confirmation pins it. A CLI has origin `cli` and no browser Origin.
+Missing/null/additional origin or envelope mismatch cannot silently pass as add-on traffic. Real
+MV3 acceptance must prove the selected fetch context supplies this Origin; change the reviewed
+binding if browser evidence requires it. CORS names only that exact allowed origin,
+methods/headers, no wildcard/credentials. Bounded OPTIONS has no core effect or authority; every
+actual request still requires its proof/signature.
+
+### User path
 
 1. **Start.** `tmt remote start` runs the remote door and the routes of enabled extensions. It does
    not enroll, restart or reconfigure agents, and needs no `--channel` flag or separate MCP setup.
@@ -39,7 +177,7 @@ transaction, so a revoke orders after an in-flight effect. The serve lease is in
 invocation children, so a restart cannot overlap an orphaned effect. Uncertainty or a timeout never
 mints a new operation ID: recovery reads core by the same ID.
 
-## Owners and layers
+### Local message layer and threat model
 
 The message layer owns signed envelopes, correlation, durable append/subscribe/ack semantics,
 sessions, replay, trust grants, optional hold, uncertainty and audit. A binding moves those messages
@@ -82,7 +220,7 @@ that does. Cross-origin web pages cannot read these Origin-gated responses or a 
 stop, revocation or expiry of the last eligible session, never an operation or pairing action;
 state-changing operations still need a fresh device signature.
 
-## Bytes, IDs and the fixed M1 suite
+### Bytes, IDs and the fixed M1 suite
 
 Text is exact UTF-8, without normalization; reject unpaired Unicode surrogates in decoded strings
 rather than replacing characters. `LP(x)` means four-byte unsigned big-endian byte length followed
@@ -121,7 +259,7 @@ Implementation must verify lockfile/platform/MSRV/advisory evidence. There is no
 third-party JS signing library. Node conformance targets Node 24; browser persistence evidence
 still requires actual MV3/IndexedDB tests.
 
-## Device identity
+### Device identity
 
 A device is one key holder: a browser add-on, a browser page origin served by the remote door or a
 deployed backend app, or a `tmt` CLI on another machine. Each device has exactly one Ed25519
@@ -141,7 +279,7 @@ HTTPS origin of a deployed app, or the door's exact loopback origin) and `cli` (
 Signing never occurs in content scripts or in untrusted page content; an extension that renders
 untrusted HTML does so in a sandboxed opaque-origin frame without access to device keys.
 
-## Signed envelopes
+### Signed envelopes
 
 Every paired message, including reads and controls, has this envelope:
 
@@ -335,7 +473,7 @@ Reopening is silent: the page sends another signed `session.open` from its store
 with no owner step or new pairing. The caller reattaches its transport using the new session; no
 send is retried.
 
-## Durable log: append, subscribe and ack
+### Durable log: append, subscribe and ack
 
 Each paired client sees one machine-owned ordered stream of its admitted effect receipts and
 correlated state notifications. Another client's IDs/cursors disclose nothing. The log is a remote
@@ -407,7 +545,7 @@ that asks core for that operation ID before it creates anything. After this reco
 once dropped, an owned read returns REMOTE_STATE_UNAVAILABLE, never permission to resend.
 Revoked/expired grants cannot use these records to regain access.
 
-## Pairing
+### Pairing
 
 Pairing is the one-time authorization of a device as a trusted source. Only local
 `tmt remote pair` opens an offer on a running remote. A client cannot initiate or extend pairing.
@@ -484,7 +622,7 @@ failure only.
 Lost key, changed add-on origin, revocation or expiry requires pairing again. No P-256 downgrade,
 export-based backup, automatic key replacement, passkey renewal or remote grant extension.
 
-## Trust grants and remote lifecycle
+### Trust grants and remote lifecycle
 
 A grant makes one device a trusted source on one machine. Grant JSON names are `clientId`,
 `machineId`, `profile`, `publicKey`, `kind`, `origin`, `name`, `agents`, `scopes`, `mode`,
@@ -546,7 +684,7 @@ work is not undone; report it accurately. Restart issues a new window and sessio
 grants survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its
 original operation, never becomes falsely unsent.
 
-### Remote settings browser authority
+#### Remote settings browser authority
 
 **[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation: native/SDK and the shared-presentation settings page.** This section owns authority; the fixed management protocol
 below specifies the native/SDK implementation. The local CLI remains the scripting management path.
@@ -612,7 +750,7 @@ obey the lifecycle and effect fence above. The actual settings/device page separ
 product native/browser acceptance, UX review and publication evidence; a shared presentation
 package or current-page adoption cannot satisfy those requirements.
 
-### Remote management protocol
+#### Remote management protocol
 
 The #1769 implementation adds the following fixed operations on the existing signed
 `POST /append` request channel. The settings/device page uses the shared browser presentation and Remote host metrics;
@@ -754,7 +892,7 @@ retain existing refusal semantics. Designation loss with a still-live grant perm
 own-receipt reading. No historical/revoked-key admission, capture-based capability, new nonce
 framework, agent/held-work recovery exception or general recovery route exists.
 
-### Remote settings page
+#### Remote settings page
 
 `GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
 origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
@@ -808,7 +946,7 @@ A one-shot refusal against the unchanged trusted descriptor shows current access
 neither the original mutation committed nor permanent grant loss. No captured key is persisted as
 a recovery capability. No-argument reopen behavior and ordinary agent operations stay unchanged.
 
-### Browser entry
+#### Browser entry
 
 Human `serve` output links to the same-origin `/` browser entry. JSON readiness, status and SDK
 `address` retain the protocol `/r/<prefix>` base; navigating there still gets the generic refusal.
@@ -836,7 +974,7 @@ request. Details contains the short machine ID, viewer-local checked time, proto
 trust pin and pairing-versus-administration note. Owner pairing retains fragment erasure,
 fingerprint comparison and terminal confirmation.
 
-### Local CLI discovery
+#### Local CLI discovery
 
 Local extensions such as Colab discover or supervise Remote through these public CLI JSON
 interfaces, never by reading Remote's private state. Discovery does not pair devices or grant
@@ -1044,7 +1182,7 @@ in the foreground. The supervisor stops only the child it started; attaching thr
 give it ownership of an existing serve. Pairing remains explicit through `tmt remote pair`, and the
 existing owner-only mount socket and grant rules apply to both attach and supervised-start use.
 
-## Operations
+### Operations
 
 Payloads for core API operations are the existing API envelope, decoded without rewriting input.
 Remote narrows supported operations/authority before core calls.
@@ -1156,7 +1294,7 @@ caller reopens and then observes the original ID. Session-ended refusals
 also require a caller-owned reopen; reopening adds a session and leaves other live tunnels intact. No implicit
 send from recovery, automatic dispatch retry or replacement operation ID is permitted.
 
-## Dispatch, hold and uncertainty
+### Dispatch, hold and uncertainty
 
 A new talk freezes one remote request/core operation UUID, permitted agent UUID and exact final
 message before append. SDK persists them first. No edit under an existing operation ID.
@@ -1199,7 +1337,7 @@ Signed response payloads discriminate `{state:"held",operationId}`,
 public core observation; never assert why a body is unavailable without evidence. Optional reason is
 a sanitized string of at most 256 UTF-8 bytes; never expose raw process output.
 
-## Browser use and audit
+### Browser use and audit
 
 The trusted UI that sends (the add-on shell, or an extension's trusted parent chrome on the door)
 owns recipient selection, final message formatting and exact preview. It shows all characters, with
@@ -1258,15 +1396,89 @@ above. Unsupported operation/profile/binding is REMOTE_INPUT_INVALID. Preserve p
 resource/errors, not a conflicting exchange engine. Pre-auth rejection is generic and cannot
 authorize retries or reveal grants.
 
+### Provisioning on start and pair
+
+`tmt remote start` mounts every enabled extension and prepares its relay namespaces and owner-machine
+bridge, and pairing a device makes it known to every mounted extension through the device context.
+No extension adds its own sign-in, pairing, bridge enrollment or machine grant step. An extension
+asks for an extension key certificate silently on first use.
+
+### Current implementation and migration
+
+Implemented today: a loopback door with human background startup and foreground JSON compatibility,
+pure `local-v1` canonical envelope framing,
+`tmt-device-pair-v1` enrollment and possession builders, pairing-code text decoding, four-word
+fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt`, SHA-256
+`2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`, committed as
+`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`), strict Ed25519/HMAC
+verification and `K_response`/`serverProof` derivation in Rust, and the matching TypeScript
+builders. Their fixtures
+are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
+removed and envelope bytes are unchanged. The pairing ceremony is implemented through
+`tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
+grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
+mount-space cookie and the device context it carries to mounts) and `tmt remote devices` list and
+revoke are implemented (#1039). Local rename and level-triggered device events over mounted
+extension sockets are implemented (#1100). The device SDK in `remote-client` (non-extractable WebCrypto device
+key, pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
+certification) and the Rust and Python certificate vectors are implemented, as are the remote-served
+pairing page, `/sdk/remote-v1.js` and `/sdk/mount` (#1039).
+
+Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
+local door, device sign-in and relay where it meets this contract, rather than being rewritten. The
+relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (#1039), with only
+colab allowlisted. Colab serves only its owner-only socket and has no door of its own; an owner
+session's device context reaches it through the mount (#1039).
+
+Core recognizes Remote through the shared native installer. Installation does
+not start `serve`, pair a device, grant operation authority or change
+`<dataRoot>/remote/` state. Archive publication remains separately gated.
+
+### Conformance and acceptance
+
+Later fixtures pin canonical envelope/enrollment bytes and SHA-256 digests, Ed25519 public/signature
+encodings, full MACs, four-word indexes/list digest, extension key certificates, stream cursors and
+expected refusals with source/version provenance. Consume independent
+[RFC 8032](https://www.rfc-editor.org/rfc/rfc8032#section-7.1) and
+[RFC 4231](https://www.rfc-editor.org/rfc/rfc4231#section-4) vectors. Use a third implementation to
+establish application canonical-byte expectations, never the product itself. Native/browser build
+canonical bytes independently; Chrome non-extractable key signs → Rust verifies and fixture-native
+key signs → Chrome verifies. Compare exact deterministic signatures/MACs too.
+
+Use valid positive controls and single-condition negatives: changed logical op/
+payload/audience/origin/time/sequence, changed decoded-payload whitespace, wrong/weak/noncanonical
+key, out-of-range scalar, malformed base64url/lengths, bad MAC/challenge, three attempts, no
+terminal confirmation, expired or revoked grant, stop, cross-device IDs/cursors and altered retry
+intent. A `direct` grant reaches core exactly once per operation ID; a `hold` grant has no core
+mutation or pane input before approval; an allowlisted grant refuses other agents; a grant with a
+time limit refuses after it and one without never expires on its own. Delivery to an enrolled pane
+is covered by core's no-paste tests, not re-implemented here. Test duplicate append, subscription
+catch-up/reconnect, ack idempotency/isolation, cursor expiry/capacity, concurrent revoke/dispatch,
+crash before/after core acceptance, no repeated wake and no automatic new ID. Extension tests cover
+route isolation by prefix, device-context forwarding, admission-hook refusal before durable relay
+state, revocation closing live subscriptions and a non-owner principal refused every operation.
+
+Real MV3 Chrome 137 and current stable prove generate/store/reload/sign across worker suspension,
+private export/wrap denial, public export, exact Origin, no-gesture/page-message refusal, exact
+preview and inert/empty final rendering. Shell stubs are UI evidence only, not crypto/server
+acceptance. Isolated real core/remote binaries, HOME/XDG/keys/browser profile, private tmux and
+deterministic mock agents prove the integrated flow. Docker uses network none/internal loopback; no
+host CLI fallback, real model/account/relay/credentials. Forced exit/timeout/assertion failure must
+stop/reap listener/child/tmux/socket/buffers; run lifecycle acceptance twice and retain evidence on
+cleanup failure.
+
 ## Extension channel API
 
-Remote offers extensions five parts. Each is consumed through remote; an extension never
-reimplements one.
+Remote offers extensions the five services below, distinct from the
+[host-driver authentication obligations](#host-driver-authentication). Device context, certificates,
+events and mounting describe the local driver. Shipped Firestore uses its Auth/Rules gate and
+[sealed-document client](#extension-scoped-sealed-document-client), not a paired-device wrapper.
+Each service is consumed through Remote; an extension never reimplements one.
 
 **Device context.** A request, upgrade or relay frame from a paired owner device reaches the
 extension with the authenticated device context `{deviceId, kind, origin, name, publicKey,
 owner:true, grantRevision}`, where `publicKey` is the grant's raw 32-byte Ed25519 device key as
-canonical unpadded base64url, the only form remote forwards. A cloud edge attributes a non-owner
+canonical unpadded base64url, the only form remote forwards. The historical cloud-relay proposal attributes a non-owner
 principal it authenticated for that extension as `{principal, owner:false}`; on the local door a
 non-owner request arrives without a device context and the extension authenticates it (below).
 Extensions learn the current principal from the forwarded device context on each request
@@ -1370,7 +1582,12 @@ receipt), subscribe from a scoped opaque cursor with bounded catch-up paging, ac
 checkpoint only, an object store keyed by object ID with chunked transfer, and an ephemeral
 awareness lane that is never stored. On the `local` backend an extension may instead serve its own
 relay namespaces behind its mounted WebSocket; remote then only splices bytes and the extension
-keeps admission. The remote-run relay applies to cloud backends. Before accepting an append, subscription, object transfer or
+keeps admission.
+
+**Superseded cloud-relay proposal, not the shipped Firestore path.** The Remote-run relay and
+synchronous admission-hook model below are retained for its bounds and no-effect guarantees;
+its extra authentication gate is superseded by [one gate per driver](#host-driver-authentication).
+The remote-run relay proposal applies to cloud backends. Before accepting an append, subscription, object transfer or
 awareness frame, remote calls the extension's synchronous admission hook with the device context
 and frame metadata; the extension decides membership, role, epoch and writer checks. Revocation terminates live subscriptions. Remote
 enforces per-object size caps and per-namespace quotas and expiry declared by the extension. Relay
@@ -1387,10 +1604,10 @@ sync are implemented. Extensions use the single [backend declaration contract](#
 and [authorized deploy](#authorized-deploy). The proposed cloud agent operation resources are separate;
 page sharing does not activate them.
 
-Principals stay separate. Owner devices are paired through remote and are the only principals that
-can call operations. People an extension shares with (page members, link holders) are never paired
-by remote. On a cloud backend the edge and the extension's admission fragments authenticate them. On
-the local door, a mounted-route request without an owner-device session is forwarded to the
+Principals stay separate. Local owner devices are paired through Remote and are the only principals that
+can call local operations. People an extension shares with (page members, link holders) are never paired
+by remote. On shipped Firestore, Firebase Auth and deployed extension Rules authenticate/authorize them;
+Remote adds no device proof or admission hook in front of that gate. On the local door, a mounted-route request without an owner-device session is forwarded to the
 extension without a device context; the extension authenticates it itself (for example by link-key
 possession or a member device signature) and attributes it as `{principal, owner:false}`. Either
 way they reach only the routes and relay namespaces the extension admits, never the remote
@@ -1632,12 +1849,13 @@ an origin is `established` or `closed`.
 
 ## Backends and deploy
 
-The message, relay and admission owners are shared across the backend model. The `local` door and extension
+Message framing, authentication and admission are scoped to their host driver. The `local` door and extension
 stores are implemented, as are Firestore extension declarations, deployment and sealed-document
 sync for Colab page sharing. The cloud **agent operation** bindings, admission service, operation
 encryption and conformance profile below remain **proposals, not implemented**. Their specification
-never enables agent access; the [cloud operation gates](#proposal-cloud-conformance) must pass first.
-Cloudflare remains proposed. Extension/page authority never substitutes for a paired operation grant.
+never enables agent access; the [historical conformance material](#proposal-cloud-conformance) is retained
+under the [superseded-authentication note](#superseded-cloud-authentication-proposal), not a shipped Firestore gate.
+Cloudflare remains proposed. Extension/page authority never substitutes for a local paired operation grant.
 
 | Backend      | Mapping                                                                                                                                                                             |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1645,7 +1863,19 @@ Cloudflare remains proposed. Extension/page authority never substitutes for a pa
 | `firestore`  | **Shipped:** extension-scoped sealed-document sync for Colab page sharing. **Proposed agent operations:** encrypted inboxes, owner-machine responses and device-scoped checkpoints. |
 | `cloudflare` | **Proposal:** Worker admission before per-machine Durable Object storage; per-namespace relay objects; bounded WebSocket delivery and device-scoped checkpoints.                    |
 
+### Superseded cloud authentication proposal
+
+The shared cloud admission, Firestore admission service, Cloudflare device proof, operation
+encryption and cloud-conformance sections below retain historical proposal material. Their
+paired-device projection, custom-token challenge and stacked envelope checks are superseded
+by [one gate per host driver](#host-driver-authentication), not shipped Firestore authentication.
+Do not implement them as an extra gate. Retained bounds, integrity, uncertainty and no-effect
+requirements are not permission to enable cloud agent operations. Shipped layer-1 composition,
+deployment and sealed-document transport below are unaffected.
+
 ### Proposal: shared cloud admission
+
+**Authentication superseded:** see the [historical proposal status](#superseded-cloud-authentication-proposal).
 
 A deployment has a stable Remote-generated UUID and separate operation and extension namespace
 roots. Only paired owner devices reach the operation root. Non-owner extension principals reach
@@ -1686,6 +1916,8 @@ backends preserves logical IDs and exact intent, never creates a new operation. 
 compares the decrypted logical operation and exact payload bytes, not randomized ciphertext.
 
 ### Proposal: Firestore Auth and Rules
+
+**Authentication superseded:** see the [historical proposal status](#superseded-cloud-authentication-proposal).
 
 Remote deploys an HTTPS admission service, Firebase Auth and default-deny Firestore Rules. A paired
 device obtains a Remote-scoped custom token through a possession challenge, then uses Firebase Auth
@@ -1733,7 +1965,10 @@ credential reaches a client. The deploy plan accounts for required service acces
 claiming Rules protect privileged code. A refresh failure stops transport; reconnect recovers
 owned state through a fresh signed session, without resending work.
 
-**Layer-1 composition (`sharing` profile).** Remote builds `firestore.rules` from text it owns (`rules_version`, one
+### Shipped: layer-1 composition
+
+The composition below is shipped and is not part of the superseded admission-service proposal.
+In the `sharing` profile, Remote builds `firestore.rules` from text it owns (`rules_version`, one
 `match /x/<extension>` wrapper per extension of the plan, a default deny) and each extension's admission fragment, which
 it tokenizes and rebuilds, never splices. A fragment holds only nested `match` and `allow <methods>: if <condition>`
 statements over an allow-list of request and document fields, operators and methods. Field/index
@@ -1758,6 +1993,8 @@ Either more than 200 single-field configurations or more than 200 composites wit
 
 ### Proposal: Cloudflare Worker and Durable Objects
 
+**Authentication superseded:** see the [historical proposal status](#superseded-cloud-authentication-proposal).
+
 Only the Worker is publicly reachable. It checks exact route/framing, byte and rate bounds,
 browser Origin (absent for `cli`), live admission projection and the device signature over the
 carrier before forwarding. Unknown, unsigned, expired or revoked operation traffic receives the
@@ -1779,6 +2016,8 @@ awareness before relay effects; an unavailable hook refuses. A shared-page user 
 operation object through relay credentials, a namespace alias or a Worker fragment.
 
 ### Proposal: end-to-end operation encryption
+
+**Authentication superseded:** see the [historical proposal status](#superseded-cloud-authentication-proposal).
 
 The fixed carrier profile is `cloud-hpke-v1`, using
 [RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html) base mode: DHKEM(P-256, HKDF-SHA256)
@@ -2090,7 +2329,7 @@ space admission nor operations authority. Colab owns its admission protocol.
 One Firebase App/Auth is shared by owners of the same verified public configuration. V1
 supports anonymous sign-in only, initialized without a popup/redirect resolver; no GAPI or
 Auth iframe is required. An anonymous uid persists per browser origin/profile; clearing site
-data requires pairing/admission again. Bootstrap and Auth observation are bounded to ten
+data requires Firebase sign-in and extension admission again, not local pairing. Bootstrap and Auth observation are bounded to ten
 seconds. Closing releases that owner and suppresses late identity publication; the last owner
 closes the app. Explicit sign-out affects the shared identity. Provider-disabled and rate
 refusals use Remote's typed vocabulary, not a machine-signed local-session receipt or proof
@@ -2316,7 +2555,8 @@ failure is `REMOTE_STATE_UNAVAILABLE` with state `expired`, `sign-in-needed`, `u
 The port defines neither credential storage nor refresh policy. Browser implementation shares
 one bootstrap App/Auth, refuses binding before anonymous sign-in, and rechecks token aud/project,
 sub/uid, anonymous provider and expiry before I/O. Sign-out/close invalidate its bound clients;
-no implicit sign-in replaces an admitted uid. Clearing site data requires pairing again.
+no implicit sign-in replaces an admitted uid. Clearing site data requires fresh Firebase sign-in
+and extension admission, not local pairing.
 
 Browser document data uses fixed-project default-database REST get/runQuery/single-write commit,
 with redirects refused and no mutation retry or offline queue. An acknowledged create collision
@@ -2500,6 +2740,7 @@ Rules/Worker changes, quotas/expiry/index policy and destructive changes. The ow
 authorizes that plan for that target account at deploy time. Existing pairing, start, account login
 or extension installation is not authorization to create or change real account resources.
 
+**Historical cloud-operation provisioning profile:** its [stacked authentication is superseded](#superseded-cloud-authentication-proposal).
 Firestore provisions the admission/token service and its scoped service role, Auth configuration,
 operation admission/permit/inbox/outbox/checkpoint collections, composed Rules, indexes/TTL and only
 declared extension/blob resources. Cloudflare provisions the Worker, per-machine and declared
@@ -2770,6 +3011,8 @@ answer to a request that cannot have changed anything is a refusal with the rese
 
 ### Proposal: cloud conformance
 
+**Authentication superseded:** see the [historical proposal status](#superseded-cloud-authentication-proposal).
+
 Before cloud agent operation implementation acceptance, independent HPKE and application byte vectors plus
 browser/native interoperability must cover key descriptors, header/AAD/digest binding, strict
 point/base64/signature refusal, response-key derivation and nonce reuse prevention. Mutating one
@@ -2784,158 +3027,3 @@ edge that admits a locally revoked device: the machine still performs no effect.
 retains the same operation ID and exact intent. Declaration collisions/privilege expansion and
 unapproved or partly failed deploy plans publish no new usable binding. These are proposed gates,
 not evidence of implemented cloud agent operations; shipped extension page sync does not satisfy them.
-
-## Provisioning on start and pair
-
-`tmt remote start` mounts every enabled extension and prepares its relay namespaces and owner-machine
-bridge, and pairing a device makes it known to every mounted extension through the device context.
-No extension adds its own sign-in, pairing, bridge enrollment or machine grant step. An extension
-asks for an extension key certificate silently on first use.
-
-## Transport binding: `loopback-http`
-
-The door address is `http://127.0.0.1:<port>/`. Remote operations live under `/r/<16 lowercase
-base32>/`, a stable per-machine prefix that is not a credential; extensions live under its
-`x/<extension>/` subtree. Under the prefix, exactly the four POST operation routes below and that
-subtree exist, and no path reaches both. Only the running remote binds IPv4 loopback by default.
-Require exact numeric Host/bound port, reject forwarded-host authority, ambient bearer
-authentication, duplicate framing headers, queries/fragments, percent escapes/dot segments or extra
-slashes on remote routes. Cookies are admitted only as the door session described under signed
-envelopes. No unauthenticated GET inventory.
-
-| HTTP route        | Message-layer action                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------ |
-| `POST /append`    | One signed request or session.open control envelope; authenticate before durable adoption/core access. |
-| `POST /subscribe` | One signed subscribe control; bounded long-poll, signed response batch/cursor. No SSE.                 |
-| `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
-| `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
-
-The Remote-owned short-entry table forwards exactly `GET /colab`, `GET /colab/`,
-`GET /p/<id>` and `GET /read/<id>` in place to Colab's public mount entry, without a
-Remote redirect. IDs contain exactly 4–64 ASCII `[0-9A-Za-z_-]` characters; query,
-`tmt-session`, extra segments and upgrades refuse. Thread targets and reader capabilities
-stay in browser fragments, never server paths. Navigation permits absent Origin or the
-exact door Origin; cross-origin Origin and cross-site fetch metadata receive generic HTML 403.
-Shared Host/framing admission and mount reply/deadline bounds remain unchanged.
-
-Short entries never resolve a cookie/session, forward device context or trigger object setup.
-Only the existing forwarded-header allowlist reaches Colab, with Remote-computed Host and
-`tmt-mount`. The response is whatever Colab's public entry returns: Remote adds no catalog or
-page lookup, strips `Set-Cookie`, rejects `101`, forces `Cache-Control: no-store` and retains
-its existing Referrer-Policy rule. No unauthenticated GET inventory is added. Unmounted,
-unsafe, missing or unavailable Colab sockets give the generic refusal page with the existing
-mount status, independent of ID existence. The cookie remains scoped to `Path=/r/<prefix>/x/`;
-ordinary mounted APIs/assets/WebSockets and anonymous admission are unchanged. Adding a route
-or extension to the static Remote-owned table requires a contract change; extensions cannot
-register root entries. Colab owns short-ID resolution and the browser's eventual app URL.
-
-Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
-framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
-style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
-The landing, pairing, settings and error pages share this policy and embed the shared TMT SVG favicon as data; images cannot make network requests.
-`GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
-`GET /sdk/pair-offer` returns only the current unconfirmed offer's
-`{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
-or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The code remains
-exclusively in the captured fragment. Old `/pair/<descriptor>` paths refuse; no compatibility route
-remains. `GET /` serves a static pairing landing page; malformed pairing-page paths receive generic
-HTML errors with their refusal status. These pages load only the embedded same-origin
-`GET /sdk/pages.css` stylesheet, using the shared design tokens (the same `header` group as Colab's header) and system font
-fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET /sdk/remote-v1.js` serves the device SDK as
-`text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version, not a
-build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
-the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
-identity and the mounted extension that contains `path`, including a valid enabled public short
-entry in the same Remote-owned table, or null. It
-scopes honest use, such as which extension a page certifies keys for, and is not a security
-boundary: mounted extensions share one browser trust domain and only owner-installed extensions
-mount. None of these routes reads the door cookie or grants authority.
-
-Route action and envelope kind/operation must agree. Body is one UTF-8 JSON document, Content-Type
-application/json, one Content-Length, no transfer encoding, at most one request/connection;
-Connection: close. Header/body acquisition times out within five seconds; pairing max 16 KiB,
-headers max 8 KiB. The four POST message-layer routes in the table are suffixes of the remote route prefix. Envelope
-payload bounds come from core capabilities plus a fixed 8 KiB metadata budget; base64 wire bound is
-exactly `4 * ceil(decodedLimit / 3) + 8192`. Subscribe bounds include at most 50
-metadata/notification entries; full core bodies use a separate bounded result request, never an
-unbounded batch. Core subprocess deadline is 15 seconds and advertised output cap is enforced;
-failed write observation is uncertain.
-
-Except for the bounded enrollment form on /pair, unsigned/unknown/revoked/expired requests receive
-HTTP 404 with body `{}` and no machine key/inventory. Edge may verify the same Ed25519 envelope
-before handing it to the message service; its authorization is still rechecked there. Other HTTP
-outcomes only report delivery: 200 for signed response, 202 for adopted request, 400/413 for bounded
-framing, 429 for edge rate refusal and 503 for unconfirmed transport. Never infer logical
-acceptance/failure from HTTP alone.
-
-An add-on's exact HTTP Origin must match the envelope/grant origin. Pending pairing checks the
-proposed origin, then terminal confirmation pins it. A CLI has origin `cli` and no browser Origin.
-Missing/null/additional origin or envelope mismatch cannot silently pass as add-on traffic. Real
-MV3 acceptance must prove the selected fetch context supplies this Origin; change the reviewed
-binding if browser evidence requires it. CORS names only that exact allowed origin,
-methods/headers, no wildcard/credentials. Bounded OPTIONS has no core effect or authority; every
-actual request still requires its proof/signature.
-
-## Current implementation and migration
-
-Implemented today: a loopback door with human background startup and foreground JSON compatibility,
-pure `local-v1` canonical envelope framing,
-`tmt-device-pair-v1` enrollment and possession builders, pairing-code text decoding, four-word
-fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt`, SHA-256
-`2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`, committed as
-`extensions/tmt-remote/rust/tmt-remote/assets/bip39-english.txt`), strict Ed25519/HMAC
-verification and `K_response`/`serverProof` derivation in Rust, and the matching TypeScript
-builders. Their fixtures
-are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
-removed and envelope bytes are unchanged. The pairing ceremony is implemented through
-`tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
-grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
-mount-space cookie and the device context it carries to mounts) and `tmt remote devices` list and
-revoke are implemented (#1039). Local rename and level-triggered device events over mounted
-extension sockets are implemented (#1100). The device SDK in `remote-client` (non-extractable WebCrypto device
-key, pairing client with `serverProof` verification, `session.open` client and `tmt-ext-cert-v1`
-certification) and the Rust and Python certificate vectors are implemented, as are the remote-served
-pairing page, `/sdk/remote-v1.js` and `/sdk/mount` (#1039).
-
-Colab's working loopback door, sign-in and sync transport code relocates into `tmt-remote` as the
-local door, device sign-in and relay where it meets this contract, rather than being rewritten. The
-relocated door and `/r/<prefix>/x/<extension>/` route mounting are implemented (#1039), with only
-colab allowlisted. Colab serves only its owner-only socket and has no door of its own; an owner
-session's device context reaches it through the mount (#1039).
-
-Core recognizes Remote through the shared native installer. Installation does
-not start `serve`, pair a device, grant operation authority or change
-`<dataRoot>/remote/` state. Archive publication remains separately gated.
-
-## Conformance and acceptance
-
-Later fixtures pin canonical envelope/enrollment bytes and SHA-256 digests, Ed25519 public/signature
-encodings, full MACs, four-word indexes/list digest, extension key certificates, stream cursors and
-expected refusals with source/version provenance. Consume independent
-[RFC 8032](https://www.rfc-editor.org/rfc/rfc8032#section-7.1) and
-[RFC 4231](https://www.rfc-editor.org/rfc/rfc4231#section-4) vectors. Use a third implementation to
-establish application canonical-byte expectations, never the product itself. Native/browser build
-canonical bytes independently; Chrome non-extractable key signs → Rust verifies and fixture-native
-key signs → Chrome verifies. Compare exact deterministic signatures/MACs too.
-
-Use valid positive controls and single-condition negatives: changed logical op/
-payload/audience/origin/time/sequence, changed decoded-payload whitespace, wrong/weak/noncanonical
-key, out-of-range scalar, malformed base64url/lengths, bad MAC/challenge, three attempts, no
-terminal confirmation, expired or revoked grant, stop, cross-device IDs/cursors and altered retry
-intent. A `direct` grant reaches core exactly once per operation ID; a `hold` grant has no core
-mutation or pane input before approval; an allowlisted grant refuses other agents; a grant with a
-time limit refuses after it and one without never expires on its own. Delivery to an enrolled pane
-is covered by core's no-paste tests, not re-implemented here. Test duplicate append, subscription
-catch-up/reconnect, ack idempotency/isolation, cursor expiry/capacity, concurrent revoke/dispatch,
-crash before/after core acceptance, no repeated wake and no automatic new ID. Extension tests cover
-route isolation by prefix, device-context forwarding, admission-hook refusal before durable relay
-state, revocation closing live subscriptions and a non-owner principal refused every operation.
-
-Real MV3 Chrome 137 and current stable prove generate/store/reload/sign across worker suspension,
-private export/wrap denial, public export, exact Origin, no-gesture/page-message refusal, exact
-preview and inert/empty final rendering. Shell stubs are UI evidence only, not crypto/server
-acceptance. Isolated real core/remote binaries, HOME/XDG/keys/browser profile, private tmux and
-deterministic mock agents prove the integrated flow. Docker uses network none/internal loopback; no
-host CLI fallback, real model/account/relay/credentials. Forced exit/timeout/assertion failure must
-stop/reap listener/child/tmux/socket/buffers; run lifecycle acceptance twice and retain evidence on
-cleanup failure.

@@ -4,7 +4,8 @@ Follow [tmt-dev](../../tmt-dev/SKILL.md), the
 [Remote architecture](../../../../ARCHITECTURE.md#remote-extension-pilot) and
 [channel contract](../../../../contracts/remote-channel-v1.md). The
 [SDK README](../../../../extensions/tmt-remote/typescript/remote-client/README.md)
-owns caller-facing usage. Inspect the SDK and Rust operation shapes together.
+owns caller-facing usage. Local paired operations and hosted Firebase Auth are distinct
+[driver paths](../../../../contracts/remote-channel-v1.md#host-driver-authentication); inspect SDK/Rust shapes together.
 
 From `typescript/`, run the package gates with pinned pnpm:
 
@@ -80,8 +81,8 @@ imports, grpc-js and undici. Before loading Auth, `projectId`, `appId` and `auth
 equal same-origin `/__/firebase/init.json`. A hosted page that calls `connect` must allow
 identitytoolkit.googleapis.com and securetoken.googleapis.com in `connect-src`, plus
 firestore.googleapis.com for sealed-document transport. Colab owns the hosted shell policy.
-`firebaseRemote.originLink()` derives its public pair link from that same origin; `connect`
-retains every verification check. The local path never imports Firebase implicitly.
+`firebaseRemote.originLink()` derives its public configuration link from that same origin; `/pair`
+in that Firebase URL is not the local pairing ceremony. `connect` retains every verification check. The local path never imports Firebase implicitly.
 
 ## Sealed-document types
 
