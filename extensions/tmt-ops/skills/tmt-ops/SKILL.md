@@ -215,7 +215,9 @@ last saved view; different names keep independent destination, UUID selection,
 expanded squads, Overview/Agents sort and filters, committed search and pane scroll.
 Only nondefault names appear in the header: `OPS / UI · popup`. Global attention
 counts take priority: the layer name shortens with an ellipsis and disappears
-when there is no room.
+when there is no room. The shared top bar also shows held provider limits and
+selected-member context; see the [TUI guide](../../../../design/tui-board.md#frame-and-view-composition)
+for fitting and unknown-value rules.
 
 `tmt ops ui --view popup --reset-view` clears that layer before opening cold.
 Reset requires an interactive terminal and cannot be combined with `--reload-all`;

@@ -1002,8 +1002,23 @@ fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() 
         app.shell.tab = crate::board::shell::OpsTab::Agents;
         draw(&app, 160, 36);
         assert!(
+            app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|surface| matches!(surface, super::ClockSurface::TopBar { .. }))
+        );
+        assert!(
+            !app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. }))
+        );
+        app.frame_clocks
+            .borrow_mut()
+            .retain(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. }));
+        assert!(
             time_marks(&app, NOW).is_empty(),
-            "quota clock belongs to Overview"
+            "body quota clock belongs to Overview; compact top-bar limits are shared"
         );
     });
 }

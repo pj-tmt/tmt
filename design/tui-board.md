@@ -121,6 +121,10 @@ and provider limits. Agents owns the squad workspace and selected conversation;
 Digest keeps the same exact identity context and Core policy controls. A section
 label never creates membership or a send audience. Agents/Digest use the selected
 squad's appearance; Overview uses the shared board appearance.
+The shared top bar projects held provider limits (`5h`/`7d`) and the selected
+member's observed live context; unknown usage is omitted. Known context windows
+use Waiting at 80% or more. At narrow widths weekly values, count words, the
+context window and `OPS / UI` yield in that order, as whole segments.
 
 The dense tree keeps virtual Common pool first, then pinned squads and current
 sort order. Common pool means zero Ops squad memberships, proven by complete
