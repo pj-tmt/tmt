@@ -590,10 +590,7 @@ recipient for a hidden, removed or unknown target.
 Conversation Markdown includes filled, unwrapped code blocks, muted quote gutters
 and boxed tables (literal source when the grid is too wide). Links and member
 references use neutral underlined text; GitHub issue URLs shorten to
-`owner/repo#N`. Long bodies show 11 rows plus an expand control; the newest reply
-starts expanded. Click a control, or use Tab in the read pane to focus a visible
-control and Enter to toggle it; Esc releases control focus. These are session-only
-presentation choices and never send or change the retained source.
+`owner/repo#N`. Conversation bodies always render in full; the pane scrolls.
 
 Default Enter focuses Talk for the selected agent through the shared conversation
 composer; clicking it also focuses. The composer stays visible while idle and

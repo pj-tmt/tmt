@@ -301,7 +301,7 @@ fn capture_settled_reply_packet() {
 }
 
 #[test]
-fn stored_finals_fold_independently_and_keep_their_source_after_wrapping_and_resize() {
+fn stored_finals_render_in_full_and_keep_their_source_after_wrapping_and_resize() {
     let mut app = workspace_fixture();
     let agent = crate::board::app::workspace::tests::MEMBER;
     let long = (0..24).map(|n| format!("older final line {n:02} with a wrapping tail that remains exact across terminal widths")).collect::<Vec<_>>().join("\n");
@@ -316,28 +316,23 @@ fn stored_finals_fold_independently_and_keep_their_source_after_wrapping_and_res
         let rendered = session.rendered.as_ref().unwrap();
         let lines: Vec<_> = rendered.mapped.lines.iter().map(Line::to_string).collect();
         assert!(
-            lines.iter().any(|line| line.contains("more lines")),
-            "older final folds: {lines:#?}"
+            !lines.iter().any(|line| line.contains("more lines")),
+            "no final folds: {lines:#?}"
         );
         assert!(
-            !lines
+            lines
                 .iter()
-                .any(|line| line.contains("older final line 23"))
+                .any(|line| line.contains("older final line 23")),
+            "the older final renders every line: {lines:#?}"
         );
         let newest = lines
             .iter()
             .position(|line| line.contains("newest final 19"))
-            .expect("newest final starts expanded");
+            .expect("newest final renders in full");
         assert_eq!(
             session.response_key_at(newest).unwrap().0.request,
             "long-newest"
         );
-        for row in rendered.fold_controls.keys() {
-            assert!(
-                session.response_key_at(*row).is_none(),
-                "a fold control has no source authority"
-            );
-        }
         let older = lines
             .iter()
             .position(|line| line.contains("older final line 00"))
@@ -370,12 +365,12 @@ fn stored_finals_fold_independently_and_keep_their_source_after_wrapping_and_res
             .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect();
         let headers: Vec<_> = rows.iter().filter(|row| row.contains("worker →")).collect();
-        assert_eq!(headers.len(), 2);
+        assert!(!headers.is_empty());
         assert!(
             headers
                 .iter()
                 .all(|row| row.trim_start().starts_with("worker →")),
-            "folding must not turn a message header into body text: {headers:?}"
+            "a long body must not turn a message header into body text: {headers:?}"
         );
         let row = rows
             .iter()
@@ -384,7 +379,7 @@ fn stored_finals_fold_independently_and_keep_their_source_after_wrapping_and_res
         let at = row.find("newest final 19").unwrap();
         assert!(
             row[..at].trim_end().ends_with('│'),
-            "folded row keeps the final body gutter: {row}"
+            "a final body row keeps the body gutter: {row}"
         );
     }
 }
