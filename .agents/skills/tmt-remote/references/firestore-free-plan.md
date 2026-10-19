@@ -69,18 +69,11 @@ Pacific reset.
 
 ## Recorded readiness
 
-Running `tmt remote status --layers` reads the private deployment record once without the
-writer lock or a provider call. It reports recorded project/sign-in/Rules/index outcomes; a partial
-Rules attempt withdraws the old usable binding. Missing/draft records have no evidence,
-while damaged records report unknown and are never reset. The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery)
-owns index states, precedence and fixed copy. A pre-#3008 Complete record has unknown index readiness until
-the next authorized deploy records the required composites; no conversion occurs on read. After a building
-observation, wait a few minutes before rerunning deploy to refresh it; status cannot refresh provider evidence.
-The same contract defines tier/quota as satisfied requirements: sharing needs no paid plan and its
-browser/native paths require the shipped own-modeled-share guard. Complete plus verified factual
-prerequisites reads sharing enabled with the limits note, without claiming observed billing or
-project-wide headroom. Guard exhaustion or unavailability is a use-time refusal, not a status probe.
-The deployed-artifact emulator fixture proves Rules admission only, not Firebase provisioning or capacity.
+The [status-layer contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) owns record projection,
+index/legacy/partial states and requirement satisfaction by the shipped guard, not observed
+billing or headroom. The [owner runbook](firestore-owner-runbook.md#4-check-the-recorded-result)
+owns inspection commands; status never refreshes provider evidence. The deployed-artifact
+emulator fixture proves Rules admission only, not provisioning or capacity.
 
 ## Provider deployment
 

@@ -94,9 +94,9 @@ Save action; loading triggers show no invented default value.
 Button-triggered, named listboxes use native top-layer popovers with shared static menu CSS:
 arrow/Home/End/typeahead navigation, Enter/Space choice, Escape/Tab dismissal and trigger focus
 return. Choice changes stay local until Save; the display-only unset Default stays disabled.
-Enable sending and Revoke first reveal the admitted target’s consequence beside its row; only a
-second deliberate press creates an operation ID. Cancel/Escape has no effect and returns focus.
-Changed targets/access or another action clear the local confirmation without resetting drafts.
+The [settings-page contract](../../../../contracts/remote-channel-v1.md#remote-settings-page) owns second-press
+consequences, draft retention and navigation guards. `settings-controls` supplies presentation;
+no operation ID exists before a deliberate confirmation against the admitted target.
 The existing page and CSP owners remain unchanged. Remote's `management-page` owns admitted values,
 frozen intent/outcome and separate current-access state; `settings-controls` owns the two static
 listboxes, while `settings-page` binds forms and inline consequences without
