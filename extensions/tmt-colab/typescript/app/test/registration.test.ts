@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   REOPEN_REASONS,
   ReopenFailedError,
-  SessionLimitError,
   register,
   jsonResponse,
   type RemoteSdk,
 } from '../src/registration.js';
+import { SessionLimitError } from '../src/session-limit-error.js';
 
 const mount = new URL('https://example.test/colab/');
 // The SDK's class arrives at run time from /sdk/remote-v1.js, so it is recognised by name.

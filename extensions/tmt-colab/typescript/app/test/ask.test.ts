@@ -196,6 +196,21 @@ it('copies scopes and bytes before asynchronous signing, including paused-source
   ).toBe(true);
   expect(escapedPreview(frozen.finalBytes())).toContain('\\u{d}\\u{a}😀\\u{0}\\u{202e}');
 });
+it('accepts the fragment a short public link carries and still sends the plain short link', () => {
+  const thread = selection().thread;
+  const base = 'https://example.test/p/00000000';
+  // Selecting a thread rewrites the page's own address to this form (the issue is the Ask that follows).
+  for (const fragment of [`#t=${thread}`, `#read=${id(9)}`]) {
+    const message = FrozenAsk.capture({ ...selection(), url: `${base}${fragment}` }, destination())
+      .view.message;
+    expect(message).toContain(`Link: ${base}\n`);
+    expect(message).not.toContain('#');
+  }
+  for (const stray of [`#t=${thread}&seed=AAAA`, '#t=not-an-id', '#secret', `#t=${thread}#x`])
+    expect(() =>
+      FrozenAsk.capture({ ...selection(), url: `${base}${stray}` }, destination()),
+    ).toThrow();
+});
 it('rejects credentials, invalid Unicode, noncanonical scope/list and over-limit composed messages', () => {
   for (const change of [
     { url: 'https://user:secret@example.test/page' },

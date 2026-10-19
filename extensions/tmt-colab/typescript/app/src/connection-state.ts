@@ -1,5 +1,6 @@
 import { SessionEndedError } from './ask-remote.js';
-import { AdmissionRefusedError, ReopenFailedError, SessionLimitError } from './registration.js';
+import { AdmissionRefusedError, ReopenFailedError } from './registration.js';
+import { SessionLimitError } from './session-limit-error.js';
 
 /** Why a live page ended for good. Each cause owns one `strings.ts` sentence. */
 export type FailureCause =

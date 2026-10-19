@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { SessionEvictedError } from '../src/ask-remote.js';
 import { settle, terminal } from '../src/connection-model.js';
-import { ReopenFailedError, SessionLimitError } from '../src/registration.js';
+import { ReopenFailedError } from '../src/registration.js';
+import { SessionLimitError } from '../src/session-limit-error.js';
 import { RecoveryRequiredError } from '../src/session-recovery.js';
 
 const of = (message: string) => new Error(message);

@@ -17,6 +17,7 @@ import {
 } from '@tmt/colab-client';
 
 import { shortPageUrl } from './short-links.js';
+import { entryFragment } from './entry.js';
 import { ownerPageHint } from './reading-link.js';
 
 export const REQUEST_BYTES = 1024 * 1024;
@@ -118,10 +119,11 @@ export class FrozenAsk {
     const url = new URL(selection.url);
     requireValue(['http:', 'https:'].includes(url.protocol) && !url.username && !url.password);
     // The link is the page's own mounted URL, derived from the admitted selection. A fragment
-    // or query that is not exactly that (a reader seed, a stray secret) is refused, never kept.
+    // or query that is not exactly that or one display target of a short public link (a thread,
+    // a reading) is refused, never kept: a reader seed or a stray secret never rides.
     const pageFragment = `#space=${selection.space}&path=${encodeURIComponent(`/pages/${selection.page}`)}`;
     requireValue(
-      (url.hash === '' ||
+      (entryFragment(url.hash) ||
         url.hash === pageFragment ||
         ownerPageHint(url, selection.space, selection.page) !== undefined) &&
         url.search === '' &&

@@ -27,6 +27,15 @@ export function entryMount(): URL {
 /** A public owner fragment names at most one display target; it never carries space or reader authority. */
 export type EntryTarget = { thread: string } | PageHint;
 
+/** Whether a fragment is exactly one display target of a short public link, or none. */
+export function entryFragment(hash: string): boolean {
+  try {
+    entryTarget(hash);
+    return true;
+  } catch {
+    return false;
+  }
+}
 /** One thread, one reading or one shell element, or nothing: anything else refuses. */
 export function entryTarget(hash = location.hash): EntryTarget | null {
   requireValue(hash === '' || hash.startsWith('#'));

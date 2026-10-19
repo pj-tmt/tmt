@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vite-plus/test';
 import { REMOTE_REFUSAL_CODES, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { SYNC_ERROR_CODES } from '../src/connection.js';
 import { classify, CONNECTION_CODES, SYNC_DISCONNECTED } from '../src/connection-state.js';
-import { ReopenFailedError, SessionLimitError, jsonResponse } from '../src/registration.js';
+import { ReopenFailedError, jsonResponse } from '../src/registration.js';
+import { SessionLimitError } from '../src/session-limit-error.js';
 
 const of = (code: string) => classify(new Error(code));
 

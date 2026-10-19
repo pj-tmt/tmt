@@ -1,4 +1,5 @@
 import { entryMount, publicEntry } from './entry.js';
+import { sessionLimit } from './session-limit-error.js';
 import { recoverSession } from './session-recovery.js';
 
 /** Public boot entry: the SDK alone inspects its paired key and door identity.
@@ -15,7 +16,13 @@ async function start() {
       const mount = entryMount();
       const path = '/sdk/remote-v1.js';
       const sdk = await import(/* @vite-ignore */ path);
-      await sdk.reopenSession();
+      try {
+        await sdk.reopenSession();
+      } catch (error) {
+        // A paired device at its session limit still loads the app: its own open shows the limit
+        // card with the fixes, where guidance would wrongly say the browser is not paired.
+        if (!sessionLimit(error)) throw error;
+      }
       const response = await fetch(new URL('index.html', mount), {
         signal: AbortSignal.timeout(10_000),
       });
