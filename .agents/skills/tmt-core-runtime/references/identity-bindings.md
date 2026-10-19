@@ -279,8 +279,8 @@ delivery. They install and launch nothing.
   fixes the last two; a shell has no agent to fix.
   History stores additive cache-write and `byModel` evidence
   in the existing buckets, coalesces every model change, and leaves unknown mixed portions
-  unattributed: rows sum to at most the bucket (#3763), and a fifth model drops the split
-  built so far. It also stores `byDriver` (#3751): every counted delta is between two reads
+  unattributed: rows sum to at most the bucket, and a fifth model drops the split
+  built so far. It also stores `byDriver`: every counted delta is between two reads
   of one driver, so `record_sample` writes that driver's share. Neither is backfilled.
   A Codex seat also counts the sessions its session started (#3828,
   `runtime/consumption/family.rs`): the sampler is a fresh process each tick and the driver
@@ -417,8 +417,6 @@ Claude's skills root print one hint with that command, and add it to the
 JSON as `pickerHint`, when `claude` resolves on PATH and its read-only
 `claude plugin list --json` (5 s deadline) lists no `tmt-picker@…`. Absent Claude,
 a failing or unparseable listing is silent and the exit code never changes.
-Launches before this change left an inert `provider-plugins` cache in the global
-directory; `rm -rf` it by hand.
 
 Claude Code's own function-hook interpreter runs `hooks/register.mjs`; there is
 no Node interpreter or MCP server. The plugin primes `tmt ls --json` in the
