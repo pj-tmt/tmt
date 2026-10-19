@@ -690,7 +690,9 @@ fn a_changed_process_up_to_the_external_pane_keeps_tmux() {
             "{case}"
         );
     }
-    // Out of time before the answer.
+    // Out of time before the answer. A deadline already passed fails at the
+    // pin; the re-check's own deadline arm is shared with hooks and tested
+    // by their 1 s budget case.
     with_caller(
         Pane::Shell(30),
         full,
