@@ -91,9 +91,11 @@ impl State {
     }
 }
 impl App {
-    pub(in crate::board) fn composer_rows(&self) -> u16 {
+    /// Rows the composer band needs at this band width: the content-sized box,
+    /// the info line and any quote rows.
+    pub(in crate::board) fn composer_rows(&self, band_width: u16) -> u16 {
         self.composer_projection().map_or(0, |projection| {
-            super::input_field::ROWS
+            super::input_field::rows(projection.text, band_width)
                 + u16::from(!projection.quotes.is_empty())
                 + u16::from(!projection.chat_quotes.is_empty())
         })

@@ -228,8 +228,9 @@ fn eight_row_composer_keeps_arrow_selection_and_home_restores_the_list() {
                 let buffer = draw(&mut app, width, 8);
                 let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
                 assert!(app.input.is_none() && app.focused() == Pane::Rows);
-                assert_eq!(app.input_band.get().unwrap().height, 4);
-                assert!(app.hits.borrow().iter().all(|hit| hit.row().is_none()));
+                assert_eq!(app.input_band.get().unwrap().height, 2);
+                // The unfocused draft takes two rows, so the list stays reachable.
+                assert!(app.hits.borrow().iter().any(|hit| hit.row().is_some()));
                 assert!(painted.contains("eight-row draft"));
                 assert!(!painted.contains("Message →"));
                 assert_eq!(app.workspace.selected, member);

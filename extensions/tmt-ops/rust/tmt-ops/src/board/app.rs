@@ -4821,8 +4821,13 @@ pub(crate) mod tests {
             .as_deref(),
             Some("ctrl-alt-f")
         );
+        // Under tmux extended-keys csi-u, Shift+Tab arrives as Tab with SHIFT.
         assert_eq!(
             event_name(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT)).as_deref(),
+            Some("backtab")
+        );
+        assert_eq!(
+            event_name(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)).as_deref(),
             Some("backtab")
         );
     }

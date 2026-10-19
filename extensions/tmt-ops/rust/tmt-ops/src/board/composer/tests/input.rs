@@ -13,7 +13,7 @@ fn band_text(buffer: &ratatui::buffer::Buffer, area: Rect) -> String {
 }
 
 #[test]
-fn focus_and_five_lines_keep_the_info_line_and_footer_fixed_without_box_chrome() {
+fn the_box_grows_upward_with_its_content_and_keeps_the_info_line_and_footer_fixed() {
     let _no_io = crate::runner::forbid_commands();
     for width in [160, 100, 60] {
         let mut app = crate::board::app::workspace::tests::board();
@@ -21,6 +21,7 @@ fn focus_and_five_lines_keep_the_info_line_and_footer_fixed_without_box_chrome()
         let band = app.input_band.get().expect("an admitted idle composer");
         let idle_view = app.input_viewport.get().unwrap().0;
         assert_eq!(idle_view.height, 1);
+        assert_eq!(band.height, 2, "one box row plus the info line");
         let info = Rect::new(band.x, band.bottom() - 1, band.width, 1);
         let info_before = band_text(&idle, info);
         assert!(info_before.contains("worker"));
@@ -32,45 +33,59 @@ fn focus_and_five_lines_keep_the_info_line_and_footer_fixed_without_box_chrome()
         assert_eq!(
             app.input_band.get(),
             Some(band),
-            "focus changes fill/box height, never its envelope"
+            "focusing an empty box only changes its fill"
         );
         let editor = app.input_viewport.get().unwrap().0;
-        assert_eq!(editor.height, 3);
+        assert_eq!(editor.height, 1);
         assert_eq!(editor.bottom(), idle_view.bottom());
         assert_eq!(band_text(&focused, info), info_before);
-        assert_eq!(
-            app.paste("first\nsecond\nthird\nfourth\nfifth"),
-            crate::board::app::Effect::None
-        );
+        for (text, rows) in [
+            ("first\nsecond\nthird\nfourth\nfifth", 5),
+            ("\nsixth\nseventh\neighth", 6),
+        ] {
+            assert_eq!(app.paste(text), crate::board::app::Effect::None);
+            let typed = draw(&mut app, width, 36);
+            let grown = app.input_band.get().unwrap();
+            assert_eq!(grown.bottom(), band.bottom(), "the box grows upward");
+            assert_eq!(grown.height, rows + 1, "{rows} rows plus the info line");
+            let viewport = app.input_viewport.get().unwrap().0;
+            assert_eq!(viewport.height, rows);
+            assert_eq!(viewport.bottom(), idle_view.bottom());
+            let info_now = Rect::new(grown.x, grown.bottom() - 1, grown.width, 1);
+            assert_eq!(band_text(&typed, info_now), info_before);
+            let shown = band_text(&typed, grown);
+            assert!(
+                !shown.contains("as you")
+                    && !shown.contains("Reply:")
+                    && !shown.contains("Esc cancel")
+            );
+        }
+        // Eight lines exceed the six-row cap: the rest scrolls inside the box,
+        // keeping the caret visible and naming what is above.
         let typed = draw(&mut app, width, 36);
-        assert_eq!(app.input_band.get(), Some(band));
-        let viewport = app.input_viewport.get().unwrap().0;
-        assert_eq!(viewport.height, 3);
+        let text = band_text(&typed, app.input_band.get().unwrap());
         assert!(
-            viewport.right() < editor.right(),
-            "overflow has its own cells, not cells stolen from typed text"
-        );
-        let text = band_text(&typed, band);
-        assert!(
-            text.contains("fifth") && text.contains("↑ 2 more"),
+            text.contains("eighth") && text.contains("↑ 2 more"),
             "{text}"
         );
         assert!(
-            !text.contains("as you") && !text.contains("Reply:") && !text.contains("Esc cancel")
+            app.input_viewport.get().unwrap().0.right() < editor.right(),
+            "overflow has its own cells, not cells stolen from typed text"
         );
-        assert_eq!(band_text(&typed, info), info_before);
         assert_eq!(
             app.input.as_ref().unwrap().text.as_str(),
-            "first\nsecond\nthird\nfourth\nfifth"
+            "first\nsecond\nthird\nfourth\nfifth\nsixth\nseventh\neighth"
         );
         close(&mut app);
         let held = draw(&mut app, width, 36);
         assert_eq!(
             app.input_viewport.get().unwrap().0.height,
-            3,
-            "an unfocused draft retains its full box"
+            6,
+            "an unfocused draft keeps its content-sized box"
         );
-        assert_eq!(band_text(&held, info), info_before);
+        let held_band = app.input_band.get().unwrap();
+        let held_info = Rect::new(held_band.x, held_band.bottom() - 1, held_band.width, 1);
+        assert_eq!(band_text(&held, held_info), info_before);
     }
 }
 

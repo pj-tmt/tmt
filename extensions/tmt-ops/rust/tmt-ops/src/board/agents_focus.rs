@@ -223,7 +223,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             projection.key.is_some() && (projection.focused || app.composer_start().is_some())
         });
     let reserved = if admitted_input {
-        app.composer_rows() + 3
+        app.composer_rows(area.width.saturating_sub(input_field::GUTTER * 2)) + 3
     } else {
         2
     };
@@ -289,7 +289,8 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     let available = area.bottom().saturating_sub(y);
     let input = if admitted_input {
-        app.composer_rows().min(available)
+        app.composer_rows(area.width.saturating_sub(input_field::GUTTER * 2))
+            .min(available)
     } else {
         0
     };

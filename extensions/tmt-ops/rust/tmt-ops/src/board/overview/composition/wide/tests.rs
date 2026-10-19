@@ -50,7 +50,7 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
     assert!(shown.contains("CTX 24h") && shown.contains("% IN") && shown.contains("≈ $"));
     assert!(!shown.contains("Auto · timed · Off") && !shown.contains("Conversation ·"));
     let band = app.input_band.get().unwrap();
-    assert_eq!(band.height, 4);
+    assert_eq!(band.height, 2);
     assert_eq!(band.x, 90);
     assert_eq!(band.width, 57);
     assert!(shown.contains("⏎ to message worker"));
@@ -356,7 +356,7 @@ fn authored_start_and_host_keys_keep_their_meaning_in_the_final_reader() {
             && !shown.contains("3 Digest for all")
             && !shown.contains("o open")
     );
-    assert_eq!(app.input_band.get().unwrap().height, 4);
+    assert_eq!(app.input_band.get().unwrap().height, 2);
 }
 #[test]
 fn final_input_keeps_quote_provenance_and_masks_geometry_under_a_blocking_overlay() {

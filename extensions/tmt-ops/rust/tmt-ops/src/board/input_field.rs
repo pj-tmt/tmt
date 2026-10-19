@@ -1,4 +1,5 @@
-//! A fixed composer envelope: a one/three-row box above one stable info line.
+//! The composer: a box as tall as its content (one to six rows) above one stable
+//! info line. The box grows upward, so the info line and footer never move.
 use crate::look::Look;
 use ratatui::{
     buffer::Buffer,
@@ -12,10 +13,39 @@ use tmt_tui::components::strip;
 mod info;
 pub(in crate::board) use info::Info;
 
-/// Reserve the maximum box height even while its empty idle paint is one row.
-pub(in crate::board) const ROWS: u16 = 4;
+/// The box grows with its content up to this many rows, then scrolls inside.
+pub(in crate::board) const MAX_BOX_ROWS: u16 = 6;
 pub(in crate::board) const GUTTER: u16 = 1;
 pub(in crate::board) const TEXT_INSET: u16 = 2;
+
+/// The editable width inside a band of this width.
+pub(in crate::board) fn editor_width(band_width: u16) -> u16 {
+    let inset = if band_width > TEXT_INSET * 2 {
+        TEXT_INSET
+    } else {
+        0
+    };
+    band_width.saturating_sub(inset * 2)
+}
+
+/// Box rows for this content: one when empty, then one per wrapped or explicit
+/// line, capped. Sending or clearing returns to one row in the same frame.
+pub(in crate::board) fn box_rows(
+    text: Option<&tmt_tui::components::Editor>,
+    band_width: u16,
+) -> u16 {
+    let width = editor_width(band_width);
+    let lines = match text {
+        Some(text) if width > 0 => text.layout(width).lines.len(),
+        _ => 1,
+    };
+    lines.clamp(1, usize::from(MAX_BOX_ROWS)) as u16
+}
+
+/// Box plus the info line.
+pub(in crate::board) fn rows(text: Option<&tmt_tui::components::Editor>, band_width: u16) -> u16 {
+    box_rows(text, band_width) + 1
+}
 
 #[derive(Clone, Copy)]
 pub(in crate::board) enum Caption<'a> {
@@ -61,12 +91,12 @@ pub(in crate::board) fn paint(
     caption: Caption<'_>,
     start: &str,
     focused: bool,
-    has_draft: bool,
+    draft_rows: Option<u16>,
     look: Look,
 ) -> Rect {
     let info_rows = u16::from(area.height >= 2);
     let available = area.height.saturating_sub(info_rows);
-    let rows = available.min(if focused || has_draft { 3 } else { 1 });
+    let rows = available.min(draft_rows.unwrap_or(1).clamp(1, MAX_BOX_ROWS));
     let bottom = area.bottom().saturating_sub(info_rows);
     let box_area = Rect::new(area.x, bottom.saturating_sub(rows), area.width, rows);
     let base = style(look, focused);
@@ -77,18 +107,14 @@ pub(in crate::board) fn paint(
             Line::styled(" ".repeat(usize::from(box_area.width)), base),
         );
     }
-    let inset = if area.width > TEXT_INSET * 2 {
-        TEXT_INSET
-    } else {
-        0
-    };
+    let inset = area.width.saturating_sub(editor_width(area.width)) / 2;
     let editor = Rect::new(
         box_area.x + inset,
         box_area.y,
         box_area.width.saturating_sub(inset * 2),
         box_area.height,
     );
-    if !has_draft && !editor.is_empty() {
+    if draft_rows.is_none() && !editor.is_empty() {
         let placeholder = match caption {
             Caption::Message(_) => format!("{start} to message {}", caption.recipient()),
             Caption::Note { .. } => format!("{start} note to {}", caption.recipient()),
@@ -163,7 +189,7 @@ mod tests {
                     theme: Theme::new(base),
                     depth,
                 };
-                let area = Rect::new(0, 0, 60, ROWS);
+                let area = Rect::new(0, 0, 60, MAX_BOX_ROWS + 1);
                 let mut buffer = Buffer::empty(area);
                 let editor = paint(
                     &mut buffer,
@@ -171,7 +197,7 @@ mod tests {
                     Caption::Message("worker"),
                     "⏎",
                     focused,
-                    false,
+                    None,
                     look,
                 );
                 assert_eq!(
@@ -189,29 +215,19 @@ mod tests {
         }
     }
     #[test]
-    fn empty_idle_box_grows_upward_without_moving_info_or_footer() {
+    fn the_box_is_as_tall_as_its_content_and_grows_upward_without_moving_info_or_footer() {
         let look = Look::default();
-        let area = Rect::new(0, 0, 80, ROWS);
-        let mut idle = Buffer::empty(area);
-        let empty = paint(
-            &mut idle,
-            area,
-            Caption::Message("worker"),
-            "⏎",
-            false,
-            false,
-            look,
-        );
-        assert_eq!(empty.height, 1);
-        assert_eq!(empty.bottom(), area.bottom() - 1);
-        assert!(
-            idle.content
-                .iter()
-                .map(|c| c.symbol())
-                .collect::<String>()
-                .contains("⏎ to message worker")
-        );
-        for focused in [false, true] {
+        let area = Rect::new(0, 0, 80, MAX_BOX_ROWS + 1);
+        let mut anchor = None;
+        for (focused, has_draft, content, expected) in [
+            (false, false, 1, 1),
+            (true, false, 1, 1),
+            (false, true, 1, 1),
+            (true, true, 2, 2),
+            (true, true, 3, 3),
+            (true, true, 6, 6),
+            (true, true, 8, 6),
+        ] {
             let mut buffer = Buffer::empty(area);
             let editor = paint(
                 &mut buffer,
@@ -219,13 +235,15 @@ mod tests {
                 Caption::Message("worker"),
                 "⏎",
                 focused,
-                true,
+                has_draft.then_some(content),
                 look,
             );
-            assert_eq!(editor.height, 3);
-            assert_eq!(editor.bottom(), empty.bottom());
+            assert_eq!(editor.height, expected, "{focused} {has_draft} {content}");
+            // The box bottom, and so the info line below it, never moves.
+            assert_eq!(editor.bottom(), *anchor.get_or_insert(editor.bottom()));
+            assert_eq!(editor.bottom(), area.bottom() - 1);
             assert_eq!(
-                buffer[(0, 3)].bg,
+                buffer[(0, area.bottom() - 1)].bg,
                 ratatui::style::Color::Reset,
                 "info is outside the box fill"
             );
@@ -234,12 +252,30 @@ mod tests {
                 .iter()
                 .map(|c| c.symbol())
                 .collect::<String>();
-            assert!(!text.contains("as you") && !text.contains("Esc cancel"));
+            assert_eq!(
+                text.contains("⏎ to message worker"),
+                !has_draft,
+                "the placeholder shows on the single empty row only"
+            );
         }
     }
     #[test]
-    fn focused_empty_and_note_placeholder_use_the_same_three_row_editor() {
-        let area = Rect::new(0, 0, 59, ROWS);
+    fn box_rows_count_wrapped_and_explicit_lines_up_to_the_cap() {
+        let editor = |text: &str| tmt_tui::components::Editor::from(text);
+        assert_eq!(box_rows(None, 80), 1);
+        assert_eq!(box_rows(Some(&editor("")), 80), 1);
+        assert_eq!(box_rows(Some(&editor("one line")), 80), 1);
+        assert_eq!(box_rows(Some(&editor("a\nb")), 80), 2);
+        assert_eq!(box_rows(Some(&editor("a\nb\nc\nd\ne\nf")), 80), 6);
+        assert_eq!(box_rows(Some(&editor(&"x\n".repeat(20))), 80), 6);
+        // Wrapping counts: 30 columns wrap at an editor width of 20.
+        assert_eq!(box_rows(Some(&editor(&"x".repeat(30))), 24), 2);
+        assert_eq!(rows(Some(&editor("a\nb")), 80), 3);
+        assert_eq!(box_rows(Some(&editor("a\nb")), 0), 1);
+    }
+    #[test]
+    fn the_empty_note_placeholder_uses_the_same_single_row() {
+        let area = Rect::new(0, 0, 59, MAX_BOX_ROWS + 1);
         let mut buffer = Buffer::empty(area);
         let editor = paint(
             &mut buffer,
@@ -247,10 +283,10 @@ mod tests {
             Caption::Note { to: "lead" },
             "⏎",
             true,
-            false,
+            None,
             Look::default(),
         );
-        assert_eq!(editor.height, 3);
+        assert_eq!(editor.height, 1);
         let text = buffer
             .content
             .iter()
@@ -290,7 +326,7 @@ mod viewport_tests {
                         Caption::Message("worker"),
                         "⏎",
                         focused,
-                        draft,
+                        draft.then_some(3),
                         Look::default(),
                     );
                     assert!(editor.x >= area.x && editor.y >= area.y);
