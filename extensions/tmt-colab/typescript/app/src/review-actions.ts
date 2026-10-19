@@ -231,16 +231,28 @@ export class ReviewActions {
 
   /** `Reopen` on a closed section: the ordinary person Reopen, which notifies no one. */
   async reopen(review: Review) {
+    const discussion = this.options.discussion();
     const status = this.options.status();
     const thread = this.options.thread(review.id);
-    if (this.#inFlight.has(review.id) || !status || !thread || !resolvedByPerson(thread)) return;
+    if (
+      this.#inFlight.has(review.id) ||
+      !discussion ||
+      !status ||
+      !thread ||
+      !resolvedByPerson(thread)
+    )
+      return;
     this.#inFlight.add(review.id);
-    this.options.changed(review.id, { state: 'working', step: 'reopening' });
+    // Like the other actions, a result reaches only the page whose action started it.
+    const changed = (outcome: ReviewOutcome) => {
+      if (this.options.discussion() === discussion) this.options.changed(review.id, outcome);
+    };
+    changed({ state: 'working', step: 'reopening' });
     try {
       await status.change(thread, false);
-      this.options.changed(review.id, { state: 'settled' });
+      changed({ state: 'settled' });
     } catch {
-      this.options.changed(review.id, { state: 'failed', step: 'reopening' });
+      changed({ state: 'failed', step: 'reopening' });
     } finally {
       this.#inFlight.delete(review.id);
     }
