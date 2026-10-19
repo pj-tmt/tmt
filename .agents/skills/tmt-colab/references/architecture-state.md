@@ -419,7 +419,7 @@ is added.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
   every namespace with updates there has a checkpoint at the same sequence/hash; pinned
-  checkpoints and receipt identities survive. Dormant `store/publication.rs` tracks
+  checkpoints and receipt identities survive. `store/publication.rs` tracks
   a stable verified binding and own stream without copying payloads. Initial tracking
   starts from the current paired checkpoint and contiguous retained tail; its cut
   is pending, never presumed published. Exact acknowledgements/readbacks advance
@@ -427,7 +427,9 @@ is added.
   remains available while historical pairs may be superseded. A wrong binding,
   uid, hash, sequence or epoch cannot advance progress, and missing history refuses.
   Metadata counts toward page capacity, is bounded by the namespace budget, and
-  is deleted with page data. No serve call enables this tracking or cloud sync yet.
+  is deleted with page data. The metadata itself does no networking: `serve` attaches
+  the native cloud-sync worker (`socket.rs` `with_cloud_sync`) only when its deploy
+  declaration can be produced and the sync server is registered.
   Capacity returns `Fault::Capacity`; nothing is evicted.
 - The shared create-only append samples the injected server clock only for new
   content, in the same transaction as its receipt. Page time is nondecreasing; exact
@@ -465,7 +467,9 @@ is added.
   `publication_status` is a read-only original-key lookup with caller-supplied current authority;
   it never issues a chain or persists UNKNOWN. Shared capacity includes scoped outcomes in
   existing page budgets across epochs, without eviction. The contract owns wire details;
-  CLI `page write` and its serving route call it; browser Save does not.
+  CLI `page write`, its serving route and browser Save call it; Save reaches it through
+  `Admission::commit_save`, not `LocalWrite` IPC (see
+  [Page source and export](architecture-sync-decoder.md#page-source-and-export)).
 - Link seeds are borrowed for key derivation and never persisted or returned
   (`transitions/links.rs`). While the seed is borrowed, the same transaction derives the link's
   devices, one per `link::Transport` (`door`, `hosted`: `link::device_chain`, byte-equal to the
