@@ -282,11 +282,90 @@ fn closed(socket: &mut UnixStream) -> bool {
         || matches!(socket.read(&mut [0; 1]), Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset)
 }
 
+/// The smallest valid app inventory; public-entry proofs need no SPA build.
+const APP_FIXTURE: [(&str, &str, &[u8]); 12] = [
+    (
+        "index.html",
+        "text/html; charset=utf-8",
+        br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#,
+    ),
+    (
+        "renderer.html",
+        "text/html; charset=utf-8",
+        b"<!doctype html><title>Renderer</title>",
+    ),
+    (
+        "reader.html",
+        "text/html; charset=utf-8",
+        br#"<script type="module" src="./assets/reader.js"></script>"#,
+    ),
+    (
+        "assets/reader.js",
+        "text/javascript; charset=utf-8",
+        b"export const reader = true;",
+    ),
+    (
+        "assets/reader.css",
+        "text/css; charset=utf-8",
+        b"body{color:blue}",
+    ),
+    (
+        "assets/reader-fold.js",
+        "text/javascript; charset=utf-8",
+        b"export const fold = true;",
+    ),
+    (
+        "assets/app.js",
+        "text/javascript; charset=utf-8",
+        b"export {};",
+    ),
+    (
+        "assets/recovery.js",
+        "text/javascript; charset=utf-8",
+        b"export const recovery = true;",
+    ),
+    (
+        "assets/app.css",
+        "text/css; charset=utf-8",
+        b"body{color:red}",
+    ),
+    (
+        "assets/font.woff2",
+        "font/woff2",
+        b"wOF2\0\xfffont-test-bytes",
+    ),
+    (
+        "assets/font.woff",
+        "font/woff",
+        b"wOFF\0\xfffont-test-bytes",
+    ),
+    (
+        "THIRD-PARTY-NOTICES.txt",
+        "text/plain; charset=utf-8",
+        b"test-only notice",
+    ),
+];
+
+fn fixture_app() -> tmt_colab::assets::App {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let directory = PathBuf::from(format!(
+        "/tmp/tmt-2385-app-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(directory.join("assets")).unwrap();
+    for (name, _, bytes) in APP_FIXTURE {
+        fs::write(directory.join(name), bytes).unwrap();
+    }
+    let app = tmt_colab::assets::App::load(&directory).unwrap();
+    fs::remove_dir_all(&directory).unwrap();
+    app
+}
+
 #[test]
 fn public_page_entries_keep_inventory_resolution_behind_admission() {
-    let app = tmt_colab::assets::App::selected(None)
-        .unwrap()
-        .expect("built app for public owner proof");
+    let app = fixture_app();
     let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
     let known = server.request(&Running::get("/p/00000000", mount));
@@ -342,9 +421,7 @@ fn public_page_entries_keep_inventory_resolution_behind_admission() {
 
 #[test]
 fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_pages() {
-    let app = tmt_colab::assets::App::selected(None)
-        .unwrap()
-        .expect("built app for public owner proof");
+    let app = fixture_app();
     let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact};
     server
@@ -450,9 +527,7 @@ fn anonymous_root_page_aliases_do_not_disclose_known_absent_archived_or_deleted_
 
 #[test]
 fn anonymous_reader_entries_do_not_disclose_active_absent_revoked_or_deleted_links() {
-    let app = tmt_colab::assets::App::selected(None)
-        .unwrap()
-        .expect("built app for public reader proof");
+    let app = fixture_app();
     let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     let mount = "tmt-mount: /r/abcdefghijklmnop/x/colab/\r\n";
     let link = "70000000-0000-4000-8000-000000000001";
@@ -540,9 +615,7 @@ fn anonymous_reader_entries_do_not_disclose_active_absent_revoked_or_deleted_lin
 
 #[test]
 fn public_entries_use_remote_mount_for_mounted_and_root_forwarded_requests() {
-    let app = tmt_colab::assets::App::selected(None)
-        .unwrap()
-        .expect("built app for public owner proof");
+    let app = fixture_app();
     let server = Running::start_with_app(Tunnels::PRODUCT, Some(app));
     for mount in [
         "/r/abcdefghijklmnop/x/colab/",
@@ -2285,20 +2358,7 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     fs::create_dir_all(directory.join("assets")).unwrap();
     assert!(!POLICY.contains("unsafe-inline"));
     assert!(RENDERER_POLICY.ends_with("sandbox allow-scripts"));
-    let files: [(&str, &str, &[u8]); 12] = [
-        ("index.html", "text/html; charset=utf-8", br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#),
-        ("renderer.html", "text/html; charset=utf-8", b"<!doctype html><title>Renderer</title>"),
-        ("reader.html", "text/html; charset=utf-8", br#"<script type="module" src="./assets/reader.js"></script>"#),
-        ("assets/reader.js", "text/javascript; charset=utf-8", b"export const reader = true;"),
-        ("assets/reader.css", "text/css; charset=utf-8", b"body{color:blue}"),
-        ("assets/reader-fold.js", "text/javascript; charset=utf-8", b"export const fold = true;"),
-        ("assets/app.js", "text/javascript; charset=utf-8", b"export {};"),
-        ("assets/recovery.js", "text/javascript; charset=utf-8", b"export const recovery = true;"),
-        ("assets/app.css", "text/css; charset=utf-8", b"body{color:red}"),
-        ("assets/font.woff2", "font/woff2", b"wOF2\0\xfffont-test-bytes"),
-        ("assets/font.woff", "font/woff", b"wOFF\0\xfffont-test-bytes"),
-        ("THIRD-PARTY-NOTICES.txt", "text/plain; charset=utf-8", b"test-only notice"),
-    ];
+    let files = APP_FIXTURE;
     for (name, _, bytes) in files {
         fs::write(directory.join(name), bytes).unwrap();
     }
