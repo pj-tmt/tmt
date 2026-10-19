@@ -49,11 +49,9 @@ static MODIFY_OTHER_KEYS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// `CSI > 4 ; 1 m` asks for keys without a legacy encoding only (Shift+Enter,
 /// Ctrl+Enter, Shift+Tab); Alt+Enter and Ctrl+letters keep their old bytes.
-const MODIFY_OTHER_KEYS_ON: &[u8] = b"\x1b[>4;1m";
-const MODIFY_OTHER_KEYS_OFF: &[u8] = b"\x1b[>4;0m";
-
-fn write_modify_other_keys(output: &mut impl io::Write, bytes: &[u8]) -> io::Result<()> {
-    output.write_all(bytes)?;
+/// `CSI > 4 ; 0 m` releases the request.
+fn write_modify_other_keys(output: &mut impl io::Write, on: bool) -> io::Result<()> {
+    output.write_all(if on { b"\x1b[>4;1m" } else { b"\x1b[>4;0m" })?;
     output.flush()
 }
 
@@ -90,7 +88,7 @@ fn push_keyboard(output: &mut io::Stdout) -> io::Result<()> {
 fn request_shift_enter(output: &mut io::Stdout) -> io::Result<()> {
     // Mark ownership before writing: partial output also needs cleanup.
     MODIFY_OTHER_KEYS_ACTIVE.store(true, Ordering::Relaxed);
-    write_modify_other_keys(output, MODIFY_OTHER_KEYS_ON)
+    write_modify_other_keys(output, true)
 }
 
 impl Screen for Crossterm {
@@ -137,10 +135,7 @@ impl Screen for Crossterm {
             Ok(())
         };
         let keyboard = if MODIFY_OTHER_KEYS_ACTIVE.swap(false, Ordering::Relaxed) {
-            keyboard.and(write_modify_other_keys(
-                &mut io::stdout(),
-                MODIFY_OTHER_KEYS_OFF,
-            ))
+            keyboard.and(write_modify_other_keys(&mut io::stdout(), false))
         } else {
             keyboard
         };
@@ -294,10 +289,10 @@ mod tests {
     #[test]
     fn the_modify_other_keys_request_is_mode_one_and_its_reset_is_mode_zero() {
         let mut on = Vec::new();
-        write_modify_other_keys(&mut on, MODIFY_OTHER_KEYS_ON).unwrap();
+        write_modify_other_keys(&mut on, true).unwrap();
         assert_eq!(on, b"\x1b[>4;1m");
         let mut off = Vec::new();
-        write_modify_other_keys(&mut off, MODIFY_OTHER_KEYS_OFF).unwrap();
+        write_modify_other_keys(&mut off, false).unwrap();
         assert_eq!(off, b"\x1b[>4;0m");
     }
 
