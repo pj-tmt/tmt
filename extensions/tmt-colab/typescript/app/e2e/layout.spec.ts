@@ -49,10 +49,9 @@ for (const width of [1440, 390])
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
-      // A phone's header shows the mark only, yet has little width left for the title beside the
-      // sharing chip and the actions: it stays in the document, named, and its tooltip carries it.
+      // A phone drops the access chip, so the title keeps room beside the mark and the actions.
+      await expect(heading).toBeVisible();
       if (width < 480) await expect(heading).toHaveAttribute('title', 'Release notes');
-      else await expect(heading).toBeVisible();
       await expect(bar.locator('.tmt-ui-mark')).toBeVisible();
       if (width < 480) {
         expect((await bar.locator('.tmt-ui-wordmark').boundingBox())?.width).toBeLessThanOrEqual(1);
@@ -61,10 +60,15 @@ for (const width of [1440, 390])
         'title',
         'Colab · local · Studio Mac',
       );
-      await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
-      expect(
-        await bar.locator('.page-sharing').evaluate((node) => node.scrollWidth <= node.clientWidth),
-      ).toBe(true);
+      if (width < 480) await expect(bar.locator('.page-sharing')).toBeHidden();
+      else {
+        await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
+        expect(
+          await bar
+            .locator('.page-sharing')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+        ).toBe(true);
+      }
       await expect(bar.locator('.page-header-actions button')).toHaveCount(width <= 640 ? 2 : 5);
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await expect(
@@ -381,8 +385,13 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
     const chip = header.locator('.page-sharing');
-    await expect(chip).toBeVisible();
-    expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    if (width < 480) {
+      await expect(chip).toBeHidden();
+      await expect(heading).toBeVisible();
+    } else {
+      await expect(chip).toBeVisible();
+      expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    }
     const actions = header.getByRole('navigation', { name: 'Page actions' });
     await expect(actions.getByRole('button')).toHaveCount(width <= 640 ? 2 : 5);
     if (width <= 640) {

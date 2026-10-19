@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { fittingCharacters } from './header-title.js';
 import { expect, test, type Page } from '@playwright/test';
 import tokens from '../../../../../design/tokens/tokens.json' with { type: 'json' };
 import type { Screen } from '../test/chrome-browser.js';
@@ -160,17 +161,7 @@ for (const width of [1440, 390, 320])
           }
           const current = await metrics(page);
           reference ??= current;
-          // Attribution hosts fit one row; only their compact gap differs from defaults.
-          const compactAttribution =
-            (screen === 'page' ||
-              screen === 'pages' ||
-              screen === 'archived' ||
-              screen === 'empty') &&
-            width <= 640;
-          expect(current, screen).toEqual({
-            ...reference,
-            gap: compactAttribution ? '6px' : tokens.header.gap,
-          });
+          expect(current, screen).toEqual({ ...reference, gap: tokens.header.gap });
           expect(current.height).toBe(
             parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
@@ -291,7 +282,10 @@ test('the Archived tab filters archived pages with a tab, not a native checkbox'
     const path = '/test/chrome-browser.tsx';
     await (await import(path)).mount('pages');
   });
-  await expect(page.locator('#chrome-fixture input[type="checkbox"]')).toHaveCount(0);
+  // Only a row's own selection box is a checkbox; the Archived filter is a tab.
+  await expect(
+    page.locator('#chrome-fixture input[type="checkbox"]:not(.page-select)'),
+  ).toHaveCount(0);
   const rows = page.locator('#chrome-fixture ul.pages li');
   await expect(rows.first()).toContainText('Release notes');
   const all = page.locator('#chrome-fixture').getByRole('tab', { name: 'All', exact: true });
@@ -345,16 +339,25 @@ for (const width of [1440, 390, 320])
       const header = page.locator('#chrome-fixture .tmt-ui-header');
       // The connection names the brand; nothing but the mark and the wordmark shows beside it.
       await expect(
-        header.getByRole('group', { name: 'Colab · local · Studio Mac' }),
+        header.getByRole('link', { name: 'Colab · local · Studio Mac' }),
       ).toHaveAttribute('title', 'Colab · local · Studio Mac');
       await expect(header.locator('.tmt-ui-mark')).toBeVisible();
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
-      await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
-      expect(
-        await header
-          .locator('.page-sharing')
-          .evaluate((node) => node.scrollWidth <= node.clientWidth),
-      ).toBe(true);
+      const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
+      expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      if (width < 480) {
+        // A phone gives the title the chip's room; the access words lead the More menu instead.
+        await expect(header.locator('.page-sharing')).toBeHidden();
+        await expect(heading).toBeVisible();
+        expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
+      } else {
+        await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
+        expect(
+          await header
+            .locator('.page-sharing')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+        ).toBe(true);
+      }
       const actions = header.getByRole('navigation', { name: 'Page actions' });
       await expect(actions.getByRole('button')).toHaveCount(width <= 640 ? 2 : 5);
       for (const button of await actions.getByRole('button').all()) {
@@ -373,6 +376,14 @@ for (const width of [1440, 390, 320])
           await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
         }
       }
+      if (width < 480) {
+        // The access words are the menu's first line: described, not a command.
+        await expect(menu).toHaveAccessibleDescription('Private · Live');
+        await expect(menu.getByRole('menuitem', { name: /Private/ })).toHaveCount(0);
+        expect(await menu.evaluate((node) => node.firstElementChild?.textContent)).toBe(
+          'Private · Live',
+        );
+      } else await expect(menu).not.toContainText('Private · Live');
       const surface = actions.getByRole('dialog', { name: 'More', exact: true });
       expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
       await expect(surface).toHaveCSS('box-shadow', 'none');

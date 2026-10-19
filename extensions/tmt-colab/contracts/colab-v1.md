@@ -2835,7 +2835,7 @@ the storage transaction completed. Source-editor text is outside this record.
 
 ### Owner page and space-home header
 
-Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row that starts with the TMT mark and Colab (below 480px the mark only, the wordmark kept in the brand link's name), an original-author caption next to the title, and compact actions in More. The display-only Remote identity (`local · <device>`) names and titles the brand link; it never supplies connection state or authority, and the connection chip retains its existing owner.
+Owner page and space-home header presentation follows the [page-chrome reference](../../../.agents/skills/tmt-colab/references/page-chrome.md): one row that starts with the TMT mark and Colab (below 480px the mark only, the wordmark kept in the brand link's name), an original-author caption next to the title, and compact actions in More. The display-only Remote identity (`local · <device>`) names and titles the brand link; it never supplies connection state or authority, and the connection chip retains its existing owner (below 480px its words lead the More menu as a non-interactive line instead of a visible header chip).
 
 ### Transient reply notifications (#2726, #2727)
 

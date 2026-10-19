@@ -184,6 +184,12 @@ body:has(.needs-you-header-menu) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A phone gives the title this room; the More menu leads with the same words (page-header-actions). */
+@media (max-width: 479px) {
+  .page-sharing {
+    display: none;
+  }
+}
 .page-header-actions {
   position: relative;
 }
