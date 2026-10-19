@@ -48,7 +48,7 @@ test('a shell reading item is Unread until the page itself marks it read; openin
       (JSON.parse(colab(['threads', source.pageId, '--json'])) as { threads: unknown[] }).threads;
 
     const page: Page = await author.context.newPage();
-    await page.goto(`${door.address}/${shell.path}`);
+    await page.goto(new URL(shell.path, `${door.address}/`).href);
     const cell = page.locator('.shell-cell');
     await expect(cell).toHaveCount(1);
     // Arriving on the shell, and a suggestion, mark nothing and notify no one.

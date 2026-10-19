@@ -7,7 +7,7 @@ import { mountedTransport } from './mounted.js';
 import { text } from './strings.js';
 import { NoticeCard } from './notice-card.js';
 import { buildWatch } from './app-build.js';
-import { SessionLimitError } from './registration.js';
+import { SessionLimitError } from './session-limit-error.js';
 import { SessionLimitBody } from './session-limit.js';
 import { UpdateNotice } from './update-notice.js';
 

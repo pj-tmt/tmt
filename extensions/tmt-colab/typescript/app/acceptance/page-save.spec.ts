@@ -51,7 +51,7 @@ test('wide CLI and browser batches keep the original live socket and exact sourc
         if (frame.type === 'error') observed.errors.push(frame.code ?? 'unknown');
       });
     });
-    await page.goto(`${door.address}/${created.path}`);
+    await page.goto(new URL(created.path, `${door.address}/`).href);
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before batch', exact: true }),
     ).toBeVisible();
@@ -402,7 +402,7 @@ test('a browser Save merges with a concurrent CLI patch and refuses an overlappi
       ].join('\n');
     const created = createPage(world, 'Save merge', rows());
     const page = await browser.context.newPage();
-    await page.goto(`${door.address}/${created.path}`);
+    await page.goto(new URL(created.path, `${door.address}/`).href);
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Merge rows', exact: true }),
     ).toBeVisible();

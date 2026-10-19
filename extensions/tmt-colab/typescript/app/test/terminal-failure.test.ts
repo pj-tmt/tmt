@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { CONNECTION_CODES } from '../src/connection-state.js';
-import { ReopenFailedError, SessionLimitError } from '../src/registration.js';
+import { ReopenFailedError } from '../src/registration.js';
+import { SessionLimitError } from '../src/session-limit-error.js';
 import { text } from '../src/strings.js';
 import { terminalFailure } from '../src/terminal-failure.js';
 

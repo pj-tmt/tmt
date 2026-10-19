@@ -252,7 +252,10 @@ owner router and the owner's Ask and export modules are not part of this bundle.
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
 (`src/guidance.ts`), which lets Remote's SDK check its paired key and call
-`reopenSession()` for that tab, then reloads. A session-storage marker
+`reopenSession()` for that tab, then reloads. A short public link (`/p/<prefix>`) is served this
+entry too: after `reopenSession()` it loads the app in place, and a refusal that is the verified
+session limit (`sessionLimit()`, `session-limit-error.ts`) still loads the app, whose own open
+shows the limit card, never the unpaired guidance. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
@@ -290,7 +293,10 @@ rediscovery; its abort signal fences registration, and concurrent Live reconnect
 owner's pending replacement. PageReopener still owns the finite attempts and timing. Other
 admission refusals never extend the transport loop. The page route keeps no loader match after the
 reader leaves (`gcTime: 0`): the binding it loaded closes with the page, so entering the page again
-loads a fresh binding instead of showing the closed one as Live while it reloads. `ended` replaces
+loads a fresh binding instead of showing the closed one as Live while it reloads. While the reader
+stays, the match never goes stale (`staleTime: Infinity`): a thread selection rewrites only the
+address fragment, and a reload for it would replace the binding and close its writer under a send
+in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
 command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
 page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
@@ -313,7 +319,7 @@ recovered, gets the generic sentence and stays visible, bounded to 120 character
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
 Eviction and management-changed keep their own cards. A device at its Remote session limit
 (`REMOTE_SESSION_LIMIT`: Remote never evicts an attached session, #2585) is refused with the
-verified `limit` and `settingsUrl`; `sessionLimit()` (`registration.ts`) turns the boot open's raw
+verified `limit` and `settingsUrl`; `sessionLimit()` (`session-limit-error.ts`) turns the boot open's raw
 `RefusalError` and a bounded re-admission's `capacity` cause into one `SessionLimitError`, which ends
 the page or the mounted tab (`MountedNotice`) with `SessionLimitBody` (`session-limit.tsx`, shared with the
 eviction card): close another page, the limit, the one `tmt remote settings sessions-per-device <limit+1>`

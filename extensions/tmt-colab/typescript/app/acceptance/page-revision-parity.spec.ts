@@ -113,7 +113,7 @@ test('a document file still downloads and previews after another browser combine
     const created = createPage(world, 'Revision parity', '<h1>Revision parity</h1>', agent.pane);
     const open = await first.context.newPage();
     const reader = watchCheckpointAdmission(open);
-    await open.goto(`${door.address}/${created.path}`);
+    await open.goto(new URL(created.path, `${door.address}/`).href);
     await expect(
       open.frameLocator('iframe').getByRole('heading', { name: 'Revision parity', exact: true }),
     ).toBeVisible();
@@ -128,7 +128,7 @@ test('a document file still downloads and previews after another browser combine
     // The other browser makes changes on its own stream and combines them.
     const other = await second.context.newPage();
     const writer = watchCheckpointAdmission(other);
-    await other.goto(`${door.address}/${created.path}`);
+    await other.goto(new URL(created.path, `${door.address}/`).href);
     for (const question of ['first', 'second', 'third'])
       await sendChat(other, await composeChat(other, agent, `Question ${question}`));
     await expect(other.getByTestId('chat-panel').getByTestId('ask-entry')).toHaveCount(3);

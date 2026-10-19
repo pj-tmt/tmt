@@ -37,7 +37,7 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
       [second, 'Boundary beta'],
       [third, 'A longer boundary page title for the compact result layout'],
     ] as const) {
-      await visited.goto(`${door.address}/${created.path}`);
+      await visited.goto(new URL(created.path, `${door.address}/`).href);
       await expect(visited.locator('.tmt-ui-header h1')).toHaveText(title);
       await visited.getByRole('link', { name: /^Colab · local/ }).click();
       await expect(

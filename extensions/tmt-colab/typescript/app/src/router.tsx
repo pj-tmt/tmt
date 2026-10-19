@@ -78,7 +78,7 @@ import { useConnection } from './use-connection.js';
 import { terminalFailure } from './terminal-failure.js';
 import { buildWatch } from './app-build.js';
 import { SessionEvictedError } from './ask-remote.js';
-import { SessionLimitError } from './registration.js';
+import { SessionLimitError } from './session-limit-error.js';
 import { SessionLimitBody } from './session-limit.js';
 import { ExportPanel } from './export-panel.js';
 import { BrowserDrawer } from '@tmt/browser-ui/react';
@@ -660,6 +660,9 @@ const page = createRoute({
   // A loaded page owns a live connection that closes when the reader leaves it. The router must not
   // keep the match, or entering the page again shows that closed snapshot as Live while it reloads.
   gcTime: 0,
+  // Staying on the page (a thread selection rewrites only the fragment) never reloads it: a reload
+  // would replace the binding, closing the writer under any send in flight.
+  staleTime: Infinity,
   component: Page,
 });
 
