@@ -28,7 +28,7 @@ This private module implements the device side of
   provider's answer is the backstop. `BudgetModel.minFlushIntervalMs()` gives the shortest average
   interval between flushed updates. The Rust tests and `test/budget.test.ts` share one set of vectors.
 - `src/browser.ts`: the browser entry the door serves as `/sdk/remote-v1.js`. It
-  exposes `pairingPage(link)` for the fragment-erasing `/sdk/pair.js` bootstrap and gives mounted extension pages `reopenSession`,
+  exposes `pairingPage(link)` for the fragment-erasing bootstrap inlined from `assets/pair.js` and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.
 
 `parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/pair#CODE` with a
@@ -36,6 +36,8 @@ separately obtained public descriptor. `resolveLink(link, fetch?)` fetches the c
 same-origin `/sdk/pair-offer` descriptor and validates both. Neither sends the code;
 the pairing page's synchronous bootstrap captures and removes the fragment before
 loading the SDK. One offer exists at a time; replaced or ended offers require a new link.
+[Native page opens](../../../../contracts/remote-channel-v1.md#native-automatic-opens) own the separate
+60-second first-use flow and paired-browser cancellation; manual pairing keeps its terminal ceremony.
 
 ```ts
 // Use Colab's existing session; constructing the helper opens nothing.

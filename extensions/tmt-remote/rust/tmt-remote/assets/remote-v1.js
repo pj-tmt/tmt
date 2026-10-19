@@ -157,6 +157,15 @@ function enrollmentPossessionSigningBytes(enrollment, mac) {
 		binary(mac, 32)
 	]);
 }
+/** Distinct from enrollment: a live device cancels an automatic offer, never enrolls. */
+function enrollmentCancellationSigningBytes(enrollment, mac) {
+	requireValue$1(enrollment instanceof Uint8Array, "enrollment bytes");
+	return concat([
+		lpText("tmt-device-pair-cancel-v1"),
+		lp(enrollment),
+		binary(mac, 32)
+	]);
+}
 var EXTENSION = /^[a-z][a-z0-9-]{0,31}$/;
 /** `tmt-ext-cert-v1` signing input: a device key certifies an extension key. */
 function extCertSigningBytes(value) {
@@ -3530,6 +3539,11 @@ var bip39_english_default = "abandon\nability\nable\nabout\nabove\nabsent\nabsor
 function requireValue(condition, label) {
 	if (!condition) throw new Error(`Invalid ${label}.`);
 }
+var PairingRefusedError = class extends Error {
+	constructor() {
+		super("Pairing was refused or ended.");
+	}
+};
 /** A fresh ArrayBuffer-backed copy, as WebCrypto requires. */
 var owned = (bytes) => new Uint8Array(bytes);
 var utf8 = new TextEncoder();
@@ -3633,14 +3647,36 @@ async function resolveLink(link, network = fetch) {
 	requireValue(response.status === 200, "pairing offer");
 	return parseLink(link, await response.json());
 }
-/**
-* Submit one enrollment candidate and retry it exactly while the owner has
-* not answered. The machine key and grant are accepted only after
-* `serverProof` verifies over the exact receipt bytes.
-*/
-async function pair(options) {
+/** Native-only automatic launch fragment; the public descriptor still contains no code. */
+async function resolveAutomaticLink(link, network = fetch) {
+	const launch = new URL(link);
+	requireValue(/^#auto=[A-Z2-7]{26}$/.test(launch.hash), "automatic pairing link");
+	launch.hash = launch.hash.slice(6);
+	const url = pairingUrl(launch.href);
+	const response = await network(`${url.origin}/sdk/pair-offer`, {
+		cache: "no-store",
+		redirect: "error",
+		referrerPolicy: "no-referrer"
+	});
+	if (response.status === 404) throw new PairingRefusedError();
+	requireValue(response.status === 200, "automatic pairing offer");
+	const value = await response.json();
+	requireValue(value !== null && typeof value === "object" && !Array.isArray(value), "automatic pairing descriptor");
+	const { automatic, target, ...descriptor } = value;
+	if (automatic === void 0 && target === void 0) {
+		parseLink(url.href, descriptor);
+		throw new PairingRefusedError();
+	}
+	requireValue(automatic === true && typeof target === "string" && target.startsWith("/") && !target.startsWith("//"), "automatic pairing target");
+	const destination = new URL(target, url.origin);
+	requireValue(destination.origin === url.origin && destination.pathname === target && !destination.search && !destination.hash, "automatic pairing target");
+	return {
+		...parseLink(url.href, descriptor),
+		target
+	};
+}
+async function enrollmentRequest(options, cancel) {
 	const { descriptor, code, key } = options;
-	const send = options.fetch ?? fetch;
 	const publicKey = key.publicKey();
 	const clientNonce = random(16);
 	const enrollment = enrollmentSigningBytes({
@@ -3656,30 +3692,58 @@ async function pair(options) {
 		publicKey
 	});
 	const mac = await hmac(code, enrollment);
-	const signature = await key.sign(enrollmentPossessionSigningBytes(enrollment, mac));
-	const body = JSON.stringify({
-		profile: "local-v1",
-		machineId: descriptor.machineId,
-		windowId: descriptor.windowId,
-		offerId: descriptor.offerId,
-		serverChallenge: descriptor.serverChallenge,
-		clientNonce: hex(clientNonce),
-		kind: options.kind,
-		origin: options.origin,
-		name: options.name,
-		publicKey: base64url(publicKey),
-		mac: base64url(mac),
-		signature: base64url(signature)
+	const signature = await key.sign(cancel ? enrollmentCancellationSigningBytes(enrollment, mac) : enrollmentPossessionSigningBytes(enrollment, mac));
+	return {
+		enrollment,
+		body: JSON.stringify({
+			profile: "local-v1",
+			machineId: descriptor.machineId,
+			windowId: descriptor.windowId,
+			offerId: descriptor.offerId,
+			serverChallenge: descriptor.serverChallenge,
+			clientNonce: hex(clientNonce),
+			kind: options.kind,
+			origin: options.origin,
+			name: options.name,
+			publicKey: base64url(publicKey),
+			mac: base64url(mac),
+			signature: base64url(signature),
+			...cancel ? { cancel: true } : {}
+		})
+	};
+}
+/** Cancellation is a code-bound possession proof from a currently live paired key. */
+async function cancelAutomaticOffer(options) {
+	const { body } = await enrollmentRequest(options, true);
+	options.signal?.throwIfAborted();
+	const reply = await (options.fetch ?? fetch)(`${options.descriptor.address}/pair`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body,
+		signal: options.signal
 	});
+	if (reply.status === 404) throw new PairingRefusedError();
+	requireValue(reply.status === 204, "automatic offer cancellation");
+}
+/** Submit one candidate; manual pending replies retry exactly until the owner's decision.
+* Accept the machine key/grant only after serverProof verifies the exact receipt bytes. */
+async function pair(options) {
+	const { descriptor, code, key } = options;
+	const send = options.fetch ?? fetch;
+	const publicKey = key.publicKey();
+	const { enrollment, body } = await enrollmentRequest(options, false);
 	const deadline = Date.now() + (options.deadlineMs ?? 6e5);
 	for (;;) {
+		options.signal?.throwIfAborted();
 		const response = await send(`${descriptor.address}/pair`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body
+			body,
+			signal: options.signal
 		});
 		if (response.status === 202 && Date.now() < deadline) continue;
-		if (response.status !== 200) throw new Error("Pairing was refused or ended.");
+		if (response.status === 404) throw new PairingRefusedError();
+		if (response.status !== 200) throw new Error("Pairing did not answer.");
 		const reply = await response.json();
 		requireValue(typeof reply.receipt === "string" && typeof reply.serverProof === "string", "pairing reply");
 		const receipt = decode(reply.receipt);
@@ -4221,16 +4285,39 @@ function showState(status, state, text) {
 	}[state];
 }
 /** Called by the fragment-erasing bootstrap after the page DOM is ready. */
+var pairingAttempt;
+var manualPairingText = /* @__PURE__ */ new WeakMap();
 async function pairingPage(link) {
+	pairingAttempt?.abort();
+	const lifetime = new AbortController();
+	pairingAttempt = lifetime;
+	globalThis.addEventListener?.("pagehide", () => lifetime.abort(), {
+		once: true,
+		signal: lifetime.signal
+	});
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
+	if (lifetime.signal.aborted) return;
+	const automatic = link.includes("#auto=");
+	for (const id of ["pairing-title", "heading"]) {
+		const node = element(id);
+		if (!manualPairingText.has(node)) manualPairingText.set(node, node.textContent ?? "");
+		node.textContent = automatic ? "Connect this browser" : manualPairingText.get(node);
+	}
+	element("pairing-eyebrow").hidden = automatic;
+	if (automatic) return automaticPairingPage(link, lifetime);
 	const status = element("status");
 	const form = element("pair");
 	const button = form.querySelector("button");
 	button.disabled = true;
 	let parsed;
 	try {
-		parsed = await resolveLink(link);
+		parsed = await resolveLink(link, (url, init) => fetch(url, {
+			...init,
+			signal: lifetime.signal
+		}));
+		if (lifetime.signal.aborted) return;
 	} catch {
+		if (lifetime.signal.aborted) return;
 		form.hidden = true;
 		showState(status, "blocked", "This pairing link is unavailable. Run tmt remote pair again for a new link.");
 		return;
@@ -4241,17 +4328,109 @@ async function pairingPage(link) {
 		form.hidden = true;
 		if (ownsFocus) status.focus({ preventScroll: true });
 		const name = element("name").value.trim();
-		ceremony(parsed, name, status).catch(() => {
+		ceremony(parsed, name, status, lifetime.signal).catch(() => {
+			if (lifetime.signal.aborted) return;
 			if (document.activeElement === element("comparison")) status.focus({ preventScroll: true });
 			showState(status, "blocked", "Pairing did not complete. Run tmt remote pair again for a new link.");
 		});
-	});
+	}, { signal: lifetime.signal });
+	form.hidden = false;
+	showState(status, "waiting", "Name this browser and choose Pair to request terminal confirmation.");
 	element("state-label").textContent = "Ready to pair";
-	status.textContent = "Name this browser and choose Pair to request terminal confirmation.";
 	button.disabled = false;
 }
-async function ceremony({ descriptor, code }, name, status) {
+async function automaticPairingPage(link, lifetime) {
+	const status = element("status");
+	element("pair").hidden = true;
+	element("comparison").hidden = true;
+	element("entry-link").hidden = true;
+	const timer = setTimeout(() => lifetime.abort(), 6e4);
+	let leaving = false;
+	const departed = () => {
+		leaving = true;
+		lifetime.abort();
+	};
+	globalThis.addEventListener?.("pagehide", departed, { once: true });
+	let code;
+	let openCommand = "tmt remote open";
+	try {
+		showState(status, "waiting", "Connecting this browser…");
+		const network = (url, init) => fetch(url, {
+			...init,
+			signal: lifetime.signal
+		});
+		const offered = await resolveAutomaticLink(link, network);
+		code = offered.code;
+		const { descriptor, target } = offered;
+		if (target === "/colab" || target.startsWith("/colab/") || target.startsWith("/p/") || target.startsWith("/read/")) openCommand = "tmt colab open";
+		const record = await load();
+		lifetime.signal.throwIfAborted();
+		if (record) {
+			await reopenSession(void 0, { signal: lifetime.signal });
+			const key = await DeviceKey.fromHandle(record.handle, record.publicKey);
+			await cancelAutomaticOffer({
+				descriptor,
+				code,
+				key,
+				kind: "browser",
+				origin: location.origin,
+				name: "Browser",
+				fetch: network,
+				signal: lifetime.signal
+			});
+		} else {
+			const key = await DeviceKey.generate();
+			const result = await pair({
+				descriptor,
+				code,
+				key,
+				kind: "browser",
+				origin: location.origin,
+				name: "Browser",
+				fetch: network,
+				deadlineMs: 6e4,
+				signal: lifetime.signal
+			});
+			lifetime.signal.throwIfAborted();
+			await save({
+				handle: key.handle(),
+				publicKey: key.publicKey(),
+				paired: result
+			});
+			await openSession(result, key, descriptor.windowId, network);
+		}
+		lifetime.signal.throwIfAborted();
+		location.replace(target);
+	} catch (error) {
+		if (!leaving && pairingAttempt === lifetime) {
+			showState(status, "blocked", "");
+			element("state-label").textContent = "Not connected";
+			const command = document.createElement("code");
+			command.className = "tmt-ui-code";
+			command.textContent = openCommand;
+			const refused = error instanceof PairingRefusedError;
+			const nodes = [
+				document.createTextNode(refused ? "This link no longer works. Open the page again from the machine with " : "Could not connect this browser. Open the page again from the machine with "),
+				command,
+				document.createTextNode(refused ? "." : ". If it still fails, run ")
+			];
+			if (!refused) {
+				const fallback = document.createElement("code");
+				fallback.className = "tmt-ui-code";
+				fallback.textContent = "tmt remote pair";
+				nodes.push(fallback, document.createTextNode(" there."));
+			}
+			status.replaceChildren(...nodes);
+		}
+	} finally {
+		code?.fill(0);
+		clearTimeout(timer);
+		globalThis.removeEventListener?.("pagehide", departed);
+	}
+}
+async function ceremony({ descriptor, code }, name, status, signal) {
 	const key = await DeviceKey.generate();
+	signal.throwIfAborted();
 	const indexes = await fingerprintIndexes(key.publicKey());
 	const words = element("words");
 	words.textContent = indexes.map((i) => WORDS[i]).join(" ");
@@ -4265,14 +4444,20 @@ async function ceremony({ descriptor, code }, name, status) {
 		key,
 		kind: "browser",
 		origin: location.origin,
-		name
+		name,
+		signal
 	});
+	signal.throwIfAborted();
 	await save({
 		handle: key.handle(),
 		publicKey: key.publicKey(),
 		paired: result
 	});
-	await openSession(result, key, descriptor.windowId);
+	await openSession(result, key, descriptor.windowId, (url, init) => fetch(url, {
+		...init,
+		signal
+	}));
+	signal.throwIfAborted();
 	showState(status, "paired", "This browser is paired. You can close this page.");
 	element("entry-link").hidden = false;
 	if (document.activeElement === comparison || document.activeElement === status) element("entry-link").querySelector("a").focus({ preventScroll: true });

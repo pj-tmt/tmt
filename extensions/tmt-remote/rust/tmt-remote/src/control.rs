@@ -323,6 +323,46 @@ fn session(
         let _ = write_line(&mut stream, &json!({"stopping":true}));
         return;
     }
+    if request["op"] == "auto-pair" {
+        let result = request["target"]
+            .as_str()
+            .filter(|target| {
+                request == json!({"op":"auto-pair", "target":target})
+                    && crate::open::valid_target(target)
+            })
+            .ok_or_else(crate::operations::invalid)
+            .and_then(|target| pairing.open_automatic(target.to_owned()));
+        let answer = match result {
+            Ok(offer) => json!({
+                "offerId":offer.offer_id,
+                "expiresAtMs":offer.expires_at_ms,
+                "link":format!("{}/pair#auto={}", door.door.origin, canonical::pairing_code_text(&offer.code).replace('-', "")),
+            }),
+            Err(error) => json!({"error":{"code":error.code,"message":error.message}}),
+        };
+        let id = answer["offerId"].as_str();
+        if write_line(&mut stream, &answer).is_err()
+            && let Some(id) = id
+        {
+            pairing.cancel_automatic(id);
+        }
+        return;
+    }
+    if request["op"] == "auto-cancel" {
+        if let Some(id) = request["offerId"]
+            .as_str()
+            .filter(|id| request == json!({"op":"auto-cancel","offerId":id}))
+        {
+            pairing.cancel_automatic(id);
+            let _ = write_line(&mut stream, &json!({"cancelled":true}));
+        } else {
+            let _ = write_line(
+                &mut stream,
+                &json!({"error":{"code":"REMOTE_INPUT_INVALID","message":"Invalid automatic offer."}}),
+            );
+        }
+        return;
+    }
     if request == json!({"op":"restart-snapshot"}) {
         let value = door.views.restart.as_ref().map_or_else(
             || json!({"error":{"code":UNSUPPORTED,"message":"Unknown control operation."}}),
@@ -869,7 +909,10 @@ fn request_operation(remote_directory: &Path, op: &str) -> Result<Option<Value>,
         }
     })
 }
-fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, RemoteError> {
+pub(crate) fn request(
+    remote_directory: &Path,
+    value: &Value,
+) -> Result<Option<Value>, RemoteError> {
     request_with_deadline(remote_directory, value, None)
 }
 fn request_with_deadline(

@@ -1,7 +1,7 @@
 //! The pairing ceremony's offer state (`tmt-device-pair-v1`). Only serve's
 //! control socket opens an offer; a device submits one enrollment candidate;
-//! the owner's terminal confirmation creates the grant. The raw code lives
-//! only in this process's memory and is erased on confirmation or close.
+//! manual offers await terminal confirmation; native-open offers admit the first
+//! proved browser with the read-only default. Raw codes remain in memory only.
 use crate::{
     canonical::{self, Enrollment},
     crypto,
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{
+    io::Write,
     sync::{Arc, Condvar, Mutex, mpsc},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -59,6 +60,8 @@ impl Timing {
 }
 /// Failed code proofs that cancel an offer.
 pub const MAX_FAILURES: u8 = 3;
+/// Native browser opens authorize at most one enrollment during this window.
+pub const AUTO_LIFETIME: Duration = Duration::from_secs(60);
 const FIELDS: [&str; 12] = [
     "profile",
     "machineId",
@@ -121,6 +124,7 @@ pub enum Submission {
     Receipt { receipt: Vec<u8>, proof: [u8; 32] },
     Pending,
     Refused,
+    Cancelled,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -151,6 +155,8 @@ struct Offer {
     failures: u8,
     phase: Phase,
     events: mpsc::Sender<PairingEvent>,
+    /// Only the owner-only native opener can select automatic confirmation.
+    automatic: Option<String>,
 }
 impl Drop for Offer {
     fn drop(&mut self) {
@@ -197,7 +203,12 @@ impl Pairing {
         if matches!(offer.phase, Phase::Confirmed { .. }) {
             return None;
         }
-        Some(self.descriptor_values(&offer.id, &offer.challenge, address))
+        let mut descriptor = self.descriptor_values(&offer.id, &offer.challenge, address);
+        if let Some(target) = &offer.automatic {
+            descriptor["automatic"] = json!(true);
+            descriptor["target"] = json!(target);
+        }
+        Some(descriptor)
     }
     /// Snapshot for the control client that opened this exact offer, even if replaced.
     pub fn offered_descriptor(&self, offered: &Offered, address: &str) -> Value {
@@ -237,6 +248,15 @@ impl Pairing {
     }
     /// Open the single offer, explicitly cancelling any previous one.
     pub fn open(&self) -> Result<(Offered, mpsc::Receiver<PairingEvent>), RemoteError> {
+        self.open_mode(None)
+    }
+    pub(crate) fn open_automatic(&self, target: String) -> Result<Offered, RemoteError> {
+        self.open_mode(Some(target)).map(|(offer, _events)| offer)
+    }
+    fn open_mode(
+        &self,
+        automatic: Option<String>,
+    ) -> Result<(Offered, mpsc::Receiver<PairingEvent>), RemoteError> {
         let mut code = [0; 16];
         let mut challenge = [0; 16];
         for buffer in [&mut code[..], &mut challenge[..]] {
@@ -245,17 +265,34 @@ impl Pairing {
         }
         let id = uuid_v4()?;
         let (events, receiver) = mpsc::channel();
-        let expires_at_ms = now_ms()? + self.timing.lifetime.as_millis() as u64;
+        let lifetime = if automatic.is_some() {
+            AUTO_LIFETIME
+        } else {
+            self.timing.lifetime
+        };
+        let expires_at_ms = now_ms()? + lifetime.as_millis() as u64;
         let mut slot = self.lock();
+        self.expire_locked(&mut slot);
+        if automatic.is_some()
+            && slot.as_ref().is_some_and(|offer| {
+                offer.automatic.is_none() && !matches!(offer.phase, Phase::Confirmed { .. })
+            })
+        {
+            return Err(RemoteError::new(
+                "REMOTE_PAIRING_BUSY",
+                "A manual pairing is still open. Finish or cancel it first.",
+            ));
+        }
         end(&mut slot, End::Replaced);
         *slot = Some(Offer {
             id: id.clone(),
             code,
             challenge,
-            deadline: Instant::now() + self.timing.lifetime,
+            deadline: Instant::now() + lifetime,
             failures: 0,
             phase: Phase::Open,
             events,
+            automatic,
         });
         self.changed.notify_all();
         let offered = Offered {
@@ -290,7 +327,7 @@ impl Pairing {
             .validate()
             .and_then(|()| self.issue(offer, &candidate, &policy))
         {
-            Ok((client_id, receipt, proof)) => {
+            Ok((grant, receipt, proof)) => {
                 // Only the bounded recovery data stays; the code is erased.
                 offer.code.fill(0);
                 offer.phase = Phase::Confirmed {
@@ -298,9 +335,9 @@ impl Pairing {
                     receipt,
                     proof,
                 };
-                let _ = offer
-                    .events
-                    .send(PairingEvent::Ended(End::Paired { client_id }));
+                let _ = offer.events.send(PairingEvent::Ended(End::Paired {
+                    client_id: grant.client_id,
+                }));
                 self.changed.notify_all();
             }
             Err(error) => end(&mut slot, End::Failed(error.message)),
@@ -314,6 +351,16 @@ impl Pairing {
     pub fn cancel(&self, offer_id: &str) {
         self.close(offer_id, End::Cancelled);
     }
+    pub(crate) fn cancel_automatic(&self, offer_id: &str) {
+        let mut slot = self.lock();
+        if slot
+            .as_ref()
+            .is_some_and(|offer| offer.id == offer_id && offer.automatic.is_some())
+        {
+            end(&mut slot, End::Cancelled);
+            self.changed.notify_all();
+        }
+    }
     pub fn shutdown(&self) {
         let mut slot = self.lock();
         end(&mut slot, End::Cancelled);
@@ -322,7 +369,14 @@ impl Pairing {
     /// Admit one enrollment candidate from `/pair`. `origin` is the request's
     /// HTTP Origin header, which must match the proposed browser/add-on origin.
     pub fn submit(&self, origin: Option<&str>, body: &[u8]) -> Submission {
-        let Some(wire) = parse(body) else {
+        let (wire, cancel) = match serde_json::from_slice::<Value>(body) {
+            Ok(Value::Object(mut wire)) if wire.get("cancel") == Some(&Value::Bool(true)) => {
+                wire.remove("cancel");
+                (serde_json::to_vec(&wire).unwrap_or_default(), true)
+            }
+            _ => (body.to_vec(), false),
+        };
+        let Some(wire) = parse(&wire) else {
             return Submission::Refused;
         };
         let mut slot = self.lock();
@@ -333,6 +387,43 @@ impl Pairing {
         let Some(candidate) = self.candidate(offer, &wire, origin) else {
             return Submission::Refused;
         };
+        if cancel {
+            if offer.automatic.is_none()
+                || candidate.kind != "browser"
+                || crypto::verify_mac(&offer.code, &candidate.enrollment, &candidate.mac).is_err()
+                || !canonical::cancellation(&candidate.enrollment, &candidate.mac).is_ok_and(
+                    |bytes| {
+                        crypto::verify_signature(
+                            &candidate.public_key,
+                            &bytes,
+                            &candidate.signature,
+                        )
+                        .is_ok()
+                    },
+                )
+            {
+                return Submission::Refused;
+            }
+            let live = self
+                .store
+                .lock()
+                .ok()
+                .and_then(|store| store.grants().ok())
+                .is_some_and(|grants| {
+                    grants.iter().any(|grant| {
+                        grant.public_key == candidate.public_key
+                            && grant.kind == "browser"
+                            && grant.origin == candidate.origin
+                            && now_ms().is_ok_and(|now| grant.live_at(now))
+                    })
+                });
+            if !live {
+                return Submission::Refused;
+            }
+            end(&mut slot, End::Cancelled);
+            self.changed.notify_all();
+            return Submission::Cancelled;
+        }
         match &offer.phase {
             Phase::Confirmed {
                 candidate: confirmed,
@@ -362,6 +453,28 @@ impl Pairing {
         }
         if !possession(&candidate) {
             return Submission::Refused;
+        }
+        if offer.automatic.is_some() {
+            if candidate.kind != "browser" {
+                return Submission::Refused;
+            }
+            let result = self.issue(offer, &candidate, &PairingPolicy::default());
+            end(&mut slot, End::Cancelled);
+            self.changed.notify_all();
+            return match result {
+                Ok((grant, receipt, proof)) => {
+                    // Identifiers/origin are public; never format the offer or launch URL.
+                    let _ = writeln!(
+                        tmt_cli_style::stream::stderr(),
+                        "Remote auto-paired device {}; issuedAtMs {}; origin {}",
+                        grant.client_id,
+                        grant.issued_at_ms,
+                        grant.origin
+                    );
+                    Submission::Receipt { receipt, proof }
+                }
+                Err(_) => Submission::Refused,
+            };
         }
         if matches!(offer.phase, Phase::Open) {
             let _ = offer.events.send(PairingEvent::Candidate {
@@ -495,7 +608,7 @@ impl Pairing {
         offer: &Offer,
         candidate: &Candidate,
         policy: &PairingPolicy,
-    ) -> Result<(String, Vec<u8>, [u8; 32]), RemoteError> {
+    ) -> Result<(Grant, Vec<u8>, [u8; 32]), RemoteError> {
         let grant = Grant {
             client_id: uuid_v4()?,
             public_key: candidate.public_key,
@@ -531,7 +644,7 @@ impl Pairing {
                 RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state is unavailable.")
             })?
             .insert_paired_grant(&grant, &offer.id, &Sha256::digest(&receipt))?;
-        Ok((grant.client_id, receipt, proof))
+        Ok((grant, receipt, proof))
     }
 }
 /// Exact receipt JSON bytes `{grant, machinePublicKey}`; the proof covers these bytes.
@@ -625,6 +738,27 @@ mod restart_tests {
             Timing::CONTRACT,
         );
         test(&pairing, &layout);
+    }
+
+    #[test]
+    fn automatic_deadline_and_owner_cancel_erase_only_the_matching_auto_offer() {
+        with_pairing(|pairing, _| {
+            let first = pairing.open_automatic("/".into()).unwrap();
+            let next = pairing.open_automatic("/settings".into()).unwrap();
+            pairing.cancel_automatic(&first.offer_id);
+            assert_eq!(
+                pairing.offer.lock().unwrap().as_ref().unwrap().id,
+                next.offer_id
+            );
+            pairing.offer.lock().unwrap().as_mut().unwrap().deadline = Instant::now();
+            pairing.expire();
+            assert!(pairing.offer.lock().unwrap().is_none());
+            let (manual, _events) = pairing.open().unwrap();
+            pairing.cancel_automatic(&manual.offer_id);
+            assert!(pairing.offer.lock().unwrap().is_some());
+            pairing.shutdown();
+            assert!(pairing.offer.lock().unwrap().is_none());
+        });
     }
 
     #[test]

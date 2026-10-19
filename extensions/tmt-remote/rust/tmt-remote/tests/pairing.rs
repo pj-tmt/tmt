@@ -21,6 +21,265 @@ const FAST: Timing = Timing {
     submit_wait: Duration::from_secs(10),
 };
 
+fn automatic(h: &Harness, target: &str) -> Value {
+    use std::io::{BufRead, BufReader, Write};
+    let mut stream = control::connect(&h.root.join("remote")).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    writeln!(stream, "{}", json!({"op":"auto-pair","target":target})).unwrap();
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).unwrap();
+    serde_json::from_str(&line).unwrap()
+}
+
+#[test]
+fn automatic_pairing_is_first_use_only_and_exactly_the_read_only_default() {
+    let h = Harness::new(FAST);
+    let before = tmt_remote::pairing::now_ms().unwrap();
+    let offer = automatic(&h, "/settings");
+    let link = offer["link"]
+        .as_str()
+        .expect("native open returns a launch URL");
+    let code = canonical::pairing_code(link.split_once("#auto=").unwrap().1).unwrap();
+    let descriptor = h
+        .pairing
+        .descriptor(&format!("{}{}", h.origin, h.prefix))
+        .unwrap();
+    assert_eq!(descriptor["target"], "/settings");
+    assert_eq!(descriptor["automatic"], true);
+    assert!((before + 59_000..=before + 61_000).contains(&offer["expiresAtMs"].as_u64().unwrap()));
+    let device = Device::browser(&h, 71);
+    let body = device.body(&descriptor, &code, &device.key).to_string();
+    let (status, reply) = h.post(&body, Some(&h.origin));
+    assert_eq!(
+        status, 200,
+        "no terminal confirmation for an owner-opened auto offer"
+    );
+    let receipt = canonical::base64url_decode(reply["receipt"].as_str().unwrap()).unwrap();
+    let parsed: Value = serde_json::from_slice(&receipt).unwrap();
+    assert_eq!(
+        parsed["grant"]["scopes"],
+        json!(["agents.read", "check.read", "results.read", "status.read"])
+    );
+    assert_eq!(parsed["grant"]["origin"], h.origin);
+    assert!(parsed["grant"]["issuedAtMs"].as_u64().unwrap() >= before);
+    assert_eq!(
+        h.post(&body, Some(&h.origin)).0,
+        404,
+        "even exact auto replay is refused"
+    );
+    let other = Device::browser(&h, 72);
+    assert_eq!(
+        h.post(
+            &other.body(&descriptor, &code, &other.key).to_string(),
+            Some(&h.origin)
+        )
+        .0,
+        404
+    );
+    assert_eq!(h.grants(), 1);
+    assert!(h.pairing.descriptor(&h.origin).is_none());
+}
+
+#[test]
+fn automatic_open_replaces_only_an_automatic_offer_and_refuses_unsafe_targets() {
+    let h = Harness::new(FAST);
+    let first = automatic(&h, "/");
+    let first_link = first["link"].as_str().expect("auto offer");
+    let first_code = canonical::pairing_code(first_link.split_once("#auto=").unwrap().1).unwrap();
+    let first_descriptor = h.pairing.descriptor(&h.origin).unwrap();
+    let next = automatic(&h, "/colab/");
+    assert_ne!(first["offerId"], next["offerId"]);
+    let device = Device::browser(&h, 73);
+    assert_eq!(
+        h.post(
+            &device
+                .body(&first_descriptor, &first_code, &device.key)
+                .to_string(),
+            Some(&h.origin)
+        )
+        .0,
+        404
+    );
+    let mut manual = open(&h);
+    assert_eq!(automatic(&h, "/")["error"]["code"], "REMOTE_PAIRING_BUSY");
+    assert_eq!(
+        h.pairing.descriptor(&h.origin).unwrap()["offerId"],
+        manual.descriptor["offerId"]
+    );
+    for target in [
+        "https://example.test/",
+        "//evil/",
+        "/p/a?code=secret",
+        "/p/a#secret",
+        "/../",
+        "/r/secret",
+        "/sdk/pair-offer",
+    ] {
+        assert_eq!(
+            automatic(&h, target)["error"]["code"],
+            "REMOTE_INPUT_INVALID",
+            "{target}"
+        );
+    }
+    manual.owner.answer("refuse");
+    assert_eq!(manual.owner.next()["reason"], "refused");
+}
+
+#[test]
+fn a_live_paired_key_cancels_an_auto_offer_only_with_a_distinct_possession_proof() {
+    use ed25519_dalek::Signer;
+    let h = Harness::new(FAST);
+    let device = Device::browser(&h, 74);
+    // First auto enrollment establishes the existing read-only device.
+    let first = automatic(&h, "/");
+    let code = canonical::pairing_code(
+        first["link"]
+            .as_str()
+            .unwrap()
+            .split_once("#auto=")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    let descriptor = h.pairing.descriptor(&h.origin).unwrap();
+    assert_eq!(
+        h.post(
+            &device.body(&descriptor, &code, &device.key).to_string(),
+            Some(&h.origin)
+        )
+        .0,
+        200
+    );
+    let unchanged = h.store.lock().unwrap().grants().unwrap();
+    let second = automatic(&h, "/settings");
+    let code = canonical::pairing_code(
+        second["link"]
+            .as_str()
+            .unwrap()
+            .split_once("#auto=")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    let descriptor = h.pairing.descriptor(&h.origin).unwrap();
+    let mut body = device.body(&descriptor, &code, &device.key);
+    body["cancel"] = json!(true);
+    assert_eq!(
+        h.post(&body.to_string(), Some(&h.origin)).0,
+        404,
+        "enrollment signature cannot be used as cancellation"
+    );
+    let mac: [u8; 32] = canonical::base64url_bytes(body["mac"].as_str().unwrap(), 32)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let bytes = canonical::cancellation(&device.enrollment(&descriptor), &mac).unwrap();
+    body["signature"] = json!(canonical::base64url(&device.key.sign(&bytes).to_bytes()));
+    assert_eq!(
+        h.post(&body.to_string(), Some("https://foreign.example")).0,
+        404
+    );
+    let unknown = Device::browser(&h, 76);
+    let mut unknown_body = unknown.body(&descriptor, &code, &unknown.key);
+    unknown_body["cancel"] = json!(true);
+    let unknown_mac: [u8; 32] =
+        canonical::base64url_bytes(unknown_body["mac"].as_str().unwrap(), 32)
+            .unwrap()
+            .try_into()
+            .unwrap();
+    unknown_body["signature"] = json!(canonical::base64url(
+        &unknown
+            .key
+            .sign(&canonical::cancellation(&unknown.enrollment(&descriptor), &unknown_mac).unwrap())
+            .to_bytes()
+    ));
+    assert_eq!(
+        h.post(&unknown_body.to_string(), Some(&h.origin)).0,
+        404,
+        "a correct code and cancellation signature still require a live stored key"
+    );
+    assert_eq!(
+        h.pairing.descriptor(&h.origin).unwrap()["offerId"],
+        descriptor["offerId"]
+    );
+    assert_eq!(h.post(&body.to_string(), Some(&h.origin)).0, 204);
+    assert!(h.pairing.descriptor(&h.origin).is_none());
+    assert_eq!(h.post(&body.to_string(), Some(&h.origin)).0, 404);
+    let fresh = Device::browser(&h, 75);
+    assert_eq!(
+        h.post(
+            &fresh.body(&descriptor, &code, &fresh.key).to_string(),
+            Some(&h.origin)
+        )
+        .0,
+        404
+    );
+    assert_eq!(h.grants(), 1, "cancellation never creates a second grant");
+    assert_eq!(h.store.lock().unwrap().grants().unwrap(), unchanged);
+}
+
+#[test]
+fn suppressed_missing_and_failed_openers_do_not_leave_an_automatic_offer_or_leak_its_code() {
+    use tmt_invoke::open::{Env, Flag, Outcome};
+    use tmt_remote::open::open_page_with;
+    let h = Harness::new(FAST);
+    let env = Env {
+        terminal: true,
+        ..Env::default()
+    };
+    let directory = h.root.join("remote");
+    let forbidden = |_: &str| -> Outcome { panic!("suppressed opener must never run") };
+    for (flag, json_output, opener) in [
+        (
+            Flag::NoOpen,
+            false,
+            Some(&forbidden as &dyn Fn(&str) -> Outcome),
+        ),
+        (
+            Flag::Open,
+            true,
+            Some(&forbidden as &dyn Fn(&str) -> Outcome),
+        ),
+        (Flag::Unset, false, None),
+    ] {
+        let result = open_page_with(
+            &directory,
+            "/settings",
+            flag,
+            true,
+            json_output,
+            &env,
+            opener,
+        )
+        .unwrap();
+        assert!(!result.opened);
+        assert_eq!(result.link, format!("{}/settings", h.origin));
+        assert!(h.pairing.descriptor(&h.origin).is_none());
+    }
+    let captured = std::cell::RefCell::new(String::new());
+    let failed = |url: &str| {
+        captured.replace(url.to_owned());
+        Outcome::Failed(url.to_owned())
+    };
+    let result = open_page_with(
+        &directory,
+        "/settings",
+        Flag::Open,
+        true,
+        false,
+        &env,
+        Some(&failed),
+    )
+    .unwrap();
+    assert_eq!(result.state, "failed");
+    assert!(captured.borrow().contains("#auto="));
+    let shown = serde_json::to_string(&result).unwrap();
+    assert!(!shown.contains('#') && !shown.contains(captured.borrow().as_str()));
+    assert!(h.pairing.descriptor(&h.origin).is_none());
+}
+
 #[test]
 fn confirmed_pairing_issues_one_grant_and_a_verifiable_receipt() {
     let h = Harness::new(FAST);

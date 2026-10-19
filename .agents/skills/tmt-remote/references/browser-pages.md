@@ -1,17 +1,24 @@
 # Browser pages
 
-The short `/pair#CODE` link loads only `/sdk/pair.js` first, which erases the
-fragment before loading the SDK. `Pages` obtains `/sdk/pair-offer` from `Pairing`'s
-current offer, sharing the descriptor with the control event; it exposes no code.
-Old descriptor-path links refuse. The initial HTML disables Pair before the SDK
-loads; `browser.ts` enables it only after validating the current offer and installing
-the submit listener. Failed initialization keeps pairing unavailable. Browser tests
-hold SDK/offer readiness and verify early mouse/Enter produces no native submission
-or candidate, then explicit ready-state activation retains the same ceremony. They
-also check fragment stripping, secret-free request URLs, owner confirmation and
-retained device behavior. Keyboard submission moves focus from the disappearing form to the
-named word-comparison region; success focuses Return to Remote only while focus still belongs
-to that transition. Intentional focus elsewhere is preserved.
+The Remote-owned pairing HTML inlines `assets/pair.js` as its first synchronous script under
+an exact CSP hash. It captures/erases the fragment before any script import or subresource;
+`no-referrer` and `no-store` remain. `Pages` exposes only the public current descriptor through
+`/sdk/pair-offer`. [Pairing](../../../../contracts/remote-channel-v1.md#pairing) owns the manual
+ceremony, native `#auto=CODE` first-use flow, cancellation proof and local-process boundary.
+The automatic flow labels its page “Connect this browser”, hides the pairing eyebrow and uses
+“Not connected” for its blocked state; manual pairing retains its own wording.
+The automatic form is hidden before paint; the SDK either reuses/cancels with the stored device
+or enrolls exactly the read-only default, then replaces the same tab with its validated target.
+No code enters logs, requests, ordinary output or continuation links. Used/cancelled/expired
+codes show a plain refusal and a machine-side reopen command; transport/storage failures add
+manual pairing as the fallback and do not claim that a grant was refused. Commands use code styling.
+A same-document fragment change restarts capture/erasure and cancels the previous page attempt. Browser fixtures cover erasure before SDK loading, first enrollment,
+returning-browser cancellation, another profile's replay refusal and code-free Back/Forward.
+
+Manual initialization keeps Pair disabled until the descriptor and submit listener are ready.
+Its keyboard flow keeps the named comparison region, explicit word confirmation, retained key,
+non-stolen focus and Return to Remote behavior. Failed setup never enables enrollment. Existing
+manual/foreign-origin/expiry/proof controls remain, with no extra authentication gate for Firebase.
 
 `Pages` embeds checked `design/browser-ui/generated/static.css` followed by
 Remote's `assets/pages.css` with compile-time `concat!(include_str!(...))`.

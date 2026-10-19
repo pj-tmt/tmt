@@ -174,6 +174,7 @@ impl Handler for Routes {
                         }
                         // Pre-auth refusals are generic and reveal nothing.
                         Submission::Refused => Reply::empty(404),
+                        Submission::Cancelled => Reply::empty(204),
                     },
                 );
             }

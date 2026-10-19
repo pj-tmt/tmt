@@ -1,4 +1,5 @@
 mod activation_cli;
+mod open_cli;
 mod serve;
 mod sync_cli;
 
@@ -211,6 +212,8 @@ fn grammar() -> Command {
         .arg(tmt_cli_style::version_arg(ArgAction::Version))
         .subcommand_required(true)
         .subcommand(activation_cli::command())
+        .subcommand(open_cli::command(false))
+        .subcommand(open_cli::command(true))
         .arg(Arg::new("remote").long("remote").global(true).help("Remote name, owned project id, or local"))
         .subcommand(sync_cli::command())
         .subcommand(
@@ -396,6 +399,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     if name == "sync" {
         let layout = Layout::open(&discovery_root()?)?;
         return sync_cli::run(&layout, explicit, arguments);
+    }
+    if matches!(name, "open" | "launch") {
+        return open_cli::run(arguments, name == "launch");
     }
     if name == "link" {
         return link_command(
@@ -1532,12 +1538,14 @@ fn main() -> ExitCode {
             if error.code == "REMOTE_SYNC_REPORTED" {
                 return ExitCode::FAILURE;
             }
-            if wants_json(&matches) && error.code != "REMOTE_READY_OUTPUT" {
-                let _ = writeln!(
-                    tmt_cli_style::stream::stdout(true),
-                    "{}",
-                    error.json_value()
-                );
+            if (matches.subcommand_name() == Some("launch") || wants_json(&matches))
+                && error.code != "REMOTE_READY_OUTPUT"
+            {
+                let mut value = error.json_value();
+                if matches.subcommand_name() == Some("launch") {
+                    value["version"] = json!(1);
+                }
+                let _ = writeln!(tmt_cli_style::stream::stdout(true), "{}", value);
             } else {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();

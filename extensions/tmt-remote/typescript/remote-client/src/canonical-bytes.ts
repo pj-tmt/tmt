@@ -205,6 +205,14 @@ export function enrollmentPossessionSigningBytes(
   requireValue(enrollment instanceof Uint8Array, 'enrollment bytes');
   return concat([lpText('tmt-device-pair-possession-v1'), lp(enrollment), binary(mac, 32)]);
 }
+/** Distinct from enrollment: a live device cancels an automatic offer, never enrolls. */
+export function enrollmentCancellationSigningBytes(
+  enrollment: Uint8Array,
+  mac: Uint8Array,
+): Uint8Array {
+  requireValue(enrollment instanceof Uint8Array, 'enrollment bytes');
+  return concat([lpText('tmt-device-pair-cancel-v1'), lp(enrollment), binary(mac, 32)]);
+}
 
 export interface ExtCert {
   /** Mounted extension name, as under `/x/<extension>/`. */

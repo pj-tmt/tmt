@@ -54,13 +54,10 @@ GitHub requires an owner-created OAuth app and console entry of its client ID/se
 deploy stops with a fixed owner-console instruction, like the existing Google owner step. No secret
 belongs in a share link. Policies are link holders or an email allow-list; company-domain policy is
 outside v1. Invite links are multi-use by default (as today), with optional single-use at creation.
-The provider/policy inputs, single-use option, join guide, local auto-pairing and machine-join flow
-remain later stages: this positioning change adds no flag, sign-in implementation or invite mode.
-The current [anonymous bootstrap](#hosted-anonymous-bootstrap), Rules and local terminal ceremony
-remain unchanged. In the stage-3 proposal, local auto-pairing needs no terminal confirmation by
-default; manual `tmt remote pair` stays for advanced cases. The one-time code is carried only on a
-browser's first open and removed from the address bar immediately. Every link tmt prints or the
-owner shares stays the short form with no code.
+The provider/policy inputs, single-use option, join guide and machine-join flow remain proposals.
+The current [anonymous bootstrap](#hosted-anonymous-bootstrap) and Rules remain unchanged.
+[Native automatic opens](#native-automatic-opens) use the local driver only; manual
+`tmt remote pair` retains its terminal ceremony.
 
 ## Transport binding: `loopback-http`
 
@@ -157,12 +154,12 @@ actual request still requires its proof/signature.
 1. **Start.** `tmt remote start` runs the remote door and the routes of enabled extensions. It does
    not enroll, restart or reconfigure agents, and needs no `--channel` flag or separate MCP setup.
    Native-channel enrollment is a local driver concern.
-2. **Pair once.** `tmt remote pair` authorizes one device: the owner opens the printed link or
-   enters the code on that device, sees the same four words on both sides and confirms once in the
-   terminal. The device is now a trusted source for all current and future owner-local agents. A
-   time limit, hold mode or agent allowlist is offered at that confirmation and is off by default.
-3. **Talk.** A trusted device talks, checks and reads results the way the local CLI does. Its
-   messages go straight through the ordinary core dispatch path, with no per-message approval.
+2. **Connect.** `tmt remote open /` opens the local page and enrolls a new browser with the
+   read-only default grant. Native opens carry a short-lived fragment only to the opener; printed
+   and shared page links remain code-free. Manual `tmt remote pair` remains available for advanced
+   use and explicit sending policy.
+3. **Talk.** A device with a sending grant uses the ordinary Core dispatch path, without
+   per-message approval. Automatic browser enrollment grants only the four read scopes.
 
 Automatic validation is remote's job and never adds a user step. A design that needs another user
 step goes to the owner before it enters this contract.
@@ -547,20 +544,82 @@ Revoked/expired grants cannot use these records to regain access.
 
 ### Pairing
 
-Pairing is the one-time authorization of a device as a trusted source. Only local
-`tmt remote pair` opens an offer on a running remote. A client cannot initiate or extend pairing.
-One offer at a time; replacing it explicitly cancels the previous offer. The terminal prints a
-pairing link for browser devices and the same code as text for add-on and CLI devices. The link
-is `http://127.0.0.1:PORT/pair#CODE`, with 26 ungrouped base32 characters in the fragment.
-A synchronous same-origin bootstrap captures and removes that fragment before loading any other
-script. The page fetches the public current offer descriptor from `GET /sdk/pair-offer`; there is
-one offer at a time and no additional trust boundary. The code never enters an HTTP request URL,
-log or analytics.
+Pairing authorizes one local device. Only the owner-only native control path opens offers;
+a browser cannot initiate or extend one. Manual pairing and native automatic opens share one
+in-memory offer, enrollment MAC/possession proof, machine receipt and default read-only grant.
 The descriptor carries profile/binding, machine/window/offer UUIDs, address and a random 128-bit
-server challenge (32 lowercase hex characters). No private key is included in a URL, ordinary
-web-page DOM or log.
+server challenge (32 lowercase hex characters). No private key is included in a URL, DOM or log.
 
-The command always prints the link. Browser opening defaults to on and uses Remote's own
+#### Native automatic opens
+
+`tmt remote open [short-target]` opens a running local door (default `/`). Targets are `/`, `/settings` or the
+existing exact public `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` grammar; query/fragment,
+protocol/mount paths and external redirects refuse. Human output contains only the canonical
+origin plus short target. `--json` returns the versioned result without opening; `--no-open` also
+suppresses opening. Other flags/settings/environment checks use the shared opener policy below.
+
+The extension-only `tmt remote launch <short-target>` seam is hidden from help, takes the same
+short target and `--open`/`--no-open`, accepts no `--json`, and always emits JSON. Its machine output
+does not itself suppress opening; an extension passes `--no-open` when its own flags/JSON/agent
+policy suppresses it. The shared CI/agent/display/SSH/open-setting checks still apply unless
+`--open` explicitly overrides them; a piped machine result alone is not a suppression reason.
+No platform opener means no offer. Success is exactly
+`{version:1,link,opened,state}`: `link` is the canonical short URL, `opened` is boolean, and `state`
+is `opened`, `skipped`, `no-opener` or `failed`. Command failures use `{version:1,error:{code,message}}`
+and a nonzero exit; usage/unknown-command errors remain ordinary CLI usage errors. A consumer
+recognizes an unsupported command as version skew and falls back to its existing opener plus
+user-only pairing hint, never a guessed launch URL. Colab passes no code or private state and adds
+no Remote crate dependency; its caller integration belongs to #3868. Opener injection remains
+available to tests without launching a host browser.
+
+Each actual native launch opens a fresh **60 s**, first-use-only offer. It replaces only a previous
+automatic offer and never displaces an active manual one (`REMOTE_PAIRING_BUSY`). The private
+launch argument is `http://127.0.0.1:PORT/pair#auto=CODE`; it never reaches public CLI output,
+errors, JSON, extension callers or logs. The public descriptor adds only `automatic:true` and the
+validated `target`, not the code. One hashed synchronous inline script captures the fragment and
+replaces history before imports, styles or any subrequest. A fragment change in an existing
+`/pair` document repeats capture/erasure and cancels its previous attempt; CSP adds only that exact script hash,
+with `no-referrer`, `no-store`, exact Host/Origin and frame protection unchanged. Continuation
+replaces the same tab with the validated short target. No preflight or second browser launch.
+
+An unpaired browser creates a non-extractable key and uses the existing enrollment proof. The
+first valid browser submission atomically creates exactly the four read scopes, with no sending,
+settings designation, policy choice or terminal confirmation. The code is erased immediately;
+**even an exact automatic replay refuses**, with no lost-response enrollment retry. The page
+plainly refuses a used/cancelled/expired link and directs the owner to reopen from the machine,
+using the page's own open command when known, otherwise `tmt remote open`. Transport/storage/proof
+failures add `tmt remote pair` as the fallback. Commands render as code. Every
+auto-confirmed device remains visible in `devices` with `issuedAtMs` and exact `origin`; serve
+logs that device ID, time and origin, never the code.
+
+A stored browser first proves its existing signed session/machine pin, then cancels rather than
+enrolling again. Cancellation uses the same enrollment fields/HMAC plus `cancel:true`, with a
+signature over LP(`tmt-device-pair-cancel-v1`) || LP(enrollmentBytes) || LP(raw HMAC), distinct from
+enrollment possession. It requires the exact Origin, current auto offer/code and a live paired
+browser key; it returns 204 and erases the offer. Unknown, cancelled, expired or already used
+offers return the same generic 404. A paired-browser cancellation never widens or creates a grant.
+Expiry is the fallback for an unused offer; opener failure requests exact-offer cancellation;
+stop/process exit erases it. No auto-offer persistence or detached retry job exists.
+
+**Local-attacker boundary.** The launch URL can be read from argv by the same user on macOS;
+on Linux without `hidepid`, other local users on the same host can read `/proc/<pid>/cmdline`,
+and a newly launched browser can retain its URL argument. The code is useful only until first use
+or 60 s: first use wins, including a local attacker who wins that race. This is not protection
+against same-user malware, root, browser extensions or OS/browser crash/history capture before
+script execution. `replaceState` removes the normal browser entry after execution, not every
+possible forensic copy. The owned 0700 state directory/0600 control socket do not hide argv.
+Cross-origin web pages cannot obtain/use the code; no code enters request URLs, Referer, TMT
+output or TMT logs. A failed/missing first script grants no access.
+
+#### Manual pairing
+
+`tmt remote pair` keeps the explicit terminal ceremony. Replacing a manual offer explicitly
+cancels the previous offer. The terminal prints the browser pairing link and the code for add-on
+and CLI devices. Its link remains `http://127.0.0.1:PORT/pair#CODE`, with 26 ungrouped base32
+characters. The same synchronous bootstrap erases the fragment before any subrequest and fetches
+only the public current descriptor from `GET /sdk/pair-offer`.
+
+The manual command always prints its pairing link. Browser opening defaults to on and uses Remote's own
 `settings.json` `open` boolean (`tmt remote settings open on|off`). `--open` overrides the setting
 and terminal, CI, agent and SSH/display checks. Only `--no-open`, `--json` and a missing platform opener
 suppress an explicit open. Without `--open`, no stdout TTY, CI, a nonempty `TMT_AGENT` (agent-run command), SSH without a display and Linux
@@ -568,13 +627,14 @@ without a display (except WSL) suppress opening. Opener failures warn without en
 Owner confirmation still requires an interactive terminal or `--json`.
 
 The code is **16 random bytes**, displayed as 26 uppercase RFC 4648 base32 characters grouped for
-**copy/paste**, one use, ten-minute expiry. Decode after removing ASCII spaces/hyphens only,
+**copy/paste**, one use, ten-minute manual expiry (60 s for automatic offers). Decode after removing ASCII spaces/hyphens only,
 rejecting invalid alphabet/nonzero unused bits. It is not a short numeric/word password: an observed
 known-message HMAC allows offline guesses, and three attempts/expiry do not prevent that attack. The
 high entropy is mandatory; do not describe this scheme as PAKE.
 
 The device proposes its public key, kind, exact origin, proposed name and a random 128-bit
-clientNonce. It does not propose agents, scopes, mode or expiry; the owner's confirmation sets them.
+clientNonce. It does not propose agents, scopes, mode or expiry; manual owner confirmation sets
+them, while automatic confirmation selects only the read-only default.
 Names are 1–64 nonblank UTF-8 bytes without controls; origin is at most 128 bytes.
 
 Enrollment bytes are LP(`tmt-device-pair-v1`), LP(profile), LP(machineId), LP(windowId),
@@ -587,7 +647,7 @@ local confirmation only until the offer deadline; identical pending candidates c
 competing candidate cannot replace the pinned one. Enrollment is the only unpaired message form; it
 authorizes no core work.
 
-Both sides show four words derived from SHA-256(LP(`tmt-local-key-fingerprint-v1`) || LP(raw public
+In manual pairing, both sides show four words derived from SHA-256(LP(`tmt-local-key-fingerprint-v1`) || LP(raw public
 key)): take the first 44 bits as four successive unsigned 11-bit indexes into the fixed English
 BIP-39 2048-word list, in list order. Use the
 [BIP-39 English list](https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt); pin its
@@ -601,7 +661,7 @@ or expiry editor is not implemented. Enrollment cannot request sending authority
 
 Enrollment JSON names are `profile`, `machineId`, `windowId`, `offerId`, `serverChallenge`,
 `clientNonce`, `kind`, `origin`, `name`, `publicKey`, `mac` and `signature`; binary keys/proofs use
-base64url, challenge/clientNonce use 32 lowercase hex characters. Reject unknown fields.
+base64url, challenge/clientNonce use 32 lowercase hex characters. Reject unknown fields except the automatic cancellation form above.
 
 After confirmation, atomically create one grant and consume the offer. Receipt JSON is
 `{grant,machinePublicKey}` with the grant fields defined below. The response carries base64url
@@ -610,10 +670,11 @@ exact `receipt` bytes and `serverProof`. Define
 `serverProof` is the full HMAC-SHA256(K_response, LP("tmt-device-pair-response-v1") || LP(exact
 receipt JSON bytes)). The device derives this key and verifies the proof before pinning the machine
 key or accepting the grant; it verifies matching machine/profile/device key/kind/origin and a
-well-formed grant. Exact candidate retry is idempotent until the original offer deadline; preserve
+well-formed grant. For manual offers only, exact candidate retry is idempotent until the original offer deadline; preserve
 only K_response, the candidate digest/proofs and exact receipt for that bounded lost-response
 recovery. Verify matching candidate and possession on retry; never accept K_response as a reusable
-enrollment token. Raw code is erased after confirmation; no grant exists before local confirmation.
+enrollment token. Raw code is erased after confirmation; no grant exists before manual owner confirmation or
+first valid submission to an owner-opened automatic offer.
 Delete the recovery key at the original deadline. Three failed code proofs, expiry, owner
 refusal/no confirmation, stop or process exit cancels pending pairing and erases its secret. No
 grant or device private key is stored for a failed/cancelled offer; sanitized audit may record
@@ -1179,8 +1240,9 @@ separate `origin` or `path` fields: `address` is their concatenation, with no tr
 fields identify the local profile, binding and two startup core calls. A startup failure emits the
 standard error document and exits nonzero, including when the remembered port is busy. Serve remains
 in the foreground. The supervisor stops only the child it started; attaching through status does not
-give it ownership of an existing serve. Pairing remains explicit through `tmt remote pair`, and the
-existing owner-only mount socket and grant rules apply to both attach and supervised-start use.
+give it ownership of an existing serve. Only the owner-controlled native open path or explicit
+`tmt remote pair` may open pairing; the existing owner-only mount socket and grant rules apply
+to both attach and supervised-start use.
 
 ### Operations
 

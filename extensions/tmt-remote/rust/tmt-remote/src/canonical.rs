@@ -186,6 +186,10 @@ pub fn enrollment(value: &Enrollment<'_>) -> Result<Vec<u8>> {
 pub fn possession(enrollment: &[u8], mac: &[u8; 32]) -> Result<Vec<u8>> {
     framed(&[b"tmt-device-pair-possession-v1", enrollment, mac])
 }
+/// A paired browser cancels an automatic offer without enrolling a new key.
+pub fn cancellation(enrollment: &[u8], mac: &[u8; 32]) -> Result<Vec<u8>> {
+    framed(&[b"tmt-device-pair-cancel-v1", enrollment, mac])
+}
 
 /// Pairing and local rename share the contract's 1–64 byte, nonblank name rule.
 pub fn device_name(value: &str) -> bool {

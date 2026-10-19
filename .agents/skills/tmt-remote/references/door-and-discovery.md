@@ -36,6 +36,20 @@ The [v3 carrier contract](../../../../contracts/remote-channel-v1.md#native-seal
 internal activation, verified factory inputs and restart/re-activation. Native refusal preserves
 the existing Local channel and ordinary door; status/read/channel loss never activate it.
 
+## Open a local page
+
+Run `tmt remote open /` or `tmt remote open /settings` to open the running local door.
+The native opener connects a new browser with read-only access, without terminal word comparison;
+printed/shared links stay short and code-free. `--no-open` and `--json` print only the short result
+and create no pairing offer. Manual `tmt remote pair` remains the advanced path, including explicit
+sending policy. Inspect new device IDs, issue times and origins with `tmt remote devices --json`;
+serve also logs each automatic enrollment without its code. If the browser refuses a used or
+expired open, reopen the page from the machine for a new link; `tmt remote pair` remains the
+fallback if connection still fails. The
+[pairing contract](../../../../contracts/remote-channel-v1.md#native-automatic-opens) owns the
+60 s first-use/local-argv boundary and the versioned extension `launch` seam; Colab caller adoption
+is tracked separately in #3868. Neither path changes Firestore sign-in or its Rules gate.
+
 ## Discovery and restart implementation
 
 Serve remembers the bound port since Remote schema 5 (`door_port`). Schema 6
