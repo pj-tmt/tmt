@@ -38,12 +38,14 @@ pub(crate) struct Callers {
 
 impl<R: CommandRunner> Drivers<R> {
     /// Every approved host whose declared variables the caller's environment
-    /// sets and whose pane core verifies, nearest first. A driver that fails
-    /// or names a pane outside the caller's ancestry proves nothing; only a
-    /// failed cleanup is an error.
+    /// sets and whose pane core verifies, nearest first: located on `pinned`
+    /// when the caller pinned its ancestry, else on one PID-only read. A
+    /// driver that fails or names a pane outside the caller's ancestry proves
+    /// nothing; only a failed cleanup is an error.
     pub(crate) fn callers(
         &self,
         environment: &CallerEnvironment,
+        pinned: Option<&ancestry::PinnedChain>,
         deadline: Instant,
     ) -> Result<Callers, HostError> {
         let mut chain = None;
@@ -88,7 +90,7 @@ impl<R: CommandRunner> Drivers<R> {
                     continue;
                 }
             };
-            if chain.is_none() {
+            if pinned.is_none() && chain.is_none() {
                 chain = match ancestry::chain(self.runner(), environment.process_id, deadline) {
                     Ok(chain) => Some(chain),
                     Err(ancestry::AncestryError::Command(error)) if error.cleanup_failed() => {
@@ -102,10 +104,13 @@ impl<R: CommandRunner> Drivers<R> {
                     }
                 };
             }
-            let Some(depth) = chain
-                .as_ref()
-                .and_then(|chain| chain.iter().position(|pid| *pid == pane.shell_pid))
-            else {
+            let depth = match pinned {
+                Some(pinned) => pinned.position(pane.shell_pid),
+                None => chain
+                    .as_ref()
+                    .and_then(|chain| chain.iter().position(|pid| *pid == pane.shell_pid)),
+            };
+            let Some(depth) = depth else {
                 continue;
             };
             found.push(ExternalCaller {

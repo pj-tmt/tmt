@@ -1115,9 +1115,11 @@ mod through_the_driver {
         NotText(u64),
     }
 
+    #[derive(Clone, Copy)]
     enum TmuxEnv {
         Full,
         PaneOnly,
+        TmuxOnly,
         Absent,
     }
 
@@ -1138,6 +1140,19 @@ mod through_the_driver {
         runner: R,
         second: bool,
     ) -> Result<HostKind, HostError> {
+        admitted(pane, env, process_id, runner, second, &mut Ids::default())
+            .map(|host| host.primary)
+    }
+
+    /// The handle `choose` describes, with the recorded servers `ids`.
+    fn admitted<R: CommandRunner + Clone>(
+        pane: Pane,
+        env: TmuxEnv,
+        process_id: u64,
+        runner: R,
+        second: bool,
+        ids: &mut impl HostServerIds,
+    ) -> Result<crate::host::Host<R>, HostError> {
         use crate::host::{CallerEnvironment, Host};
         use std::os::unix::ffi::OsStringExt;
         let (pid, start) = live();
@@ -1180,13 +1195,13 @@ mod through_the_driver {
             other
         });
         let environment = CallerEnvironment {
-            tmux: matches!(env, TmuxEnv::Full).then(|| "/tmp/nest.sock,1,0".into()),
+            tmux: matches!(env, TmuxEnv::Full | TmuxEnv::TmuxOnly)
+                .then(|| "/tmp/nest.sock,1,0".into()),
             pane: matches!(env, TmuxEnv::Full | TmuxEnv::PaneOnly).then(|| "%1".into()),
             process_id,
             driver_env,
         };
-        let chosen = Host::for_verified_caller(&environment, runner, records, &mut Ids::default())
-            .map(|host| host.primary);
+        let chosen = Host::for_verified_caller(&environment, runner, records, ids);
         drop(other);
         chosen
     }
@@ -1214,42 +1229,25 @@ mod through_the_driver {
     }
 
     #[test]
-    fn a_verified_caller_named_by_two_hosts_refuses_whatever_the_panes_say() {
+    fn a_verified_caller_named_by_two_external_hosts_refuses_whatever_the_panes_say() {
         let chain = ancestors();
-        // tmux variables plus the external driver's: every combination of a
-        // positive, negative or failing check on each side refuses.
-        for (inner, outer) in [(chain[0], chain[1]), (chain[1], chain[0])] {
-            for pane in [Pane::Shell(inner), Pane::Missing, Pane::Fails] {
-                for tmux in [Some(outer), Some(999_999), None] {
-                    let (label, pane) = match pane {
-                        Pane::Shell(pid) => ("positive", Pane::Shell(pid)),
-                        Pane::Missing => ("negative", Pane::Missing),
-                        _ => ("failing", Pane::Fails),
-                    };
-                    let result = chosen(pane, tmux, TmuxEnv::Full);
-                    assert!(
-                        matches!(&result, Err(HostError::Unavailable(reason)) if reason.contains("more than one host")),
-                        "external {label}, tmux {tmux:?}: {result:?}"
-                    );
-                }
+        let (pid, _) = live();
+        // Two approved external hosts whose variables are both set, with or
+        // without tmux variables: whatever each pane check says, refused.
+        // tmux and ONE external host is a nested caller (`nested`).
+        for env in [TmuxEnv::Absent, TmuxEnv::Full] {
+            for pane in [Pane::Shell(chain[0]), Pane::Missing, Pane::Fails] {
+                ambiguous(choose(
+                    pane,
+                    env,
+                    pid,
+                    Nested {
+                        pane: Some(chain[1]),
+                    },
+                    true,
+                ));
             }
         }
-        // A partial tmux environment still names tmux.
-        ambiguous(chosen(
-            Pane::Shell(chain[0]),
-            Some(chain[1]),
-            TmuxEnv::PaneOnly,
-        ));
-        // Two approved external hosts whose variables are both set.
-        let (pid, _) = live();
-        let nested = Nested { pane: None };
-        ambiguous(choose(
-            Pane::Shell(chain[0]),
-            TmuxEnv::Absent,
-            pid,
-            nested,
-            true,
-        ));
     }
 
     #[test]
@@ -1315,7 +1313,7 @@ mod through_the_driver {
                 process_id: u64::from(std::process::id()),
                 driver_env: [("FAKE_PANE_ID".to_owned(), value)].into(),
             };
-            let callers = drivers.callers(&environment, soon()).unwrap();
+            let callers = drivers.callers(&environment, None, soon()).unwrap();
             (callers.conclusive, callers.found.len(), installed.calls())
         };
         let (conclusive, found, calls) = probe(false, "f1".into());
@@ -1337,4 +1335,6 @@ mod through_the_driver {
             "{calls:?}"
         );
     }
+
+    mod nested;
 }

@@ -1192,6 +1192,8 @@ describe('component map', () => {
     const namesOnly: Record<string, string> = {
       'typescript/test/e2e/driver-consent.e2e.test.ts':
         'host-driver protocol ops operation names, no Ops executable or source',
+      'typescript/test/e2e/nested-host-hooks.e2e.test.ts':
+        'host-driver protocol ops operation names, no Ops executable or source',
       'typescript/test/native/api.test.ts':
         'a synthetic owned skill named tmt-ops; no Ops executable or source',
       'typescript/test/native/office-freeze.test.ts':

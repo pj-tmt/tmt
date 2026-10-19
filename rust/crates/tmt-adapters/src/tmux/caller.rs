@@ -165,6 +165,67 @@ pub(super) fn resolve<R: CommandRunner>(
     Ok(candidate[0].into())
 }
 
+/// The caller's tmux pane shell pid, from one `display-message` on the
+/// server that `TMUX` names, with no ancestry read: the caller locates it on
+/// its own pinned chain. Both variables must be set; the pane, socket and
+/// server pid must be the ones they name, and a dead pane (remain-on-exit,
+/// whose pid may be reused) proves nothing.
+pub(super) fn proven_pane_pid<R: CommandRunner>(
+    tmux: &Tmux<R>,
+    environment: &CallerEnvironment,
+    deadline: Instant,
+) -> Result<u64, TmuxError> {
+    fn text(value: Option<&std::ffi::OsString>) -> Result<&str, TmuxError> {
+        value
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(unavailable)
+    }
+    let pane = text(environment.pane.as_ref())?;
+    let context = context(text(environment.tmux.as_ref())?).ok_or_else(unavailable)?;
+    if !valid_pane_id(pane) {
+        return Err(unavailable());
+    }
+    let format = [
+        "#{pane_id}",
+        "#{socket_path}",
+        "#{pid}",
+        "#{pane_pid}",
+        "#{pane_dead}",
+    ]
+    .join(SEPARATOR);
+    let output = tmux.run(
+        "tmux",
+        vec![
+            "-S".into(),
+            context.socket.into(),
+            "display-message".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.into(),
+            format,
+        ],
+        deadline.min(Instant::now() + OPERATION_TIMEOUT),
+        VERIFY_MAX_OUTPUT,
+        TmuxFailure::Command,
+    )?;
+    let text = output.trim();
+    let fields: Vec<_> = text.split(SEPARATOR).collect();
+    match fields.as_slice() {
+        [id, socket, server, pane_pid, "0"]
+            if !text.contains('\n')
+                && *id == pane
+                && *socket == context.socket
+                && *server == context.server_pid.to_string() =>
+        {
+            number(pane_pid)
+                .filter(|pid| *pid > 0)
+                .ok_or_else(unavailable)
+        }
+        _ => Err(unavailable()),
+    }
+}
+
 fn unavailable() -> TmuxError {
     TmuxError::evidence("Caller pane evidence is unavailable")
 }
