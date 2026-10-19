@@ -146,6 +146,14 @@ fn usage(document: &Value) -> Vec<String> {
         cells.push(seat["cause"].clone());
         rows.push(row(&cells));
     }
+    let other = &usage["otherSessions"];
+    if !other.is_null() {
+        let mut cells = vec![Value::Null, other["name"].clone(), Value::Null];
+        cells.extend(std::iter::repeat_n(Value::Null, 9));
+        cells.push(other["reason"].clone());
+        cells.push(Value::Null);
+        rows.push(row(&cells));
+    }
     rows
 }
 
