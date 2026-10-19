@@ -235,6 +235,9 @@ the selected tab in view without moving the host page. A label wider than the
 available strip truncates visually while its full accessible name remains.
 The square panel uses a 1px rule; the selected tab joins it and carries a 2px
 top rule and strong text in the neutral text role. State marks retain their own roles.
+`variant="flush"` (default `boxed`) drops the frame and the panel padding for views of a list that
+sits on the page: the strip keeps its rule underneath and the selected tab carries a 2px
+underline instead of the top rule.
 No product state, routing or persistence belongs to Tabs.
 Static hosts use `tabs`, `tabsHeader`, `tabList`, `tab`, `tabMark`, `tabLabel`,
 `tabsStatus`, `tabPanel` classes and supply the same IDs, roles, selected state,

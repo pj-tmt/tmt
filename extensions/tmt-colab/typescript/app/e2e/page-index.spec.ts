@@ -39,9 +39,21 @@ for (const width of [1440, 390])
       await expect(first.locator('time')).toHaveAttribute('title', /2026/);
       await expect(first.locator('.tmt-ui-list-state')).toHaveText('Shared');
       await first.getByRole('link', { name: 'Alpha update' }).focus();
+      // A phone has the archive item in the ⋯ menu and no new-tab action beside the row.
+      const wide = width > 479;
       await page.keyboard.press('Tab');
+      if (wide) {
+        await expect(
+          first.getByRole('button', { name: 'Open Alpha update in a new tab' }),
+        ).toBeFocused();
+        await page.keyboard.press('Tab');
+      }
       await expect(first.getByRole('button', { name: 'Projects for Alpha update' })).toBeFocused();
       await page.keyboard.press('Tab');
+      if (wide) {
+        await expect(first.getByRole('button', { name: 'Archive Alpha update' })).toBeFocused();
+        await page.keyboard.press('Tab');
+      }
       const actions = first.getByRole('button', { name: /^Actions for/ });
       await expect(actions).toBeFocused();
       await page.keyboard.press('Tab');
@@ -56,8 +68,7 @@ for (const width of [1440, 390])
       await expect(page.getByRole('menu')).toHaveCount(0);
       await expect(actions).toBeFocused();
       await page.screenshot({ path: await capturePath(`2168-few-${width}-${theme}.png`) });
-      await fixture.getByRole('button', { name: 'List options' }).click();
-      await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+      await fixture.getByRole('tab', { name: /^Archived/ }).click();
       await expect(rows).toHaveCount(2);
       await expect(rows.locator('.tmt-ui-list-state')).toHaveText(['Archived', 'Archived']);
       await expect(rows.getByRole('link')).toHaveCount(2);
@@ -218,8 +229,7 @@ test('an out-of-range update has the same unknown copy and no fabricated time el
     const path = '/test/page-index-browser.tsx';
     await (await import(path)).mountPageIndex('few', Number.MAX_SAFE_INTEGER);
   });
-  await page.getByRole('button', { name: 'List options' }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+  await page.getByRole('tab', { name: /^Archived/ }).click();
   const row = page.locator('#index-fixture [data-page-id="c0000005-1111-4111-8111-000000000001"]');
   await expect(row.locator('.tmt-ui-list-updated')).toHaveText('Update time unknown');
   await expect(row.locator('time')).toHaveCount(0);

@@ -5462,8 +5462,9 @@ no download and follows the create-only rules above.
 
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
-the same dialog; local samples remain read-only. Home defaults to active pages,
-offers an archived filter, and provides retention days/forever, archive and explicit
+the same dialog; local samples remain read-only. Home defaults to the All tab (active pages)
+and offers an Archived tab; its rows offer archive and delete, each behind a confirmation that
+names the page, and the dialog provides retention days/forever, archive and explicit
 delete confirmation. There is no unarchive action. Policy and complete recipient
 assignments derive from the contiguous verified owner log, never discovery labels.
 

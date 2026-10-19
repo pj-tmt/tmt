@@ -110,3 +110,25 @@
     flex-basis: 100%;
   }
 }
+
+/* A flush strip: no frame, the selected view underlined, the panel on the page itself. */
+.tmt-ui-tabs[data-variant='flush'] {
+  background: transparent;
+  border: 0;
+}
+.tmt-ui-tabs[data-variant='flush'] .tmt-ui-tab {
+  background: transparent;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: var(--tmt-ui-focus-width) solid transparent;
+}
+.tmt-ui-tabs[data-variant='flush'] .tmt-ui-tab:hover {
+  background: var(--tmt-ui-surface-selection);
+}
+.tmt-ui-tabs[data-variant='flush'] .tmt-ui-tab[aria-selected='true'] {
+  background: transparent;
+  border-bottom-color: var(--tmt-ui-color-text);
+}
+.tmt-ui-tabs[data-variant='flush'] .tmt-ui-tab-panel {
+  padding: 0;
+}

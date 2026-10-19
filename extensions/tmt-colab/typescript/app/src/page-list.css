@@ -117,3 +117,28 @@
   content: '·' / '';
   margin-inline-end: 0.35em;
 }
+
+/* The ◆ in a row that waits on the viewer is the waiting colour, as in the Needs you chip; the word
+   and the count stay text-coloured, so the mark never rests on colour alone. */
+.page-waiting-mark {
+  color: var(--tmt-ui-color-waiting);
+}
+/* With a pointer the row's actions appear on hover or focus; they stay while a menu of theirs is
+   open. Touch has no hover, so they stay shown. */
+@media (hover: hover) {
+  .pages > li .tmt-ui-list-actions {
+    opacity: 0;
+  }
+  .pages > li:hover .tmt-ui-list-actions,
+  .pages > li:focus-within .tmt-ui-list-actions,
+  .pages > li:has([aria-expanded='true']) .tmt-ui-list-actions {
+    opacity: 1;
+  }
+}
+/* A phone has no hover and little width: the ⋯ menu holds archive and delete. */
+@media (max-width: 479px) {
+  .page-open-tab,
+  .page-archive-action {
+    display: none;
+  }
+}

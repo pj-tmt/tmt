@@ -753,8 +753,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(row(pageId)).toHaveCount(0);
   await expect(row(other)).toBeVisible();
-  await page.getByRole('button', { name: 'List options' }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+  await page.getByRole('tab', { name: /^Archived/ }).click();
   await expect(row(pageId)).toContainText('Archived');
   await row(pageId)
     .getByRole('button', { name: /^Actions for/ })
@@ -800,8 +799,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'List options' }).click();
-  await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+  await page.getByRole('tab', { name: 'All', exact: true }).click();
   await row(other)
     .getByRole('button', { name: /^Actions for/ })
     .click();

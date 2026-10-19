@@ -166,7 +166,7 @@ test('a row shows the creator, the comment count and a proposal waiting for you'
   // The mark is the word with the diamond; only the page with a proposal awaiting the owner has it.
   await expect(app(page).locator('[data-waiting]')).toHaveCount(1);
   await expect(rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]')).toHaveText(
-    '◆ Waiting for you',
+    '◆ Waiting for you · 1',
   );
   // A page the owner has not summarized yet shows what the list already knows, with no placeholder.
   const gamma = metadata('Gamma notes');
@@ -332,7 +332,9 @@ test('a copied needs-you link filters at once, and a value it cannot read shows 
   await expect(app(page).locator('[data-needs-filter]')).toHaveCount(0);
 });
 
-test('sort orders by title and the list menu shows archived pages', async ({ page }) => {
+test('sort orders by title; the Archived tab shows archived pages and counts them', async ({
+  page,
+}) => {
   await mount(page);
   await app(page).getByRole('button', { name: 'Sort: Recently updated' }).click();
   await app(page).getByRole('menuitemradio', { name: 'Title' }).click();
@@ -340,24 +342,190 @@ test('sort orders by title and the list menu shows archived pages', async ({ pag
   await app(page).getByRole('button', { name: 'Sort: Title' }).click();
   await app(page).getByRole('menuitemradio', { name: 'Recently updated' }).click();
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes', 'Delta ops']);
-  await app(page).getByRole('button', { name: 'List options' }).click();
-  const archived = app(page).getByRole('menuitemcheckbox', { name: 'Show archived' });
-  await expect(archived).toHaveAttribute('aria-checked', 'false');
-  // Closed, the menu leaves no mark, so the status line says which pages the list shows.
-  await expect(app(page).locator('.page-list-status')).toHaveText('');
+  const all = app(page).getByRole('tab', { name: 'All', exact: true });
+  const archived = app(page).getByRole('tab', { name: 'Archived 1' });
+  await expect(all).toHaveAttribute('aria-selected', 'true');
+  await expect(archived).toHaveAttribute('aria-selected', 'false');
   await archived.click();
+  await expect(archived).toHaveAttribute('aria-selected', 'true');
+  expect(new URL(page.url()).hash).toContain('archived=true');
   await expect(titles(page)).toHaveText(['Archived spec']);
-  await expect(app(page).locator('.page-list-status')).toHaveText('Archived pages');
-  // The project row counts only what the toggle shows.
+  // The project row counts only what the tab shows.
   await expect(app(page).getByRole('button', { name: 'design, 1 page' })).toBeVisible();
   await expect(app(page).getByRole('button', { name: 'ops, 1 page' })).toHaveCount(0);
+  await all.click();
+  await expect(titles(page)).toHaveCount(4);
+  expect(new URL(page.url()).hash).not.toContain('archived');
 });
 
-test('a reader gets search, filters and the scope, but no project writes or list menus', async ({
+const operations = (page: Page) => page.evaluate(() => window.__pageOperations);
+const confirmDialog = (page: Page, name: string) => page.getByRole('dialog', { name });
+const status = (page: Page) => app(page).locator('.page-list-status');
+
+test('a page waiting on the viewer shows the ◆ in the waiting colour with the word and its count', async ({
+  page,
+}) => {
+  await mount(page);
+  const waiting = rows(page).filter({ hasText: 'Alpha plan' }).locator('[data-waiting]');
+  await expect(waiting).toHaveText('◆ Waiting for you · 1');
+  const colours = await app(page).evaluate((root) => {
+    const colour = (selector: string) => getComputedStyle(root.querySelector(selector)!).color;
+    return {
+      rowMark: colour('[data-waiting] .page-waiting-mark'),
+      word: colour('[data-waiting]'),
+      chipMark: colour('.needs-filter-mark'),
+    };
+  });
+  // The row's mark is the chip's mark; the word beside it is plain text colour.
+  expect(colours.rowMark).toBe(colours.chipMark);
+  expect(colours.word).not.toBe(colours.rowMark);
+  // A row that waits is not otherwise marked: no rule, nothing that reads as a selection.
+  await expect(rows(page).filter({ hasText: 'Alpha plan' })).not.toHaveAttribute('data-needs-you');
+  await expect(rows(page).filter({ hasText: 'Beta review' }).locator('[data-waiting]')).toHaveCount(
+    0,
+  );
+});
+
+test('row actions show on hover and focus; a row opens in a new tab without leaving the list', async ({
+  page,
+}) => {
+  await mount(page);
+  const row = rows(page).filter({ hasText: 'Beta review' });
+  const actions = row.locator('.tmt-ui-list-actions');
+  await expect(actions).toHaveCSS('opacity', '0');
+  await row.hover();
+  await expect(actions).toHaveCSS('opacity', '1');
+  await page.mouse.move(0, 0);
+  await expect(actions).toHaveCSS('opacity', '0');
+  await row.getByRole('link', { name: 'Beta review' }).focus();
+  await expect(actions).toHaveCSS('opacity', '1');
+  await row.getByRole('button', { name: 'Open Beta review in a new tab' }).click();
+  expect(await page.evaluate(() => window.__opened)).toEqual([
+    {
+      url: expect.stringMatching(/#\/pages\/c0000002-1111-4111-8111-000000000001$/),
+      target: '_blank',
+      features: 'noopener',
+    },
+  ]);
+  await expect(titles(page)).toHaveCount(4);
+});
+
+test('archiving from a row confirms, says it cannot be undone yet, and sends one statement', async ({
+  page,
+}) => {
+  await mount(page);
+  const row = rows(page).filter({ hasText: 'Gamma notes' });
+  await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
+  const dialog = confirmDialog(page, 'Archive “Gamma notes”?');
+  await expect(dialog).toContainText(
+    'An archived page stays readable, but nobody can edit it. Archiving cannot be undone yet.',
+  );
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await operations(page)).toEqual([]);
+  await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  expect(await operations(page)).toEqual([]);
+  await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
+  await dialog.getByRole('button', { name: 'Archive page' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(status(page)).toHaveText('Archived “Gamma notes”.');
+  expect(await operations(page)).toEqual([
+    { operation: 'page.archive', pageId: 'c0000003-1111-4111-8111-000000000001' },
+  ]);
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Delta ops']);
+  await expect(app(page).getByRole('tab', { name: 'Archived 2' })).toBeVisible();
+});
+
+test('deleting from the menu names the page, says it cannot be undone, and removes it', async ({
+  page,
+}) => {
+  await mount(page);
+  const row = rows(page).filter({ hasText: 'Delta ops' });
+  await row.getByRole('button', { name: 'Actions for Delta ops' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Archive…' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  const dialog = confirmDialog(page, 'Delete “Delta ops”?');
+  await expect(dialog).toContainText(
+    'The page, its comments and its attachments are deleted. This cannot be undone.',
+  );
+  await expect(dialog).not.toContainText('archive');
+  await dialog.getByRole('button', { name: 'Delete page' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(status(page)).toHaveText('Deleted “Delta ops”.');
+  expect(await operations(page)).toEqual([
+    { operation: 'page.delete', pageId: 'c0000004-1111-4111-8111-000000000001' },
+  ]);
+  await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review', 'Gamma notes']);
+});
+
+test('an archived row offers Delete… only: no archive action, and no restore yet', async ({
+  page,
+}) => {
+  await mount(page);
+  await app(page)
+    .getByRole('tab', { name: /^Archived/ })
+    .click();
+  const row = rows(page).filter({ hasText: 'Archived spec' });
+  await expect(row.getByRole('button', { name: /^Archive / })).toHaveCount(0);
+  await row.getByRole('button', { name: 'Actions for Archived spec' }).click();
+  await expect(page.getByRole('menuitem')).toHaveText(['Manage page', 'Delete…']);
+  await page.getByRole('menuitem', { name: 'Delete…' }).click();
+  await confirmDialog(page, 'Delete “Archived spec”?')
+    .getByRole('button', { name: 'Delete page' })
+    .click();
+  await expect(status(page)).toHaveText('Deleted “Archived spec”.');
+  await expect(app(page).getByText('No archived pages.')).toBeVisible();
+  await expect(app(page).getByRole('tab', { name: 'Archived 0' })).toBeVisible();
+});
+
+test('a refused statement changes nothing and says why; an unverified one is not called done', async ({
+  page,
+}) => {
+  await mount(page);
+  const row = rows(page).filter({ hasText: 'Gamma notes' });
+  await page.evaluate(() => {
+    window.__operationMode = 'refuse';
+  });
+  await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
+  await confirmDialog(page, 'Archive “Gamma notes”?')
+    .getByRole('button', { name: 'Archive page' })
+    .click();
+  await expect(status(page)).toHaveText(
+    'This device is not allowed to manage pages. Reopen your paired session.',
+  );
+  await expect(status(page)).toHaveAttribute('data-tone', 'error');
+  expect(await operations(page)).toEqual([]);
+  await expect(titles(page)).toHaveCount(4);
+  await page.evaluate(() => {
+    window.__operationMode = 'unverified';
+  });
+  await row.getByRole('button', { name: 'Archive Gamma notes' }).click();
+  await confirmDialog(page, 'Archive “Gamma notes”?')
+    .getByRole('button', { name: 'Archive page' })
+    .click();
+  await expect(status(page)).toContainText('not verified yet');
+  await expect(status(page)).not.toHaveText(/^Archived/);
+});
+
+test('a project with only active pages says its archived view is empty, not that it has no pages', async ({
+  page,
+}) => {
+  await mount(page, 'few', '/?scope=ops');
+  await expect(titles(page)).toHaveText(['Delta ops']);
+  await app(page)
+    .getByRole('tab', { name: /^Archived/ })
+    .click();
+  await expect(app(page).getByText('No archived pages in ops.')).toBeVisible();
+  await expect(app(page).getByText('No pages in ops yet.')).toHaveCount(0);
+});
+
+test('a reader gets search, filters and the scope, but no project writes or archived tab', async ({
   page,
 }) => {
   await mount(page, 'unmanaged');
-  await expect(app(page).getByRole('button', { name: 'List options' })).toHaveCount(0);
+  await expect(app(page).getByRole('tab')).toHaveCount(0);
   await expect(app(page).getByRole('button', { name: /^Projects for/ })).toHaveCount(0);
   await app(page).getByRole('button', { name: 'ops, 1 page' }).click();
   await expect(titles(page)).toHaveText(['Delta ops']);
@@ -696,6 +864,20 @@ for (const width of [1440, 390])
       await expect(titles(page)).toHaveCount(4);
       expect(await flat()).toBe(true);
       await page.screenshot({ path: await capturePath(`2588-list-${width}-${theme}.png`) });
+      const beta = rows(page).filter({ hasText: 'Beta review' });
+      await beta.hover();
+      await page.screenshot({ path: await capturePath(`3746-row-actions-${width}-${theme}.png`) });
+      await beta.getByRole('button', { name: 'Actions for Beta review' }).click();
+      await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
+      await page.screenshot({ path: await capturePath(`3746-row-menu-${width}-${theme}.png`) });
+      await page.getByRole('menuitem', { name: 'Delete…' }).click();
+      const confirm = confirmDialog(page, 'Delete “Beta review”?');
+      await expect(confirm).toBeVisible();
+      expect(await flat()).toBe(true);
+      await page.screenshot({
+        path: await capturePath(`3746-delete-confirm-${width}-${theme}.png`),
+      });
+      await confirm.getByRole('button', { name: 'Cancel' }).click();
       await scopeTo(page, 'design');
       await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
       expect(await flat()).toBe(true);
@@ -739,10 +921,13 @@ for (const width of [1440, 390])
       await app(page).getByRole('textbox', { name: 'Project name' }).fill('review');
       await page.screenshot({ path: await capturePath(`2588-new-project-${width}-${theme}.png`) });
       await page.keyboard.press('Escape');
-      await app(page).getByRole('button', { name: 'List options' }).click();
-      await expect(page.getByRole('menuitemcheckbox', { name: 'Show archived' })).toBeVisible();
-      await page.screenshot({ path: await capturePath(`2588-gear-menu-${width}-${theme}.png`) });
-      await page.keyboard.press('Escape');
+      await app(page)
+        .getByRole('tab', { name: /^Archived/ })
+        .click();
+      await expect(titles(page)).toHaveText(['Archived spec']);
+      expect(await flat()).toBe(true);
+      await page.screenshot({ path: await capturePath(`3746-archived-tab-${width}-${theme}.png`) });
+      await app(page).getByRole('tab', { name: 'All', exact: true }).click();
       await scopeTrigger(page).click();
       await page.screenshot({ path: await capturePath(`3747-scope-menu-${width}-${theme}.png`) });
       await page.getByRole('menuitem', { name: 'Manage projects…' }).click();

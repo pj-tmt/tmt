@@ -17,6 +17,9 @@ export interface BrowserTabsProps {
     event: KeyboardEvent<HTMLButtonElement> | MouseEvent<HTMLButtonElement>,
   ): void;
   status?: ReactNode;
+  /** `boxed` (default) frames the strip and its panels; `flush` is a strip with an underline over
+   * content that sits on the page, for a list a few views of one set share. */
+  variant?: 'boxed' | 'flush';
   panelTabIndex?: 0 | -1;
   children(tab: BrowserTab): ReactNode;
 }
@@ -28,6 +31,7 @@ export function BrowserTabs({
   selected,
   onSelect,
   status,
+  variant = 'boxed',
   panelTabIndex,
   children,
 }: BrowserTabsProps) {
@@ -75,7 +79,7 @@ export function BrowserTabs({
     onSelect(tabs[next].id, 'keyboard', event);
   }
   return (
-    <div className={c.tabs}>
+    <div className={c.tabs} data-variant={variant}>
       <div className={c.tabsHeader}>
         <div className={c.tabList} role="tablist" aria-label={label} ref={strip}>
           {tabs.map((tab, index) => (

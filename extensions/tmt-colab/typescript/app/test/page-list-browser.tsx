@@ -2,7 +2,7 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
-import { ManagementError, type ManagementPort } from '../src/management.js';
+import { ManagementError, type ManagementPort, type Selection } from '../src/management.js';
 import type { ProjectChange, ProjectManage } from '../src/projects.js';
 import { localTransport, type PageSnapshot, type PageSummary } from '../src/transport.js';
 
@@ -19,6 +19,12 @@ declare global {
     /** Hold the next `project.manage` request until `__releaseManage` runs. */
     __holdManage?: boolean;
     __releaseManage?: () => void;
+    /** Every archive and delete statement the owner accepted, in order. */
+    __pageOperations: { operation: string; pageId: string }[];
+    /** `refuse`: the owner refuses the next statement; `unverified`: its log cannot be read back. */
+    __operationMode?: 'refuse' | 'unverified';
+    /** What `window.open` was asked for, since the fixture replaces it. */
+    __opened: { url: string; target: string; features: string }[];
   }
 }
 let root: Root | undefined;
@@ -55,6 +61,13 @@ export async function mountPageList(
   window.__projectManage = [];
   window.__failProjectRequest = undefined;
   window.__failManage = undefined;
+  window.__pageOperations = [];
+  window.__operationMode = undefined;
+  window.__opened = [];
+  window.open = (url, target, features) => {
+    window.__opened.push({ url: String(url), target: target ?? '', features: features ?? '' });
+    return null;
+  };
   const state: { pages: PageSummary[]; projects: Set<string> } = {
     projects: new Set(),
     pages:
@@ -99,17 +112,31 @@ export async function mountPageList(
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));
   const transport = localTransport('Studio pages', snapshots);
   const management: ManagementPort = {
-    read: async () => {
-      throw new Error('No management view in the list fixture');
+    // The list's archive and delete run the real four steps; the fixture answers each in memory.
+    read: async (pageId) => ({ page: { pageId } }) as never,
+    prepare: async (_view, selection) => ({ selection }) as never,
+    send: async (pending) => {
+      const { operation, value } = (pending as never as { selection: Selection }).selection as {
+        operation: string;
+        value: { pageId: string };
+      };
+      if (window.__operationMode === 'refuse') {
+        window.__operationMode = undefined;
+        throw new ManagementError('DENIED');
+      }
+      window.__pageOperations.push({ operation, pageId: value.pageId });
+      state.pages =
+        operation === 'page.delete'
+          ? state.pages.filter((p) => p.id !== value.pageId)
+          : state.pages.map((p) => (p.id === value.pageId ? { ...p, archived: true } : p));
+      return {} as never;
     },
-    prepare: async () => {
-      throw new Error('No log operations in the list fixture');
-    },
-    send: async () => {
-      throw new Error('No log operations in the list fixture');
-    },
-    verify: async () => {
-      throw new Error('No log operations in the list fixture');
+    verify: async (_pending, _ack) => {
+      if (window.__operationMode === 'unverified') {
+        window.__operationMode = undefined;
+        throw new Error('The signed log is not readable yet');
+      }
+      return {} as never;
     },
     setProjects: async (changes) => {
       const index = window.__projectRequests.length;
