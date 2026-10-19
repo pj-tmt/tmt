@@ -262,12 +262,10 @@ pub enum Choice {
         target: super::workspace::OpsTarget,
         jump: bool,
     },
-    Unavailable(String),
     MemberLinkAction {
         target: super::workspace::OpsTarget,
         action: Action,
     },
-    WorkspaceTimers,
     AgentsFilter(super::workspace::AgentsFilter),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
@@ -2680,11 +2678,9 @@ impl App {
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
             Choice::MemberLink { target, jump } => self.member_link_action(&target, jump),
-            Choice::Unavailable(reason) => self.say(reason),
             Choice::MemberLinkAction { target, action } => {
                 self.member_link_command(&target, &action)
             }
-            Choice::WorkspaceTimers => self.workspace_owner_timers(None, None),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
             Choice::WorkspaceTarget(target) => {
                 if self

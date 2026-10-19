@@ -64,10 +64,16 @@ pub(super) fn render(
                 },
                 look,
             );
-            if let Some(value_area) = value_area
-                && let Some(target) = app.conversation_target()
-            {
-                crate::board::conversation::source::publish(app, target, value_area);
+            if let Some(value_area) = value_area {
+                if let Some(value) = value {
+                    let value = crate::board::notes::sanitize(value);
+                    crate::board::member_links::paint_plain_hits(
+                        frame, app, value_area, &value, &value, false,
+                    );
+                }
+                if let Some(target) = app.conversation_target() {
+                    crate::board::conversation::source::publish(app, target, value_area);
+                }
             }
             *y += 1;
         }

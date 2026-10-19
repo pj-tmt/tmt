@@ -359,6 +359,9 @@ impl Session {
                     }
                     links.clear();
                 }
+                for link in &mut links {
+                    link.column += gutter;
+                }
                 lines.push(line);
                 sources.push(source);
                 mentions.push(links);
