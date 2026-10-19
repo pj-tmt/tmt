@@ -230,7 +230,7 @@ pub fn observe_starts<R: CommandRunner>(
         .collect())
 }
 
-fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
+pub(super) fn parse_process_observation(pid: u64, bytes: &[u8]) -> ProcessObservation {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return ProcessObservation::Unknown;
     };
