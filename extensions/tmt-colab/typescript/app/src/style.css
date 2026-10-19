@@ -716,10 +716,14 @@ body:has(.needs-you-header-menu) {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.annotation-row span,
+/* The muted meta line is not the number badge, which keeps its own one specification. */
+.annotation-row span:where(:not(.annotation-number)),
 .annotation-hint {
   color: var(--c-muted);
   font-size: 12px;
+}
+.annotation-row .annotation-number {
+  margin-inline-end: 8px;
 }
 .annotation-row [data-testid='thread-row-status'] {
   display: inline-flex;
