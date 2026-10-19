@@ -97,7 +97,10 @@ delivery. They install and launch nothing.
   proposal and full binding/preferences fence. Failure never changes the command
   result; no timer, daemon, setup hook or provider settings write is needed.
   `TMT_CALLER_SESSION_DEBUG=1` opts into one stderr diagnostic naming the refusing
-  layer, without paths, IDs, provider output or content.
+  layer, without paths, IDs, provider output or content. Running out of the 500 ms
+  is the `budget` layer wherever it is noticed, including a hook-storage open whose
+  writer wait is already spent (under its completion reserve); lock contention and any
+  other storage failure stay `storage`.
 - A storage-only pane-locator precheck suppresses discovery without an active
   binding. For an external caller without a pane-ID locator (Herdr's variables
   hold a target): when its variables name exactly one approved external host and

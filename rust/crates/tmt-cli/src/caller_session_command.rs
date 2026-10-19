@@ -18,7 +18,7 @@ use tmt_adapters::{
         lifecycle::{CallerSession, HostEvidence},
     },
     skill_installation::ProviderEnvironment,
-    storage::Storage,
+    storage::{Storage, StorageError},
 };
 use tmt_core::{
     binding::{
@@ -296,7 +296,8 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
     if Instant::now() >= deadline {
         return Err("budget");
     }
-    let mut storage = Storage::open_hook(&bound.paths.database, deadline).map_err(|_| "storage")?;
+    let mut storage = Storage::open_hook(&bound.paths.database, deadline)
+        .map_err(|error| storage_layer(&error))?;
     let changed = commit_session(
         &mut storage,
         SessionCommit {
@@ -313,6 +314,17 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
         return Err("stale-commit");
     }
     closed
+}
+
+/// Opening hook storage with no budget left is the worker running out of its
+/// fixed time under load, the same refusal as any other step past the deadline.
+/// Lock contention and every other storage failure stay `storage`.
+fn storage_layer(error: &StorageError) -> &'static str {
+    if error.is_budget_exhausted() {
+        "budget"
+    } else {
+        "storage"
+    }
 }
 
 fn debug_refusal(layer: &str) {

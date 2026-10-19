@@ -930,3 +930,19 @@ fn an_external_worker_gets_the_precheck_deadline_and_a_timeout_is_remembered() {
         Err("budget")
     );
 }
+
+#[test]
+fn a_spent_budget_is_the_budget_layer_and_other_storage_refusals_stay_storage() {
+    use tmt_adapters::storage::StorageErrorCode;
+    // No budget left: refused before the file is touched, so no database is needed.
+    let spent = Storage::open_hook(std::path::Path::new("/nonexistent/tmt.db"), Instant::now())
+        .err()
+        .unwrap();
+    assert_eq!(spent.code, StorageErrorCode::Busy);
+    assert_eq!(storage_layer(&spent), "budget");
+    // The same `Busy` code from contention, and a real failure, are storage.
+    let busy = StorageError::new(StorageErrorCode::Busy, "database is locked");
+    assert_eq!(storage_layer(&busy), "storage");
+    let corrupt = StorageError::new(StorageErrorCode::Corrupt, "malformed");
+    assert_eq!(storage_layer(&corrupt), "storage");
+}

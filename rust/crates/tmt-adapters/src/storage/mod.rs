@@ -141,10 +141,7 @@ impl Storage {
     pub fn open_hook(path: &Path, deadline: Instant) -> Result<Self, StorageError> {
         let wait = hook_writer_wait(deadline, Instant::now());
         if wait.is_zero() {
-            return Err(StorageError::new(
-                StorageErrorCode::Busy,
-                "Hook storage budget is exhausted",
-            ));
+            return Err(StorageError::budget_exhausted());
         }
         let connection =
             Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)

@@ -12,6 +12,42 @@ use super::*;
 const SESSION: &str = "6a0f3c1e-5b2d-4e8a-9c7f-1d2e3f4a5b6c";
 const CONTROL: &str = "0b9e8d7c-6a5f-4e3d-8c2b-1a0f9e8d7c6b";
 
+/// How many times a scenario may start over after its worker ran out of budget.
+const ATTEMPTS: usize = 5;
+
+/// What one run of a scenario came to.
+enum Attempt {
+    Passed,
+    /// A command's worker used up its fixed 500 ms budget under machine load, so
+    /// the scenario never reached the refusal or admission it checks.
+    OutOfBudget,
+}
+
+/// Run a scenario again, whole and on a fresh fixture, while a command in it
+/// ran out of the worker's budget (#3860). Running out is the product's
+/// correct best-effort answer to load, remembered as the `budget` layer, not a
+/// result of the scenario. Any other mismatch fails inside the run at once, so
+/// a refusal that is wrong is never retried. Nothing sleeps and the product
+/// budget is unchanged.
+fn under_load(scenario: &str, mut run: impl FnMut(&str) -> Attempt) {
+    for attempt in 1..=ATTEMPTS {
+        match run(&format!("{scenario}-{attempt}")) {
+            Attempt::Passed => return,
+            Attempt::OutOfBudget => {
+                eprintln!(
+                    "{scenario}: attempt {attempt} of {ATTEMPTS} ran out of the worker budget"
+                );
+            }
+        }
+    }
+    panic!("{scenario}: the worker ran out of its budget in all {ATTEMPTS} attempts");
+}
+
+/// Whether a command in this fixture's scenario left a `budget` hint.
+fn out_of_budget(fixture: &Fixture) -> bool {
+    hints(fixture).iter().any(|layer| layer == "budget")
+}
+
 /// The command an agent runs, with its Claude coordinates.
 fn run_command(claude: &mut SteppedProvider, session: &str, pid: u64) -> (i32, String, String) {
     claude.command(
@@ -49,29 +85,39 @@ fn recorded(fixture: &Fixture, pane: &str) -> Vec<String> {
 #[test]
 fn a_caller_in_an_external_pane_records_its_session_after_a_command() {
     register();
-    let fixture = Fixture::new("caller-session-records");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let expected = fixture.json(&["config", "show", "--json"]);
-    let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
-    let provider = live_provider(&claude);
-    let pid = provider.incarnation.pid();
-    let before = fixture.calls().len();
-    let (status, stdout, stderr) = run_command(&mut claude, SESSION, pid);
-    let calls = fixture.calls()[before..].to_vec();
-    let session = recorded(&fixture, "fake-1");
-    let live = provider.seen();
-    assert_eq!((status, stderr.as_str()), (0, ""));
-    assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);
-    assert_eq!(calls, ["caller", "server", "snapshot"]);
-    assert_eq!(
-        session,
-        [SESSION.to_owned(), pid.to_string(), "running".into()]
-    );
-    assert_eq!(live, Seen::Live);
-    drop(claude);
-    assert_eq!(provider.seen(), Seen::Ended);
-    assert_drivers_ended(&fixture);
+    under_load("caller-session-records", |name| {
+        let fixture = Fixture::new(name);
+        let record = fixture.approve();
+        bind(&fixture, record);
+        let expected = fixture.json(&["config", "show", "--json"]);
+        let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
+        let provider = live_provider(&claude);
+        let pid = provider.incarnation.pid();
+        let before = fixture.calls().len();
+        let (status, stdout, stderr) = run_command(&mut claude, SESSION, pid);
+        let calls = fixture.calls()[before..].to_vec();
+        let session = recorded(&fixture, "fake-1");
+        let live = provider.seen();
+        let starved = out_of_budget(&fixture);
+        if !starved {
+            assert_eq!((status, stderr.as_str()), (0, ""));
+            assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);
+            assert_eq!(calls, ["caller", "server", "snapshot"]);
+            assert_eq!(
+                session,
+                [SESSION.to_owned(), pid.to_string(), "running".into()]
+            );
+            assert_eq!(live, Seen::Live);
+        }
+        drop(claude);
+        assert_eq!(provider.seen(), Seen::Ended);
+        assert_drivers_ended(&fixture);
+        if starved {
+            Attempt::OutOfBudget
+        } else {
+            Attempt::Passed
+        }
+    });
 }
 
 /// Every row that `pane`'s identity or binding owns, in every table, so a
@@ -171,34 +217,44 @@ fn second_pane(fixture: &Fixture) -> (SteppedProvider, Owned) {
 #[test]
 fn two_agents_on_one_external_server_never_record_for_each_other() {
     register();
-    let fixture = Fixture::new("caller-session-two-agents");
-    let record = fixture.approve();
-    bind(&fixture, record.clone());
-    let (mut claude, shell) = second_pane(&fixture);
-    bind_pane(&fixture, record, "fake-2", "other");
-    let provider = live_provider(&claude);
-    let first = owned_rows(&fixture, "fake-1");
-    let before = fixture.calls().len();
-    let (status, _, stderr) = run_command(&mut claude, SESSION, provider.incarnation.pid());
-    let calls = fixture.calls()[before..].to_vec();
-    let second = recorded(&fixture, "fake-2");
-    let after = owned_rows(&fixture, "fake-1");
-    let live = provider.seen();
-    assert_eq!((status, stderr.as_str()), (0, ""));
-    assert_eq!(calls, ["caller", "server", "snapshot"]);
-    assert_eq!(
-        second,
-        [
-            SESSION.to_owned(),
-            provider.incarnation.pid().to_string(),
-            "running".into()
-        ]
-    );
-    assert_eq!(after, first, "the agent in f1 is untouched");
-    assert_eq!(live, Seen::Live);
-    drop(claude);
-    assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
-    assert_drivers_ended(&fixture);
+    under_load("caller-session-two-agents", |name| {
+        let fixture = Fixture::new(name);
+        let record = fixture.approve();
+        bind(&fixture, record.clone());
+        let (mut claude, shell) = second_pane(&fixture);
+        bind_pane(&fixture, record, "fake-2", "other");
+        let provider = live_provider(&claude);
+        let first = owned_rows(&fixture, "fake-1");
+        let before = fixture.calls().len();
+        let (status, _, stderr) = run_command(&mut claude, SESSION, provider.incarnation.pid());
+        let calls = fixture.calls()[before..].to_vec();
+        let second = recorded(&fixture, "fake-2");
+        let after = owned_rows(&fixture, "fake-1");
+        let live = provider.seen();
+        let starved = out_of_budget(&fixture);
+        if !starved {
+            assert_eq!((status, stderr.as_str()), (0, ""));
+            assert_eq!(calls, ["caller", "server", "snapshot"]);
+            assert_eq!(
+                second,
+                [
+                    SESSION.to_owned(),
+                    provider.incarnation.pid().to_string(),
+                    "running".into()
+                ]
+            );
+            assert_eq!(after, first, "the agent in f1 is untouched");
+            assert_eq!(live, Seen::Live);
+        }
+        drop(claude);
+        assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
+        assert_drivers_ended(&fixture);
+        if starved {
+            Attempt::OutOfBudget
+        } else {
+            Attempt::Passed
+        }
+    });
 }
 
 /// The behaviour this precheck adds: a caller in an unbound pane, on a host
@@ -207,47 +263,57 @@ fn two_agents_on_one_external_server_never_record_for_each_other() {
 #[test]
 fn an_unbound_external_caller_makes_one_refused_attempt_then_a_hint_suppresses_it() {
     register();
-    let fixture = Fixture::new("caller-session-unbound");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let (mut claude, shell) = second_pane(&fixture);
-    let provider = live_provider(&claude);
-    let rows = stored_rows(&fixture);
-    let mut attempts = Vec::new();
-    for _ in 0..2 {
-        let before = fixture.calls().len();
-        let (status, _, stderr) = run_command(&mut claude, SESSION, provider.incarnation.pid());
-        attempts.push((
-            status,
-            stderr,
-            fixture.calls()[before..].to_vec(),
-            hints(&fixture),
-            stored_rows(&fixture) == rows,
-        ));
-    }
-    assert_eq!(
-        attempts,
-        [
-            (
-                0,
-                String::new(),
-                vec!["caller".to_owned(), "server".into(), "snapshot".into()],
-                vec!["native-admission".to_owned()],
-                true
-            ),
-            (
-                0,
-                String::new(),
-                vec![],
-                vec!["native-admission".to_owned()],
-                true
-            ),
-        ]
-    );
-    assert_eq!(provider.seen(), Seen::Live);
-    drop(claude);
-    assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
-    assert_drivers_ended(&fixture);
+    under_load("caller-session-unbound", |name| {
+        let fixture = Fixture::new(name);
+        let record = fixture.approve();
+        bind(&fixture, record);
+        let (mut claude, shell) = second_pane(&fixture);
+        let provider = live_provider(&claude);
+        let rows = stored_rows(&fixture);
+        let mut attempts = Vec::new();
+        for _ in 0..2 {
+            let before = fixture.calls().len();
+            let (status, _, stderr) = run_command(&mut claude, SESSION, provider.incarnation.pid());
+            attempts.push((
+                status,
+                stderr,
+                fixture.calls()[before..].to_vec(),
+                hints(&fixture),
+                stored_rows(&fixture) == rows,
+            ));
+        }
+        let starved = out_of_budget(&fixture);
+        if !starved {
+            assert_eq!(
+                attempts,
+                [
+                    (
+                        0,
+                        String::new(),
+                        vec!["caller".to_owned(), "server".into(), "snapshot".into()],
+                        vec!["native-admission".to_owned()],
+                        true
+                    ),
+                    (
+                        0,
+                        String::new(),
+                        vec![],
+                        vec!["native-admission".to_owned()],
+                        true
+                    ),
+                ]
+            );
+            assert_eq!(provider.seen(), Seen::Live);
+        }
+        drop(claude);
+        assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
+        assert_drivers_ended(&fixture);
+        if starved {
+            Attempt::OutOfBudget
+        } else {
+            Attempt::Passed
+        }
+    });
 }
 
 /// How a refusal scenario breaks the fixture, and restores it.
@@ -290,71 +356,84 @@ fn external_caller_refusals_change_nothing_and_an_admitted_control_follows() {
         ),
         (3, Break::Unapproved, None, &[]),
     ] {
-        let fixture = Fixture::new(&format!("caller-session-refused-{index}"));
-        let record = fixture.approve();
-        bind(&fixture, record);
-        let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
-        let provider = live_provider(&claude);
-        let pid = provider.incarnation.pid();
-        let server = fs::read_to_string(fixture.root.join("driver/server")).unwrap();
-        let marker = fs::read_to_string(fixture.root.join("driver/marker")).unwrap();
-        let mut claimed = pid;
-        match broken {
-            Break::MissingServer => {
-                let parent = std::os::unix::process::parent_id();
-                fs::write(
-                    fixture.root.join("driver/server"),
-                    format!(r#"{{"ok":{{"server":{{"socket":"/tmp/fake.sock","pid":{parent},"startTime":"driver-says"}}}}}}"#),
-                )
-                .unwrap();
+        under_load(&format!("caller-session-refused-{index}"), |name| {
+            let fixture = Fixture::new(name);
+            let record = fixture.approve();
+            bind(&fixture, record);
+            let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
+            let provider = live_provider(&claude);
+            let pid = provider.incarnation.pid();
+            let server = fs::read_to_string(fixture.root.join("driver/server")).unwrap();
+            let marker = fs::read_to_string(fixture.root.join("driver/marker")).unwrap();
+            let mut claimed = pid;
+            match broken {
+                Break::MissingServer => {
+                    let parent = std::os::unix::process::parent_id();
+                    fs::write(
+                        fixture.root.join("driver/server"),
+                        format!(r#"{{"ok":{{"server":{{"socket":"/tmp/fake.sock","pid":{parent},"startTime":"driver-says"}}}}}}"#),
+                    )
+                    .unwrap();
+                }
+                Break::StaleMarker => {
+                    let mut stale: Value = serde_json::from_str(&marker).unwrap();
+                    stale["bindingId"] = "7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b4a".into();
+                    fs::write(fixture.root.join("driver/marker"), stale.to_string()).unwrap();
+                }
+                Break::WrongProvider => claimed = u64::from(std::process::id()),
+                Break::Unapproved => {
+                    let removed = fixture.tmt(&["driver", "rm", "fake"]);
+                    assert!(removed.status.success(), "{removed:?}");
+                }
             }
-            Break::StaleMarker => {
-                let mut stale: Value = serde_json::from_str(&marker).unwrap();
-                stale["bindingId"] = "7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b4a".into();
-                fs::write(fixture.root.join("driver/marker"), stale.to_string()).unwrap();
+            let rows = stored_rows(&fixture);
+            let before = fixture.calls().len();
+            let (status, _, stderr) = run_command(&mut claude, SESSION, claimed);
+            let refused = (
+                status,
+                stderr,
+                fixture.calls()[before..].to_vec(),
+                hints(&fixture),
+                stored_rows(&fixture) == rows,
+                recorded(&fixture, "fake-1")[0].clone(),
+            );
+            let mut starved = out_of_budget(&fixture);
+            if !starved {
+                assert_eq!(
+                    refused,
+                    (
+                        0,
+                        String::new(),
+                        calls.iter().map(|call| (*call).to_owned()).collect(),
+                        layer.iter().map(|layer| (*layer).to_owned()).collect(),
+                        true,
+                        String::new()
+                    ),
+                    "{broken:?}"
+                );
+                // Restored, the same setup admits a new session.
+                fs::write(fixture.root.join("driver/server"), &server).unwrap();
+                fs::write(fixture.root.join("driver/marker"), &marker).unwrap();
+                if let Break::Unapproved = broken {
+                    fixture.approve();
+                }
+                let (status, _, stderr) = run_command(&mut claude, CONTROL, pid);
+                starved = out_of_budget(&fixture);
+                if !starved {
+                    assert_eq!((status, stderr.as_str()), (0, ""), "{broken:?}");
+                    assert_eq!(recorded(&fixture, "fake-1")[0], CONTROL, "{broken:?}");
+                    assert_eq!(provider.seen(), Seen::Live);
+                }
             }
-            Break::WrongProvider => claimed = u64::from(std::process::id()),
-            Break::Unapproved => {
-                let removed = fixture.tmt(&["driver", "rm", "fake"]);
-                assert!(removed.status.success(), "{removed:?}");
+            drop(claude);
+            assert_eq!(provider.seen(), Seen::Ended);
+            assert_drivers_ended(&fixture);
+            if starved {
+                Attempt::OutOfBudget
+            } else {
+                Attempt::Passed
             }
-        }
-        let rows = stored_rows(&fixture);
-        let before = fixture.calls().len();
-        let (status, _, stderr) = run_command(&mut claude, SESSION, claimed);
-        let refused = (
-            status,
-            stderr,
-            fixture.calls()[before..].to_vec(),
-            hints(&fixture),
-            stored_rows(&fixture) == rows,
-            recorded(&fixture, "fake-1")[0].clone(),
-        );
-        assert_eq!(
-            refused,
-            (
-                0,
-                String::new(),
-                calls.iter().map(|call| (*call).to_owned()).collect(),
-                layer.iter().map(|layer| (*layer).to_owned()).collect(),
-                true,
-                String::new()
-            ),
-            "{broken:?}"
-        );
-        // Restored, the same setup admits a new session.
-        fs::write(fixture.root.join("driver/server"), &server).unwrap();
-        fs::write(fixture.root.join("driver/marker"), &marker).unwrap();
-        if let Break::Unapproved = broken {
-            fixture.approve();
-        }
-        let (status, _, stderr) = run_command(&mut claude, CONTROL, pid);
-        assert_eq!((status, stderr.as_str()), (0, ""), "{broken:?}");
-        assert_eq!(recorded(&fixture, "fake-1")[0], CONTROL, "{broken:?}");
-        assert_eq!(provider.seen(), Seen::Live);
-        drop(claude);
-        assert_eq!(provider.seen(), Seen::Ended);
-        assert_drivers_ended(&fixture);
+        });
     }
 }
 

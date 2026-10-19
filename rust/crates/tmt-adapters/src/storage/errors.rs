@@ -35,6 +35,7 @@ pub struct StorageError {
     pub retryable: bool,
     cause: Option<Box<dyn Error + Send + Sync>>,
     newer_schema: bool,
+    budget_exhausted: bool,
 }
 
 impl StorageError {
@@ -46,7 +47,22 @@ impl StorageError {
             retryable: code == StorageErrorCode::Busy,
             cause: None,
             newer_schema: false,
+            budget_exhausted: false,
         }
+    }
+
+    /// A hook's time budget was already used up before storage was touched, so
+    /// no lock was contended and nothing failed: the caller ran out of time.
+    /// Only the hook writer's own admission raises this; contention (also
+    /// `Busy`) and every other failure do not.
+    pub fn is_budget_exhausted(&self) -> bool {
+        self.budget_exhausted
+    }
+
+    pub(crate) fn budget_exhausted() -> Self {
+        let mut error = Self::new(StorageErrorCode::Busy, "Hook storage budget is exhausted");
+        error.budget_exhausted = true;
+        error
     }
 
     /// The known migration prefix is valid but the next version is unsupported.

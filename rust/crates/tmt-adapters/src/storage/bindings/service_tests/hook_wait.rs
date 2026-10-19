@@ -437,6 +437,7 @@ fn exhausted_hook_budget_refuses_storage_without_mutation() {
         .err()
         .unwrap();
     assert_eq!(error.code, StorageErrorCode::Busy);
+    assert!(error.is_budget_exhausted());
     assert_eq!(
         storage
             .with_binding_transaction(|r| r.entry_by_id(&bound.identity_id))
