@@ -293,7 +293,7 @@ sys.exit(0)
         wait_for(lambda: fresh_text("worker-fresh") and fresh_text("second"),
                  "refreshed member identity with the draft retained")
     # Newline keys and external request changes must never dispatch the draft.
-    if spec.get("foldLong"):
+    if spec.get("longBody"):
         # Paragraphs make the long-body viewport and toggle explicit in this
         # terminal fixture; reply soft breaks are covered by renderer tests.
         extra = "\n\n" + "\n\n".join(f"fold line {index:03d}" for index in range(24))
@@ -328,34 +328,23 @@ sys.exit(0)
         older = api("requests.show", {"requestId": original_request})
         if older["final"].get("response") != "Settled outside while drafting":
             raise AssertionError("the new message changed the settled answer")
-    if spec.get("foldLong"):
-        wait_for(lambda: fresh_text("more lines · ⏎ expand") and not fresh_text("Sending…"), "accepted outgoing body is folded")
-        os.write(master, b"\x1b[27u")
-        wait_for(lambda: fresh_text("⏎ to message worker"), "leave composer before expanding")
-        row, column = next(
-            (row, "".join(cells).index("more lines"))
-            for row, cells in enumerate(screen.cells)
-            if "more lines · ⏎ expand" in "".join(cells)
-        )
-        anchor_row = next(
-            index for index, cells in enumerate(screen.cells)
-            if "fold line 000" in "".join(cells)
-        )
-        anchor_before = "".join(screen.cells[anchor_row])
-        os.write(master, f"\x1b[<0;{column + 1};{row + 1}M\x1b[<0;{column + 1};{row + 1}m".encode())
+    if spec.get("longBody"):
         wait_for(
-            lambda: not fresh_text("more lines · ⏎ expand")
-            and "fold line" in "".join(screen.cells[row]),
-            "pointer replaces the fold control with the retained body",
+            lambda: fresh_text("fold line 023") and not fresh_text("Sending…"),
+            "accepted outgoing body renders in full",
         )
-        if "".join(screen.cells[anchor_row]) != anchor_before:
-            raise AssertionError("pointer expansion moved the visible reading anchor")
+        if fresh_text("more lines") or fresh_text("expand"):
+            raise AssertionError("a long outgoing body folded")
+        os.write(master, b"\x1b[27u")
+        wait_for(lambda: fresh_text("⏎ to message worker"), "leave composer before scrolling")
+        os.write(master, b"\t")  # Focus the conversation pane.
+        for _ in range(8):
+            os.write(master, b"\x1b[5~")
+        wait_for(lambda: fresh_text("fold line 000"), "Page Up reaches the body's first line")
         os.write(master, b"\x1b[F")
-        wait_for(lambda: fresh_text("fold line 023") and fresh_text("⏎ collapse"), "End reaches the expanded body's final line")
-        os.write(master, b"\r")
-        wait_for(lambda: fresh_text("more lines · ⏎ expand") and not fresh_text("fold line 023"), "Enter on the fold control collapses without Send")
+        wait_for(lambda: fresh_text("fold line 023"), "End reaches the body's final line")
         if len(received()) != 1:
-            raise AssertionError("fold activation submitted another request")
+            raise AssertionError("scrolling a long body submitted another request")
     if spec["lifecycle"] == "reload":
         # Retained drafts correctly block exec: submit first, then leave the
         # empty composer. The reload must pop and renegotiate its own mode.
@@ -416,7 +405,7 @@ sys.exit(0)
                 "pushes": pushes,
                 "pops": pops,
                 "terminalRestored": True,
-                "foldedReadOnly": bool(spec.get("foldLong")),
+                "renderedInFull": bool(spec.get("longBody")),
                 "returncode": board_status,
             }
         )

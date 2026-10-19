@@ -4815,7 +4815,7 @@ describe('Ops path migration with unchanged Squad commands', () => {
 
 describe('composer terminal input', () => {
   it.each([
-    { enhanced: true, lifecycle: 'quit', foldLong: true },
+    { enhanced: true, lifecycle: 'quit', longBody: true },
     { enhanced: true, lifecycle: 'quit' },
     { enhanced: false, lifecycle: 'quit' },
     { enhanced: true, lifecycle: 'suspend' },
@@ -4864,11 +4864,11 @@ describe('composer terminal input', () => {
         expect(proof.message).toBe(
           'requestTransition' in scenario
             ? '[product · worker-fresh] first\nsecond'
-            : 'foldLong' in scenario && scenario.foldLong
+            : 'longBody' in scenario && scenario.longBody
               ? `${multiline}\n\n${Array.from({ length: 24 }, (_, index) => `fold line ${String(index).padStart(3, '0')}`).join('\n\n')}`
               : multiline
         );
-        expect(proof.foldedReadOnly).toBe('foldLong' in scenario && scenario.foldLong === true);
+        expect(proof.renderedInFull).toBe('longBody' in scenario && scenario.longBody === true);
         expect(proof.terminalRestored).toBe(true);
         expect(proof.queries).toBeGreaterThan(0);
         if (scenario.enhanced) {
