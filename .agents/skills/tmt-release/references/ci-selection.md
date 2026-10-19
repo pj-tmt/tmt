@@ -258,10 +258,10 @@ includes transfer and aggregate timings. These measurements do not establish a
 PR median improvement. Missing, expired or ambiguous evidence, or a changed
 producer generation, requires re-run all jobs. This qualification grants no
 publication or workflow-dispatch authority.
-PR median and child p90 budgets use the five-run K2 series; the PR gate p90 stays
+PR median uses the five-run K2 series; the PR gate p90 stays
 at 1095 s, below the observed 1190 s macOS-queue outlier (n=5, p90=max).
-The four new job rows inherit the old 861 s MG limit; other MG limits stay unchanged
-until the weekly report has ten natural MG runs. Infra reverts if those runs exceed
+The four workspace job p90 budgets use the weekly report's 31–35 samples for both
+events; other MG limits stay unchanged. Infra reverts if those runs exceed
 the pre-rollout 886 s MG median wall or 13.9 workspace runner-minutes, or show an
 unexplained equivalence failure.
 
