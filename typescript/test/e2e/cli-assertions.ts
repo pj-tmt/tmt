@@ -44,13 +44,17 @@ function withoutLocation(row: Row): Row {
  * `driver` keys (#434) and the pane `location`, after checking them, so scenarios
  * keep asserting the pre-existing contract exactly. A row carries both keys or
  * neither (a direct-pane document has neither); each is null or a string, and the two
- * are null together. A live pane always has a string address, which is its tmux pane
- * unless an agent session is known.
+ * are null together. A live row is an active one with a pane: a `tmt ls` row's pane id
+ * or a named inspection's pane document. It always has a string address, which is its
+ * tmux pane unless an agent session is known.
  */
 export function withoutAddress<T>(result: CliResult<T>): CliResult<T> {
   const strip = (original: Row): Row => {
     const row = withoutLocation(original);
-    const live = typeof row.pane === 'string' && row.presence === 'active';
+    const live =
+      row.presence === 'active' &&
+      (typeof row.pane === 'string' || typeof row.pane === 'object') &&
+      row.pane !== null;
     expect('address' in row, 'address and driver come together').toBe('driver' in row);
     if (!('address' in row)) {
       expect(live, 'a live pane always has an address').toBe(false);
