@@ -46,13 +46,14 @@ import {
   Link,
   redirect,
   Outlet,
+  useParams,
   useRouterState,
   useRouter,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
 import { AnnotationInput } from './annotation-input.js';
 import { useProposalLayer } from './proposal-layer.js';
-import { rememberPages } from './quick-switcher-source.js';
+import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
@@ -651,12 +652,69 @@ const allPages = createRoute({
     throw redirect({ to: '/', search, replace: true });
   },
 });
+/**
+ * Timings of opening a page, for whoever profiles it: local performance entries only, no report.
+ * The frame appears after `pendingMs` and stays `pendingMinMs`; a fast open never shows it.
+ */
+const openMarks = { start: 'colab:page-open', frame: 'colab:page-frame', page: 'colab:page-shown' };
+function markOpen(name: string, from?: string) {
+  performance.mark(name);
+  if (from) performance.measure(`${name} (from ${from})`, from, name);
+}
+/**
+ * What the reader sees while a page loads: the real header with the title the list already held (the
+ * space home loaded; else the neutral word) and four quiet lines where the document
+ * goes. It mounts no renderer, frame or page action and fetches nothing.
+ */
+function PageFrame() {
+  const { transport, space } = root.useRouteContext();
+  const pageId = useParams({ strict: false }).pageId;
+  // The list the space home last loaded, which the quick switcher also shows at once.
+  const listed = new SwitcherSourceStore(transport, space).initial();
+  const title =
+    listed.state === 'ready' ? listed.pages.find((row) => row.id === pageId)?.title : undefined;
+  useEffect(() => markOpen(openMarks.frame, openMarks.start), []);
+  return (
+    <div data-page-frame="" aria-busy="true">
+      <ColabHeader
+        remoteMenu={false}
+        title={title || text.loading}
+        remote={{ deviceName: transport.backendName }}
+        home={(brand, name) => (
+          <Link to="/" aria-label={name} title={name}>
+            {brand}
+          </Link>
+        )}
+      />
+      <div style={{ display: 'grid', gap: 14, padding: '32px 24px', maxInlineSize: 720 }}>
+        {[92, 100, 84, 56].map((width) => (
+          <div
+            key={width}
+            data-frame-line=""
+            style={{
+              inlineSize: `${width}%`,
+              blockSize: 12,
+              background: 'var(--tmt-ui-color-secondary)',
+              opacity: 0.2,
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 const page = createRoute({
   getParentRoute: () => root,
   path: '/pages/$pageId',
   validateSearch: pageSearch,
+  beforeLoad: () => markOpen(openMarks.start),
   loader: ({ context, params, abortController }) =>
     context.transport.page(params.pageId, abortController.signal),
+  // The router keeps the old screen until the load resolves; a slow one gets this frame instead.
+  pendingComponent: PageFrame,
+  pendingMs: 150,
+  pendingMinMs: 300,
+  onEnter: () => markOpen(openMarks.page, openMarks.start),
   // A loaded page owns a live connection that closes when the reader leaves it. The router must not
   // keep the match, or entering the page again shows that closed snapshot as Live while it reloads.
   gcTime: 0,
