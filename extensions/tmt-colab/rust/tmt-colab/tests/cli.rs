@@ -6224,6 +6224,17 @@ fn prefix_commands<'a>(prefix: &'a str, file: &'a str, destination: &'a str) -> 
         ],
         vec!["page", "read", prefix, "--json"],
         vec!["page", "write", prefix, "--file", file, "--json"],
+        // The operand refuses before the missing patch input is read.
+        vec![
+            "page",
+            "patch",
+            prefix,
+            "--find-file",
+            file,
+            "--replace",
+            "x",
+            "--json",
+        ],
         vec!["export", prefix, "--dir", destination, "--json"],
         vec!["retention", prefix, "42", "--json"],
         vec!["archive", prefix, "--json"],
@@ -6351,6 +6362,48 @@ fn page_prefix_refusals_name_candidates_and_leave_every_adapter_without_effects(
     }
     assert_eq!(fs::read(&database).unwrap(), before);
     assert!(!destination.exists());
+}
+#[test]
+fn page_patch_refuses_an_unresolved_page_before_reading_stdin() {
+    let pilot = Pilot::new(None);
+    seed_page_with_title(&pilot, "Original title");
+    for (operand, code) in [
+        ("ffffffff", "COLAB_PAGE_NOT_FOUND"),
+        ("../10000000", "COLAB_INPUT_INVALID"),
+    ] {
+        // Stdin stays open and empty: reading it first would wait out its own deadline.
+        let mut child = pilot
+            .command()
+            .args([
+                "page",
+                "patch",
+                operand,
+                "--find-file",
+                "-",
+                "--replace",
+                "x",
+                "--json",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn_owned()
+            .unwrap();
+        let input = child.stdin.take().unwrap();
+        let began = Instant::now();
+        let mut stdout = child.stdout.take().unwrap();
+        let mut text = String::new();
+        stdout.read_to_string(&mut text).unwrap();
+        let status = child.wait().unwrap();
+        assert!(
+            began.elapsed() < Duration::from_secs(3),
+            "{operand} read stdin first"
+        );
+        drop(input);
+        assert_eq!(status.code(), Some(1));
+        let result: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(result["error"]["code"], code, "{result}");
+    }
 }
 #[test]
 fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id() {
