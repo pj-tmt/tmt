@@ -78,34 +78,89 @@ fn assert_one_pane_read(dir: &std::path::Path) {
     );
 }
 
+/// The nested proof shares one 1 s budget across the pin, a driver process
+/// and a tmux process. With the whole suite running, process starts can use
+/// it up, and a late answer is doubt, so the hook refuses. That is load, not
+/// the behaviour under test. A scenario asserts what load cannot change and
+/// returns true when its proof did not finish; then it runs again in a
+/// fresh fixture, at most five times, and each such attempt is reported. A
+/// fault that refuses every time still fails.
+fn within_budget(name: &str, scenario: impl Fn(&Fixture) -> bool) {
+    for attempt in 1..=5 {
+        let fixture = Fixture::new(&format!("{name}-{attempt}"));
+        if !scenario(&fixture) {
+            return;
+        }
+        eprintln!("{name}: attempt {attempt} had its nested proof refused for its budget");
+    }
+    panic!("{name}: every attempt had its nested proof refused for its budget");
+}
+
+fn refused(output: &Output) -> bool {
+    output.stderr == HOOK_UNAVAILABLE.as_bytes()
+}
+
 /// Herdr in tmux: the external pane shell (this test process) is nearer
 /// than the tmux pane, which is either farther up the same ancestry (the
 /// shape #3583 measured) or off it (after the client detached). Both record
-/// the session on the external pane and its recorded server.
+/// the session on the external pane and its recorded server. A refused
+/// attempt (load) must have changed no row.
 #[test]
 fn a_hook_in_an_external_pane_inside_tmux_records_its_session() {
     register();
     let outer = u64::from(std::os::unix::process::parent_id());
     for (case, tmux_pane) in [("tmux pane above", outer), ("tmux pane elsewhere", 999_999)] {
-        let fixture = Fixture::new(&format!("nested-admits-{tmux_pane}"));
-        let record = fixture.approve();
-        bind(&fixture, record);
-        let servers = host_servers(&fixture);
-        let dir = fake_tmux(&fixture, Some(pane(tmux_pane, SERVER)));
-        let output = nested_hook(&fixture, &dir);
-        assert!(output.status.success(), "{case}: {output:?}");
-        assert!(output.stderr.is_empty(), "{case}: {output:?}");
-        let context: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(
-            context["hookSpecificOutput"]["hookEventName"], "SessionStart",
-            "{case}"
-        );
-        let listed = fixture.json(&["ls", "--json"]);
-        let row = worker(&listed);
-        assert_eq!(row["resume"]["session"], "s-1", "{case}: {row:#}");
-        assert_eq!(host_servers(&fixture), servers, "{case}");
-        assert_one_pane_read(&dir);
+        within_budget(&format!("nested-admits-{tmux_pane}"), |fixture| {
+            let record = fixture.approve();
+            bind(fixture, record);
+            let servers = host_servers(fixture);
+            let rows = stored_rows(fixture);
+            let dir = fake_tmux(fixture, Some(pane(tmux_pane, SERVER)));
+            let output = nested_hook(fixture, &dir);
+            if refused(&output) {
+                assert_eq!(
+                    stored_rows(fixture),
+                    rows,
+                    "{case}: a refused hook changed a row"
+                );
+                return true;
+            }
+            assert!(output.status.success(), "{case}: {output:?}");
+            assert!(output.stderr.is_empty(), "{case}: {output:?}");
+            let context: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(
+                context["hookSpecificOutput"]["hookEventName"], "SessionStart",
+                "{case}"
+            );
+            let listed = fixture.json(&["ls", "--json"]);
+            let row = worker(&listed);
+            assert_eq!(row["resume"]["session"], "s-1", "{case}: {row:#}");
+            assert_eq!(host_servers(fixture), servers, "{case}");
+            assert_one_pane_read(&dir);
+            false
+        });
     }
+}
+
+/// A refused nested hook with `answer` from the fake tmux: no row changed,
+/// and the one pane read was made. An attempt whose proof never reached tmux
+/// (load) runs again.
+fn assert_refused_at_tmux(name: &str, answer: Option<String>) {
+    register();
+    within_budget(name, |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record);
+        let dir = fake_tmux(fixture, answer.clone());
+        let rows = stored_rows(fixture);
+        let output = nested_hook(fixture, &dir);
+        assert_eq!(stored_rows(fixture), rows, "a refused hook changed a row");
+        assert_hook_refused(fixture, &output);
+        if !dir.join("calls").exists() {
+            return true;
+        }
+        assert_one_pane_read(&dir);
+        false
+    });
 }
 
 /// Herdr started in a tmux the user has since closed: `TMUX` still names
@@ -113,51 +168,42 @@ fn a_hook_in_an_external_pane_inside_tmux_records_its_session() {
 /// the hook refuses although the external pane verifies.
 #[test]
 fn a_hook_beside_a_stale_tmux_socket_refuses() {
-    register();
-    let fixture = Fixture::new("nested-stale");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let dir = fake_tmux(&fixture, None);
-    let rows = stored_rows(&fixture);
-    let output = nested_hook(&fixture, &dir);
-    assert_eq!(stored_rows(&fixture), rows, "a refused hook changed a row");
-    assert_hook_refused(&fixture, &output);
-    assert_one_pane_read(&dir);
+    assert_refused_at_tmux("nested-stale", None);
 }
 
 /// The pane read answers from another tmux server than `TMUX` names (one
 /// restarted at the same socket path): doubt, so the hook refuses.
 #[test]
 fn a_hook_whose_tmux_server_restarted_refuses() {
-    register();
-    let fixture = Fixture::new("nested-restarted");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let dir = fake_tmux(&fixture, Some(pane(999_999, "4243")));
-    let rows = stored_rows(&fixture);
-    let output = nested_hook(&fixture, &dir);
-    assert_eq!(stored_rows(&fixture), rows, "a refused hook changed a row");
-    assert_hook_refused(&fixture, &output);
-    assert_one_pane_read(&dir);
+    assert_refused_at_tmux("nested-restarted", Some(pane(999_999, "4243")));
 }
 
 /// The external pane's snapshot (and the binding made from it) names
 /// another pane process than the shell the pinned ancestry located, so the
-/// hook refuses. The same driver with no tmux variables (one host, no
-/// pinned ancestry) is admitted: the provider is below that process too.
+/// hook refuses. Only a proof that chose the host reaches the driver's
+/// `snapshot`; an attempt without it (load) runs again. The same driver
+/// with no tmux variables (one host, no pinned ancestry) is admitted: the
+/// provider is below that process too.
 #[test]
 fn a_nested_pane_that_is_not_the_pinned_shell_refuses() {
     register();
     let outer = std::os::unix::process::parent_id().to_string();
-    let fixture = Fixture::new("nested-pane-pid");
-    let record = fixture.approve();
-    fs::write(fixture.root.join("driver/pid"), &outer).unwrap();
-    bind(&fixture, record);
-    let dir = fake_tmux(&fixture, Some(pane(999_999, SERVER)));
-    let rows = stored_rows(&fixture);
-    let output = nested_hook(&fixture, &dir);
-    assert_eq!(stored_rows(&fixture), rows, "a refused hook changed a row");
-    assert_hook_refused(&fixture, &output);
+    within_budget("nested-pane-pid", |fixture| {
+        let record = fixture.approve();
+        fs::write(fixture.root.join("driver/pid"), &outer).unwrap();
+        bind(fixture, record);
+        let dir = fake_tmux(fixture, Some(pane(999_999, SERVER)));
+        let rows = stored_rows(fixture);
+        let calls = fixture.calls().len();
+        let output = nested_hook(fixture, &dir);
+        // Read before `assert_hook_refused`, whose `ls` takes snapshots too.
+        let chosen = fixture.calls()[calls..]
+            .iter()
+            .any(|call| call == "snapshot");
+        assert_eq!(stored_rows(fixture), rows, "a refused hook changed a row");
+        assert_hook_refused(fixture, &output);
+        !chosen
+    });
 
     let control = Fixture::new("nested-pane-pid-control");
     let record = control.approve();
