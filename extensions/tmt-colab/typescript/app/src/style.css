@@ -869,6 +869,13 @@ body:has(.needs-you-header-menu) {
   border-top: 1px solid var(--c-rule);
   padding: 12px 16px 16px;
 }
+/* The Comments panel is unbounded: its drawer body is the one scroller, so the message list and
+   composer must not be scroll containers of their own (a contained, non-scrolling list swallows the wheel). */
+.comments-panel .conversation-messages,
+.comments-panel .conversation-composer {
+  overflow: visible;
+  overscroll-behavior: auto;
+}
 /* Ended guidance can exceed an anchored window; keep its action scroll-reachable. */
 .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   flex-shrink: 1;
