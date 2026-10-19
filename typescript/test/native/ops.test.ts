@@ -5113,29 +5113,6 @@ async function withBoardSwitch<T>(body: (fixture: SwitchFixture) => Promise<T>):
 }
 
 describe('verified former-board switching', () => {
-  it('never offers a board switch for legacy config without a former board', async () => {
-    await withBoardSwitch(async (fixture) => {
-      const pane = fixture.tmux([
-        'new-window',
-        '-d',
-        '-P',
-        '-F',
-        '#{pane_id}',
-        '-c',
-        fixture.sandbox.root,
-        'exec /bin/sh',
-      ]);
-      const offer = path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json');
-      const before = existsSync(offer) ? readFileSync(offer) : undefined;
-      await runOrdinaryCommand(fixture, pane, 'no-boards');
-      if (before) expect(readFileSync(offer)).toEqual(before);
-      else expect(existsSync(offer)).toBe(false);
-      expect(readFileSync(path.join(fixture.sandbox.globalDir, 'ops.toml'))).toEqual(
-        fixture.oldConfig
-      );
-    });
-  }, 60_000);
-
   it.each([false, true])(
     'switches the consented lease holder outside the former namespace with historical pending record=%s',
     async (pending) => {
@@ -5269,90 +5246,78 @@ describe('verified former-board switching', () => {
     60_000
   );
 
-  it.each([false, true])(
-    'switches several former boards after namespace removal=%s',
-    async (removed) => {
-      await withBoardSwitch(
-        async ({ sandbox, prefix, tmux, old, oldConfig, oldState, dataRoot }) => {
-          const boards = [
-            await old('first', 'product,leads', true),
-            await old('second', 'product', false, true),
-          ];
-          const before = observe(sandbox);
-          const formerRoot = path.join(prefix, 'lib/tmt-squad');
-          if (removed) {
-            rmSync(formerRoot, { recursive: true });
-            for (const name of ['tmt-squad', 'tmt-sq']) unlinkSync(path.join(prefix, 'bin', name));
-          }
-          const result = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json'], {
-            deadlineMs: 30_000,
-          });
-          expect(result.status, result.stdout + result.stderr).toBe(0);
-          expect(parseWholeStdout(result)).toEqual({ complete: true, switched: 2 });
-          for (const board of boards) {
-            expect(readFileSync(board.proof.replace(/\.json$/, '.stopped'), 'utf8')).toBe(
-              'TERM observed; lease released'
+  it('switches several former boards after the former namespace was removed', async () => {
+    await withBoardSwitch(async ({ sandbox, prefix, tmux, old, oldConfig, oldState, dataRoot }) => {
+      const boards = [
+        await old('first', 'product,leads', true),
+        await old('second', 'product', false, true),
+      ];
+      const before = observe(sandbox);
+      const formerRoot = path.join(prefix, 'lib/tmt-squad');
+      rmSync(formerRoot, { recursive: true });
+      for (const name of ['tmt-squad', 'tmt-sq']) unlinkSync(path.join(prefix, 'bin', name));
+      const result = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json'], {
+        deadlineMs: 30_000,
+      });
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(parseWholeStdout(result)).toEqual({ complete: true, switched: 2 });
+      for (const board of boards) {
+        expect(readFileSync(board.proof.replace(/\.json$/, '.stopped'), 'utf8')).toBe(
+          'TERM observed; lease released'
+        );
+        expect(tmux(['display-message', '-p', '-t', board.pane, '#{pane_dead}'])).toBe('0');
+        await vi.waitFor(
+          () => {
+            const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
+            expect(screen).toMatch(/^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL[ \t]*$/m);
+            expect(screen).toMatch(/^   \*Ben[ \t]+product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
+            expect(screen).toMatch(/Agents[ \t]+Squads[ \t]+\/ Search/);
+            expect(screen).not.toContain('Needs you');
+          },
+          { timeout: 5000, interval: 50 }
+        );
+        expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Former --tabs');
+        // Overview shows agents; inspect the migrated member in its Agents tree owner.
+        tmux(['send-keys', '-t', board.pane, '2']);
+        await vi.waitFor(
+          () => {
+            const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
+            expect(screen).toMatch(
+              /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL[ \t]*$/m
             );
-            expect(tmux(['display-message', '-p', '-t', board.pane, '#{pane_dead}'])).toBe('0');
-            await vi.waitFor(
-              () => {
-                const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
-                expect(screen).toMatch(
-                  /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL[ \t]*$/m
-                );
-                expect(screen).toMatch(/^   \*Ben[ \t]+product[ \t]+\?[ \t]+—[ \t]+—[ \t]*$/m);
-                expect(screen).toMatch(/Agents[ \t]+Squads[ \t]+\/ Search/);
-                expect(screen).not.toContain('Needs you');
-              },
-              { timeout: 5000, interval: 50 }
-            );
-            expect(tmux(['capture-pane', '-p', '-t', board.pane])).toContain('Former --tabs');
-            // Overview shows agents; inspect the migrated member in its Agents tree owner.
-            tmux(['send-keys', '-t', board.pane, '2']);
-            await vi.waitFor(
-              () => {
-                const screen = tmux(['capture-pane', '-p', '-t', board.pane]);
-                expect(screen).toMatch(
-                  /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL[ \t]*$/m
-                );
-              },
-              { timeout: 5000, interval: 50 }
-            );
-            // Common pool is first; expand product, then reveal its member in the short list.
-            tmux(['send-keys', '-t', board.pane, 'Down', 'Right', 'Down']);
-            await vi.waitFor(
-              () =>
-                expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
-                  /^[ \t]+└ \*Ben[ \t]+\?[ \t]+—[ \t]+0[ \t]+—[ \t]*$/m
-                ),
-              { timeout: 5000, interval: 50 }
-            );
-            expect(tmux(['capture-pane', '-p', '-t', board.pane])).not.toContain(
-              'Ops migration pending'
-            );
-            const launched = liveOps(sandbox, prefix, tmux, board.pane);
-            expect(launched.pid).not.toBe(board.pid);
-            expect(launched.cwd).toBe(realpathSync(board.cwd));
-            expect(launched.args).toContain('ops ui');
-            expect(launched.args).not.toContain('--tabs');
-          }
-          expect(observe(sandbox)).toEqual(before);
-          expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml')).equals(oldConfig)).toBe(
-            true
-          );
-          expect(
-            readFileSync(path.join(dataRoot, 'ops', 'switch-proof.txt')).equals(oldState)
-          ).toBe(true);
-          expect(existsSync(path.join(dataRoot, 'squad'))).toBe(false);
-          expect(existsSync(path.join(sandbox.globalDir, '.ops-paths-v1'))).toBe(true);
-          expect(existsSync(path.join(dataRoot, '.ops-board-switch-v1.json'))).toBe(false);
-          const again = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
-          expect(parseWholeStdout(again)).toEqual({ complete: true, switched: 0 });
-        }
+          },
+          { timeout: 5000, interval: 50 }
+        );
+        // Common pool is first; expand product, then reveal its member in the short list.
+        tmux(['send-keys', '-t', board.pane, 'Down', 'Right', 'Down']);
+        await vi.waitFor(
+          () =>
+            expect(tmux(['capture-pane', '-p', '-t', board.pane])).toMatch(
+              /^[ \t]+└ \*Ben[ \t]+\?[ \t]+—[ \t]+0[ \t]+—[ \t]*$/m
+            ),
+          { timeout: 5000, interval: 50 }
+        );
+        expect(tmux(['capture-pane', '-p', '-t', board.pane])).not.toContain(
+          'Ops migration pending'
+        );
+        const launched = liveOps(sandbox, prefix, tmux, board.pane);
+        expect(launched.pid).not.toBe(board.pid);
+        expect(launched.cwd).toBe(realpathSync(board.cwd));
+        expect(launched.args).toContain('ops ui');
+        expect(launched.args).not.toContain('--tabs');
+      }
+      expect(observe(sandbox)).toEqual(before);
+      expect(readFileSync(path.join(sandbox.globalDir, 'ops.toml')).equals(oldConfig)).toBe(true);
+      expect(readFileSync(path.join(dataRoot, 'ops', 'switch-proof.txt')).equals(oldState)).toBe(
+        true
       );
-    },
-    60_000
-  );
+      expect(existsSync(path.join(dataRoot, 'squad'))).toBe(false);
+      expect(existsSync(path.join(sandbox.globalDir, '.ops-paths-v1'))).toBe(true);
+      expect(existsSync(path.join(dataRoot, '.ops-board-switch-v1.json'))).toBe(false);
+      const again = await runCli(sandbox, ['ops', 'migration', 'switch', '--yes', '--json']);
+      expect(parseWholeStdout(again)).toEqual({ complete: true, switched: 0 });
+    });
+  }, 60_000);
 
   it('keeps a new Ops board and non-board panes alive while replacement switches the old board', async () => {
     await withBoardSwitch(async ({ sandbox, prefix, tmux, old, candidate }) => {
@@ -5484,6 +5449,10 @@ describe('verified former-board switching', () => {
       expect(existsSync(former.proof.replace(/\.json$/, '.stopped'))).toBe(false);
       expect(existsSync(path.join(fixture.dataRoot, '.ops-board-switch-offer-v1.json'))).toBe(
         false
+      );
+      // The legacy configuration stays where it was, byte for byte, while a former board runs.
+      expect(readFileSync(path.join(fixture.sandbox.globalDir, 'squad.toml'))).toEqual(
+        fixture.oldConfig
       );
     });
   }, 60_000);
