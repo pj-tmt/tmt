@@ -92,7 +92,7 @@ pub(super) fn retire(new: &Layout) -> io::Result<()> {
 }
 
 /// Whether the product's former installation is the same product under an
-/// older prefix (the CLI), not a product it replaced (Ops replaced Squad).
+/// older prefix (the CLI).
 pub(super) fn is_move(product: Product) -> bool {
     product
         .former()

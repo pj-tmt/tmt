@@ -329,12 +329,7 @@ fn ops_is_a_fixed_extension_product_and_former_names_are_not_selectable() {
         );
     }
     let squad = Product::parse("ops").unwrap();
-    let former = squad.former().unwrap();
-    assert_eq!(former.name, "squad");
-    assert_eq!(former.executable, "tmt-squad");
-    assert_eq!(former.namespace, "lib/tmt-squad");
-    assert_eq!(former.links, ["tmt-squad", "tmt-sq"]);
-    assert_eq!(former.tag_prefix, "tmt-squad-v");
+    assert!(squad.former().is_none());
     assert_eq!(
         (
             squad.tag_prefix(),

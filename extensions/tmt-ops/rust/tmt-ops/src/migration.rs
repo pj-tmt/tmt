@@ -410,19 +410,13 @@ fn live_clock_holder(root: &Path, now: i64) -> io::Result<Option<tmt_ops::cron::
     )
 }
 
-/// Observe the legacy holder through the same admission used by path migration.
-/// A lease identifies a candidate; the switch owner still verifies its process.
-pub(crate) fn legacy_clock_holder(root: &Path) -> io::Result<Option<tmt_ops::cron::Holder>> {
-    live_clock_holder(&root.join("squad"), jiff::Timestamp::now().as_millisecond())
-}
-
 fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
     let Some(holder) = live_clock_holder(root, now)? else {
         return Ok(None);
     };
     let pid = holder.pid;
     let pane = holder.pane.as_deref();
-    // After the one switch offer, the board shows only this line: it names the fix.
+    // The board shows only this line: it names the fix.
     // Quitting releases the lease; the board's clock worker then completes the cutover.
     let board = match pane {
         Some(pane) => format!("the old board in pane {pane}"),
@@ -430,7 +424,7 @@ fn live_clock(root: &Path, now: i64) -> io::Result<Option<(String, String)>> {
     };
     Ok(Some((
         format!(
-            "Ops migration deferred: old clock PID {pid}{}; legacy config/state stay active until the board switch completes.",
+            "Ops migration deferred: old clock PID {pid}{}; legacy config/state stay active until that board exits.",
             pane.map(|pane| format!(" in pane {pane}"))
                 .unwrap_or_default()
         ),

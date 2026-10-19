@@ -61,7 +61,7 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   5 seconds). Under the lock they read the current state and apply their change
   to it, so concurrent changes all land and nothing is replayed. Fail-fast locks
   are only for exclusivity guards, where the second caller asks to be the one
-  runner or owner rather than to change data (a tick, a server, a board switch).
+  runner or owner rather than to change data (a tick, a server).
   Those name the holder in the error. Optional reads may skip instead of waiting.
 - Message framing and adaptation belong to shared delivery implementation.
   Talk completion comes only from the shared durable request service. Generated

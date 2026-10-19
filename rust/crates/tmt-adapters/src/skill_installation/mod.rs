@@ -26,8 +26,7 @@ pub(crate) use owned::{
 };
 pub use owned::{
     OwnedFailure, OwnedReport, OwnedSkill, OwnedTarget, Refusal, install_owned,
-    install_release_skills, migrate_former_owned, owned_by, owned_roots, owners, refresh_owned,
-    refusal, remove_owned,
+    install_release_skills, owned_by, owned_roots, owners, refresh_owned, refusal, remove_owned,
 };
 #[cfg(test)]
 mod owned_tests;

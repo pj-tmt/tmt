@@ -123,54 +123,18 @@ or optional `paneRenameHints` JSON array, never upgrade failure, retirement, re-
   initial and unchanged installs stay quiet. The parent keeps its JSON child silent and adds
   the one adapter-owned restart bound to its apply deadline only for a pending Remote replacement.
 
-## Former product replacement
+## Retired Squad installation
 
-`Product::Ops.former()` is a fixed read-only installation identity: `squad`,
-`tmt-squad`, links `tmt-squad`/`tmt-sq`, namespace `lib/tmt-squad`, tag prefix
-`tmt-squad-v`, and skill `tmt-squad` -> `tmt-ops`. It is never parsed from user
-input or offered by completion. `managed` accepts its fully verified current
-receipt and payload; an invalid new activation never falls back to it. Activation
-locks the new namespace before the old namespace and applies existing channel,
-version and pin policy. Interrupted preparation can retry from an empty new layout.
-
-After new activation, `owned::migrate_former_owned` verifies immutable skill
-sources and former recorded links before effects. It changes the owner to `ops`
-and the lead skill name to `tmt-ops`, retaining custom targets and leaving removed
-targets absent. Modified former links fail closed; existing entries at the new published
-name are replaced. Immutable source generations remain; interrupted link transitions can
-retry. Activated release skills publish into the selected provider and custom roots.
-
-After activation and skill settlement (including warnings), the CLI verifies both installations and
-uses `extension_hooks::disable` to withdraw only the former name's recorded
-consent. Prior consent removal adds the separate-successor enable command to human
-output and `hooks.disabled`/`hooks.enableCommand` to JSON; absent consent adds
-neither. No successor consent is created or refreshed. A consent read/write failure
-reports the hook error and settings path, leaves the successor active and retains
-the former installation for retry. A later former-removal failure keeps consent
-withdrawn and reports partial replacement. An unpinned upgrade with no publication
-change retries skill publication and any remaining former replacement;
-pinned no-ops retain it.
-
-Before removing former Squad, the CLI's bounded replacement adapter invokes the
-verified Ops executable's `migration switch --yes` operation. Ops owns process
-evidence, consent fallback, pane relaunch and application-data migration; the CLI
-does not discover or signal boards. A deferred/failed switch retains the former
-installation and returns Ops's recovery command. Successful switching is reported
-as `switched N boards to Ops`; the CLI revalidates the active successor before cleanup.
-The [Ops migration guidance](../../tmt-ops-dev/references/config-and-effects.md#ops-path-migration)
-owns the deleted-executable fallback and private pending-switch record.
-
-`remove::finish_product_replacement` then verifies the new activation and links,
-locks and verifies the old activation, removes only old command links whose target
-resolves inside the verified old namespace, and removes that installation namespace.
-Foreign same-named commands remain. The CLI reports `replaced`, `removed` and `kept`;
-application config, cron, checklist and other data are never removed. Skill failures are
-warnings independent of binary replacement. Pinned no-ops retain the former installation.
-Full `tmt uninstall` plans and removes a verified former installation through the
-same receipt and command-link fence, even without Ops installed; ordinary data
-retention and explicit `--purge` policy still apply.
-
-A parent CLI released before Ops registration parses the candidate's upgrade plan with its own product table and rejects `ops` (`EXTENSION_UPGRADE_FAILED`, "invalid extension upgrade report") after the CLI itself is updated; rerunning `tmt upgrade` on the new CLI completes the replacement, and candidates emit no former-name wire compatibility.
+Ops is an ordinary product with no former identity. TMT no longer upgrades, replaces or
+uninstalls a Squad installation (`lib/tmt-squad`, links `tmt-squad` and `tmt-sq`), switches its
+boards, withdraws its hook consent, renames its skills or touches its configuration and data
+(#3836). `native_install::retired_squad` names a leftover by its directory and the links that
+still exist; it reads and verifies nothing, so a damaged leftover is reported too.
+`tmt extension install` and `tmt upgrade` print it as `retiredSquadHint` (text, and JSON on
+`extension install` and `upgrade`): the directory is left as it is, `tmt extension install ops --yes`
+when Ops is absent, that Ops moves the Squad config and data on first use (a running former
+board defers that until it exits), and the leftover links and directory to remove by hand.
+Squad-only prefixes are not an installed Ops: `tmt extension ls` and `tmt upgrade` list no Ops row.
 
 ## CLI prefix move
 

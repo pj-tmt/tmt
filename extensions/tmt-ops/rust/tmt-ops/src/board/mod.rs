@@ -1302,14 +1302,6 @@ pub fn run(
             app.set_notice(Some(reload::reloaded()), false);
         }
     }
-    let mut switch_ready = crate::board_switch::ready(&core)?;
-    if switch_ready.is_some() {
-        let notice = crate::board_switch::retired_tabs_notice(
-            std::env::var("TMT_OPS_SWITCH_RETIRED_TABS").ok().as_deref(),
-        )
-        .or_else(|| app.notice.take());
-        app.set_notice(notice, false);
-    }
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     let lane = lane::Lane::spawn(
         core.clone(),
@@ -1350,15 +1342,7 @@ pub fn run(
                     view::prepare(app, frame.area());
                     view::render(frame, app);
                 })
-                .and_then(|_| {
-                    if app.view.is_some()
-                        && !app.loading()
-                        && let Some(mut file) = switch_ready.take()
-                    {
-                        crate::board_switch::acknowledge(&mut file)?;
-                    }
-                    Ok(())
-                })
+                .map(|_| ())
         },
     );
     // Restore first, whatever happened; then report the session's outcome.

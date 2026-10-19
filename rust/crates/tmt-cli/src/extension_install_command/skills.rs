@@ -9,7 +9,6 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    extension_hooks,
     native_install::{self, Product},
     skill_installation::{self, OwnedReport, OwnedSkill, ProviderEnvironment},
 };
@@ -87,8 +86,8 @@ fn publish(
 }
 
 /// Publish the activated release's skills without a second consent step.
-/// Skill failures are warnings; binary activation and replacement keep their
-/// own outcomes, and partial publication remains visible in the skill report.
+/// Skill failures are warnings; binary activation keeps its own outcome, and
+/// partial publication remains visible in the skill report.
 pub(super) fn settle_skills(
     product: Product,
     executable: &Path,
@@ -96,21 +95,6 @@ pub(super) fn settle_skills(
     document: &mut Value,
     human: &mut Human,
 ) -> Result<(), Failure> {
-    let name = product.as_str();
-    if let Some(former) = product.former()
-        && executable
-            .file_name()
-            .is_some_and(|name| name == former.executable)
-    {
-        // A pinned upgrade is a no-op. It cannot migrate skills or retire the
-        // old installation before an Ops release has actually been activated.
-        document["formerly"] = json!(former.name);
-        human.push(format!(
-            "Former {} installation retained; replace with: tmt extension upgrade {name} --unpin",
-            former.name
-        ));
-        return Ok(());
-    }
     if let Err(error) = settle_publication(product, executable, previous, document, human) {
         document["skills"]["status"] = json!("warning");
         document["skills"]["warning"] = error.document()["error"].clone();
@@ -118,7 +102,13 @@ pub(super) fn settle_skills(
     }
     let installation = native_install::inspect_product(product, executable)
         .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
-    settle_replacement(product, &installation, document, human)
+    if product == Product::Ops
+        && let Some(note) = retired_squad_note(installation.prefix())
+    {
+        document["retiredSquadHint"] = json!(note);
+        human.push(note);
+    }
+    Ok(())
 }
 
 fn settle_publication(
@@ -137,8 +127,6 @@ fn settle_publication(
     document["skills"]["available"] = json!(current);
     let paths = ConfigPaths::discover()?;
     let global = &paths.global_dir;
-    skill_installation::migrate_former_owned(global, product, &skills)
-        .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let owned = skill_installation::owned_by(global, name)
         .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
     let dropped: Vec<String> = previous
@@ -168,105 +156,96 @@ fn settle_publication(
     Ok(())
 }
 
-/// Installation receipts and hook consent have separate owners. Verify both
-/// activations before withdrawing consent, and retain the former installation
-/// if that withdrawal fails so normal settlement can retry.
-fn settle_replacement(
-    product: Product,
-    installation: &native_install::ManagedInstallation,
-    document: &mut Value,
-    human: &mut Human,
-) -> Result<(), Failure> {
-    let Some(former) = product.former() else {
-        return Ok(());
-    };
-    let prefix = installation.prefix();
-    if native_install::inspect_former_product(product, prefix)
-        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?
-        .is_none()
-    {
-        return Ok(());
-    }
-    let paths = ConfigPaths::discover()?;
-    let disabled = extension_hooks::disable(&paths, former.name).map_err(|error| {
-        Failure::new(
-            error.code(),
-            format!(
-                "{} is installed, but former {} hook consent cleanup failed at {}: {error}. The former installation was retained; fix the settings and retry installation or an unpinned upgrade.",
-                product.as_str(), former.name,
-                extension_hooks::consent_path(&paths.global_dir).display()
-            ),
-            1,
-        )
-        .caused_by(error)
-    })?;
-    let hint = format!(
-        "Removed former {} hook consent; Ops hooks require separate consent. Enable with: tmt extension hooks enable {}",
-        former.name,
-        product.as_str()
+/// What a Squad installation that Ops replaced still has under `prefix`. TMT no
+/// longer upgrades it, replaces it with Ops or switches its board, and removes
+/// nothing of it, so say what is left and what to do.
+pub(crate) fn retired_squad_note(prefix: &Path) -> Option<String> {
+    let found = native_install::retired_squad(prefix)?;
+    let mut note = format!(
+        "Squad at {} is left as it is: TMT no longer upgrades it, replaces it with Ops or switches its board.",
+        found.root.display()
     );
-    if disabled {
-        document["hooks"] = json!({
-            "disabled": [former.name],
-            "enableCommand": format!("tmt extension hooks enable {}", product.as_str()),
-        });
-        human.push(hint.clone());
+    if std::fs::symlink_metadata(prefix.join("bin").join(Product::Ops.executable())).is_err() {
+        note.push_str(" Install Ops with: tmt extension install ops --yes");
+        note.push('.');
     }
-    if !super::board_switch::run(installation, document, human)? {
-        return Ok(());
-    }
-    native_install::inspect_product(product, &installation.active_executable)
-        .map_err(|error| failure("EXTENSION_INSTALLATION_INVALID", error))?;
-    let replacement = native_install::finish_product_replacement(prefix, product)
-        .map_err(|error| {
-            Failure::new(
-                "EXTENSION_INSTALL_FAILED",
-                format!(
-                    "{} is installed, but former {} replacement cleanup failed: {error}.{} Inspect with: tmt extension ls",
-                    product.as_str(), former.name,
-                    if disabled { format!(" {hint}.") } else { String::new() }
-                ),
-                1,
-            ).caused_by(error)
-        })?;
-    if !replacement.removed.is_empty() || !replacement.kept.is_empty() {
-        document["replaced"] = json!(former.name);
-        document["removed"] = json!(replacement.removed);
-        document["kept"] = json!(replacement.kept);
-        for path in &replacement.removed {
-            human.push(format!("Removed former product {}", path.display()));
-        }
-    }
-    Ok(())
+    note.push_str(
+        " Ops moves your Squad config and data on first use; a running former board defers that until it exits.",
+    );
+    let leftovers = found
+        .links
+        .iter()
+        .chain([&found.root])
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>();
+    note.push_str(&format!(
+        " Remove {} by hand when you no longer need them.",
+        leftovers.join(", ")
+    ));
+    Some(note)
 }
 
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
-pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
-    crate::cli_style_tests::HintSpec::core(
-        "Removed former {} hook consent; Ops hooks require separate consent. Enable with: tmt extension hooks enable {}",
-        &[""],
-        &[
-            (
-                "tmt extension hooks enable {}",
-                "tmt extension hooks enable ops",
-            ),
-            ("{}", "squad"),
-        ],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "tmt extension hooks enable {}",
-        &[""],
-        &[("{}", "ops")],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "{} is installed, but former {} replacement cleanup failed: {error}.{} Inspect with: tmt extension ls",
+pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
+    &[crate::cli_style_tests::HintSpec::core(
+        " Install Ops with: tmt extension install ops --yes",
         &[""],
         &[],
-    ),
-    crate::cli_style_tests::HintSpec::core(
-        "Former {} installation retained; replace with: tmt extension upgrade {name} --unpin",
-        &[""],
-        &[("{name}", "ops"), ("{}", "squad")],
-    ),
-];
+    )];
+
+#[cfg(test)]
+mod retired_squad_tests {
+    use super::retired_squad_note;
+    use std::fs;
+
+    fn prefix(name: &str) -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("tmt-retired-squad-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(path.join("bin")).unwrap();
+        path
+    }
+
+    #[test]
+    fn nothing_is_said_without_a_squad_installation() {
+        let prefix = prefix("none");
+        fs::create_dir_all(prefix.join("lib/tmt-ops")).unwrap();
+        assert_eq!(retired_squad_note(&prefix), None);
+        fs::remove_dir_all(&prefix).unwrap();
+    }
+
+    #[test]
+    fn a_leftover_squad_is_named_with_what_to_do_and_nothing_is_removed() {
+        let prefix = prefix("left");
+        fs::create_dir_all(prefix.join("lib/tmt-squad")).unwrap();
+        std::os::unix::fs::symlink(
+            "../lib/tmt-squad/current/tmt-squad",
+            prefix.join("bin/tmt-squad"),
+        )
+        .unwrap();
+        let note = retired_squad_note(&prefix).unwrap();
+        assert!(note.contains(&prefix.join("lib/tmt-squad").display().to_string()));
+        assert!(note.contains("no longer upgrades it"));
+        assert!(note.contains("tmt extension install ops --yes"));
+        assert!(
+            note.contains(&format!(
+                "Remove {}, {} by hand",
+                prefix.join("bin/tmt-squad").display(),
+                prefix.join("lib/tmt-squad").display()
+            )),
+            "only the links that exist are listed: {note}"
+        );
+        assert!(
+            prefix.join("lib/tmt-squad").is_dir(),
+            "the note changes nothing"
+        );
+
+        // With Ops installed there is nothing to install.
+        std::os::unix::fs::symlink("../lib/tmt-ops/current/tmt-ops", prefix.join("bin/tmt-ops"))
+            .unwrap();
+        let note = retired_squad_note(&prefix).unwrap();
+        assert!(!note.contains("tmt extension install ops"));
+        fs::remove_dir_all(&prefix).unwrap();
+    }
+}
