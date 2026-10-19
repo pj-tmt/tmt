@@ -97,10 +97,35 @@ for (const surface of ['chat', 'thread'])
         .getAttribute('data-operation-id');
       await captures(page, panel, surface, 'failure');
       await again.click();
-      await until(
-        () => alpha.received().length === 1,
-        'one fresh delivery to the unsent recipient',
-      );
+      try {
+        await until(
+          () => alpha.received().length === 1,
+          'one fresh delivery to the unsent recipient',
+        );
+      } catch (error) {
+        // #3869: Ask again stops without an error when its binding is replaced or the composer
+        // is blocked mid-send. Name the state the action was left in (counts and flags only, no
+        // authored text) in the failure itself: hosted reports keep the log line, not attachments.
+        let state = 'unavailable';
+        try {
+          state = JSON.stringify({
+            action: await again.evaluateAll((nodes) =>
+              nodes.map((node) => ({
+                busy: node.getAttribute('aria-busy') === 'true',
+                disabled: (node as HTMLButtonElement).disabled,
+              })),
+            ),
+            alerts: await panel.getByRole('alert').count(),
+            entries: await panel.getByTestId('ask-entry').count(),
+            sessionFailures: failures,
+            dispatches: world.coreCalls().filter((call) => call.operation === 'dispatch.create')
+              .length,
+          });
+        } catch {
+          // A missing diagnostic never replaces the original failure.
+        }
+        throw new Error(`${(error as Error).message} · Ask again state ${state}`, { cause: error });
+      }
       await expect(again).toHaveCount(0);
       await expect(panel.getByTestId('ask-entry')).toHaveCount(2);
       const operations = await panel
