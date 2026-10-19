@@ -278,3 +278,6 @@ input {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+[data-tmt-auto='true'] #pair {
+  display: none;
+}

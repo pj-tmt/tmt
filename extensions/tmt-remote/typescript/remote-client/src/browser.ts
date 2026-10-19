@@ -112,6 +112,9 @@ import {
   pair,
   parseLink,
   resolveLink,
+  resolveAutomaticLink,
+  cancelAutomaticOffer,
+  PairingRefusedError,
   type ExtCertificate,
   type Paired,
   type Session,
@@ -697,20 +700,34 @@ function showState(
   element('mark').textContent = { waiting: '◆', paired: '✓', blocked: '✗' }[state];
 }
 /** Called by the fragment-erasing bootstrap after the page DOM is ready. */
+let pairingAttempt: AbortController | undefined;
 export async function pairingPage(link: string): Promise<void> {
+  pairingAttempt?.abort();
+  const lifetime = new AbortController();
+  pairingAttempt = lifetime;
+  globalThis.addEventListener?.('pagehide', () => lifetime.abort(), {
+    once: true,
+    signal: lifetime.signal,
+  });
   if (document.readyState === 'loading') {
     await new Promise<void>((resolve) =>
       document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
     );
   }
+  if (lifetime.signal.aborted) return;
+  if (link.includes('#auto=')) return automaticPairingPage(link, lifetime);
   const status = element('status');
   const form = element('pair') as HTMLFormElement;
   const button = form.querySelector('button')!;
   button.disabled = true;
   let parsed: ReturnType<typeof parseLink>;
   try {
-    parsed = await resolveLink(link);
+    parsed = await resolveLink(link, (url, init) =>
+      fetch(url, { ...init, signal: lifetime.signal }),
+    );
+    if (lifetime.signal.aborted) return;
   } catch {
+    if (lifetime.signal.aborted) return;
     form.hidden = true;
     showState(
       status,
@@ -719,31 +736,131 @@ export async function pairingPage(link: string): Promise<void> {
     );
     return;
   }
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const ownsFocus = form.contains(document.activeElement);
-    form.hidden = true;
-    if (ownsFocus) status.focus({ preventScroll: true });
-    const name = (element('name') as HTMLInputElement).value.trim();
-    void ceremony(parsed, name, status).catch(() => {
-      if (document.activeElement === element('comparison')) status.focus({ preventScroll: true });
-      showState(
-        status,
-        'blocked',
-        'Pairing did not complete. Run tmt remote pair again for a new link.',
-      );
-    });
-  });
+  form.addEventListener(
+    'submit',
+    (event) => {
+      event.preventDefault();
+      const ownsFocus = form.contains(document.activeElement);
+      form.hidden = true;
+      if (ownsFocus) status.focus({ preventScroll: true });
+      const name = (element('name') as HTMLInputElement).value.trim();
+      void ceremony(parsed, name, status, lifetime.signal).catch(() => {
+        if (lifetime.signal.aborted) return;
+        if (document.activeElement === element('comparison')) status.focus({ preventScroll: true });
+        showState(
+          status,
+          'blocked',
+          'Pairing did not complete. Run tmt remote pair again for a new link.',
+        );
+      });
+    },
+    { signal: lifetime.signal },
+  );
+  form.hidden = false;
   element('state-label').textContent = 'Ready to pair';
   status.textContent = 'Name this browser and choose Pair to request terminal confirmation.';
   button.disabled = false;
+}
+
+async function automaticPairingPage(link: string, lifetime: AbortController): Promise<void> {
+  const status = element('status');
+  element('pair').hidden = true;
+  const timer = setTimeout(() => lifetime.abort(), 60_000);
+  let leaving = false;
+  const departed = () => {
+    leaving = true;
+    lifetime.abort();
+  };
+  globalThis.addEventListener?.('pagehide', departed, { once: true });
+  let code: Uint8Array | undefined;
+  let openCommand = 'tmt remote open';
+  try {
+    showState(status, 'waiting', 'Connecting this browser…');
+    const network: typeof fetch = (url, init) => fetch(url, { ...init, signal: lifetime.signal });
+    const offered = await resolveAutomaticLink(link, network);
+    code = offered.code;
+    const { descriptor, target } = offered;
+    // The fixed public entry families name Colab; this is recovery copy, not authority.
+    if (
+      target === '/colab' ||
+      target.startsWith('/colab/') ||
+      target.startsWith('/p/') ||
+      target.startsWith('/read/')
+    )
+      openCommand = 'tmt colab open';
+    const record = await load();
+    lifetime.signal.throwIfAborted();
+    if (record) {
+      // The existing signed session proves the machine pin and live device, not the inventory count.
+      await reopenSession(undefined, { signal: lifetime.signal });
+      const key = await DeviceKey.fromHandle(record.handle, record.publicKey);
+      await cancelAutomaticOffer({
+        descriptor,
+        code,
+        key,
+        kind: 'browser',
+        origin: location.origin,
+        name: 'Browser',
+        fetch: network,
+        signal: lifetime.signal,
+      });
+    } else {
+      const key = await DeviceKey.generate();
+      const result = await pair({
+        descriptor,
+        code,
+        key,
+        kind: 'browser',
+        origin: location.origin,
+        name: 'Browser',
+        fetch: network,
+        deadlineMs: 60_000,
+        signal: lifetime.signal,
+      });
+      lifetime.signal.throwIfAborted();
+      await save({ handle: key.handle(), publicKey: key.publicKey(), paired: result });
+      await openSession(result, key, descriptor.windowId, network);
+    }
+    lifetime.signal.throwIfAborted();
+    location.replace(target);
+  } catch (error) {
+    if (!leaving && pairingAttempt === lifetime) {
+      showState(status, 'blocked', '');
+      const command = document.createElement('code');
+      command.className = 'tmt-ui-code';
+      command.textContent = openCommand;
+      const refused = error instanceof PairingRefusedError;
+      const nodes: Node[] = [
+        document.createTextNode(
+          refused
+            ? 'This link no longer works. Open the page again from the machine with '
+            : 'Could not connect this browser. Open the page again from the machine with ',
+        ),
+        command,
+        document.createTextNode(refused ? '.' : '. If it still fails, run '),
+      ];
+      if (!refused) {
+        const fallback = document.createElement('code');
+        fallback.className = 'tmt-ui-code';
+        fallback.textContent = 'tmt remote pair';
+        nodes.push(fallback, document.createTextNode(' there.'));
+      }
+      status.replaceChildren(...nodes);
+    }
+  } finally {
+    code?.fill(0);
+    clearTimeout(timer);
+    globalThis.removeEventListener?.('pagehide', departed);
+  }
 }
 async function ceremony(
   { descriptor, code }: ReturnType<typeof parseLink>,
   name: string,
   status: HTMLElement,
+  signal: AbortSignal,
 ): Promise<void> {
   const key = await DeviceKey.generate();
+  signal.throwIfAborted();
   const indexes = await fingerprintIndexes(key.publicKey());
   const words = element('words');
   words.textContent = indexes.map((i) => WORDS[i]).join(' ');
@@ -762,13 +879,18 @@ async function ceremony(
     kind: 'browser',
     origin: location.origin,
     name,
+    signal,
   });
+  signal.throwIfAborted();
   await save({
     handle: key.handle(),
     publicKey: key.publicKey(),
     paired: result,
   });
-  await openSession(result, key, descriptor.windowId);
+  await openSession(result, key, descriptor.windowId, (url, init) =>
+    fetch(url, { ...init, signal }),
+  );
+  signal.throwIfAborted();
   showState(status, 'paired', 'This browser is paired. You can close this page.');
   element('entry-link').hidden = false;
   if (document.activeElement === comparison || document.activeElement === status)

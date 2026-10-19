@@ -565,14 +565,14 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 `TMT_EXECUTABLE` via `tmt-invoke`. Remote owns `<dataRoot>/remote/` via
 [state leaf](#shared-extension-state-layout). Core delegates restart if replaced Remote was running;
 Remote owns listener/state/[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
-Pages/CSS/SDK/wordlist; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
+Pages/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
 Remote owns authority; UI grants none. Local: device keys/grants/signatures.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: local envelopes/grants/scope/allowlist/hold/uncertainty/audit.
-Target design (proposed, #3290): `talk` → Remote interface → target host → driver.
+Proposed (#3290): `talk` → Remote interface → target host → driver.
 Local: `transport`/`routes` → `message` → `session`/`operations`; same-ID public Core API dispatch/recovery.
 Door: `remote-v1.js` ([SDK](extensions/tmt-remote/typescript/remote-client/README.md));
 owner-installed [Colab](#colab-extension) mounts at `/r/<prefix>/x/colab/`; public CLI/SDK/`tmt-extension-objects` elsewhere; never Remote state files.

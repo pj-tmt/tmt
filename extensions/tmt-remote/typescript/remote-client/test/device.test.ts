@@ -10,8 +10,101 @@ import {
   pairingCode,
   type ExtCert,
 } from '../src/canonical-bytes.js';
-import { DeviceKey, certify, openSession, parseLink, resolveLink } from '../src/device.js';
+import {
+  DeviceKey,
+  certify,
+  openSession,
+  parseLink,
+  resolveLink,
+  resolveAutomaticLink,
+  cancelAutomaticOffer,
+  PairingRefusedError,
+} from '../src/device.js';
 import { RefusalError } from '../src/operations.js';
+
+test('automatic descriptors reuse admitted enrollment bytes but reject redirect targets', async () => {
+  const door = new Door();
+  const link = door.link().replace('#', '#auto=');
+  const urls: string[] = [];
+  const offer = { ...door.descriptor, automatic: true, target: '/settings' };
+  const value = await resolveAutomaticLink(link, (async (url: string) => {
+    urls.push(url);
+    return Response.json(offer);
+  }) as typeof fetch);
+  assert.equal(value.target, '/settings');
+  assert.deepEqual(value.descriptor, door.descriptor);
+  assert.deepEqual(Buffer.from(value.code), door.code);
+  assert.deepEqual(urls, [`${ORIGIN}/sdk/pair-offer`]);
+  for (const target of [
+    'https://elsewhere.test/',
+    '//elsewhere.test/',
+    '/\\elsewhere.test/',
+    '/settings?x=1',
+    '/settings#code',
+    '/a/../settings',
+  ]) {
+    await assert.rejects(
+      resolveAutomaticLink(link, (async () => Response.json({ ...offer, target })) as typeof fetch),
+    );
+  }
+  await assert.rejects(
+    resolveAutomaticLink(link, (async () => Response.json(door.descriptor)) as typeof fetch),
+    PairingRefusedError,
+    'a valid manual replacement means the automatic link ended, not a transport/proof failure',
+  );
+});
+
+test('automatic cancellation has its own possession domain and never sends the raw code', async () => {
+  const door = new Door();
+  const key = await DeviceKey.generate();
+  const {
+    enrollmentSigningBytes,
+    enrollmentCancellationSigningBytes,
+    enrollmentPossessionSigningBytes,
+  } = await import('../src/canonical-bytes.js');
+  await cancelAutomaticOffer({
+    descriptor: door.descriptor,
+    code: door.code,
+    key,
+    kind: 'browser',
+    origin: ORIGIN,
+    name: 'Browser',
+    fetch: (async (url: string, init: RequestInit) => {
+      assert.equal(url, `${door.descriptor.address}/pair`);
+      const body = JSON.parse(init.body as string) as Record<string, string> & { cancel: boolean };
+      assert.equal(body.cancel, true);
+      assert.equal(Object.keys(body).length, 13);
+      const bytes = enrollmentSigningBytes({
+        ...door.descriptor,
+        clientNonce: Buffer.from(body.clientNonce!, 'hex'),
+        serverChallenge: Buffer.from(body.serverChallenge!, 'hex'),
+        kind: 'browser',
+        origin: ORIGIN,
+        name: 'Browser',
+        publicKey: key.publicKey(),
+      });
+      assert.ok(
+        verify(
+          null,
+          enrollmentCancellationSigningBytes(bytes, raw(body.mac!)),
+          publicKeyObject(key.publicKey()),
+          raw(body.signature!),
+        ),
+      );
+      assert.equal(
+        verify(
+          null,
+          enrollmentPossessionSigningBytes(bytes, raw(body.mac!)),
+          publicKeyObject(key.publicKey()),
+          raw(body.signature!),
+        ),
+        false,
+      );
+      assert.equal((init.body as string).includes(base32(door.code)), false);
+      return new Response(null, { status: 204 });
+    }) as typeof fetch,
+  });
+});
 
 test('pairing retries a pending candidate and accepts only a proven receipt', async () => {
   const door = new Door();

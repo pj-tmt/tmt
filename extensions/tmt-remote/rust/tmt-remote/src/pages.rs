@@ -7,7 +7,9 @@ use crate::{
     mount::Mounts,
     pairing::Pairing,
 };
+use base64::Engine;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 /// Built from `typescript/remote-client` by `pnpm build`; CI checks it is current.
@@ -135,7 +137,24 @@ impl Pages {
             "/sdk/pages.css" => asset("text/css; charset=utf-8", STYLE, None),
             "/" => asset("text/html; charset=utf-8", LANDING, Some(PAGE_POLICY)),
             "/sdk/mount" => self.mount(&request.body, mounts),
-            _ => asset("text/html; charset=utf-8", PAGE, Some(PAGE_POLICY)),
+            _ => {
+                // The exact inline bytes erase the fragment before any subresource is parsed.
+                let body = PAGE.replace("__TMT_PAIR_BOOTSTRAP__", BOOTSTRAP);
+                let inline = body
+                    .split_once("<script>")
+                    .expect("pair bootstrap")
+                    .1
+                    .split_once("</script>")
+                    .expect("pair bootstrap end")
+                    .0;
+                let hash = base64::engine::general_purpose::STANDARD
+                    .encode(Sha256::digest(inline.as_bytes()));
+                let policy = PAGE_POLICY.replace(
+                    "script-src 'self';",
+                    &format!("script-src 'self' 'sha256-{hash}';"),
+                );
+                asset("text/html; charset=utf-8", &body, Some(&policy))
+            }
         }
     }
     /// `{path}` to this run and the page's own mount, from the door's mapping.

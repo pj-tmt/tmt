@@ -5,6 +5,78 @@ import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
 import { DeviceKey } from '../src/device.js';
 
+for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
+  test(`automatic ${failure} offers show the approved recovery command as code`, async () => {
+    const children: { textContent: string; tagName?: string; className?: string }[] = [];
+    const status = {
+      dataset: {} as Record<string, string>,
+      textContent: '',
+      replaceChildren: (...nodes: typeof children) => {
+        children.splice(0, children.length, ...nodes);
+        status.textContent = nodes.map((node) => node.textContent).join('');
+      },
+    };
+    const form = { hidden: false, querySelector: () => ({ disabled: true }) };
+    const nodes: Record<string, unknown> = {
+      pair: form,
+      status,
+      mark: { textContent: '' },
+      notice: { dataset: {} },
+      'state-label': { textContent: '' },
+    };
+    vi.stubGlobal('document', {
+      readyState: 'complete',
+      getElementById: (id: string) => nodes[id],
+      createElement: (tag: string) => ({
+        tagName: tag.toUpperCase(),
+        className: '',
+        textContent: '',
+      }),
+      createTextNode: (textContent: string) => ({ textContent }),
+    });
+    const door = new Door();
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        throw new Error('Fixture storage failure.');
+      },
+    });
+    let requests = 0;
+    vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
+      requests++;
+      assert.equal(init?.method, undefined, 'no enrollment after a failed descriptor');
+      if (failure === 'transport') throw new Error('Fixture transport failure.');
+      return failure === 'storage-colab'
+        ? Response.json({ ...door.descriptor, automatic: true, target: '/p/abcd' })
+        : new Response('{}', { status: 404 });
+    });
+    try {
+      await pairingPage(door.link().replace('#', '#auto='));
+      assert.equal(form.hidden, true);
+      assert.equal(status.dataset.state, 'blocked');
+      assert.equal(
+        status.textContent,
+        failure === 'consumed'
+          ? 'This link no longer works. Open the page again from the machine with tmt remote open.'
+          : `Could not connect this browser. Open the page again from the machine with ${failure === 'storage-colab' ? 'tmt colab open' : 'tmt remote open'}. If it still fails, run tmt remote pair there.`,
+      );
+      assert.deepEqual(
+        children.filter((node) => node.tagName === 'CODE').map((node) => node.textContent),
+        failure === 'consumed'
+          ? ['tmt remote open']
+          : [failure === 'storage-colab' ? 'tmt colab open' : 'tmt remote open', 'tmt remote pair'],
+      );
+      assert.ok(
+        children
+          .filter((node) => node.tagName === 'CODE')
+          .every((node) => node.className === 'tmt-ui-code'),
+      );
+      assert.equal(requests, 1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}
+
 function request(result: unknown) {
   const pending: { result: unknown; onsuccess?: () => void } = { result };
   queueMicrotask(() => pending.onsuccess?.());

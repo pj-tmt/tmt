@@ -15,6 +15,22 @@ use std::{
 use tmt_remote::pairing::Timing;
 
 const PAGE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+fn pairing_policy(body: &str) -> String {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let inline = body
+        .split_once("<script>")
+        .unwrap()
+        .1
+        .split_once("</script>")
+        .unwrap()
+        .0;
+    let hash = base64::engine::general_purpose::STANDARD.encode(Sha256::digest(inline.as_bytes()));
+    PAGE_CSP.replace(
+        "script-src 'self';",
+        &format!("script-src 'self' 'sha256-{hash}';"),
+    )
+}
 
 const FAST: Timing = Timing {
     lifetime: Duration::from_secs(30),
@@ -84,9 +100,17 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
         page.header("content-type"),
         Some("text/html; charset=utf-8")
     );
-    assert_eq!(page.header("content-security-policy"), Some(PAGE_CSP));
+    let policy = pairing_policy(&page.body);
+    assert_eq!(
+        page.header("content-security-policy"),
+        Some(policy.as_str())
+    );
     assert_eq!(page.header("cache-control"), Some("no-store"));
-    assert_eq!(page.body, include_str!("../assets/pair.html"));
+    assert_eq!(
+        page.body,
+        include_str!("../assets/pair.html")
+            .replace("__TMT_PAIR_BOOTSTRAP__", include_str!("../assets/pair.js"))
+    );
     assert!(
         page.body
             .contains(r#"<link rel="stylesheet" href="/sdk/pages.css" />"#)
@@ -98,7 +122,11 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
         page.body
             .contains(r#"id="status" role="status" tabindex="-1""#)
     );
-    assert!(page.body.contains(r#"<script src="/sdk/pair.js">"#));
+    assert!(
+        page.body.find("history.replaceState").unwrap()
+            < page.body.find("rel=\"stylesheet\"").unwrap()
+    );
+    assert!(page.body.find("history.replaceState").unwrap() < page.body.find("import(").unwrap());
     assert!(page.body.contains(
         r#"<button class="tmt-ui-action" type="submit" aria-describedby="status" disabled>"#
     ));
@@ -775,9 +803,14 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
             .filter(|tag| tag.contains("rel=\"icon\""))
             .collect();
         assert_eq!(links.len(), 1, "{path}");
+        let policy = if path == "/pair" {
+            pairing_policy(&reply.body)
+        } else {
+            PAGE_CSP.to_owned()
+        };
         assert_eq!(
             reply.header("content-security-policy"),
-            Some(PAGE_CSP),
+            Some(policy.as_str()),
             "{path}"
         );
         let link = links[0];

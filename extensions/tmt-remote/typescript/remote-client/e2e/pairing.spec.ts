@@ -370,6 +370,162 @@ test.afterEach(async () => {
   if (failures.length) throw new AggregateError(failures, 'Pairing teardown failed');
 });
 
+/** Test-only owner socket access; production extensions use the versioned native CLI seam. */
+async function automaticOffer(target: string): Promise<{ link: string; offerId: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(join(root, 'state/remote/control.sock'));
+    socket.once('error', reject);
+    socket.once('connect', () => socket.write(`${JSON.stringify({ op: 'auto-pair', target })}\n`));
+    const reader = createInterface({ input: socket });
+    reader.once('line', (line) => {
+      reader.close();
+      socket.end();
+      const value = JSON.parse(line) as { link: string; offerId: string; error?: unknown };
+      if (value.error || !value.link) reject(new Error('Native auto offer was refused.'));
+      else resolve(value);
+    });
+  });
+}
+
+test('native automatic opening is single-use, strips history and reuses a paired browser', async () => {
+  const page = await browser.newPage();
+  const requests: { url: string; referer: string }[] = [];
+  page.on('request', (request) =>
+    requests.push({ url: request.url(), referer: request.headers().referer ?? '' }),
+  );
+  let logs = '';
+  serve.stderr.on('data', (bytes: Buffer) => {
+    logs += bytes.toString();
+  });
+  const first = await automaticOffer('/p/abcd');
+  const code = new URL(first.link).hash.slice(6);
+  const response = await page.goto(first.link, { waitUntil: 'domcontentloaded' });
+  expect(response?.headers()['referrer-policy']).toBe('no-referrer');
+  expect(response?.headers()['content-security-policy']).toContain("'sha256-");
+  expect(response?.headers()['content-security-policy']).not.toContain("'unsafe-inline'");
+  await page.waitForURL(`${origin}/p/abcd`);
+  const list = () =>
+    JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
+      devices: { clientId: string; origin: string; issuedAtMs: number; scopes: string[] }[];
+    };
+  const paired = list();
+  expect(paired.devices).toHaveLength(1);
+  expect(paired.devices[0]!.origin).toBe(origin);
+  expect(paired.devices[0]!.issuedAtMs).toBeGreaterThan(0);
+  expect(paired.devices[0]!.scopes).toEqual([
+    'agents.read',
+    'check.read',
+    'results.read',
+    'status.read',
+  ]);
+  expect(logs).toContain(paired.devices[0]!.clientId);
+  expect(logs).toContain(origin);
+  expect(logs).not.toContain(code);
+  expect(
+    requests.every((request) => !request.url.includes(code) && !request.referer.includes(code)),
+  ).toBe(true);
+
+  const second = await automaticOffer('/');
+  await page.goto(second.link, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL(`${origin}/`);
+  expect(list().devices).toHaveLength(1);
+  expect(list().devices[0]!.clientId).toBe(paired.devices[0]!.clientId);
+  expect((await page.request.get(`${origin}/sdk/pair-offer`)).status()).toBe(404);
+  await page.goBack();
+  expect(page.url()).not.toContain('#');
+  await page.goForward();
+  expect(page.url()).not.toContain('#');
+
+  // A second browser/profile has no original key and cannot reuse even the exact launch link.
+  const other = await browser.newContext();
+  try {
+    const stranger = await other.newPage();
+    await stranger.goto(second.link);
+    await expect(stranger.locator('#status')).toHaveText(
+      'This link no longer works. Open the page again from the machine with tmt remote open.',
+    );
+    await expect(stranger.locator('#status code')).toHaveText('tmt remote open');
+    expect(stranger.url()).toBe(`${origin}/pair`);
+    expect(list().devices).toHaveLength(1);
+    await captureState(stranger, 'automatic-used', '#notice', [1280, 390], ['light', 'dark']);
+    // A fresh native offer works for another profile even though the machine already has a device.
+    const fresh = await automaticOffer('/read/abcd');
+    await stranger.goto(fresh.link, { waitUntil: 'domcontentloaded' });
+    await stranger.waitForURL(`${origin}/read/abcd`);
+    expect(list().devices).toHaveLength(2);
+  } finally {
+    await other.close();
+  }
+});
+
+test('native auto bootstrap erases before the SDK request and never shows the manual form', async () => {
+  const page = await browser.newPage();
+  const offer = await automaticOffer('/');
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrived!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  await page.route('**/sdk/remote-v1.js', async (route) => {
+    arrived();
+    await held;
+    await route.continue();
+  });
+  const navigation = page.goto(offer.link, { waitUntil: 'domcontentloaded' });
+  try {
+    await reached;
+    expect(page.url()).toBe(`${origin}/pair`);
+    expect(await page.evaluate(() => location.hash)).toBe('');
+    await expect(page.locator('#pair')).toBeHidden();
+    release();
+    await navigation;
+    await page.waitForURL(`${origin}/`);
+  } finally {
+    release();
+    await navigation.catch(() => {});
+  }
+});
+
+test('native automatic connection has a code-free waiting state', async () => {
+  const page = await browser.newPage();
+  const offer = await automaticOffer('/');
+  const barrier = routeBarrier();
+  await page.route('**/sdk/pair-offer', async (route) => {
+    barrier.arrive();
+    await barrier.held;
+    await route.continue();
+  });
+  try {
+    await page.goto(offer.link, { waitUntil: 'domcontentloaded' });
+    await barrier.reached;
+    expect(page.url()).toBe(`${origin}/pair`);
+    await expect(page.locator('#status')).toHaveText('Connecting this browser…');
+    await expect(page.locator('#pair')).toBeHidden();
+    await captureState(page, 'automatic-connecting', '#notice', [1280, 390], ['light', 'dark']);
+    barrier.release();
+    await page.waitForURL(`${origin}/`);
+  } finally {
+    barrier.release();
+  }
+});
+
+test('native automatic transport failure offers reopening before manual pairing', async () => {
+  const page = await browser.newPage();
+  const offer = await automaticOffer('/settings');
+  await page.route('**/sdk/pair-offer', (route) => route.abort('failed'));
+  await page.goto(offer.link, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#status')).toHaveText(
+    'Could not connect this browser. Open the page again from the machine with tmt remote open. If it still fails, run tmt remote pair there.',
+  );
+  await expect(page.locator('#status code')).toHaveText(['tmt remote open', 'tmt remote pair']);
+  expect(page.url()).toBe(`${origin}/pair`);
+  await expect(page.locator('#pair')).toBeHidden();
+  await captureState(page, 'automatic-unavailable', '#notice', [1280, 390], ['light', 'dark']);
+});
+
 // The extension is a public-entry stand-in, not Colab app/routing acceptance.
 test('short public entries preserve the browser URL and map the SDK mount without authority', async () => {
   const page = await browser.newPage();

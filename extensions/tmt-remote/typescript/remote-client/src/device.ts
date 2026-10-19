@@ -4,6 +4,7 @@ import {
   base64url,
   base64urlBytes,
   enrollmentPossessionSigningBytes,
+  enrollmentCancellationSigningBytes,
   enrollmentSigningBytes,
   envelopeSigningBytes,
   extCertSigningBytes,
@@ -22,6 +23,11 @@ import {
 
 function requireValue(condition: boolean, label: string): asserts condition {
   if (!condition) throw new Error(`Invalid ${label}.`);
+}
+export class PairingRefusedError extends Error {
+  constructor() {
+    super('Pairing was refused or ended.');
+  }
 }
 /** A fresh ArrayBuffer-backed copy, as WebCrypto requires. */
 const owned = (bytes: Uint8Array): Uint8Array<ArrayBuffer> => new Uint8Array(bytes);
@@ -178,6 +184,51 @@ export async function resolveLink(
   return parseLink(link, await response.json());
 }
 
+/** Native-only automatic launch fragment; the public descriptor still contains no code. */
+export async function resolveAutomaticLink(
+  link: string,
+  network: typeof fetch = fetch,
+): Promise<ReturnType<typeof parseLink> & { target: string }> {
+  const launch = new URL(link);
+  requireValue(/^#auto=[A-Z2-7]{26}$/.test(launch.hash), 'automatic pairing link');
+  launch.hash = launch.hash.slice(6);
+  const url = pairingUrl(launch.href);
+  const response = await network(`${url.origin}/sdk/pair-offer`, {
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+  });
+  if (response.status === 404) throw new PairingRefusedError();
+  requireValue(response.status === 200, 'automatic pairing offer');
+  const value: unknown = await response.json();
+  requireValue(
+    value !== null && typeof value === 'object' && !Array.isArray(value),
+    'automatic pairing descriptor',
+  );
+  const { automatic, target, ...descriptor } = value as Record<string, unknown>;
+  if (automatic === undefined && target === undefined) {
+    // A well-formed manual offer has replaced this automatic link; admit no candidate.
+    parseLink(url.href, descriptor);
+    throw new PairingRefusedError();
+  }
+  requireValue(
+    automatic === true &&
+      typeof target === 'string' &&
+      target.startsWith('/') &&
+      !target.startsWith('//'),
+    'automatic pairing target',
+  );
+  const destination = new URL(target, url.origin);
+  requireValue(
+    destination.origin === url.origin &&
+      destination.pathname === target &&
+      !destination.search &&
+      !destination.hash,
+    'automatic pairing target',
+  );
+  return { ...parseLink(url.href, descriptor), target };
+}
+
 /** What the device keeps after a verified pairing. */
 export interface Paired {
   clientId: string;
@@ -199,15 +250,13 @@ export interface PairOptions {
   fetch?: typeof fetch;
   /** Bound on retrying a pending candidate; defaults to the ten-minute offer lifetime. */
   deadlineMs?: number;
+  signal?: AbortSignal;
 }
-/**
- * Submit one enrollment candidate and retry it exactly while the owner has
- * not answered. The machine key and grant are accepted only after
- * `serverProof` verifies over the exact receipt bytes.
- */
-export async function pair(options: PairOptions): Promise<Paired> {
+async function enrollmentRequest(
+  options: PairOptions,
+  cancel: boolean,
+): Promise<{ enrollment: Uint8Array; body: string }> {
   const { descriptor, code, key } = options;
-  const send = options.fetch ?? fetch;
   const publicKey = key.publicKey();
   const clientNonce = random(16);
   const enrollment = enrollmentSigningBytes({
@@ -223,7 +272,11 @@ export async function pair(options: PairOptions): Promise<Paired> {
     publicKey,
   });
   const mac = await hmac(code, enrollment);
-  const signature = await key.sign(enrollmentPossessionSigningBytes(enrollment, mac));
+  const signature = await key.sign(
+    cancel
+      ? enrollmentCancellationSigningBytes(enrollment, mac)
+      : enrollmentPossessionSigningBytes(enrollment, mac),
+  );
   const body = JSON.stringify({
     profile: 'local-v1',
     machineId: descriptor.machineId,
@@ -237,16 +290,44 @@ export async function pair(options: PairOptions): Promise<Paired> {
     publicKey: base64url(publicKey),
     mac: base64url(mac),
     signature: base64url(signature),
+    ...(cancel ? { cancel: true } : {}),
   });
+  return { enrollment, body };
+}
+
+/** Cancellation is a code-bound possession proof from a currently live paired key. */
+export async function cancelAutomaticOffer(options: PairOptions): Promise<void> {
+  const { body } = await enrollmentRequest(options, true);
+  options.signal?.throwIfAborted();
+  const reply = await (options.fetch ?? fetch)(`${options.descriptor.address}/pair`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    signal: options.signal,
+  });
+  if (reply.status === 404) throw new PairingRefusedError();
+  requireValue(reply.status === 204, 'automatic offer cancellation');
+}
+
+/** Submit one candidate; manual pending replies retry exactly until the owner's decision.
+ * Accept the machine key/grant only after serverProof verifies the exact receipt bytes. */
+export async function pair(options: PairOptions): Promise<Paired> {
+  const { descriptor, code, key } = options;
+  const send = options.fetch ?? fetch;
+  const publicKey = key.publicKey();
+  const { enrollment, body } = await enrollmentRequest(options, false);
   const deadline = Date.now() + (options.deadlineMs ?? 600_000);
   for (;;) {
+    options.signal?.throwIfAborted();
     const response = await send(`${descriptor.address}/pair`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
+      signal: options.signal,
     });
     if (response.status === 202 && Date.now() < deadline) continue;
-    if (response.status !== 200) throw new Error('Pairing was refused or ended.');
+    if (response.status === 404) throw new PairingRefusedError();
+    if (response.status !== 200) throw new Error('Pairing did not answer.');
     const reply = (await response.json()) as { receipt?: unknown; serverProof?: unknown };
     requireValue(
       typeof reply.receipt === 'string' && typeof reply.serverProof === 'string',
