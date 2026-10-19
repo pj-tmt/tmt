@@ -71,8 +71,11 @@ also reads its agent's own newest eight once per activation (`SelectedRead::Fina
 that form leaves the windows as the only source. Once the finals are in, the same
 conversation reads the user's own sends to that agent once per activation
 (`SelectedRead::Sent`): one `requests.list` of the agent's recipient history filtered to this
-sender (newest 20), then `requests.show` for each full prompt. A prompt that is no longer
-retained keeps its listed preview, marked truncated with `tmt x show <request>`. They are
+sender (newest 20 of core's newest-50 page), then `requests.show` for at most five full prompts the
+worker has not read yet, newest first; the worker caches texts (and gone prompts) by request ID, so
+a later read of the same agent fetches the next unseen ones and a settled selection costs one list.
+A prompt not read yet or no longer retained keeps its listed preview, marked truncated with
+`tmt x show <request>`. They are
 `Detail.sent` and render as time-sorted "you" blocks among the finals; a live session entry
 with the same request ID replaces its restored copy, so sends survive an Ops restart and are not
 capped by the session's own list. Request bodies

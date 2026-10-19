@@ -122,6 +122,8 @@ impl Worker {
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
+            // A prepared prompt never changes: full texts survive agent switches.
+            let mut sent_texts = super::home_leads::SentTexts::default();
             serve(
                 &pending,
                 |snapshot, generation| {
@@ -256,7 +258,9 @@ impl Worker {
                             read: SelectedRead::Sent(key),
                             revision,
                         } => super::BoardEvent::Sent {
-                            result: key.read(&reader).map_err(|error| error.to_string()),
+                            result: key
+                                .read(&reader, &mut sent_texts)
+                                .map_err(|error| error.to_string()),
                             key,
                             revision,
                             cancellation: cancellation.clone(),
@@ -3544,6 +3548,107 @@ printf '%s\n' '{{}}'
             "core's largest page, with no originator filter"
         );
         drop(worker);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A selection costs one list and at most five prompt reads, newest first;
+    /// the cache means a re-read fetches only prompts not seen yet and a prompt
+    /// that is gone is never asked for again.
+    #[test]
+    fn a_sent_read_fetches_at_most_five_new_prompts_and_never_rereads_a_known_one() {
+        let dir =
+            std::env::temp_dir().join(format!("ops-sent-budget-{}", crate::id::new_v4().unwrap()));
+        std::fs::create_dir(&dir).unwrap();
+        let fake = dir.join("tmt");
+        let calls = dir.join("calls");
+        let items = (1..=8)
+            .map(|n| {
+                format!(
+                    r#"{{"requestId":"req-{n}","kind":"request","sender":{{"identityId":"owner"}},"recipientId":"agent","preparedAtMs":{},"preview":"pre {n}"}}"#,
+                    n * 10
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  printf '%s\n' "$request" >> '{}'
+  case "$request" in
+    *requests.list*)
+      printf '%s\n' '{{"items":[{items}],"nextBefore":null}}';;
+    *req-8*)
+      printf '%s\n' '{{"prompt":{{"status":"expired","expiresAtMs":5}}}}';;
+    *)
+      id=$(printf '%s' "$request" | sed -E 's/.*"requestId":"([^"]+)".*/\1/')
+      printf '{{"prompt":{{"status":"retained","message":"full %s"}}}}\n' "$id";;
+  esac
+  exit 0
+fi
+printf '%s\n' '{{}}'
+"###,
+                calls.display()
+            ),
+        );
+        let core = Core::at(fake);
+        let key = super::super::home_leads::SentKey {
+            sender: "owner".into(),
+            agent: "agent".into(),
+        };
+        let mut texts = super::super::home_leads::SentTexts::default();
+        let shown = |sends: &[Value]| -> Vec<(String, bool)> {
+            sends
+                .iter()
+                .map(|send| {
+                    (
+                        send["text"].as_str().unwrap().to_owned(),
+                        send["truncated"].as_bool().unwrap(),
+                    )
+                })
+                .collect()
+        };
+        let log = || std::fs::read_to_string(&calls).unwrap().lines().count();
+
+        let first = key.read(&core, &mut texts).unwrap();
+        assert_eq!(log(), 1 + 5, "one list and five prompts");
+        // req-8 is gone (preview), req-7..4 are full, req-1..3 wait.
+        assert_eq!(
+            shown(&first),
+            [
+                ("pre 1".into(), true),
+                ("pre 2".into(), true),
+                ("pre 3".into(), true),
+                ("full req-4".into(), false),
+                ("full req-5".into(), false),
+                ("full req-6".into(), false),
+                ("full req-7".into(), false),
+                ("pre 8".into(), true),
+            ]
+        );
+        let second = key.read(&core, &mut texts).unwrap();
+        assert_eq!(
+            log(),
+            6 + 1 + 3,
+            "one list and only the three unseen prompts"
+        );
+        assert_eq!(
+            shown(&second),
+            [
+                ("full req-1".into(), false),
+                ("full req-2".into(), false),
+                ("full req-3".into(), false),
+                ("full req-4".into(), false),
+                ("full req-5".into(), false),
+                ("full req-6".into(), false),
+                ("full req-7".into(), false),
+                ("pre 8".into(), true),
+            ]
+        );
+        key.read(&core, &mut texts).unwrap();
+        assert_eq!(log(), 10 + 1, "a settled selection costs the list alone");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
