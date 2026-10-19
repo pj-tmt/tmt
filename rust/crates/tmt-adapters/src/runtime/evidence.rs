@@ -12,34 +12,9 @@ use std::{
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
-pub(crate) fn observe_named_in_pane(
-    runner: &impl CommandRunner,
-    caller_pid: u64,
-    pane_pid: u64,
-    deadline: Instant,
-    executable: &str,
-) -> Option<ProcessIncarnation> {
-    let snapshot = query_ps(
-        runner,
-        &["-A".into(), "-o".into(), "pid=,ppid=,comm=".into()],
-        deadline,
-        4 * 1024 * 1024,
-    )
-    .ok()?;
-    let process = ancestor(
-        std::str::from_utf8(&snapshot.stdout).ok()?,
-        caller_pid,
-        pane_pid,
-        executable,
-    )?;
-    match observe_runtime_process(runner, process, deadline).ok()? {
-        ProcessObservation::Live(incarnation) => Some(incarnation),
-        _ => None,
-    }
-}
-
-/// A direct conversation must belong to the outer provider, never a nested
-/// invocation. Reuse the same native process snapshot and incarnation boundary.
+/// A direct conversation or an independent hook must belong to the pane's
+/// main provider, never a nested invocation. Reuse the same native process
+/// snapshot and incarnation boundary.
 pub(crate) fn observe_main_in_pane(
     runner: &impl CommandRunner,
     caller: u64,
@@ -190,6 +165,23 @@ mod tests {
         assert_eq!(
             main_ancestor("10 20 sh\n20 10 claude\n30 20 tmt\n", 30, 99, "claude"),
             None
+        );
+    }
+    #[test]
+    fn only_the_terminal_provider_of_a_daemon_tree_is_the_main_provider() {
+        // A terminal Claude that starts a daemon, a pty host and a worker: four
+        // Claude processes on one pane ancestry, each with its own hook caller.
+        let tree = "10 1 zsh\n20 10 /opt/bin/claude\n21 20 tmt\n30 20 claude\n31 30 tmt\n\
+                    40 30 claude\n41 40 tmt\n50 40 claude\n60 50 sh\n61 60 tmt\n";
+        assert_eq!(main_ancestor(tree, 21, 10, "claude"), Some(20));
+        for caller in [31, 41, 61] {
+            assert_eq!(main_ancestor(tree, caller, 10, "claude"), None, "{caller}");
+        }
+        // A provider that is the pane process, after shell exec, is the main one.
+        assert_eq!(main_ancestor(tree, 21, 20, "claude"), Some(20));
+        assert_eq!(
+            main_ancestor("20 1 claude\n21 20 tmt\n", 21, 20, "claude"),
+            Some(20)
         );
     }
     #[test]

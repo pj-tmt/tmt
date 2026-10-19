@@ -39,15 +39,6 @@ use tmt_core::binding::session::{
 };
 use tmt_core::endpoint::ProcessIncarnation;
 
-pub fn observe_in_pane(
-    runner: &impl crate::process::CommandRunner,
-    caller_pid: u64,
-    pane_pid: u64,
-    deadline: std::time::Instant,
-) -> Option<ProcessIncarnation> {
-    crate::runtime::evidence::observe_named_in_pane(runner, caller_pid, pane_pid, deadline, NAME)
-}
-
 #[derive(Debug, Clone)]
 pub struct CodexObservation {
     pub session: ProviderSessionId,
@@ -915,7 +906,7 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         pane: u64,
         deadline: std::time::Instant,
     ) -> Option<ProcessIncarnation> {
-        observe_in_pane(&runner, caller, pane, deadline)
+        crate::runtime::evidence::observe_main_in_pane(&runner, caller, pane, deadline, NAME)
     }
 
     fn mode(

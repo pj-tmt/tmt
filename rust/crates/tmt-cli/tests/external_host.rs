@@ -8,6 +8,8 @@
 // This fixture uses only the shared private command environment.
 #[path = "external_host/caller_session.rs"]
 mod caller_session;
+#[path = "external_host/nested_provider.rs"]
+mod nested_provider;
 #[path = "external_host/sampling.rs"]
 mod sampling;
 #[allow(dead_code)]
@@ -1812,18 +1814,79 @@ impl SteppedProvider {
         pane: &str,
         shell: bool,
     ) -> Self {
-        let program = fixture.root.join("bin").join(provider);
-        if !program.exists() {
-            fs::create_dir_all(fixture.root.join("bin")).unwrap();
-            std::os::unix::fs::symlink("/bin/sh", &program).unwrap();
-        }
+        Self::start_below(
+            fixture,
+            provider,
+            name,
+            pane,
+            if shell { &["sh"] } else { &[] },
+            &[],
+        )
+    }
+
+    /// `start` in pane `f1`, below a chain of stand-ins named `ancestors`
+    /// (outermost first; `sh` is the real shell), such as a terminal Claude,
+    /// its daemon and a pty host above a daemon-hosted worker. The outermost
+    /// leads a process group the test owns, as a pane shell does.
+    fn start_nested(
+        fixture: &Fixture,
+        provider: &'static str,
+        name: &str,
+        ancestors: &[&'static str],
+    ) -> Self {
+        Self::start_nested_in(fixture, provider, name, "f1", ancestors)
+    }
+
+    /// `start_nested` in the pane whose target is `pane`.
+    fn start_nested_in(
+        fixture: &Fixture,
+        provider: &'static str,
+        name: &str,
+        pane: &str,
+        ancestors: &[&'static str],
+    ) -> Self {
+        assert!(!ancestors.is_empty());
+        Self::start_below(fixture, provider, name, pane, ancestors, &[])
+    }
+
+    /// `start` with `words` after the stand-in's own arguments, as a provider
+    /// launch's options appear in its command line.
+    fn start_with_words(
+        fixture: &Fixture,
+        provider: &'static str,
+        name: &str,
+        words: &[&str],
+    ) -> Self {
+        Self::start_below(fixture, provider, name, "f1", &[], words)
+    }
+
+    fn start_below(
+        fixture: &Fixture,
+        provider: &'static str,
+        name: &str,
+        pane: &str,
+        ancestors: &[&'static str],
+        words: &[&str],
+    ) -> Self {
+        let stand_in = |name: &str| {
+            if name == "sh" {
+                return PathBuf::from("/bin/sh");
+            }
+            let program = fixture.root.join("bin").join(name);
+            if !program.exists() {
+                fs::create_dir_all(fixture.root.join("bin")).unwrap();
+                std::os::unix::fs::symlink("/bin/sh", &program).unwrap();
+            }
+            program
+        };
+        let program = stand_in(provider);
         let steps = fixture.root.join(name);
         fs::create_dir_all(&steps).unwrap();
         let tmt = fixture.command_in(Some(pane), &[]);
         // Each step waits at most 30 s, so a killed test process cannot
         // leave the stand-in behind for long. A step is a hook (`<i>.json`)
-        // or a command (`<i>.args`, one argument a line, with the
-        // `NAME=value` lines of `<i>.env` exported). With `hang`, it ignores
+        // or a command (`<i>.args`, one argument a line), with the
+        // `NAME=value` lines of `<i>.env` exported. With `hang`, it ignores
         // its stop file and SIGHUP, for a cleanup test.
         let script = "echo $$ > \"$1/provider.pid\"
                  if [ -e \"$1/hang\" ]; then trap '' HUP
@@ -1831,7 +1894,8 @@ impl SteppedProvider {
                  i=0; while :; do w=0
                    while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
                    if [ -e \"$1/$i.json\" ]; then
-                     \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
+                     (if [ -e \"$1/$i.env\" ]; then while IFS= read -r v; do export \"$v\"; done < \"$1/$i.env\"; fi
+                      exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"); echo $? > \"$1/$i.status\"
                    elif [ -e \"$1/$i.args\" ]; then
                      (t=\"$0\"; s=\"$1/$i\"; set --
                       while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
@@ -1840,15 +1904,18 @@ impl SteppedProvider {
                    else exit 0; fi
                    touch \"$1/$i.done\"; i=$((i+1))
                  done";
-        let mut command = if shell {
-            // The pane shell waits for the provider (`; :` keeps it from
-            // replacing itself with it), and leads a group the test owns.
+        let mut command = if let Some((outermost, inner)) = ancestors.split_first() {
+            // Each ancestor waits for the next (`; :` keeps it from replacing
+            // itself with it). The outermost leads a group the test owns.
             use std::os::unix::process::CommandExt;
-            let mut command = std::process::Command::new("/bin/sh");
-            command
-                .args(["-c", "\"$0\" \"$@\"; :"])
-                .arg(program)
-                .process_group(0);
+            let mut command = std::process::Command::new(stand_in(outermost));
+            command.args(["-c", "\"$0\" \"$@\"; :"]);
+            for ancestor in inner {
+                command
+                    .arg(stand_in(ancestor))
+                    .args(["-c", "\"$0\" \"$@\"; :"]);
+            }
+            command.arg(program).process_group(0);
             command
         } else {
             std::process::Command::new(program)
@@ -1858,6 +1925,7 @@ impl SteppedProvider {
             .arg(tmt.get_program())
             .arg(&steps)
             .arg(provider)
+            .args(words)
             .env_clear()
             .envs(
                 tmt.get_envs()
@@ -1872,7 +1940,7 @@ impl SteppedProvider {
             provider,
             steps,
             next: 0,
-            shell,
+            shell: !ancestors.is_empty(),
         }
     }
 
@@ -1917,7 +1985,21 @@ impl SteppedProvider {
     /// Runs one hook with `payload` and returns its exit code, stdout and
     /// stderr.
     fn hook(&mut self, payload: Value) -> (i32, String, String) {
+        self.hook_with_env(payload, &[])
+    }
+    /// `hook` with these variables exported for that hook only.
+    fn hook_with_env(&mut self, payload: Value, env: &[(&str, &[u8])]) -> (i32, String, String) {
         let step = self.steps.join(self.next.to_string());
+        if !env.is_empty() {
+            let mut lines = Vec::new();
+            for (name, value) in env {
+                lines.extend_from_slice(name.as_bytes());
+                lines.push(b'=');
+                lines.extend_from_slice(value);
+                lines.push(b'\n');
+            }
+            fs::write(step.with_extension("env"), lines).unwrap();
+        }
         let staged = step.with_extension("staged");
         fs::write(&staged, payload.to_string()).unwrap();
         fs::rename(&staged, step.with_extension("json")).unwrap();

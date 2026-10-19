@@ -394,6 +394,8 @@ pub trait RuntimeLifecycle {
         Ok(HostEvidence::Unsupported)
     }
 
+    /// The pane's main provider process for an independent hook: the nearest
+    /// caller ancestor with no built-in provider above it up to the pane.
     fn observe_in_pane(
         &self,
         _runner: &dyn crate::process::CommandRunner,

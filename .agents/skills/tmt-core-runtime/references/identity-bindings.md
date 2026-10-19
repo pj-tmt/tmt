@@ -123,7 +123,8 @@ delivery. They install and launch nothing.
   is a miss.
 - Claude's documented `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` locate the main
   resumable session (including same-process subagents). The PID must equal the
-  natively verified provider incarnation; nested providers are refused. No Claude
+  natively verified provider incarnation; nested providers are refused, as in an
+  independent provider hook (below). No Claude
   transcript or session file is read. Codex's `CODEX_THREAD_ID`, `state_5.sqlite`
   index and rollout metadata are implementation evidence, not a documented
   compatibility interface. The driver reads the exact thread with a read-only,
@@ -185,6 +186,20 @@ delivery. They install and launch nothing.
     resume model is not evidence, and caller discovery clears it.
 - One identity has one current runtime: only starting provider events replace the session, and
   a launch under another driver drops the previous driver's session and state.
+- An independent provider hook, attributed by pane ancestry, records only the pane's main
+  provider: the nearest provider process above the hook with no built-in provider above it up
+  to the verified pane. The pane process itself may be that provider after a shell exec.
+  - A nested provider's hook is refused before any context publication or session write, and
+    a row that already holds its key does not change. Examples are a daemon-hosted Claude
+    worker, and a provider started from another provider's tool shell, Claude and Codex in any
+    order.
+  - When Claude sets `CLAUDE_PID`, it must equal the main provider's PID. A present value that
+    is not a nonzero `u32`, or is not UTF-8, refuses. Without it (an older Claude), the main
+    provider is admitted as before.
+  - A hook on a shared runtime host keeps its own rule: the exact stored provider session or
+    verified binding, and the host's runtime PID, attribute it, not pane ancestry.
+  - Known limit: a continuation that a Claude daemon hosts is not recorded for the pane. To
+    record that work, run it as a managed foreground `tmt run`.
 - A resume launch marks the exact session pending before the child starts. At exit the session
   goes stale only if it is still pending, the exit was non-zero and not 128+n, and the TMT
   SessionStart hook was installed at launch; otherwise only the mark clears. `resume` never
