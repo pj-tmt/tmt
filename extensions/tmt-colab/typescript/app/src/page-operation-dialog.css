@@ -1,0 +1,13 @@
+.page-operation {
+  display: grid;
+  gap: 12px;
+}
+.page-operation > p {
+  margin: 0;
+}
+.page-operation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}

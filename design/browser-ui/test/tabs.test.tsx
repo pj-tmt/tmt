@@ -60,3 +60,13 @@ it('lets the host opt panels into the Tab order', () => {
   );
   expect(html.match(/tabindex="0"/g)).toHaveLength(3);
 });
+it('frames its panels by default and drops the frame for a flush strip', () => {
+  const render = (variant?: 'boxed' | 'flush') =>
+    renderToStaticMarkup(
+      <BrowserTabs label="Views" tabs={tabs} selected="one" onSelect={() => {}} variant={variant}>
+        {(tab) => tab.label}
+      </BrowserTabs>,
+    );
+  expect(render()).toContain('data-variant="boxed"');
+  expect(render('flush')).toContain('data-variant="flush"');
+});

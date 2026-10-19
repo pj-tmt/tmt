@@ -147,8 +147,7 @@ for (const width of [1440, 390, 320])
               await (await import(path)).mount(screen);
             }, screen);
             if (screen === 'archived') {
-              await page.getByRole('button', { name: 'List options' }).click();
-              await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+              await page.getByRole('tab', { name: /^Archived/ }).click();
             }
             if (screen === 'page' || screen === 'reader') {
               await expect(page.locator('iframe')).toHaveAttribute('data-scroll-mode', 'window');
@@ -284,7 +283,7 @@ for (const width of [1440, 390, 320])
     });
   }
 
-test('the list options menu filters archived pages with a checkable item, not a native checkbox', async ({
+test('the Archived tab filters archived pages with a tab, not a native checkbox', async ({
   page,
 }) => {
   await page.goto('/');
@@ -295,29 +294,21 @@ test('the list options menu filters archived pages with a checkable item, not a 
   await expect(page.locator('#chrome-fixture input[type="checkbox"]')).toHaveCount(0);
   const rows = page.locator('#chrome-fixture ul.pages li');
   await expect(rows.first()).toContainText('Release notes');
-  const options = page.locator('#chrome-fixture').getByRole('button', { name: 'List options' });
-  await options.click();
-  const archived = page.getByRole('menuitemcheckbox', { name: 'Show archived' });
-  await expect(archived).toHaveAttribute('aria-checked', 'false');
-  // Synthetic activation cannot bypass Colab admission.
-  await archived.evaluate((node) => (node as HTMLButtonElement).click());
-  await expect(archived).toHaveAttribute('aria-checked', 'false');
-  await page.keyboard.press('Enter');
+  const all = page.locator('#chrome-fixture').getByRole('tab', { name: 'All', exact: true });
+  const archived = page.locator('#chrome-fixture').getByRole('tab', { name: /^Archived/ });
+  await expect(all).toHaveAttribute('aria-selected', 'true');
+  await archived.click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  await expect(options).toBeFocused();
-  await options.click();
-  await expect(page.getByRole('menuitemcheckbox', { name: 'Show archived' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
-  await page.keyboard.press('Space');
+  await expect(archived).toHaveAttribute('aria-selected', 'true');
+  await archived.press('ArrowLeft');
+  await expect(all).toHaveAttribute('aria-selected', 'true');
   await expect(rows.first()).toContainText('Release notes');
-  await expect(options).toBeFocused();
+  await expect(all).toBeFocused();
 });
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`archived menu captures: ${width}px ${theme}`, async ({ page }) => {
+    test(`archived tab captures: ${width}px ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 700 });
       await page.emulateMedia({ colorScheme: theme });
       await page.addInitScript((theme) => {
@@ -328,11 +319,10 @@ for (const width of [1440, 390, 320])
         const path = '/test/chrome-browser.tsx';
         await (await import(path)).mount('archived');
       });
-      const options = page.locator('#chrome-fixture').getByRole('button', { name: 'List options' });
-      await expect(options).toBeVisible();
+      const archived = page.locator('#chrome-fixture').getByRole('tab', { name: /^Archived/ });
+      await expect(archived).toBeVisible();
       await page.screenshot({ path: `/tmp/1716-${width}-${theme}-off.png` });
-      await options.click();
-      await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+      await archived.click();
       await expect(page.getByText('No archived pages.', { exact: true })).toHaveCount(0);
       await page.screenshot({ path: `/tmp/1716-${width}-${theme}-on.png` });
     });

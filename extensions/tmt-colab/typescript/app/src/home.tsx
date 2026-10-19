@@ -1,8 +1,15 @@
 import { HomeTitleLink } from './home-titles.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
-import { BrowserAction, BrowserList, BrowserListRow, BrowserMenu } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserIconAction,
+  BrowserList,
+  BrowserListRow,
+  BrowserMenu,
+  BrowserTabs,
+} from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Settings, Tag } from 'lucide-react';
+import { Archive, ExternalLink, Tag } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ProjectWriting, ManageProjectsDialog, NewProjectDialog } from './project-dialogs.js';
@@ -22,6 +29,8 @@ import { ProjectScopeMenu } from './project-scope-menu.js';
 import { inScope, knownScope, scopeRows, writeScope } from './project-scope.js';
 import { ManagementError } from './management.js';
 import { ManagePage } from './manage-page.js';
+import { PageOperationDialog } from './page-operation-dialog.js';
+import { runPageOperation, type PageOperation } from './page-operations.js';
 import { pageTitle, pageUpdate } from './page-index.js';
 import {
   editFromSearch,
@@ -96,7 +105,14 @@ export function validateHomeSearch(search: Record<string, unknown>): HomeSearch 
   return out;
 }
 
-function PageListActions({ page }: { page: PageSummary }) {
+/** The ⋯ menu: management and the actions a phone has no room for beside the row. */
+function PageListActions({
+  page,
+  operate,
+}: {
+  page: PageSummary;
+  operate(operation: PageOperation, page: PageSummary): void;
+}) {
   const port = rootRoute.useRouteContext().transport.management;
   const [manageOpen, setManageOpen] = useState(false);
   return (
@@ -109,8 +125,20 @@ function PageListActions({ page }: { page: PageSummary }) {
             <RetentionHint page={page} />
           </>
         }
-        items={port ? [{ key: 'manage', label: text.managePage }] : []}
-        onSelect={() => setManageOpen(true)}
+        items={
+          port
+            ? [
+                { key: 'manage', label: text.managePage },
+                ...(page.archived ? [] : [{ key: 'archive', label: t.archiveItem }]),
+                { key: 'delete', label: t.deleteItem, separated: true },
+              ]
+            : []
+        }
+        onSelect={(key) =>
+          key === 'manage'
+            ? setManageOpen(true)
+            : operate(key === 'archive' ? 'page.archive' : 'page.delete', page)
+        }
       />
       {port && (
         <ManagePage
@@ -121,6 +149,43 @@ function PageListActions({ page }: { page: PageSummary }) {
         />
       )}
     </>
+  );
+}
+
+/** Open the page in another tab: the row's link does it with a modifier, a row action without one. */
+function OpenInNewTabAction({ page }: { page: PageSummary }) {
+  const router = useRouter();
+  return (
+    <span className="page-open-tab">
+      <BrowserIconAction
+        type="button"
+        variant="text"
+        label={t.openInNewTab(pageTitle(page))}
+        icon={<ExternalLink />}
+        onActivate={() => {
+          const location = router.buildLocation({
+            to: '/pages/$pageId',
+            params: { pageId: page.id },
+          });
+          window.open(router.history.createHref(location.href), '_blank', 'noopener');
+        }}
+      />
+    </span>
+  );
+}
+
+/** A phone has the same item in the ⋯ menu. */
+function ArchiveAction({ page, operate }: { page: PageSummary; operate(): void }) {
+  return (
+    <span className="page-archive-action">
+      <BrowserIconAction
+        type="button"
+        variant="text"
+        label={t.archivePage(pageTitle(page))}
+        icon={<Archive />}
+        onActivate={operate}
+      />
+    </span>
   );
 }
 
@@ -222,6 +287,20 @@ export function Home() {
   // The scope is the base: filters, counts and the needs-you chip see only the pages in it.
   const scope = knownScope(search.scope, projectNames);
   const scoped = inScope(shown, scope);
+  // The tabs count what the scope holds: the Archived tab says how many archived pages wait there.
+  const archivedInScope = inScope(
+    homePages.filter((p) => p.archived),
+    scope,
+  ).length;
+  const viewTabs = [
+    { id: 'all', tabId: 'page-list-tab-all', panelId: 'page-list-panel-all', label: t.tabAll },
+    {
+      id: 'archived',
+      tabId: 'page-list-tab-archived',
+      panelId: 'page-list-panel-archived',
+      label: t.tabArchived(archivedInScope),
+    },
+  ];
   const pages = filterPages(scoped, filter, sort);
   const counts = projectCounts(scoped);
   const waiting = waitingCount(scoped);
@@ -273,6 +352,34 @@ export function Home() {
   const [dialog, setDialog] = useState<
     { kind: 'new'; initial: string[] } | { kind: 'manage' } | undefined
   >();
+  const [operation, setOperation] = useState<{ kind: PageOperation; page: PageSummary }>();
+  const [operating, setOperating] = useState(false);
+  async function confirmOperation() {
+    if (!operation || !port || operating) return;
+    const { kind, page } = operation;
+    const title = pageTitle(page);
+    setOperating(true);
+    const outcome = await runPageOperation(port, page.id, kind);
+    setOperating(false);
+    setOperation(undefined);
+    if (outcome.state === 'failed') {
+      const code = outcome.failure.code as keyof typeof t.operationFailures;
+      setStatus({ text: t.operationFailures[code] ?? t.operationFailures.UNKNOWN, failed: true });
+      // A lost acknowledgment may have changed the page: show what the owner has.
+      if (code === 'UNKNOWN') await router.invalidate();
+      return;
+    }
+    setStatus({
+      text:
+        outcome.state === 'awaiting'
+          ? t.awaiting(title)
+          : kind === 'page.archive'
+            ? t.archived(title)
+            : t.deleted(title),
+      failed: false,
+    });
+    await router.invalidate();
+  }
   const writing: ProjectWriting = {
     async save(changes) {
       const outcome = await applyProjectChanges(port!, changes);
@@ -310,53 +417,8 @@ export function Home() {
     filter.authors.length > 0 ||
     filter.text !== '' ||
     filter.needsYou;
-  return (
-    <section className="home">
-      <p className="eyebrow">{text.pages}</p>
-      <h1>{space.title}</h1>
-      <p className="intro">{text.intro}</p>
-      <div className="page-list-controls">
-        <div className="page-list-search">
-          <PageListSearch
-            edit={edit}
-            onChange={setEdit}
-            resetKey={resetKey}
-            projects={counts}
-            authors={authors}
-            onApply={apply}
-            onClear={() => {
-              replaceDraft(editFromSearch([], ''));
-              if (filter.needsYou) setSearch({ needs: undefined });
-            }}
-          />
-        </div>
-        <BrowserMenu
-          label={t.sort}
-          valueLabel={sortLabel}
-          items={(['updated', 'title'] as const).map((key) => ({
-            key,
-            label: t.sortOptions[key],
-            role: 'menuitemradio' as const,
-            checked: sort === key,
-          }))}
-          onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
-        />
-        {port && (
-          <BrowserMenu
-            label={t.listOptions}
-            icon={<Settings />}
-            items={[
-              {
-                key: 'archived',
-                label: text.showArchived,
-                role: 'menuitemcheckbox' as const,
-                checked: archived,
-              },
-            ]}
-            onSelect={() => setSearch({ archived: archived ? undefined : true })}
-          />
-        )}
-      </div>
+  const content = (
+    <>
       {(counts.length > 0 || showNeeds) && (
         <ul className="project-filters" aria-label={t.filters}>
           {showNeeds && (
@@ -408,7 +470,7 @@ export function Home() {
         role={status?.failed ? 'alert' : 'status'}
         data-tone={status?.failed ? 'error' : undefined}
       >
-        {[archived ? t.archivedView : '', status?.text].filter(Boolean).join(' · ')}
+        {status?.text}
       </p>
       {pages.length ? (
         <BrowserList label={text.pages} className="pages">
@@ -423,7 +485,11 @@ export function Home() {
                     <HomeTitleLink page={p} hints={titleHints} scope={scope} />
                     {p.summary?.waiting ? (
                       <span className="page-waiting" data-waiting>
-                        <span aria-hidden="true">◆</span> {t.waitingForYou}
+                        <span className="page-waiting-mark" aria-hidden="true">
+                          ◆
+                        </span>{' '}
+                        {t.waitingForYou}
+                        {p.summary.needsYou > 0 ? ` · ${p.summary.needsYou}` : ''}
                       </span>
                     ) : null}
                     {p.projects?.length ? (
@@ -459,13 +525,23 @@ export function Home() {
                 actions={
                   port ? (
                     <>
+                      <OpenInNewTabAction page={p} />
                       <PageProjectsMenu
                         page={p}
                         names={projectNames}
                         toggle={(page, name) => void toggleOnPage(page, name)}
                         create={(page) => setDialog({ kind: 'new', initial: [page.id] })}
                       />
-                      <PageListActions page={p} />
+                      {!p.archived && (
+                        <ArchiveAction
+                          page={p}
+                          operate={() => setOperation({ kind: 'page.archive', page: p })}
+                        />
+                      )}
+                      <PageListActions
+                        page={p}
+                        operate={(kind, page) => setOperation({ kind, page })}
+                      />
                     </>
                   ) : undefined
                 }
@@ -476,7 +552,7 @@ export function Home() {
       ) : (
         <div className="page-list-empty">
           {scope !== undefined && scoped.length === 0 ? (
-            <p>{t.noPagesInProject(scope)}</p>
+            <p>{archived ? t.noArchivedInProject(scope) : t.noPagesInProject(scope)}</p>
           ) : filtered && scoped.length ? (
             <>
               <p>{t.noMatch}</p>
@@ -499,8 +575,62 @@ export function Home() {
           )}
         </div>
       )}
+    </>
+  );
+  return (
+    <section className="home">
+      <p className="eyebrow">{text.pages}</p>
+      <h1>{space.title}</h1>
+      <p className="intro">{text.intro}</p>
+      <div className="page-list-controls">
+        <div className="page-list-search">
+          <PageListSearch
+            edit={edit}
+            onChange={setEdit}
+            resetKey={resetKey}
+            projects={counts}
+            authors={authors}
+            onApply={apply}
+            onClear={() => {
+              replaceDraft(editFromSearch([], ''));
+              if (filter.needsYou) setSearch({ needs: undefined });
+            }}
+          />
+        </div>
+        <BrowserMenu
+          label={t.sort}
+          valueLabel={sortLabel}
+          items={(['updated', 'title'] as const).map((key) => ({
+            key,
+            label: t.sortOptions[key],
+            role: 'menuitemradio' as const,
+            checked: sort === key,
+          }))}
+          onSelect={(key) => setSearch({ sort: key === 'title' ? 'title' : undefined })}
+        />
+      </div>
+      {port ? (
+        <BrowserTabs
+          label={t.views}
+          variant="flush"
+          tabs={viewTabs}
+          selected={archived ? 'archived' : 'all'}
+          onSelect={(id) => setSearch({ archived: id === 'archived' ? true : undefined })}
+        >
+          {(tab) => (tab.id === (archived ? 'archived' : 'all') ? content : null)}
+        </BrowserTabs>
+      ) : (
+        content
+      )}
       {port && (
         <>
+          <PageOperationDialog
+            operation={operation?.kind}
+            title={operation ? pageTitle(operation.page) : ''}
+            busy={operating}
+            onConfirm={() => void confirmOperation()}
+            onCancel={() => setOperation(undefined)}
+          />
           <NewProjectDialog
             open={dialog?.kind === 'new'}
             pages={space.pages}

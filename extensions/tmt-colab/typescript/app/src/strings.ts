@@ -597,13 +597,14 @@ export const text = {
   pages: 'Pages',
   shared: 'Shared',
   archived: 'Archived',
-  showArchived: 'Show archived',
   pageList: {
     searchLabel: 'Search pages',
     searchPlaceholder: 'Search pages · project:name · by:author',
     sort: 'Sort',
     sortOptions: { updated: 'Recently updated', title: 'Title' },
-    listOptions: 'List options',
+    views: 'Page views',
+    tabAll: 'All',
+    tabArchived: (count: number) => `Archived ${count}`,
     manageProjects: 'Manage projects',
     projects: 'Projects',
     scopeLabel: 'Project',
@@ -627,6 +628,7 @@ export const text = {
     clearFilters: 'Clear filters',
     noActive: 'No active pages.',
     noArchived: 'No archived pages.',
+    noArchivedInProject: (name: string) => `No archived pages in ${name}.`,
     nameField: 'Project name',
     pagesField: 'Pages',
     create: 'Create',
@@ -642,7 +644,6 @@ export const text = {
     newProjectHint: 'Optional: tick the pages to put in it.',
     pageCount: (count: number, archived = 0) =>
       `${count} ${count === 1 ? 'page' : 'pages'}${archived ? ` · ${archived} archived` : ''}`,
-    archivedView: 'Archived pages',
     renameConfirm: (from: string, to: string, count: number, archived: number) =>
       `Rename ${from} to ${to} on ${count} ${count === 1 ? 'page' : 'pages'}${
         archived ? ` (${archived} archived)` : ''
@@ -655,6 +656,32 @@ export const text = {
       `Delete the project ${name}, now on ${count} ${count === 1 ? 'page' : 'pages'}${
         archived ? ` (${archived} archived)` : ''
       }. The pages stay.`,
+    openInNewTab: (title: string) => `Open ${title} in a new tab`,
+    archivePage: (title: string) => `Archive ${title}`,
+    archiveItem: 'Archive…',
+    deleteItem: 'Delete…',
+    confirmArchiveTitle: (title: string) => `Archive “${title}”?`,
+    confirmArchive:
+      'An archived page stays readable, but nobody can edit it. Archiving cannot be undone yet.',
+    confirmDeleteTitle: (title: string) => `Delete “${title}”?`,
+    confirmDelete: 'The page, its comments and its attachments are deleted. This cannot be undone.',
+    archiveButton: 'Archive page',
+    deleteButton: 'Delete page',
+    archived: (title: string) => `Archived “${title}”.`,
+    deleted: (title: string) => `Deleted “${title}”.`,
+    awaiting: (title: string) =>
+      `“${title}”: the owner acknowledged the change; its signed log is not verified yet. Open Manage page to verify it.`,
+    operationFailures: {
+      INVALID: 'The owner refused the change.',
+      DENIED: 'This device is not allowed to manage pages. Reopen your paired session.',
+      EXPIRED: 'The request expired. Try again.',
+      STALE_HEAD: 'The space changed. Try again.',
+      CONFLICT:
+        'The change conflicts with what the owner stores. Try again after the list reloads.',
+      CAPACITY: 'The owner reached a capacity limit. Nothing was changed.',
+      UNAVAILABLE: 'The owner cannot do this now. Nothing was changed.',
+      UNKNOWN: 'The result is unknown: the change may have been made. Reload the list to see.',
+    },
     progress: (updated: number, total: number) => `Updated ${updated} of ${total} pages.`,
     done: (count: number) => `Updated ${count} ${count === 1 ? 'page' : 'pages'}.`,
     saved: 'Projects saved.',

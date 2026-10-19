@@ -172,8 +172,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${door.address}/x/colab/`);
     await expect(homeList(page)).toBeVisible();
-    await page.getByRole('button', { name: 'List options' }).click();
-    await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+    await page.getByRole('tab', { name: /^Archived/ }).click();
     const row = page.locator(`ul.pages li[data-page-id="${first.pageId}"]`);
     await expect(row).toContainText('Archived');
     await row.getByRole('button', { name: /^Actions for/ }).click();
@@ -185,8 +184,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
     await expect(managementStatus(dialog)).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('button', { name: 'List options' }).click();
-    await page.getByRole('menuitemcheckbox', { name: 'Show archived' }).click();
+    await page.getByRole('tab', { name: 'All', exact: true }).click();
     const remaining = page.locator(`ul.pages li[data-page-id="${second.pageId}"]`);
     await remaining.getByRole('button', { name: /^Actions for/ }).click();
     await page.getByRole('menuitem', { name: 'Manage page' }).click();

@@ -588,12 +588,24 @@ pages: the dialogs call `ManagementPort.manageProject`, so there is no batch to 
 signs `page.projects` and `project.manage` requests with an empty `expectedRevision` (no view, head or
 verification: projects are display-only and the reply is only checked for shape); a `project.manage`
 frame names `SPACE_SCOPE_PAGE`. The space's project names reach the list as `SpaceHome.projects`
-(the discovery reply's top-level `projects`), so an empty project shows in the page menu and the manager. Management controls (the page
-menu, list options, project dialogs) render only when the transport has `management`; a reader
-keeps search, sort and filters because `projects` arrive in `/api/pages`. The list-options gear is
-icon-only, so the shown set names itself in the `page-list-status` line ("Archived pages");
-the project chips count the pages shown, while the manage dialog counts every page in the
-project and says how many of them are archived.
+(the discovery reply's top-level `projects`), so an empty project shows in the page menu and the manager. Management controls (the Archived tab,
+row actions, project dialogs) render only when the transport has `management`; a reader
+keeps search, sort and filters because `projects` arrive in `/api/pages`. The project chips count
+the pages shown, while the manage dialog counts every page in the project and says how many of
+them are archived.
+
+The views are the `All` and `Archived` tabs (`BrowserTabs variant="flush"`; `archived` in the route
+search selects the second, and each label counts what the scope holds). A page waiting on the viewer
+shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
+word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
+menu with `Manage page`, `Archive…` and `Delete…`) show on hover or focus where there is a pointer
+and stay on touch; under 480px the new-tab and archive icons give way to the ⋯ menu. Archive and
+delete confirm in `PageOperationDialog` and run `runPageOperation` (`page-operations.ts`): the four
+steps `ShareDialog` runs (`read`, `prepare`, `send`, `verify`) for one `page.archive` or
+`page.delete` statement, ending `verified`, `awaiting` (acknowledged but its log not read back, said
+so and never called done) or `failed` with the management error code. The list never calls archive
+reversible: the contract has no unarchive operation (#3833), so an archived row offers `Delete…`
+only.
 
 The header's `Project: <name>` crumb (the design system's `BrowserMenu variant="crumb"` in the
 `BrowserHeader` `headingSuffix` slot) scopes the whole list. `scope` in the route search is the base
