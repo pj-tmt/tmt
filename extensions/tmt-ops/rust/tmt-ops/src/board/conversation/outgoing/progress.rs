@@ -4,7 +4,12 @@ use crate::board::activity::{ObservedActivity, Phase};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Progress {
+    /// An accepted send with no contradicting evidence yet: neutral `✓ sent`.
+    /// Hooked agents start a second or more after the paste, so absence of
+    /// evidence is not yet "not reported".
     #[default]
+    Sent,
+    /// Evidence was missing or unusable for longer than the grace period.
     Unknown,
     Earlier {
         since_ms: u64,
@@ -16,6 +21,10 @@ pub(super) enum Progress {
         at_ms: u64,
     },
 }
+
+/// How long an accepted send may wait for its first activity evidence before the
+/// line says the agent does not report activity.
+const EVIDENCE_GRACE_MS: u64 = 5_000;
 
 impl Progress {
     pub(super) fn observe(
@@ -29,6 +38,7 @@ impl Progress {
             return;
         }
         let previous = *self;
+        let no_evidence = observation.is_none();
         let admitted = observation.and_then(|activity| {
             let since = activity.since_ms?;
             (sent_ms <= now_ms && since <= now_ms).then_some((activity.phase, since))
@@ -45,6 +55,16 @@ impl Progress {
             Some((Phase::Idle, at_ms)) if matches!(previous, Self::Working { since_ms } if at_ms >= since_ms) => {
                 Self::Finished { at_ms }
             }
+            // The agent reports activity and nothing has started for this send yet.
+            Some((Phase::Idle, _)) if matches!(previous, Self::Sent | Self::Earlier { .. }) => {
+                Self::Sent
+            }
+            None if no_evidence
+                && matches!(previous, Self::Sent)
+                && now_ms.saturating_sub(sent_ms) < EVIDENCE_GRACE_MS =>
+            {
+                Self::Sent
+            }
             _ => Self::Unknown,
         };
     }
@@ -53,6 +73,7 @@ impl Progress {
         let name = crate::board::notes::single_line(name);
         let unknown = || format!("✓ sent · {name}'s activity is not reported");
         match self {
+            Self::Sent => "✓ sent".into(),
             Self::Working { since_ms } if since_ms <= now_ms => {
                 let seconds = (now_ms - since_ms) / 1000;
                 format!(
@@ -112,13 +133,17 @@ mod tests {
     fn only_observed_current_work_can_become_finished_without_a_reply() {
         let mut progress = Progress::default();
         progress.observe(observed(Phase::Idle, SENT + 60_000), SENT, SENT + 180_000);
-        assert_eq!(progress, Progress::Unknown);
+        assert_eq!(
+            progress,
+            Progress::Sent,
+            "idle evidence proves nothing started"
+        );
         progress.observe(observed(Phase::Working, SENT - 1), SENT, SENT);
         progress.observe(observed(Phase::Idle, SENT + 60_000), SENT, SENT + 180_000);
         assert_eq!(
             progress,
-            Progress::Unknown,
-            "an earlier turn is not this send"
+            Progress::Sent,
+            "an earlier turn is not this send; neither is it finished"
         );
         progress.observe(observed(Phase::Working, SENT), SENT, SENT + 1);
         progress.observe(observed(Phase::Idle, SENT + 60_000), SENT, SENT + 180_000);
@@ -192,5 +217,26 @@ mod tests {
         );
         let text = Progress::Unknown.text("agent\n\u{1b}[2J", SENT, "⠹");
         assert!(!text.contains('\n') && !text.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn a_send_is_neutral_until_evidence_is_missing_for_longer_than_the_grace_period() {
+        let mut progress = Progress::default();
+        assert_eq!(progress.text("night-2", SENT, "⠹"), "✓ sent");
+        for elapsed in [0, 1_000, EVIDENCE_GRACE_MS - 1] {
+            progress.observe(None, SENT, SENT + elapsed);
+            assert_eq!(progress, Progress::Sent, "{elapsed}");
+        }
+        progress.observe(None, SENT, SENT + EVIDENCE_GRACE_MS);
+        assert_eq!(
+            progress.text("night-2", SENT + EVIDENCE_GRACE_MS, "⠹"),
+            "✓ sent · night-2's activity is not reported"
+        );
+        // A hooked agent that starts a second after the paste goes straight to working.
+        let mut hooked = Progress::default();
+        hooked.observe(observed(Phase::Idle, SENT - 60_000), SENT, SENT + 200);
+        assert_eq!(hooked, Progress::Sent);
+        hooked.observe(observed(Phase::Working, SENT + 1_000), SENT, SENT + 1_100);
+        assert!(matches!(hooked, Progress::Working { .. }));
     }
 }

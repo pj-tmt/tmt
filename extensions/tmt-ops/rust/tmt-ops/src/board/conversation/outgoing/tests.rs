@@ -267,7 +267,7 @@ fn five_dispositions_preserve_delivery_and_never_infer_activity_from_task_state(
         assert!(app.input.as_ref().unwrap().text.is_empty());
         finish(&mut app, completed);
         // The visible `sending…` row is kept for 400 ms before the outcome.
-        let painted = crate::status::with_now_ms(started + 1_000, || draw(&app));
+        let painted = crate::status::with_now_ms(started + 6_000, || draw(&app));
         assert!(painted.contains(label), "{painted}");
         assert!(painted.contains("working · product · member"), "{painted}");
         assert!(
@@ -561,7 +561,8 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let completed = send(&mut app, &fake, "literal auth-fix · now");
     finish(&mut app, completed);
     assert_eq!(app.notice.as_deref(), Some("Sent to auth-fix"));
-    draw(&app);
+    // Past the evidence grace period an agent without activity says so.
+    crate::status::with_now_ms(crate::status::now_ms() + 6_000, || draw(&app));
     {
         let state = app.conversation.borrow();
         let lines = &state
@@ -798,7 +799,9 @@ fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads()
                 "document" => app.view.as_mut().unwrap().document["partial"] = json!(true),
                 _ => unreachable!(),
             }
-            let screen = board_frame(&app, 148, 51);
+            let screen = crate::status::with_now_ms(crate::status::now_ms() + 6_000, || {
+                board_frame(&app, 148, 51)
+            });
             assert!(
                 screen.contains("worker's activity is not reported"),
                 "{source}: {screen}"
@@ -1873,5 +1876,39 @@ fn the_sending_row_is_nothing_for_400ms_then_visible_for_at_least_400ms() {
             !done.contains("sending") && done.contains("worker is working"),
             "{done}"
         );
+    });
+}
+
+#[test]
+fn a_hooked_agent_that_starts_late_shows_a_neutral_sent_and_never_not_reported() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    let _ = MEMBER;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        // The agent reports activity: idle before this send.
+        provider_observation(&mut app, Phase::Idle, SENT - 60_000);
+        let fake = Fake::new(json!({"requestId":"late","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "wake up");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let at = |app: &App, ms: u64| crate::status::with_now_ms(SENT + ms, || draw(app));
+        for ms in [100, 1_000, 8_000] {
+            let screen = at(&app, ms);
+            assert!(screen.contains("✓ sent"), "{ms}: {screen}");
+            assert!(!screen.contains("not reported"), "{ms}: {screen}");
+        }
+        // Hooks answer a moment later: straight to working, no false line between.
+        provider_observation(&mut app, Phase::Working, SENT + 1_200);
+        let screen = at(&app, 1_300);
+        assert!(screen.contains("worker is working"), "{screen}");
+        assert!(!screen.contains("not reported"), "{screen}");
     });
 }

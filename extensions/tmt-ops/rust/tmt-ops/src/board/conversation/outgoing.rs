@@ -280,7 +280,13 @@ impl Session {
             };
             // Spinner frames decorate one visible glyph; keep the body cache.
             let feedback = progress.text(name, now_ms, "⠹");
-            entry.feedback_clock = (progress != progress::Progress::Unknown).then_some(clock);
+            entry.feedback_clock = matches!(
+                progress,
+                progress::Progress::Working { .. }
+                    | progress::Progress::Earlier { .. }
+                    | progress::Progress::Finished { .. }
+            )
+            .then_some(clock);
             if entry.feedback != feedback {
                 entry.feedback = feedback;
                 changed = true;
@@ -892,8 +898,7 @@ impl App {
         else {
             return;
         };
-        entry.feedback =
-            progress::Progress::Unknown.text(&completed.to, crate::status::now_ms(), "⠹");
+        entry.feedback = progress::Progress::Sent.text(&completed.to, crate::status::now_ms(), "⠹");
         entry.outcome = Some(Outcome::Send(completed.outcome));
         session.refresh_outgoing();
     }
