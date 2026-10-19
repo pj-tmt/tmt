@@ -100,6 +100,8 @@ struct Session {
     /// A question that arrived after the sends above it; it is shown below them
     /// and becomes the next send's lead-in.
     tail: Option<Reply>,
+    /// Requests of this session's sends whose reply exists but whose body is still being read.
+    pending_replies: std::collections::BTreeSet<String>,
     response_spans: Vec<(
         Option<u64>,
         super::home_leads::MessageKey,
@@ -127,6 +129,7 @@ impl Default for Session {
             outgoing: Default::default(),
             before_send: None,
             tail: None,
+            pending_replies: Default::default(),
             response_spans: Default::default(),
             agent_mark: String::new(),
             authored_lines: Default::default(),

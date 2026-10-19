@@ -151,7 +151,7 @@ impl Entry {
     pub(super) fn pending(&self) -> bool {
         self.outcome.is_none()
     }
-    fn request(&self) -> Option<&str> {
+    pub(super) fn request(&self) -> Option<&str> {
         let Outcome::Send(outcome) = self.outcome.as_ref()? else {
             return None;
         };
@@ -216,8 +216,13 @@ impl Session {
         motion: bool,
     ) {
         let mut changed = false;
+        let pending = &self.pending_replies;
         for entry in &mut self.outgoing {
-            if entry.reply.is_some()
+            // The reply exists and is being read: keep the line as painted.
+            if entry
+                .request()
+                .is_some_and(|request| pending.contains(request))
+                || entry.reply.is_some()
                 || !matches!(
                     &entry.outcome,
                     Some(Outcome::Send(Ok(Accepted {

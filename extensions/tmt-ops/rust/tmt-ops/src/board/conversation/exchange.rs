@@ -203,9 +203,9 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     };
     let read_only = read_only || session.change != Change::Current;
     let header = Rect {
-        height: area.height.min(u16::from(
-            session.group_heading_reply().is_some(),
-        )),
+        height: area
+            .height
+            .min(u16::from(session.group_heading_reply().is_some())),
         ..area
     };
     strip::paint_left(

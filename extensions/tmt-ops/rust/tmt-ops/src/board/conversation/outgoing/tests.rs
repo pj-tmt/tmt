@@ -401,10 +401,7 @@ fn observed_completion_then_exact_reply_replaces_feedback_without_another_send()
             .unwrap();
         assert_eq!(key.request, "provider-completion");
         assert_eq!(
-            session
-                .retained_response(key, Some(session.outgoing[0].ticket.sequence))
-                .unwrap()
-                .body,
+            session.outgoing[0].reply.as_ref().unwrap().body,
             "Exact acquired reply"
         );
         assert_eq!(
@@ -1523,10 +1520,7 @@ fn grouped_outgoing_turns_keep_an_actual_earlier_reply_heading_and_its_age() {
         let held = session.before_send.as_ref().unwrap();
         let key = held.key.as_ref().unwrap();
         assert_eq!(key.request, "older-retained");
-        assert_eq!(
-            session.retained_response(key, None).unwrap().body,
-            "Older retained exact reply"
-        );
+        assert_eq!(held.body, "Older retained exact reply");
         assert_eq!(
             fake.arguments().iter().filter(|arg| *arg == "talk").count(),
             1
@@ -1685,6 +1679,8 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
             question: None,
             lead_in: None,
             reply: None,
+            feedback: String::new(),
+            feedback_clock: None,
         });
     }
     session.trim_outgoing();
@@ -1773,4 +1769,51 @@ fn sends_and_later_questions_alternate_in_arrival_order() {
         painted.windows(2).all(|pair| pair[0] < pair[1]),
         "{screen:?}"
     );
+}
+
+#[test]
+fn a_reply_still_being_read_never_flashes_a_loading_row_between_working_and_reply() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        provider_observation(&mut app, Phase::Working, SENT);
+        let fake = Fake::new(json!({"requestId":"slow","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "one explicit message");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let at = |app: &App, ms: u64| crate::status::with_now_ms(SENT + ms, || draw(app));
+        assert!(at(&app, 2_000).contains("⠹ worker is working · 0:02"));
+        // The final's metadata lands first and the provider goes idle, but its
+        // body takes about 900 ms to read.
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":MEMBER,"requestId":"slow","submittedAtMs":SENT + 3_000
+        }));
+        provider_observation(&mut app, Phase::Idle, SENT + 3_000);
+        for ms in [3_100, 3_500, 3_950] {
+            let screen = at(&app, ms);
+            assert!(screen.contains("worker is working"), "{ms}: {screen}");
+            assert!(
+                !screen.contains("reading reply")
+                    && !screen.contains("finished without replying")
+                    && !screen.contains("Loading"),
+                "{ms}: {screen}"
+            );
+        }
+        app.view.as_mut().unwrap().replies.last_mut().unwrap()["response"] =
+            json!("Slow exact reply");
+        let screen = at(&app, 4_000);
+        assert!(screen.contains("Slow exact reply"), "{screen}");
+        assert!(
+            !screen.contains("is working") && !screen.contains("reading reply"),
+            "{screen}"
+        );
+    });
 }
