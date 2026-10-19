@@ -108,6 +108,9 @@ input {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+[data-tmt-page='pair'] #status code {
+  white-space: nowrap;
+}
 #status:not(:empty) {
   margin-top: 24px;
   padding-top: 20px;

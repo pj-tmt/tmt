@@ -572,9 +572,13 @@ user-only pairing hint, never a guessed launch URL. Colab passes no code or priv
 no Remote crate dependency; its caller integration belongs to #3868. Opener injection remains
 available to tests without launching a host browser.
 
-Each actual native launch opens a fresh **60 s**, first-use-only offer. It replaces only a previous
-automatic offer and never displaces an active manual one (`REMOTE_PAIRING_BUSY`). The private
-launch argument is `http://127.0.0.1:PORT/pair#auto=CODE`; it never reaches public CLI output,
+With no active manual offer, each actual native launch opens a fresh **60 s**, first-use-only offer.
+It replaces only a previous automatic offer. If control refuses with `REMOTE_PAIRING_BUSY`, the
+opener instead launches the canonical plain short link once, reporting the existing `opened` or
+`failed` state. It neither replaces nor cancels the manual offer, even if the opener fails. An
+unpaired browser reaches its ordinary not-paired entry and receives no grant; a paired browser
+keeps its ordinary access. Other preparation errors do not trigger a plain-open fallback.
+For an automatic offer, the private launch argument is `http://127.0.0.1:PORT/pair#auto=CODE`; it never reaches public CLI output,
 errors, JSON, extension callers or logs. The public descriptor adds only `automatic:true` and the
 validated `target`, not the code. One hashed synchronous inline script captures the fragment and
 replaces history before imports, styles or any subrequest. A fragment change in an existing
@@ -675,8 +679,10 @@ only K_response, the candidate digest/proofs and exact receipt for that bounded 
 recovery. Verify matching candidate and possession on retry; never accept K_response as a reusable
 enrollment token. Raw code is erased after confirmation; no grant exists before manual owner confirmation or
 first valid submission to an owner-opened automatic offer.
-Delete the recovery key at the original deadline. Three failed code proofs, expiry, owner
-refusal/no confirmation, stop or process exit cancels pending pairing and erases its secret. No
+Delete the recovery key at the original deadline. Three failed code MACs across admitted enrollment
+and automatic-cancellation candidates share one offer limit; signature or live-key refusal alone
+is not a code guess. This limit, expiry, owner refusal/no confirmation, stop or process exit
+cancels pending pairing and erases its secret. No
 grant or device private key is stored for a failed/cancelled offer; sanitized audit may record
 failure only.
 
