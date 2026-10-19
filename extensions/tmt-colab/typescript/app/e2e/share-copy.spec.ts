@@ -51,11 +51,11 @@ for (const width of [1440, 390]) {
         'Set access expiry',
         'Access expires after 30 days without a page update.',
       );
-      await dialog.getByLabel('Keep until I delete it').check();
+      await dialog.getByLabel('Keep on this computer until I delete it').check();
       await confirm(
         'Set access expiry',
         'Set access expiry',
-        'Keep this page until it is explicitly deleted.',
+        'Keep this page on this computer until you delete it.',
       );
       await confirm(
         'Archive and stop edits…',

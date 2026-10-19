@@ -335,7 +335,7 @@ export function ShareDialog({
                     { operation: 'retention.set', value: { pageId, days } },
                     'Set access expiry',
                     days === null
-                      ? 'Keep this page until it is explicitly deleted.'
+                      ? 'Keep this page on this computer until you delete it.'
                       : `Access expires after ${days} days without a page update. Expiry does not delete your local copy.`,
                   );
                 }}
@@ -346,7 +346,7 @@ export function ShareDialog({
                     checked={forever}
                     onChange={(e) => setForever(e.target.checked)}
                   />
-                  Keep until I delete it
+                  Keep on this computer until I delete it
                 </label>
                 {!forever && (
                   <label>

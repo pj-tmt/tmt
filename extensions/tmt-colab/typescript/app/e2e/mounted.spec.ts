@@ -778,13 +778,13 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await expect(dialog.getByLabel('Days after the last change')).toHaveValue('14');
-  await dialog.getByLabel('Keep until I delete it').check();
+  await dialog.getByLabel('Keep on this computer until I delete it').check();
   await expect(dialog.getByLabel('Days after the last change')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm set access expiry' }).click();
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await expect(dialog.getByLabel('Keep until I delete it')).toBeChecked();
+  await expect(dialog.getByLabel('Keep on this computer until I delete it')).toBeChecked();
   await dialog.getByRole('button', { name: 'Archive and stop edits…', exact: true }).click();
   await expect(dialog).toContainText('stop new writes');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();

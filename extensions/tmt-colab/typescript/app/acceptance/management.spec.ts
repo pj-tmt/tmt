@@ -98,7 +98,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     }
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    await dialog.getByLabel('Keep until I delete it').check();
+    await dialog.getByLabel('Keep on this computer until I delete it').check();
     await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm set access expiry', exact: true }).click();
     await expect(managementStatus(dialog)).toContainText('Change verified');
@@ -325,7 +325,7 @@ test('a lost management reply permits only an explicit byte-identical retry of t
         await route.fulfill({ response });
       }
     });
-    await dialog.getByLabel('Keep until I delete it').check();
+    await dialog.getByLabel('Keep on this computer until I delete it').check();
     await dialog.getByRole('button', { name: 'Set access expiry', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm set access expiry', exact: true }).click();
     await expect(dialog.getByRole('alert')).toContainText('Result unknown');
