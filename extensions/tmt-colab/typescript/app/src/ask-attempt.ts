@@ -518,6 +518,17 @@ export class AskController {
                 active: true,
                 receivedAt: performance.now(),
                 intervalMs: ACTIVITY_READ_INTERVAL_MS,
+                agents:
+                  snapshot?.machines.flatMap((machine) =>
+                    machine.agents.map((agent) => ({
+                      machine: machine.id,
+                      machineName: machine.name,
+                      agent: agent.id,
+                      name: agent.name,
+                      // The validated state needs no phase/owner clock; only elapsed copy does.
+                      state: agent.activity?.state ?? 'unknown',
+                    })),
+                  ) ?? [],
                 entries: current.map((view) => {
                   const operation = {
                     operationId: view.intent.operationId,

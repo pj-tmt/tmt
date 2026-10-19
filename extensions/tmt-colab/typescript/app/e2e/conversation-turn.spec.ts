@@ -1050,3 +1050,75 @@ for (const surface of ['chat', 'thread'] as const)
         await expect(window.getByTestId('ask-reply')).toHaveText(reply);
         await expect(status).toHaveCount(0);
       });
+
+for (const surface of ['chat', 'thread'] as const)
+  for (const width of [1440, 390])
+    for (const theme of ['light', 'dark'] as const)
+      test(`all page chips share the existing activity observation: ${surface} ${width} ${theme}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await mount(page, surface);
+        await page.evaluate((value) => {
+          document.documentElement.dataset.theme = value;
+        }, theme);
+        await run(page, 'conversation', {
+          surface,
+          state: 'waiting',
+          agentName: 'Agent 1',
+          message: '@Agent 1 Please check this passage.',
+        });
+        const window =
+          surface === 'chat' ? page.getByTestId('chat-panel') : page.getByTestId('comment-thread');
+        const input = window.getByRole('combobox', { name: 'Message', exact: true });
+        await input.fill('@');
+        await page.getByRole('option').first().click();
+        await input.press('End');
+        await input.pressSequentially('Keep this draft.');
+        const draft = await input.textContent();
+        const before = await run(page, 'proof');
+        // Earlier-turn working is still agent-wide working, even while this Ask is queued.
+        await run(page, 'conversationActivity', { kind: 'queued', chipState: 'working' });
+        const chips = window
+          .locator('.agent-chip')
+          .filter({ has: page.locator('.agent-chip-name').filter({ hasText: /^@?Agent 1$/ }) });
+        await expect.poll(() => chips.count()).toBeGreaterThanOrEqual(3);
+        await expect(input.getByRole('img', { name: 'working', exact: true })).toBeVisible();
+        for (const chip of await chips.all()) {
+          await expect(chip.getByRole('img', { name: 'working', exact: true })).toBeVisible();
+          await expect(chip.locator('.agent-chip-icon')).toHaveCount(0);
+          expect(
+            await chip.evaluate(
+              (node) =>
+                getComputedStyle(node.querySelector('.agent-chip-name')!).color ===
+                getComputedStyle(node).color,
+            ),
+          ).toBe(true);
+        }
+        await expect(window.getByTestId('ask-state')).toContainText('finishing an earlier turn');
+        const captures = process.env.COLAB_ACTIVITY_CAPTURE_DIR;
+        if (captures) {
+          mkdirSync(captures, { recursive: true });
+          await page.screenshot({ path: `${captures}/all-chips-${surface}-${width}-${theme}.png` });
+        }
+        // A known working agent with an unclassifiable turn clock keeps plain Sent.
+        await run(page, 'conversationActivity', { kind: 'sent', chipState: 'working' });
+        await expect(window.getByTestId('ask-state')).toHaveText('Sent');
+        await expect(input.getByRole('img', { name: 'working', exact: true })).toBeVisible();
+        if (captures)
+          await page.screenshot({
+            path: `${captures}/clock-incomplete-${surface}-${width}-${theme}.png`,
+          });
+        for (const observation of [
+          { chipState: 'idle' },
+          { chipState: 'working', ageMs: 120_000 },
+          { chipState: 'working', active: false },
+        ]) {
+          await run(page, 'conversationActivity', { kind: 'queued', ...observation });
+          await expect(window.locator('.agent-chip-spinner')).toHaveCount(0);
+          await expect(chips.first().locator('.agent-chip-icon')).toBeVisible();
+        }
+        await expect(input).toHaveText(draft!);
+        expect(await run(page, 'proof')).toEqual(before);
+      });

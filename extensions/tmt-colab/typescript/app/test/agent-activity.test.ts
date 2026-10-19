@@ -72,7 +72,7 @@ describe('agent activity is owner-clock presentation, never receipt authority', 
     expect(
       tracker.read(operation, { activity: { state: 'working', sinceMs: 300 }, observedAtMs: 200 })
         .kind,
-    ).toBe('unknown');
+    ).toBe('sent');
     expect(tracker.read(operation).kind).toBe('sent');
   });
   it('uses local monotonic read age only for elapsed and freshness, and stops animation', () => {
@@ -113,4 +113,19 @@ describe('agent activity is owner-clock presentation, never receipt authority', 
     expect(activityAt(observation, operation, 120099)?.kind).toBe('working');
     expect(activityAt(observation, operation, 120100)?.kind).toBe('unknown');
   });
+});
+
+it('keeps Sent when working is known but its phase clock cannot classify this turn', () => {
+  const tracker = new ActivityTracker();
+  tracker.anchor(operation.operationId, 1000);
+  for (const telemetry of [
+    { activity: { state: 'working' as const, sinceMs: null }, observedAtMs: 2000 },
+    { activity: { state: 'working' as const, sinceMs: 3000 }, observedAtMs: 2000 },
+    { activity: { state: 'working' as const, sinceMs: 1000 } },
+  ])
+    expect(tracker.read(operation, telemetry)).toMatchObject({ kind: 'sent', elapsedMs: 0 });
+  for (const state of ['unknown', 'ended'] as const)
+    expect(
+      tracker.read(operation, { activity: { state, sinceMs: null }, observedAtMs: 2000 }).kind,
+    ).toBe('unknown');
 });

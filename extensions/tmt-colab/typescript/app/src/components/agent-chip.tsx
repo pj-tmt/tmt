@@ -1,10 +1,13 @@
 import { Bot } from 'lucide-react';
-import { Fragment, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, type ReactNode } from 'react';
+import type { ActivityAgent } from '../agent-activity.js';
 import { text } from '../strings.js';
 import './agent-chip.css';
 
 /** The Remote directory's advisory activity of an agent; only `working` changes the chip. */
 export type AgentActivity = 'working' | 'idle' | 'unknown' | 'ended';
+/** Fresh page-scoped presentation only, supplied by the existing Ask activity observer. */
+export const AgentChipActivity = createContext<readonly ActivityAgent[]>([]);
 /** What the composer knows about a mentioned agent; cosmetic and never routing. */
 export type AgentChipState = 'checking' | 'not-found' | 'offline' | 'online' | 'unknown';
 
@@ -33,13 +36,21 @@ export function AgentChip({
   title?: string;
   children?: ReactNode;
 }) {
-  const working = activity === 'working';
+  const candidates = useContext(AgentChipActivity).filter(
+    (row) => row.name === name.replace(/^@/, ''),
+  );
+  const rows =
+    candidates.length > 1 && machine !== undefined
+      ? candidates.filter((row) => row.machineName === machine)
+      : candidates;
+  const currentActivity = activity ?? (rows.length === 1 ? rows[0]!.state : undefined);
+  const working = currentActivity === 'working';
   return (
     <span
       className="agent-chip"
       data-variant={variant}
       data-state={state}
-      data-activity={activity}
+      data-activity={currentActivity}
       title={title}
     >
       {working ? (

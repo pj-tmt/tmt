@@ -22,11 +22,20 @@ export interface ActivityEntry {
   /** Owner-clock duration at acquisition, never compared with a viewer timestamp. */
   elapsedMs: number;
 }
+/** Agent-wide telemetry from the same read as the per-Ask lines; never an admission source. */
+export interface ActivityAgent {
+  machine: string;
+  machineName: string;
+  agent: string;
+  name: string;
+  state: AgentActivity['state'];
+}
 export interface ActivityObservation {
   active: boolean;
   receivedAt: number;
   intervalMs: number;
   entries: ActivityEntry[];
+  agents?: ActivityAgent[];
 }
 /** An anchor and observed transition live only in this page's controller incarnation. */
 export class ActivityTracker {
@@ -51,7 +60,8 @@ export class ActivityTracker {
       activity.state === 'unknown' ||
       activity.state === 'ended'
     )
-      return { ...result, kind: 'unknown' };
+      // Working is known, but an incomplete clock cannot identify this Ask's turn.
+      return activity.state === 'working' ? result : { ...result, kind: 'unknown' };
     if (activity.state === 'working') {
       if (since >= turn.anchor) turn.working = true;
       turn.finished = undefined;

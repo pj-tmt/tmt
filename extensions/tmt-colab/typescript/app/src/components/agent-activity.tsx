@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { activityAt, type ActivityObservation } from '../agent-activity.js';
 import type { PageAsk } from '../ask-panel.js';
 import { text } from '../strings.js';
-import { AgentChip } from './agent-chip.js';
+import { AgentChip, AgentChipActivity } from './agent-chip.js';
 
 const ActivityPresentation = createContext<{ observation?: ActivityObservation; now: number }>({
   now: 0,
@@ -14,7 +14,7 @@ export function AgentActivityProvider({
   children,
 }: {
   observation?: ActivityObservation;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   const [now, setNow] = useState(0);
   const [visible, setVisible] = useState(true);
@@ -40,8 +40,14 @@ export function AgentActivityProvider({
     return () => clearTimeout(timer);
   }, [observation, visible]);
   const current = visible ? observation : observation && { ...observation, active: false };
+  const agents =
+    current?.active && now - current.receivedAt < 2 * current.intervalMs
+      ? (current.agents ?? [])
+      : [];
   return (
-    <ActivityPresentation value={{ observation: current, now }}>{children}</ActivityPresentation>
+    <ActivityPresentation value={{ observation: current, now }}>
+      <AgentChipActivity value={agents}>{children}</AgentChipActivity>
+    </ActivityPresentation>
   );
 }
 

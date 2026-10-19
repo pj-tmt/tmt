@@ -2,6 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vite-plus/test';
 import { AgentChip, AgentList, agentSentence } from '../src/components/agent-chip.js';
+import { AgentActivityProvider } from '../src/components/agent-activity.js';
 
 const render = (props: Parameters<typeof AgentChip>[0]) =>
   renderToStaticMarkup(createElement(AgentChip, props));
@@ -69,4 +70,84 @@ it('puts inline chips where a sentence names its agents', () => {
   expect(list.match(/class="agent-chip"/g)).toHaveLength(2);
   expect(list).toContain('</span>, <span class="agent-chip"');
   expect(agentSentence('no agent here')).toHaveLength(1);
+});
+
+it('all shared chip forms reuse the page activity observation without another read', () => {
+  const observation = {
+    active: true,
+    receivedAt: 0,
+    intervalMs: 60_000,
+    entries: [],
+    agents: [
+      {
+        machine: 'machine',
+        machineName: 'This machine',
+        agent: 'atlas',
+        name: 'Atlas',
+        state: 'working' as const,
+      },
+    ],
+  };
+  const markup = renderToStaticMarkup(
+    createElement(
+      AgentActivityProvider,
+      { observation },
+      createElement(
+        'div',
+        null,
+        createElement(AgentChip, { name: '@Atlas', variant: 'chip' }),
+        createElement(AgentChip, { name: 'Atlas', driver: 'codex' }),
+        createElement(AgentList, { names: ['Atlas', 'Other'] }),
+        agentSentence('Waiting for {agent}', 'Atlas'),
+      ),
+    ),
+  );
+  expect(markup.match(/aria-label="working"/g)).toHaveLength(4);
+  expect(markup.match(/lucide-bot/g)).toHaveLength(1);
+});
+
+it('a page observation never animates stale, stopped, missing or ambiguous agents', () => {
+  const row = {
+    machine: 'machine',
+    machineName: 'Owner',
+    agent: 'atlas',
+    name: 'Atlas',
+    state: 'working' as const,
+  };
+  const fresh = { active: true, receivedAt: 0, intervalMs: 60_000, entries: [], agents: [row] };
+  for (const observation of [
+    undefined,
+    { ...fresh, active: false },
+    { ...fresh, receivedAt: -120_000 },
+    { ...fresh, agents: [] },
+    { ...fresh, agents: [row, { ...row, machine: 'other', machineName: 'Other' }] },
+    ...(['idle', 'unknown', 'ended'] as const).map((state) => ({
+      ...fresh,
+      agents: [{ ...row, state }],
+    })),
+  ]) {
+    const markup = renderToStaticMarkup(
+      createElement(
+        AgentActivityProvider,
+        { observation },
+        createElement(AgentChip, { name: 'Atlas' }),
+      ),
+    );
+    expect(markup).toContain('lucide-bot');
+    expect(markup).not.toContain('agent-chip-spinner');
+  }
+  const markup = renderToStaticMarkup(
+    createElement(
+      AgentActivityProvider,
+      {
+        observation: {
+          ...fresh,
+          receivedAt: -119_999,
+          agents: [row, { ...row, machine: 'other', machineName: 'Other', state: 'idle' }],
+        },
+      },
+      createElement(AgentChip, { name: 'Atlas', machine: 'Owner' }),
+    ),
+  );
+  expect(markup).toContain('aria-label="working"');
 });
