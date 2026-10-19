@@ -469,3 +469,38 @@ fn resumed_start_attaches_first_session_to_admitted_process_only() {
         );
     }
 }
+
+#[test]
+fn a_present_claude_pid_must_be_a_nonzero_decimal_u32() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+    assert_eq!(hook_runtime_pid(None).ok(), Some(None));
+    assert_eq!(
+        hook_runtime_pid(Some(OsStr::new("4242"))).ok(),
+        Some(Some(4242))
+    );
+    // The shared parser keeps Rust's decimal grammar, an optional `+` included,
+    // so that caller discovery reads the variable as it did before.
+    assert_eq!(
+        hook_runtime_pid(Some(OsStr::new("+12"))).ok(),
+        Some(Some(12))
+    );
+    assert_eq!(
+        hook_runtime_pid(Some(OsStr::new("4294967295"))).ok(),
+        Some(Some(u32::MAX))
+    );
+    for value in [
+        b"".as_slice(),
+        b"0",
+        b"-1",
+        b"abc",
+        b"4294967296",
+        b" 12",
+        b"12 ",
+        b"\xff",
+    ] {
+        assert!(
+            hook_runtime_pid(Some(OsStr::from_bytes(value))).is_err(),
+            "{value:?}"
+        );
+    }
+}

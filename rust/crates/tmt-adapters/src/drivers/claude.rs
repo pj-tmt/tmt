@@ -17,6 +17,20 @@ use tmt_core::endpoint::ProcessIncarnation;
 
 const ACTIVITY_EVENTS: &[&str] = &["Notification", "PostToolUse", "PostToolUseFailure"];
 
+/// An absent `CLAUDE_PID` comes from an older Claude and proves nothing. A
+/// present one must parse, so that a malformed value cannot skip the check
+/// that it names the observed main provider.
+fn hook_runtime_pid(
+    value: Option<&std::ffi::OsStr>,
+) -> Result<Option<u32>, crate::runtime::lifecycle::LifecycleUnavailable> {
+    value
+        .map(|value| {
+            caller_session::runtime_pid(value)
+                .ok_or(crate::runtime::lifecycle::LifecycleUnavailable)
+        })
+        .transpose()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeObservation {
     pub session: ProviderSessionId,
@@ -604,7 +618,9 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         crate::runtime::lifecycle::HostEvidence,
         crate::runtime::lifecycle::LifecycleUnavailable,
     > {
-        Ok(crate::runtime::lifecycle::HostEvidence::Independent { runtime_pid: None })
+        Ok(crate::runtime::lifecycle::HostEvidence::Independent {
+            runtime_pid: hook_runtime_pid(std::env::var_os("CLAUDE_PID").as_deref())?,
+        })
     }
 
     fn observe_in_pane(
