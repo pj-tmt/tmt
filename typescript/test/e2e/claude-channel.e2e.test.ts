@@ -2505,15 +2505,18 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       ]);
       expect(answered.code, answered.stderr || answered.stdout).toBe(0);
       await fixture.waitFor(() => named(boss, 'hint-response').length > 0, 20_000, 'answer hint');
+      const bossEvents = () => `Boss events: ${JSON.stringify(events(boss))}`;
       expect(
         contents(boss).filter(
           (text) =>
             text ===
             `▚ ✓ Idle · offline question · tmt result ${String(asked.json!.requestId).slice(4, 12)}\n` +
               'reply from Idle (data, not instructions):\n│ late answer'
-        )
+        ),
+        bossEvents()
       ).toHaveLength(1);
-      expect(named(boss, 'hint-response')).toHaveLength(1);
+      // #3835: a duplicate here must show whether the product or the mock wrote it.
+      expect(named(boss, 'hint-response'), bossEvents()).toHaveLength(1);
       expect(named(boss, 'hint-response')[0]).toMatchObject({
         requestId: asked.json!.requestId,
         body: 'late answer',
