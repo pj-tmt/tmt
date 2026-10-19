@@ -452,6 +452,34 @@ test('a project with no page is one request, is listed everywhere, and takes pag
   ]);
 });
 
+test('a new project save in flight vetoes Cancel, Escape and Close, then closes its own opening once', async ({
+  page,
+}) => {
+  await mount(page);
+  const open = app(page).getByRole('button', { name: '+ New project' });
+  await open.click();
+  const dialog = app(page).getByRole('dialog', { name: 'New project' });
+  await dialog.getByRole('textbox', { name: 'Project name' }).fill('held');
+  await page.evaluate(() => {
+    window.__holdManage = true;
+  });
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  await expect.poll(() => page.evaluate(() => typeof window.__releaseManage)).toBe('function');
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Close New project' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('textbox', { name: 'Project name' })).toHaveValue('held');
+  await page.evaluate(() => window.__releaseManage!());
+  await expect(dialog).toHaveCount(0);
+  expect(await manageRequests(page)).toEqual([{ action: 'create', name: 'held' }]);
+  await open.click();
+  await expect(dialog.getByRole('textbox', { name: 'Project name' })).toHaveValue('');
+  await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test('rename is one request for every page in the project, archived included, and retries after a failure', async ({
   page,
 }) => {

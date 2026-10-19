@@ -1,5 +1,5 @@
 import { BrowserAction, BrowserDrawer, BrowserField } from '@tmt/browser-ui/react';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   projectNameError,
   withProject,
@@ -73,14 +73,24 @@ export function NewProjectDialog({
   writing: ProjectWriting;
   onClose(): void;
 }) {
+  // A save in flight vetoes every close route, as in ManageProjectsDialog.
+  const saving = useRef(false);
   return (
-    <BrowserDrawer open={open} keepMounted={false} title={t.newProject} onDismiss={onClose}>
+    <BrowserDrawer
+      open={open}
+      keepMounted={false}
+      title={t.newProject}
+      onDismiss={() => {
+        if (!saving.current) onClose();
+      }}
+    >
       {/* Unmounted when closed, so every open starts a fresh form. */}
       <NewProjectForm
         pages={pages}
         existing={existing}
         initial={initial}
         writing={writing}
+        saving={saving}
         onClose={onClose}
       />
     </BrowserDrawer>
@@ -91,18 +101,32 @@ function NewProjectForm({
   existing,
   initial,
   writing,
+  saving,
   onClose,
 }: {
   pages: readonly PageSummary[];
   existing: readonly string[];
   initial: readonly string[];
   writing: ProjectWriting;
+  saving: { current: boolean };
   onClose(): void;
 }) {
   const [name, setName] = useState('');
   const [ticked, setTicked] = useState(() => new Set(initial));
   const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyState] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      saving.current = false;
+    };
+  }, [saving]);
+  function setBusy(value: boolean) {
+    saving.current = value;
+    setBusyState(value);
+  }
   const nameError = name === '' ? undefined : projectNameError(name);
   async function create() {
     const invalid = projectNameError(name);
@@ -118,11 +142,14 @@ function NewProjectForm({
     setError(undefined);
     if (changes.length === 0) {
       const created = await writing.manage({ action: 'create', name });
+      // A completion belongs to this opening only: it never closes a later one.
+      if (!mounted.current) return;
       setBusy(false);
       if (created.failure === undefined) return onClose();
       return setError(writing.failureText(created.failure));
     }
     const outcome = await writing.save(changes);
+    if (!mounted.current) return;
     setBusy(false);
     if (outcome.failure === undefined) return onClose();
     setError(
@@ -177,7 +204,13 @@ function NewProjectForm({
         </p>
       )}
       <div className="project-actions">
-        <BrowserAction type="button" variant="text" label={t.cancel} onActivate={onClose} />
+        <BrowserAction
+          type="button"
+          variant="text"
+          label={t.cancel}
+          disabled={busy}
+          onActivate={onClose}
+        />
         <BrowserAction
           type="submit"
           variant="primary"
