@@ -506,3 +506,37 @@ for (const width of [1440, 390]) {
     });
   }
 }
+
+test('a same-page reopen keeps a dirty Source draft, its base and caret, and saves nothing', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await change(page, source);
+  await (await pageAction(page, 'Source')).click();
+  const area = page.locator('#source-edit:visible');
+  await expect(area).toHaveValue(source);
+  const loads = await run(page, 'pageLoadCount');
+  // A clean draft adopts the reopened page.
+  await run(page, 'change', revised);
+  await run(page, 'staleEpoch');
+  await expect.poll(() => run(page, 'pageLoadCount')).toBe(loads + 1);
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await expect(area).toHaveValue(revised);
+  // A dirty draft keeps its text and caret through the next reopen, and nothing is saved.
+  const draft = revised.replace('New source', 'Unsaved edit of the source');
+  await area.fill(draft);
+  await area.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(10, 14));
+  await run(page, 'change', source);
+  await run(page, 'staleEpoch');
+  await expect.poll(() => run(page, 'pageLoadCount')).toBe(loads + 2);
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toHaveText(
+    'Exact selected text',
+  );
+  await expect(area).toHaveValue(draft);
+  expect(
+    await area.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd]),
+  ).toEqual([10, 14]);
+  expect(await run(page, 'sourceSaveCount')).toBe(0);
+});
