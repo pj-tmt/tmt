@@ -46,7 +46,8 @@ const scrollContainers = (message: Locator) =>
 /** The last message is fully inside the scroller's visible box. */
 const visibleIn = (message: Locator, scroller: Locator) =>
   Promise.all([message.boundingBox(), scroller.boundingBox()]).then(
-    ([item, box]) => !!item && !!box && item.y >= box.y && item.y + item.height <= box.y + box.height,
+    ([item, box]) =>
+      !!item && !!box && item.y >= box.y && item.y + item.height <= box.y + box.height,
   );
 
 for (const width of [1440, 390])
