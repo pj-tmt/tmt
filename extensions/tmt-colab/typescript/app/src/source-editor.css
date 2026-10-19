@@ -18,9 +18,10 @@
   background: var(--c-sheet);
   border-bottom: 1px solid var(--c-rule);
 }
-/* Toolbar actions are body text; the Source label remains compact metadata. */
+/* Toolbar actions use the standard action text; the Source label remains compact metadata. */
 .source > span button {
-  font: 400 13px/1.5 var(--tmt-ui-font-body);
+  font: var(--tmt-ui-host-action-weight) var(--tmt-ui-host-action-size) /
+    var(--tmt-ui-host-action-line-height) var(--tmt-ui-host-action-font);
 }
 .source > span button:disabled {
   color: var(--tmt-ui-color-disabled-text);
