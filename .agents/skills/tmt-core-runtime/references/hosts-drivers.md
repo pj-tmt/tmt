@@ -160,10 +160,10 @@ channels and the driver protocol. The owner map is in
   one entry by a second, which refuses or misses a reuse within that second). Herdr started
   in a tmux that has since closed keeps a stale `TMUX` and refuses: clear `TMUX` and
   `TMUX_PANE` before you start the agent. Caller-session discovery after an ordinary
-  command is scheduled by pane locators, and Herdr's caller variable (`HERDR_PANE_ID`)
-  holds a target, not a pane ID, so a Herdr-owned nested caller runs no worker unless its
-  tmux pane is bound. An external caller's server must already have a `host_servers`
-  row (`RecordedHostServers` reads it and never records one).
+  command runs its worker for a nested caller when its tmux pane or that external host has
+  a binding; the worker's nested proof alone chooses the owner
+  ([identity bindings](identity-bindings.md)). An external caller's server must already
+  have a `host_servers` row (`RecordedHostServers` reads it and never records one).
   `Host::for_target` picks the host whose grammar reads the text. Only a definite answer is
   "not found"; a failing or late driver is `RECONCILIATION_FAILED`.
 - Prompt-first `send` maps `no_agent`/`unsupported` to raw input, `blocked` to

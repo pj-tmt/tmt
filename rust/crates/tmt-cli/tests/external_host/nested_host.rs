@@ -225,35 +225,143 @@ fn a_nested_pane_that_is_not_the_pinned_shell_refuses() {
     assert!(output.stderr.is_empty(), "{output:?}");
 }
 
-/// Caller-session discovery after an ordinary command is scheduled by the
-/// caller's pane locators. A nested caller's only pane ID is tmux's (Herdr's
-/// caller variable, like this fake host's, holds a target), so with no binding on that
-/// tmux pane the worker does not run: nothing is asked or recorded. Without
-/// the tmux variables the same command records the session
-/// (`a_caller_in_an_external_pane_records_its_session_after_a_command`).
-#[test]
-fn a_nested_caller_without_a_tmux_binding_runs_no_caller_session_worker() {
-    register();
-    let fixture = Fixture::new("nested-caller-session");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let dir = fake_tmux(&fixture, Some(pane(999_999, SERVER)));
-    let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
-    let pid = live_provider(&claude).incarnation.pid().to_string();
-    let session = "6a0f3c1e-5b2d-4e8a-9c7f-1d2e3f4a5b6c";
-    let rows = stored_rows(&fixture);
-    let calls = fixture.calls().len();
-    let tmux = tmux_env(&dir);
+/// A nested caller's Claude runs an ordinary command, which reads only
+/// storage, with the tmux variables for pane `%1` and the fake tmux first
+/// on `PATH`.
+fn nested_command(
+    claude: &mut SteppedProvider,
+    dir: &std::path::Path,
+    pid: u64,
+    extra: &[(&str, &str)],
+) -> (i32, String, String) {
+    let pid = pid.to_string();
+    let tmux = tmux_env(dir);
     let mut env: Vec<_> = tmux
         .iter()
         .map(|(name, value)| (*name, value.as_str()))
         .collect();
-    env.extend([("CLAUDE_CODE_SESSION_ID", session), ("CLAUDE_PID", &pid)]);
-    let (status, _, stderr) = claude.command(&env, &["config", "show", "--json"]);
-    assert_eq!((status, stderr.as_str()), (0, ""));
-    assert_eq!(fixture.calls()[calls..], [] as [String; 0]);
-    assert_eq!(stored_rows(&fixture), rows);
-    assert!(!dir.join("calls").exists(), "the precheck ran no tmux");
-    drop(claude);
-    assert_drivers_ended(&fixture);
+    env.extend([
+        ("CLAUDE_CODE_SESSION_ID", NESTED_SESSION),
+        ("CLAUDE_PID", &pid),
+    ]);
+    env.extend_from_slice(extra);
+    claude.command(&env, &["config", "show", "--json"])
+}
+
+const NESTED_SESSION: &str = "6a0f3c1e-5b2d-4e8a-9c7f-1d2e3f4a5b6c";
+
+/// Caller-session discovery after an ordinary command (#3921): a nested
+/// caller is scheduled when its tmux pane or its external host has a
+/// binding, and only the worker's nested proof chooses the owner. Here the
+/// tmux pane is not bound and is off the caller's chain, so the fake host's
+/// pane owns the caller: the session is recorded on that binding, and the
+/// worker made the one tmux pane read. The precheck itself runs no tmux.
+/// A command refused for its own `budget` runs again in a fresh fixture;
+/// any other refusal fails at once.
+#[test]
+fn a_nested_caller_in_an_external_pane_records_its_session_after_a_command() {
+    register();
+    caller_session::within_budget("nested-caller-session", |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record);
+        let expected = fixture.json(&["config", "show", "--json"]);
+        let servers = host_servers(fixture);
+        let dir = fake_tmux(fixture, Some(pane(999_999, SERVER)));
+        let mut claude = SteppedProvider::start(fixture, "claude", "claude-steps");
+        let provider = live_provider(&claude);
+        let rows = stored_rows(fixture);
+        let admission =
+            caller_session::Admission::expect(fixture, "fake-1", NESTED_SESSION, &provider);
+        let before = caller_session::Before::of(fixture);
+        let (status, stdout, stderr) =
+            nested_command(&mut claude, &dir, provider.incarnation.pid(), &[]);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);
+        let load = own.budget(fixture, &rows, Some(&admission));
+        if !load {
+            assert_eq!(own.hints, Vec::<String>::new());
+            assert_eq!(admission.check(fixture, &rows), Ok(()));
+            assert_eq!(own.calls, ["caller", "server", "snapshot"]);
+            assert_one_pane_read(&dir);
+        }
+        assert_eq!(host_servers(fixture), servers);
+        assert_eq!(provider.seen(), Seen::Live);
+        drop(claude);
+        assert_eq!(provider.seen(), Seen::Ended);
+        assert_drivers_ended(fixture);
+        load
+    });
+}
+
+/// The same nested caller beside a stale tmux socket: the worker's nested
+/// proof refuses, so nothing is recorded and the command keeps that
+/// refusal as its own hint. A semantic refusal is never taken as load: only
+/// a `budget` hint runs the scenario again.
+#[test]
+fn a_nested_caller_beside_a_stale_tmux_socket_records_nothing() {
+    register();
+    caller_session::within_budget("nested-caller-stale", |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record);
+        let dir = fake_tmux(fixture, None);
+        let mut claude = SteppedProvider::start(fixture, "claude", "claude-steps");
+        let provider = live_provider(&claude);
+        let rows = stored_rows(fixture);
+        let before = caller_session::Before::of(fixture);
+        let (status, _, stderr) =
+            nested_command(&mut claude, &dir, provider.incarnation.pid(), &[]);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        let load = own.budget(fixture, &rows, None);
+        if !load {
+            assert_eq!(own.hints, ["native-admission"]);
+            assert_eq!(stored_rows(fixture), rows);
+            assert_one_pane_read(&dir);
+        }
+        drop(claude);
+        assert_drivers_ended(fixture);
+        load
+    });
+}
+
+/// The tmux side of a nested caller's refusal key is read through the tmux
+/// locator alone. Here the host variable has the fake host's pane-ID shape
+/// and names its bound pane, while the tmux pane is not bound: the hint
+/// keeps no tmux binding. (The fake driver knows no such target, so the
+/// worker refuses and nothing is recorded.)
+#[test]
+fn a_host_variable_shaped_like_a_pane_id_is_never_the_tmux_binding() {
+    register();
+    caller_session::within_budget("nested-caller-shaped", |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record);
+        let dir = fake_tmux(fixture, Some(pane(999_999, SERVER)));
+        let mut claude = SteppedProvider::start(fixture, "claude", "claude-steps");
+        let provider = live_provider(&claude);
+        let rows = stored_rows(fixture);
+        let before = caller_session::Before::of(fixture);
+        let (status, _, stderr) = nested_command(
+            &mut claude,
+            &dir,
+            provider.incarnation.pid(),
+            &[("FAKE_PANE_ID", "fake-1")],
+        );
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        let load = own.budget(fixture, &rows, None);
+        if !load {
+            assert_eq!(own.hints.len(), 1, "{:?}", own.hints);
+            assert_eq!(stored_rows(fixture), rows);
+            let text =
+                fs::read_to_string(fixture.state().join("caller-session-refusals.json")).unwrap();
+            let document: Value = serde_json::from_str(&text).unwrap();
+            let target = &document["entries"][0]["key"]["target"];
+            assert_eq!(target["nested"]["host"], "fake", "{target}");
+            assert_eq!(target["nested"]["tmux"], Value::Null, "{target}");
+        }
+        drop(claude);
+        assert_drivers_ended(fixture);
+        load
+    });
 }

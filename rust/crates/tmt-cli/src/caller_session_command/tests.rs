@@ -730,10 +730,11 @@ fn an_external_caller_reaches_the_worker_and_its_refusal_is_remembered() {
     assert_eq!(worker.calls.get(), 4, "a changed variable runs it again");
 }
 
-/// Only exactly one approved external host and no nonempty tmux variable
-/// take the external path; every other caller keeps the current refusal.
+/// Exactly one approved external host, alone or beside tmux variables
+/// (nested), reaches the worker when that host has a binding; no host
+/// variable, an unapproved host or two hosts keep the refusal.
 #[test]
-fn only_one_named_external_host_without_tmux_reaches_the_worker() {
+fn one_named_external_host_reaches_the_worker_alone_or_nested() {
     use std::os::unix::ffi::OsStringExt;
     let directory = Directory::new();
     let mut storage = Storage::open(directory.0.join("state.db")).unwrap();
@@ -800,7 +801,7 @@ fn only_one_named_external_host_without_tmux_reaches_the_worker() {
             vec![("FAKE_PANE_ID", "f1")],
             Some("/tmp/t.sock,1,0".into()),
             None,
-            false,
+            true,
         ),
         (
             "one host and a TMUX that is not text",
@@ -808,7 +809,7 @@ fn only_one_named_external_host_without_tmux_reaches_the_worker() {
             vec![("FAKE_PANE_ID", "f1")],
             not_text(),
             None,
-            false,
+            true,
         ),
         (
             "one host and a tmux pane",
@@ -816,7 +817,7 @@ fn only_one_named_external_host_without_tmux_reaches_the_worker() {
             vec![("FAKE_PANE_ID", "f1")],
             Some("/tmp/test.sock,10,0".into()),
             Some("%1".into()),
-            false,
+            true,
         ),
         (
             "two hosts",
@@ -1095,4 +1096,221 @@ fn a_worker_that_stored_its_session_then_faults_closing_the_database_is_admitted
 #[test]
 fn a_worker_that_stored_its_session_then_outlives_the_deadline_is_admitted() {
     assert_a_stored_session_is_admitted(Ending::PastDeadline);
+}
+
+/// A caller with tmux variables beside the `fake` host's `FAKE_PANE_ID`.
+fn nested_caller(
+    tmux: Option<std::ffi::OsString>,
+    pane: Option<std::ffi::OsString>,
+    variable: &str,
+) -> CallerEnvironment {
+    CallerEnvironment {
+        tmux,
+        pane,
+        ..external_caller(&[("FAKE_PANE_ID", variable)])
+    }
+}
+
+/// The nested caller tmux pane `%1` on `/tmp/test.sock`, as
+/// `insert_discovery_binding` binds it, in fake pane target `f1`.
+fn valid_nested_caller() -> CallerEnvironment {
+    nested_caller(Some("/tmp/test.sock,10,0".into()), Some("%1".into()), "f1")
+}
+
+/// The target of the newest refusal hint, read only.
+fn newest_hint_target(directory: &Directory) -> serde_json::Value {
+    let text = fs::read_to_string(directory.0.join("caller-session-refusals.json")).unwrap();
+    let document: serde_json::Value = serde_json::from_str(&text).unwrap();
+    document["entries"].as_array().unwrap().last().unwrap()["key"]["target"].clone()
+}
+
+fn update_database(directory: &Directory, sql: &str) {
+    let connection = rusqlite::Connection::open(directory.0.join("state.db")).unwrap();
+    assert_eq!(connection.execute(sql, []).unwrap(), 1, "{sql}");
+}
+
+/// Only the worker's nested proof tells which pane owns a nested caller, so
+/// a refusal is kept under both sides: the tmux binding when the tmux pane
+/// is bound, and the external host's variables and bindings with the raw
+/// tmux variables. A change to any of them runs admission again; nothing
+/// else does.
+#[test]
+fn a_nested_caller_refusal_is_kept_under_its_tmux_binding_and_its_external_host() {
+    use std::os::unix::ffi::OsStringExt;
+    let directory = Directory::new();
+    let mut storage = Storage::open(directory.0.join("state.db")).unwrap();
+    let outer = create_or_resolve(&mut storage, "Outer", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    insert_discovery_binding(&mut storage, &outer);
+    let hosted = create_or_resolve(&mut storage, "Hosted", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    insert_external_binding(&mut storage, &hosted, "fake", "fake-1");
+    storage.close().unwrap();
+    let records = [external_host(&directory, "fake", "FAKE_PANE_ID")];
+    let worker = Worker {
+        calls: Cell::new(0),
+        allowed: true,
+        refusal: Some("native-admission"),
+    };
+    let calls = Cell::new(0);
+    // Each attempt is refused; `runs` says whether it spawned a worker.
+    let attempt = |caller: &dyn Fn() -> CallerEnvironment, now_ms, runs: bool, case: &str| {
+        let result = attempt_external(&worker, &directory, &records, caller, now_ms);
+        calls.set(calls.get() + usize::from(runs));
+        assert_eq!(
+            (result, worker.calls.get()),
+            (Err("native-admission"), calls.get()),
+            "{case}"
+        );
+    };
+    attempt(&valid_nested_caller, 100, true, "both bound");
+    attempt(&valid_nested_caller, 101, false, "unchanged");
+    let target = newest_hint_target(&directory);
+    let tmux_binding: String = rusqlite::Connection::open(directory.0.join("state.db"))
+        .unwrap()
+        .query_row(
+            "SELECT id FROM bindings WHERE transport = 'tmux'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        target["nested"]["tmux"]["binding"], tmux_binding,
+        "{target}"
+    );
+    assert_eq!(target["nested"]["tmux"]["pane"], "%1", "{target}");
+    assert_eq!(target["nested"]["host"], "fake", "{target}");
+
+    update_database(
+        &directory,
+        "UPDATE bindings SET pane_incarnation = 'pane-restart' WHERE transport = 'tmux'",
+    );
+    attempt(
+        &valid_nested_caller,
+        102,
+        true,
+        "a new tmux pane incarnation",
+    );
+    attempt(&valid_nested_caller, 103, false, "unchanged");
+    let mut storage = Storage::open(directory.0.join("state.db")).unwrap();
+    let other = create_or_resolve(&mut storage, "Other", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    insert_external_binding(&mut storage, &other, "fake", "fake-2");
+    storage.close().unwrap();
+    attempt(&valid_nested_caller, 104, true, "another external binding");
+    let other_fake = || nested_caller(Some("/tmp/test.sock,10,0".into()), Some("%1".into()), "f2");
+    attempt(&other_fake, 105, true, "another external target");
+    update_database(&directory, "DELETE FROM bindings WHERE transport = 'tmux'");
+    attempt(&valid_nested_caller, 106, true, "the tmux binding removed");
+    assert_eq!(
+        newest_hint_target(&directory)["nested"]["tmux"],
+        serde_json::Value::Null
+    );
+
+    // A host variable shaped like a pane ID that is bound on its host is not
+    // a tmux binding: the tmux side is read through the tmux locator alone.
+    let shaped = || {
+        nested_caller(
+            Some("/tmp/test.sock,10,0".into()),
+            Some("%1".into()),
+            "fake-1",
+        )
+    };
+    attempt(&shaped, 107, true, "a pane-shaped host variable");
+    let target = newest_hint_target(&directory);
+    assert_eq!(
+        target["nested"]["tmux"],
+        serde_json::Value::Null,
+        "{target}"
+    );
+
+    // With no tmux binding, a malformed, partial or stale tmux environment
+    // is kept apart from the corrected one, in both variables.
+    let later = 200 + tmt_adapters::runtime::caller_refusals::TTL_MS;
+    let not_text = |bytes: &[u8]| Some(std::ffi::OsString::from_vec(bytes.to_vec()));
+    let tmux = || Some(std::ffi::OsString::from("/tmp/test.sock,10,0"));
+    let pane = || Some(std::ffi::OsString::from("%1"));
+    type Caller = Box<dyn Fn() -> CallerEnvironment>;
+    let wrong: Vec<(&str, Caller)> = vec![
+        (
+            "TMUX not text",
+            Box::new(move || nested_caller(not_text(b"/tmp/\xff"), pane(), "f1")),
+        ),
+        (
+            "TMUX_PANE not text",
+            Box::new(move || nested_caller(tmux(), not_text(b"%\xff"), "f1")),
+        ),
+        (
+            "TMUX unset",
+            Box::new(move || nested_caller(None, pane(), "f1")),
+        ),
+        (
+            "TMUX_PANE unset",
+            Box::new(move || nested_caller(tmux(), None, "f1")),
+        ),
+        (
+            "TMUX empty",
+            Box::new(move || nested_caller(Some("".into()), pane(), "f1")),
+        ),
+        (
+            "a stale TMUX",
+            Box::new(move || nested_caller(Some("/tmp/old.sock,9,0".into()), pane(), "f1")),
+        ),
+        (
+            "another TMUX_PANE",
+            Box::new(move || nested_caller(tmux(), Some("%2".into()), "f1")),
+        ),
+    ];
+    for (offset, (case, caller)) in (0..).zip(&wrong) {
+        attempt(caller.as_ref(), later + offset, true, case);
+    }
+    attempt(
+        &valid_nested_caller,
+        later + 10,
+        true,
+        "the corrected environment",
+    );
+    attempt(&valid_nested_caller, later + 11, false, "unchanged");
+    for (case, caller) in &wrong {
+        attempt(caller.as_ref(), later + 12, false, case);
+    }
+}
+
+/// A nested caller runs the worker when either side has a binding: the tmux
+/// pane alone (a tmux-owned shape, as before) is enough. With neither, it
+/// never spawns and keeps no hint.
+#[test]
+fn a_nested_caller_reaches_the_worker_when_either_pane_is_bound() {
+    let directory = Directory::new();
+    let mut storage = Storage::open(directory.0.join("state.db")).unwrap();
+    let outer = create_or_resolve(&mut storage, "Outer", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    storage.close().unwrap();
+    let records = [external_host(&directory, "fake", "FAKE_PANE_ID")];
+    let worker = Worker {
+        calls: Cell::new(0),
+        allowed: false,
+        refusal: Some("native-admission"),
+    };
+    assert_eq!(
+        attempt_external(&worker, &directory, &records, valid_nested_caller, 100),
+        Err("binding")
+    );
+    assert!(!directory.0.join("caller-session-refusals.json").exists());
+    let mut storage = Storage::open(directory.0.join("state.db")).unwrap();
+    insert_discovery_binding(&mut storage, &outer);
+    storage.close().unwrap();
+    let worker = Worker {
+        allowed: true,
+        ..worker
+    };
+    assert_eq!(
+        attempt_external(&worker, &directory, &records, valid_nested_caller, 101),
+        Err("native-admission")
+    );
+    assert_eq!(worker.calls.get(), 1);
 }
