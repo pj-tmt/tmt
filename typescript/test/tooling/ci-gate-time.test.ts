@@ -239,17 +239,17 @@ describe('gate measurement edge cases', () => {
       event: 'pull_request',
       what: `${producer} p90`,
       value: 302,
-      budget: 301,
+      budget: 214,
     });
     expect(budgets.gate.pull_request).toEqual({ median: 710, p90: 1095 });
     expect(budgets.gate.merge_group).toEqual({ median: 790, p90: 911 });
-    for (const [name, pr] of [
-      [producer, 301],
-      [p1, 221],
-      [p2, 318],
-      [collector, 18],
+    for (const [name, pr, mg] of [
+      [producer, 214, 311],
+      [p1, 299, 309],
+      [p2, 330, 326],
+      [collector, 18, 19],
     ] as const)
-      expect(budgets.jobs[name]).toEqual({ pull_request: pr, merge_group: 861 });
+      expect(budgets.jobs[name]).toEqual({ pull_request: pr, merge_group: mg });
     expect(budgets.jobs['Native Rust workspace tests']).toBeUndefined();
   });
 
