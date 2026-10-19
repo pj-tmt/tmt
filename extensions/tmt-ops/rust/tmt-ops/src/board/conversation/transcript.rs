@@ -101,10 +101,16 @@ impl Session {
             .map(|reply| vec![time(Some(reply))])
             .unwrap_or_default();
         for entry in &self.outgoing {
+            if entry.lead_in.is_some() {
+                times.push(time(entry.lead_in.as_ref()));
+            }
             times.push(entry.started_ms);
             if entry.reply.is_some() {
                 times.push(time(entry.reply.as_ref()));
             }
+        }
+        if self.tail.is_some() {
+            times.push(time(self.tail.as_ref()));
         }
         let output_ages = match &self.pane_output {
             Observation::Observed(items) => items
