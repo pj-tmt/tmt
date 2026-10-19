@@ -1200,3 +1200,135 @@ fn blocking_owner_preserves_focused_composer_paint() {
     assert!(app.composer.send_hit.borrow().is_some() && app.composer.quote_hit.borrow().is_some());
     assert!(app.input_viewport.get().is_some());
 }
+
+#[test]
+fn literal_chat_chips_keep_text_and_survive_failed_send_without_source_identity() {
+    use crate::board::app::{Effect, Request};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    app.input.as_mut().unwrap().text = "my comment".into();
+    assert_eq!(
+        app.add_chat_quote("worker".into(), "first\nsecond".into()),
+        Effect::None
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "my comment");
+    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
+    let submitted = app.input.as_ref().unwrap().clone();
+    let sent = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(sent, Effect::Act(Request::Talk { text, to, .. })
+        if to == "auth-fix" && text == "> \"first second\"\n\n[product · auth-fix] my comment"));
+    app.sending_draft(&submitted);
+    app.input.as_mut().unwrap().text.clear();
+    app.input.as_mut().unwrap().chat_quotes.clear();
+    app.finish_draft(false);
+    assert_eq!(
+        app.input.as_ref().unwrap().chat_quotes,
+        submitted.chat_quotes
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "my comment");
+}
+
+#[test]
+fn chip_navigation_and_removal_keep_the_editor_draft() {
+    use crate::board::app::Effect;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    for n in 0..3 {
+        app.add_chat_quote("worker".into(), format!("quote {n}"));
+    }
+    for (code, focused) in [
+        (KeyCode::Up, Some(0)),
+        (KeyCode::Right, Some(1)),
+        (KeyCode::Char('x'), Some(1)),
+        (KeyCode::Down, None),
+    ] {
+        assert_eq!(
+            app.input_key(KeyEvent::new(code, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert_eq!(app.input.as_ref().unwrap().chat_quote_focus, focused);
+    }
+    assert_eq!(
+        app.input
+            .as_ref()
+            .unwrap()
+            .chat_quotes
+            .iter()
+            .map(|q| q.text.as_str())
+            .collect::<Vec<_>>(),
+        ["quote 0", "quote 2"]
+    );
+    assert!(app.input.as_ref().unwrap().text.is_empty());
+    assert!(app.input.is_some());
+}
+
+#[test]
+fn chat_chips_paint_above_the_box_remove_by_click_and_keep_geometry() {
+    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    for width in [60, 100, 160] {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.add_chat_quote("worker".into(), "first passage".into());
+        app.input.as_mut().unwrap().text = "my draft".into();
+        draw(&mut app, width, 36);
+        let box_before = app.input_viewport.get().unwrap().0;
+        app.add_chat_quote("other".into(), "second passage".into());
+        app.add_chat_quote("third".into(), "third passage".into());
+        let painted = draw(&mut app, width, 36);
+        assert_eq!(
+            app.input_viewport.get().unwrap().0,
+            box_before,
+            "adding chips shares one row"
+        );
+        let hits = app.composer.chat_quote_hits.borrow().clone();
+        assert_eq!(hits.len(), 3, "three whole controls fit at {width}");
+        assert!(hits.iter().all(|hit| hit.area.bottom() <= box_before.y));
+        let text: String = painted.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("worker:") && text.contains('×'));
+        let hit = &hits[1];
+        app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hit.area.x,
+                row: hit.area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        );
+        let input = app.input.as_ref().unwrap();
+        assert_eq!(input.text.as_str(), "my draft");
+        assert_eq!(
+            input
+                .chat_quotes
+                .iter()
+                .map(|q| q.text.as_str())
+                .collect::<Vec<_>>(),
+            ["first passage", "third passage"]
+        );
+        assert!(
+            app.composer.chat_quote_hits.borrow().is_empty(),
+            "activation expires old geometry"
+        );
+    }
+}
+
+#[test]
+fn chat_chips_follow_uuid_drafts_and_success_clears_only_the_sent_revision() {
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    app.input.as_mut().unwrap().chat_quotes.push(ChatQuote {
+        author: "worker".into(),
+        text: "kept".into(),
+    });
+    close(&mut app);
+    open(&mut app, "docs");
+    assert!(app.input.as_ref().unwrap().chat_quotes.is_empty());
+    open(&mut app, "auth-fix");
+    assert_eq!(app.input.as_ref().unwrap().chat_quotes[0].text, "kept");
+    let sent = app.input.take().unwrap();
+    app.sending_draft(&sent);
+    app.finish_draft(true);
+    open(&mut app, "auth-fix");
+    assert!(app.input.as_ref().unwrap().chat_quotes.is_empty());
+}

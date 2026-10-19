@@ -8,17 +8,23 @@ use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, Compose, Input, RowTarget};
 
+mod chat_quotes;
+pub(super) use chat_quotes::ChatQuote;
+
 type DraftKey = (String, String);
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Draft {
     text: Editor,
     quotes: Vec<super::response::Quote>,
+    chat_quotes: Vec<ChatQuote>,
 }
 pub(super) struct Projection<'a> {
     pub key: Option<DraftKey>,
     pub recipient: &'a str,
     pub text: Option<&'a Editor>,
     pub quotes: &'a [super::response::Quote],
+    pub chat_quotes: &'a [ChatQuote],
+    pub chat_quote_focus: Option<usize>,
     pub focused: bool,
 }
 #[derive(Clone)]
@@ -32,6 +38,14 @@ pub(super) struct QuoteHit {
     pub key: DraftKey,
     pub source: super::home_leads::MessageKey,
     pub range: std::ops::Range<usize>,
+}
+
+#[derive(Clone)]
+pub(super) struct ChatQuoteHit {
+    pub area: Rect,
+    pub key: DraftKey,
+    pub index: usize,
+    pub quote: ChatQuote,
 }
 
 /// Bound untrusted text before sanitizing or painting, independently of the
@@ -53,6 +67,7 @@ impl Draft {
         Self {
             text: input.text.clone(),
             quotes: input.response_quotes.clone(),
+            chat_quotes: input.chat_quotes.clone(),
         }
     }
 }
@@ -62,12 +77,14 @@ pub(super) struct State {
     pending: Option<(DraftKey, Draft)>,
     pub send_hit: RefCell<Option<SendHit>>,
     pub quote_hit: RefCell<Option<QuoteHit>>,
+    pub chat_quote_hits: RefCell<Vec<ChatQuoteHit>>,
 }
 
 impl State {
     pub(super) fn invalidate(&self) {
         *self.send_hit.borrow_mut() = None;
         *self.quote_hit.borrow_mut() = None;
+        self.chat_quote_hits.borrow_mut().clear();
     }
     pub(super) fn has_drafts(&self) -> bool {
         !self.drafts.is_empty()
@@ -76,7 +93,9 @@ impl State {
 impl App {
     pub(in crate::board) fn composer_rows(&self) -> u16 {
         self.composer_projection().map_or(0, |projection| {
-            super::input_field::ROWS + u16::from(!projection.quotes.is_empty())
+            super::input_field::ROWS
+                + u16::from(!projection.quotes.is_empty())
+                + u16::from(!projection.chat_quotes.is_empty())
         })
     }
     pub(in crate::board) fn composer_info<'a>(
@@ -116,6 +135,13 @@ impl App {
                 .and_then(|agent| agent.context),
         }
     }
+    pub(in crate::board) fn quote_author(&self, identity: &str) -> Option<&str> {
+        self.workspace_snapshot()?
+            .roster
+            .members
+            .get(identity)
+            .map(|member| member.name.as_str())
+    }
     pub(in crate::board) fn quote_caption(
         &self,
         quote: &super::response::Quote,
@@ -124,10 +150,7 @@ impl App {
         if width < 12 {
             return super::view::fit("Quote", width);
         }
-        let name = self
-            .workspace_snapshot()
-            .and_then(|snapshot| snapshot.roster.members.get(&quote.key.lead))
-            .map_or("response", |member| member.name.as_str());
+        let name = self.quote_author(&quote.key.lead).unwrap_or("response");
         let name = super::notes::sanitize(name);
         let name = super::view::fit(&name, width.saturating_sub(16).min(name.width()));
         let prefix = format!("Quote · {}: \"", name.trim_end());
@@ -294,6 +317,8 @@ impl App {
                 recipient,
                 text: Some(&input.text),
                 quotes: &input.response_quotes,
+                chat_quotes: &input.chat_quotes,
+                chat_quote_focus: input.chat_quote_focus,
                 focused: true,
             });
         }
@@ -310,6 +335,8 @@ impl App {
             recipient: row["name"].as_str()?,
             text: draft.map(|draft| &draft.text),
             quotes: draft.map_or(&[], |draft| draft.quotes.as_slice()),
+            chat_quotes: draft.map_or(&[], |draft| draft.chat_quotes.as_slice()),
+            chat_quote_focus: None,
             focused: false,
         })
     }
@@ -317,7 +344,10 @@ impl App {
         if let Some(input) = self.input.as_ref()
             && let Some(key) = input.draft_key.clone()
         {
-            if input.text.is_empty() && input.response_quotes.is_empty() {
+            if input.text.is_empty()
+                && input.response_quotes.is_empty()
+                && input.chat_quotes.is_empty()
+            {
                 self.composer.drafts.remove(&key);
             } else {
                 self.composer.drafts.insert(key, Draft::from_input(input));
@@ -334,6 +364,7 @@ impl App {
         {
             input.text = text.text.clone();
             input.response_quotes = text.quotes.clone();
+            input.chat_quotes = text.chat_quotes.clone();
         }
     }
     pub(super) fn sending_draft(&mut self, input: &Input) {
@@ -353,9 +384,11 @@ impl App {
                     input.draft_key.as_ref() == Some(&key)
                         && input.text.is_empty()
                         && input.response_quotes.is_empty()
+                        && input.chat_quotes.is_empty()
                 }) {
                     input.text = sent.text.clone();
                     input.response_quotes = sent.quotes.clone();
+                    input.chat_quotes = sent.chat_quotes.clone();
                 }
                 self.composer.drafts.entry(key).or_insert(sent);
             }

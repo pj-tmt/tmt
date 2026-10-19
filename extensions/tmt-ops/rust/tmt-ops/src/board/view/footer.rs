@@ -763,6 +763,20 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             look.role(Role::Dim),
         ));
     }
+    // Read guidance uses the already reserved spare row, never the effective
+    // action-hint budget (including authored keys and the Escape ladder).
+    if footer.height >= 2
+        && legend.is_none()
+        && app.error.is_none()
+        && app.migration_notice.is_none()
+        && let Some(hint) = app.rendered_selection_hint()
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(footer.x, footer.y, footer.width, 1),
+            Line::styled(hint, look.role(Role::Muted)),
+        );
+    }
     if let Some([first, _]) = legend {
         strip::paint_left(
             frame.buffer_mut(),

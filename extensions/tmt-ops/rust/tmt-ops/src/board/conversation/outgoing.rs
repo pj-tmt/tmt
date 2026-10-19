@@ -126,33 +126,6 @@ impl Session {
             self.outgoing.pop_front();
         }
     }
-    pub(super) fn retained_response(
-        &self,
-        key: &crate::board::home_leads::MessageKey,
-        sequence: Option<u64>,
-    ) -> Option<&Reply> {
-        if let Some(reply) = self.finals.iter().find(|reply| {
-            reply.acquired
-                && reply.source
-                && reply.key.as_ref().is_some_and(|held| held.same_source(key))
-        }) {
-            return Some(reply);
-        }
-        let reply = if self.outgoing.is_empty() {
-            self.reply.as_ref()
-        } else if let Some(sequence) = sequence {
-            self.outgoing
-                .iter()
-                .find(|entry| entry.ticket.sequence == sequence)
-                .and_then(|entry| entry.reply.as_ref())
-        } else {
-            self.before_send.as_ref()
-        }?;
-        (reply.acquired
-            && reply.source
-            && reply.key.as_ref().is_some_and(|held| held.same_source(key)))
-        .then_some(reply)
-    }
     pub(super) fn correlate(&mut self, incoming: Option<&Reply>) {
         if let Some(reply) = incoming.filter(|reply| {
             reply.acquired

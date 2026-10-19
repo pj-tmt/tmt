@@ -128,6 +128,13 @@ pub struct Snapshot {
     pub view: Result<View, String>,
 }
 
+/// Clipboard feedback follows the gesture; the worker keeps one copy implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyFeedback {
+    Destination,
+    Selection,
+}
+
 /// An action with every value already taken from the row.
 /// Message variants carry the complete frozen body, including any row context
 /// and source quotes. Workers and outgoing matching must not reformat it.
@@ -144,6 +151,7 @@ pub enum Request {
     Copy {
         text: String,
         program: Option<Vec<String>>,
+        feedback: CopyFeedback,
     },
     Run(Vec<String>),
     Talk {
@@ -430,6 +438,8 @@ pub struct Input {
     pub(super) draft_key: Option<(String, String)>,
     pub(super) row_send: Option<RowSend>,
     pub(super) response_quotes: Vec<super::response::Quote>,
+    pub(super) chat_quotes: Vec<super::composer::ChatQuote>,
+    pub(super) chat_quote_focus: Option<usize>,
     pub link: Option<LinkSend>,
     pub prompt: String,
     pub text: tmt_tui::components::Editor,
@@ -2183,6 +2193,7 @@ impl App {
             Verb::Copy => action.args[0].fill(&row).map(|text| Request::Copy {
                 text,
                 program: view.clipboard.clone(),
+                feedback: CopyFeedback::Destination,
             }),
             Verb::Run => action.argv(&row).map(Request::Run),
             _ => unreachable!("handled above"),
@@ -2355,6 +2366,8 @@ impl App {
         self.input = Some(Input {
             draft_key: None,
             response_quotes: Vec::new(),
+            chat_quotes: Vec::new(),
+            chat_quote_focus: None,
             row_send: None,
             link: None,
             prompt,
@@ -2814,6 +2827,9 @@ impl App {
     }
 
     pub(in crate::board) fn input_key(&mut self, key: KeyEvent) -> Effect {
+        if let Some(effect) = self.chat_quote_key(key) {
+            return effect;
+        }
         // Enhanced terminal reporting distinguishes a held Enter from a new
         // submit press. Opening a retained message never arms a repeat send.
         if key.code == KeyCode::Enter
@@ -2931,7 +2947,10 @@ impl App {
         if let Compose::Digest(granted) = input.compose {
             return self.digest_submit(*granted, &input.text);
         }
-        if input.text.as_str().trim().is_empty() && input.response_quotes.is_empty() {
+        if input.text.as_str().trim().is_empty()
+            && input.response_quotes.is_empty()
+            && input.chat_quotes.is_empty()
+        {
             return self.say("Nothing sent.");
         }
         if matches!(input.compose, Compose::Talk { .. } | Compose::Reply { .. })
@@ -2993,6 +3012,12 @@ impl App {
             &passages,
             input.text.as_str(),
         );
+        let chat_passages: Vec<_> = input
+            .chat_quotes
+            .iter()
+            .map(|quote| quote.text.as_str())
+            .collect();
+        let text = crate::requests::message::chat_body(&chat_passages, &text);
         if input
             .row_send
             .as_ref()
@@ -3051,6 +3076,8 @@ impl App {
             self.input = Some(Input {
                 text: Default::default(),
                 response_quotes: Vec::new(),
+                chat_quotes: Vec::new(),
+                chat_quote_focus: None,
                 compose: match &input.compose {
                     Compose::Reply { from, .. } => Compose::Talk { to: from.clone() },
                     compose => compose.clone(),
@@ -3603,6 +3630,9 @@ impl App {
         if let Some(effect) = super::overview::chart::host::key(self, key) {
             return effect;
         }
+        if let Some(effect) = self.conversation_source_key(key) {
+            return effect;
+        }
         if key.code == KeyCode::Esc
             && key.kind != ratatui::crossterm::event::KeyEventKind::Release
             && self.conversation_source_escape()
@@ -3824,6 +3854,7 @@ impl App {
             self.move_pointer(event);
             return Effect::None;
         }
+        self.conversation_source_outside_press(event);
         // Activation never transfers hover to a replacement modal or control.
         self.buttons.clear_hover();
         // A button/wheel event carries the current position too. Reconcile an
@@ -3844,6 +3875,9 @@ impl App {
             self.last_click = None;
             return Effect::None;
         }
+        if let Some(effect) = self.conversation_quote_mouse(event) {
+            return effect;
+        }
         if let Some(effect) = self.member_link_mouse(event) {
             return effect;
         }
@@ -3851,6 +3885,17 @@ impl App {
             return Effect::None;
         }
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let chat_quote = self
+                .composer
+                .chat_quote_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.area.contains((event.column, event.row).into()))
+                .cloned();
+            if let Some(hit) = chat_quote {
+                self.remove_chat_quote(&hit);
+                return Effect::None;
+            }
             let quote = self
                 .composer
                 .quote_hit
@@ -5018,6 +5063,8 @@ pub(crate) mod tests {
                 app.input = Some(Input {
                     draft_key: None,
                     response_quotes: Vec::new(),
+                    chat_quotes: Vec::new(),
+                    chat_quote_focus: None,
                     row_send: None,
                     link: None,
                     prompt: "message".into(),
@@ -5772,6 +5819,8 @@ mod token_window_tests {
             app.input = Some(Input {
                 draft_key: None,
                 response_quotes: Vec::new(),
+                chat_quotes: Vec::new(),
+                chat_quote_focus: None,
                 row_send: None,
                 link: None,
                 prompt: "message".into(),

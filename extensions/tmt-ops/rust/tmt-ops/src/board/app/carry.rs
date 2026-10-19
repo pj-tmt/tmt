@@ -258,6 +258,8 @@ mod tests {
                 app.input = Some(crate::board::app::Input {
                     draft_key: None,
                     response_quotes: Vec::new(),
+                    chat_quotes: Vec::new(),
+                    chat_quote_focus: None,
                     row_send: None,
                     link: None,
                     prompt: String::new(),

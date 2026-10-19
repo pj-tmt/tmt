@@ -59,9 +59,6 @@ impl App {
             .map(|hit| hit.key.clone())
             .collect();
         let session = state.sessions.get_mut(&active)?;
-        if session.exact_source.is_some() {
-            return None;
-        }
         // Relative key bursts may arrive before repaint. Retained keyboard
         // focus has no pointer authority and must not fall through to Send.
         if keys.is_empty()
@@ -136,7 +133,7 @@ impl App {
             })
             .cloned()?;
         let session = state.sessions.get_mut(&active)?;
-        if session.exact_source.is_some() || !session.folds.toggle(&hit.key) {
+        if !session.folds.toggle(&hit.key) {
             return None;
         }
         session.folds.focused = Some(hit.key);

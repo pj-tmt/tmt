@@ -52,7 +52,7 @@ pub(super) fn render(
             .and_then(|row| row["fields"][key].as_str())
             .filter(|value| !value.is_empty());
         if *y < area.bottom() {
-            key_value::paint(
+            let value_area = key_value::paint_value(
                 frame.buffer_mut(),
                 Rect::new(area.x, *y, area.width, 1),
                 &key_value::Row {
@@ -64,6 +64,11 @@ pub(super) fn render(
                 },
                 look,
             );
+            if let Some(value_area) = value_area
+                && let Some(target) = app.conversation_target()
+            {
+                crate::board::conversation::source::publish(app, target, value_area);
+            }
             *y += 1;
         }
     }

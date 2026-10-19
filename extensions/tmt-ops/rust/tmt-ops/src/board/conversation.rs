@@ -24,7 +24,7 @@ pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
 pub(super) mod outgoing;
-mod source;
+pub(in crate::board) mod source;
 mod transcript;
 
 #[derive(Clone)]
@@ -43,8 +43,9 @@ pub(super) struct State {
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
     fold_hits: Vec<body::Hit>,
-    reply_hits: Vec<source::ReplyHit>,
-    source_drag: Option<source::ReplyHit>,
+    source_surfaces: Vec<source::Surface>,
+    source_areas: Vec<(RowTarget, Rect)>,
+    selection: Option<source::Source>,
     response_area: Option<Rect>,
     pub area: Rect,
     pub pane: Option<Rect>,
@@ -110,7 +111,6 @@ struct Session {
         super::home_leads::MessageKey,
         std::ops::Range<usize>,
     )>,
-    exact_source: Option<source::Source>,
     agent_mark: String,
     authored_lines: BTreeMap<usize, AuthoredLine>,
     compact_separators: std::collections::BTreeSet<usize>,
@@ -133,7 +133,6 @@ impl Default for Session {
             outgoing: Default::default(),
             before_send: None,
             response_spans: Default::default(),
-            exact_source: None,
             agent_mark: String::new(),
             authored_lines: Default::default(),
             compact_separators: Default::default(),
@@ -426,18 +425,13 @@ impl App {
         let Some(identity) = state.active.clone() else {
             return;
         };
-        state.reply_hits.clear();
-        state.source_drag = None;
+        state.source_surfaces.clear();
         let response_area = state
             .response_area
             .filter(|_| self.scrolls.visible(Pane::Replies));
         let Some(session) = state.sessions.get_mut(&identity) else {
             return;
         };
-        if let Some(source) = &mut session.exact_source {
-            source.scroll(self.scrolls.offset(pane), step, self.scrolls.visible(pane));
-            return;
-        }
         if matches!(step, Step::Lines(0) | Step::Pages(0)) {
             return;
         }
@@ -540,7 +534,6 @@ fn render_target(
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
     app.conversation.borrow_mut().fold_hits.clear();
-    app.conversation.borrow_mut().reply_hits.clear();
     app.conversation.borrow_mut().response_area = None;
     let row = target
         .as_ref()
@@ -622,7 +615,6 @@ fn render_target(
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity.clone()).or_default();
     let state_words = session.observe_context(app, &target, row);
-    let name = sanitize(row["name"].as_str().unwrap_or("unknown agent"));
     let values = tree_row
         .zip(app.workspace_snapshot())
         .map(|(row, snapshot)| super::overview::monitor::values(app, snapshot, row));
@@ -836,15 +828,7 @@ fn render_target(
         "reading · End resumes follow"
     };
     header.push(rule(
-        if session.exact_source.is_some() {
-            if interactive {
-                format!("Exact response source · {name} · Esc back")
-            } else {
-                format!("Exact response source · {name}")
-            }
-        } else {
-            format!("Response · {flow}")
-        },
+        format!("Response · {flow}"),
         if session.change != Change::Current {
             Role::Waiting
         } else {
@@ -981,11 +965,6 @@ fn render_target(
     if body.is_empty() {
         return;
     }
-    if let Some(source) = &mut session.exact_source {
-        source::paint_with_interactivity(frame, app, source, &target, body, look, interactive);
-        state.header_hits = painted_controls;
-        return;
-    }
     let position = (input_height > 0 && body.height > 1)
         .then(|| Rect::new(body.x, body.bottom() - 1, body.width, 1));
     let body = Rect {
@@ -1047,7 +1026,7 @@ fn render_target(
             position,
             Line::styled(
                 format!(
-                    "{}–{} / {}  ·  select text to annotate",
+                    "{}–{} / {}  ·  select text to copy",
                     if visible == 0 { 0 } else { offset + 1 },
                     offset + visible,
                     mapped.lines.len()
@@ -1056,21 +1035,6 @@ fn render_target(
             ),
         );
     }
-    let mut reply_hits = Vec::new();
-    for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
-        if interactive
-            && mapped.lines[index].width() > 0
-            && let Some((key, sequence)) = session.response_key_at(mapped.sources[index])
-        {
-            reply_hits.push(source::ReplyHit {
-                area: Rect::new(body.x, body.y + (index - offset) as u16, body.width, 1),
-                target: target.clone(),
-                key: key.clone(),
-                sequence,
-                offset,
-            });
-        }
-    }
     if switched || rebuilt || previous != offset {
         session.anchor.select_visual(
             &session.rendered.as_ref().unwrap().anchor_text,
@@ -1078,7 +1042,6 @@ fn render_target(
             offset,
         );
     }
-    state.reply_hits = reply_hits;
     state.response_area = Some(body);
     state.fold_hits = painted_folds;
     state.header_hits = painted_controls;

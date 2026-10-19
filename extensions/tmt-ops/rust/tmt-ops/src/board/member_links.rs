@@ -90,6 +90,7 @@ struct Hit {
 pub(super) struct State {
     hits: Vec<Hit>,
     focused: Option<Hit>,
+    pressed: Option<(Hit, ratatui::layout::Position, bool)>,
     screen: Rect,
 }
 impl State {
@@ -100,6 +101,7 @@ impl State {
     pub fn invalidate(&mut self) {
         self.hits.clear();
         self.focused = None;
+        self.pressed = None;
     }
 }
 
@@ -308,17 +310,50 @@ impl App {
         Effect::None
     }
     pub(super) fn member_link_mouse(&mut self, event: MouseEvent) -> Option<Effect> {
-        if event.kind != MouseEventKind::Down(MouseButton::Left) {
-            return None;
+        let point = (event.column, event.row).into();
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let hit = self
+                    .member_links
+                    .borrow()
+                    .hits
+                    .iter()
+                    .find(|hit| hit.area.contains(point))
+                    .cloned();
+                self.member_links.borrow_mut().pressed = None;
+                let hit = hit?;
+                if hit.reader && self.rendered_selection_at(point) {
+                    // A conversation link remains clickable, but the first drag
+                    // must select its rendered name rather than open a menu.
+                    self.member_links.borrow_mut().pressed = Some((hit, point, false));
+                    None
+                } else {
+                    Some(self.open_member_link(hit))
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some((_, start, dragged)) = &mut self.member_links.borrow_mut().pressed {
+                    *dragged |= point != *start;
+                }
+                None
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                let (hit, _, dragged) = self.member_links.borrow_mut().pressed.take()?;
+                let current = self
+                    .member_links
+                    .borrow()
+                    .hits
+                    .iter()
+                    .any(|current| current == &hit);
+                if !dragged && current && hit.area.contains(point) {
+                    self.conversation_source_escape();
+                    Some(self.open_member_link(hit))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
-        let hit = self
-            .member_links
-            .borrow()
-            .hits
-            .iter()
-            .find(|hit| hit.area.contains((event.column, event.row).into()))
-            .cloned()?;
-        Some(self.open_member_link(hit))
     }
     fn reader_link_default_key(&self, event: &str) -> bool {
         self.input.is_none()

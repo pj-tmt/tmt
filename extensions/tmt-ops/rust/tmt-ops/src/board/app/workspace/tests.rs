@@ -185,6 +185,7 @@ enter = "menu"
     let copy = Effect::Act(Request::Copy {
         text: "worker".into(),
         program: Some(vec!["clipboard".into(), "--input".into()]),
+        feedback: crate::board::app::CopyFeedback::Destination,
     });
     assert_eq!(key(&mut app, KeyCode::F(2)), copy);
     let target = selected.as_ref().unwrap();
@@ -715,7 +716,8 @@ fn configured_paging_key_runs_its_action_before_default_tree_navigation() {
         key(&mut app, KeyCode::PageDown),
         Effect::Act(Request::Copy {
             text: "worker".into(),
-            program: None
+            program: None,
+            feedback: crate::board::app::CopyFeedback::Destination,
         })
     );
     assert_eq!(app.workspace.selected, selected);

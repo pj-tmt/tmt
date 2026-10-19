@@ -143,8 +143,9 @@ state only, no squad data or durable preference policy.
   The retired inline row overflow click targets and their frame cache are removed.
   Full bodies arrive through the cancellable worker/request cache, fenced by exact
   sender/recipient/request. A compatible `view-reply` action opens the shared
-  read-only modal/ScrollState reader. Source selection and annotation revalidate
-  the exact request and raw body before producing an effect; reading alone sends
+  read-only modal/ScrollState reader. Exact note attachments revalidate
+  the request and raw body before producing an effect; literal rendered-text
+  selection and chat quote chips have no source authority; reading alone sends
   and acknowledges nothing.
 - Row composer and footer: member messages have one recipient and no Tab mode
   cycle. App resolves the newest current open request only at submission; no open

@@ -154,6 +154,7 @@ fn configured_destination_and_reader_entry_share_the_effective_table() {
         Effect::Act(Request::Copy {
             text: "worker".into(),
             program: None,
+            feedback: crate::board::app::CopyFeedback::Destination,
         })
     );
     assert_eq!(key(&mut app, KeyCode::F(2)), Effect::None);
