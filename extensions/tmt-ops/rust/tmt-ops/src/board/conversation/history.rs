@@ -98,4 +98,6 @@ impl Session {
 pub(super) enum Block {
     Existing(usize),
     Final(usize),
+    /// A restored send, by position in `Session::restored_sends`.
+    Sent(usize),
 }

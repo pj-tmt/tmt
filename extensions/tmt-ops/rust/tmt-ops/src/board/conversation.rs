@@ -109,6 +109,8 @@ struct Session {
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
     transcript_context: transcript::Context,
+    /// The user's durable sends to this agent, restored from storage.
+    sent: Vec<crate::board::row_detail::Sent>,
 }
 
 impl Default for Session {
@@ -131,6 +133,7 @@ impl Default for Session {
             pane_output: Default::default(),
             pane_output_fresh: false,
             transcript_context: Default::default(),
+            sent: Vec::new(),
         }
     }
 }
@@ -228,6 +231,10 @@ impl Session {
     ) -> String {
         let detail = app.detail(&Target::Row(target.clone())).unwrap_or_default();
         self.observe_finals(detail.finals);
+        if self.sent != detail.sent {
+            self.sent = detail.sent;
+            self.rendered = None;
+        }
         self.update(detail.reply);
         let projected = match target {
             RowTarget::Workspace(target) => app

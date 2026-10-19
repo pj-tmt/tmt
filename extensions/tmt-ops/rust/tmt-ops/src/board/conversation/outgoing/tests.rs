@@ -1898,3 +1898,22 @@ fn a_hooked_agent_that_starts_late_shows_a_neutral_sent_and_never_not_reported()
         assert!(!screen.contains("not reported"), "{screen}");
     });
 }
+
+#[test]
+fn a_restored_send_is_dropped_once_a_live_entry_has_the_same_request() {
+    let mut app = fixture();
+    let fake = Fake::new(json!({"requestId":"req-live","status":"sent"}), false);
+    let completed = send(&mut app, &fake, "Sent in this session");
+    finish(&mut app, completed);
+    let mut state = app.conversation.borrow_mut();
+    let session = state.sessions.values_mut().next().unwrap();
+    let sent = |request: &str| crate::board::row_detail::Sent {
+        request: request.into(),
+        at_ms: 1,
+        text: "text".into(),
+        truncated: false,
+    };
+    session.sent = vec![sent("req-live"), sent("req-old")];
+    let restored: Vec<_> = session.restored_sends().map(|send| &send.request).collect();
+    assert_eq!(restored, ["req-old"]);
+}
