@@ -22,11 +22,20 @@ export interface ActivityEntry {
   /** Owner-clock duration at acquisition, never compared with a viewer timestamp. */
   elapsedMs: number;
 }
+/** Agent-wide telemetry from the same read as the per-Ask lines; never an admission source. */
+export interface ActivityAgent {
+  machine: string;
+  machineName: string;
+  agent: string;
+  name: string;
+  state: AgentActivity['state'];
+}
 export interface ActivityObservation {
   active: boolean;
   receivedAt: number;
   intervalMs: number;
   entries: ActivityEntry[];
+  agents?: ActivityAgent[];
 }
 /** An anchor and observed transition live only in this page's controller incarnation. */
 export class ActivityTracker {

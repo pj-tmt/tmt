@@ -1102,6 +1102,7 @@ export function conversationActivity(options: {
   kind: 'sent' | 'working' | 'queued' | 'finished' | 'unknown';
   active?: boolean;
   ageMs?: number;
+  chipState?: 'working' | 'idle' | 'unknown' | 'ended';
 }) {
   const record = current.asks![0];
   current = {
@@ -1110,6 +1111,17 @@ export function conversationActivity(options: {
       active: options.active ?? true,
       receivedAt: performance.now() - (options.ageMs ?? 0),
       intervalMs: 60_000,
+      agents: options.chipState
+        ? [
+            {
+              machine: record.machine,
+              machineName: 'This machine',
+              agent: record.agent,
+              name: record.agentName,
+              state: options.chipState,
+            },
+          ]
+        : [],
       entries: [
         {
           operationId: record.operationId,

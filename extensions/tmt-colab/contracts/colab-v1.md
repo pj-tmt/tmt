@@ -2020,7 +2020,7 @@ the current Ask cadence interval; otherwise one directory read is made at Send.
 Without that fresh owner-clock anchor the line stays `Sent`; the viewer's intent
 issuedAt is never substituted. Working since the anchor, including equality, shows
 `⠹ <name> is working · m:ss`; earlier working shows
-`◌ <name> is finishing an earlier turn · 3m`, without animation. Only an observed
+`◌ <name> is finishing an earlier turn · 3m`, with a static queued mark. Only an observed
 working phase at or after the anchor followed by idle, without a reply, shows
 `✓ <name> finished without replying · 2m ago`. Explicit unknown/ended or stale
 telemetry shows `✓ sent · <name>'s activity is not reported`. Durations use owner
@@ -2047,7 +2047,13 @@ leaves plain `Sent` or the last non-working state. This is a controller-local ra
 bound, not a cross-tab or per-device daily quota. Remote's current observational
 reads are not journal-adopted; its separate call limits still apply.
 
-The agent uses the existing shared chip, whose icon becomes its working spinner.
+Every shared agent chip in the current page uses the same observation, with no
+additional reads. Its robot becomes a labelled working spinner only for a unique
+matching agent with fresh, valid working telemetry; idle, ended, unknown, stale,
+hidden and stopped observations keep the robot. This is agent-wide activity,
+not a claim that the agent is working on this particular Ask: a queued Ask may
+still name an agent working on an earlier turn. Name-only chips with ambiguous
+matches keep the robot. The chip never changes recipients or Send admission.
 Only that spinner and the finished check use the working/success colour; all text,
 queued and unknown marks stay neutral. Reduced motion keeps working text static;
 words carry every state, and text and marks remain visible under forced colours.

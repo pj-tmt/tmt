@@ -518,6 +518,22 @@ export class AskController {
                 active: true,
                 receivedAt: performance.now(),
                 intervalMs: ACTIVITY_READ_INTERVAL_MS,
+                agents:
+                  snapshot?.machines.flatMap((machine) =>
+                    machine.agents.map((agent) => ({
+                      machine: machine.id,
+                      machineName: machine.name,
+                      agent: agent.id,
+                      name: agent.name,
+                      state:
+                        agent.activity?.sinceMs !== null &&
+                        agent.activity?.sinceMs !== undefined &&
+                        agent.observedAtMs !== undefined &&
+                        agent.activity.sinceMs <= agent.observedAtMs
+                          ? agent.activity.state
+                          : ('unknown' as const),
+                    })),
+                  ) ?? [],
                 entries: current.map((view) => {
                   const operation = {
                     operationId: view.intent.operationId,

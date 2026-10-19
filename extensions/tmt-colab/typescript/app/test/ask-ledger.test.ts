@@ -1598,13 +1598,30 @@ describe('active Ask observation', () => {
               activity: { state: 'working' as const, sinceMs: 1000 },
               observedAtMs: 2000,
             },
+            {
+              id: id(7),
+              name: 'Another agent',
+              activity: { state: 'working' as const, sinceMs: 500 },
+              observedAtMs: 2000,
+            },
+            {
+              id: id(8),
+              name: 'Future clock',
+              activity: { state: 'working' as const, sinceMs: 3000 },
+              observedAtMs: 2000,
+            },
           ],
         },
       ],
     };
+    const activityRead = vi.fn(async () => ({
+      kind: 'ready' as const,
+      checkedAt: Date.now(),
+      snapshot,
+    }));
     const f = await pendingObservation(
       {
-        activityRead: async () => ({ kind: 'ready', checkedAt: Date.now(), snapshot }),
+        activityRead,
         activityObserved,
       },
       [{ id: id(6), name: 'Agent', observedAtMs: 1000 }],
@@ -1613,6 +1630,30 @@ describe('active Ask observation', () => {
       kind: 'working',
       elapsedMs: 1000,
     });
+    expect(activityObserved.mock.calls.at(-1)![0].agents).toEqual([
+      {
+        machine: context.machineId,
+        machineName: 'Owner',
+        agent: id(6),
+        name: 'Agent',
+        state: 'working',
+      },
+      {
+        machine: context.machineId,
+        machineName: 'Owner',
+        agent: id(7),
+        name: 'Another agent',
+        state: 'working',
+      },
+      {
+        machine: context.machineId,
+        machineName: 'Owner',
+        agent: id(8),
+        name: 'Future clock',
+        state: 'unknown',
+      },
+    ]);
+    expect(activityRead).toHaveBeenCalledTimes(1);
     vi.setSystemTime(Date.now() + ASK_OBSERVATION_MS);
     await vi.advanceTimersToNextTimerAsync();
     await f.observing;
