@@ -75,7 +75,7 @@ pub fn document(input: &Input<'_>) -> Value {
         "since": input.since,
         "fromMs": input.from_ms,
         "throughMs": input.through_ms,
-        "baseline": "each message delivered on its own",
+        "baseline": "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway",
         "delayBasis": "settled minus arrival",
         "members": rows,
         "total": figures(&total, input.recompute.is_some()),

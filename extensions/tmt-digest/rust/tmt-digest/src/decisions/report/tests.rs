@@ -97,7 +97,10 @@ fn every_report_carries_the_baseline_and_the_turns_saved_beside_the_actual_delay
         ],
     );
     let document = run(&settlements, &[], None);
-    assert_eq!(document["baseline"], "each message delivered on its own");
+    assert_eq!(
+        document["baseline"],
+        "each message delivered on its own; turnsSaved is an upper bound, because a busy agent may combine queued messages anyway"
+    );
     let member = &document["members"][0];
     assert_eq!(member["id"], A);
     assert_eq!(member["name"], "worker");
