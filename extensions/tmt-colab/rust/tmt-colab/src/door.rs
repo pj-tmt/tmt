@@ -13,6 +13,17 @@ fn remote_call(words: &[&str]) -> Option<(bool, String)> {
     remote_call_until(words, Instant::now() + TIMEOUT)
 }
 pub(crate) fn remote_call_until(words: &[&str], deadline: Instant) -> Option<(bool, String)> {
+    let output = invoke_remote(words, deadline)?.ok()?;
+    Some((
+        output.status.success(),
+        String::from_utf8(output.stdout).ok()?,
+    ))
+}
+/// The call itself; `None` only when the deadline had already passed or no core could be found.
+fn invoke_remote(
+    words: &[&str],
+    deadline: Instant,
+) -> Option<Result<tmt_invoke::Output, tmt_invoke::InvokeError>> {
     if Instant::now() >= deadline {
         return None;
     }
@@ -21,7 +32,7 @@ pub(crate) fn remote_call_until(words: &[&str], deadline: Instant) -> Option<(bo
         .chain(words.iter().copied())
         .map(Into::into)
         .collect();
-    let output = tmt_invoke::invoke(
+    Some(tmt_invoke::invoke(
         Request {
             program: &executable,
             args: &args,
@@ -31,12 +42,33 @@ pub(crate) fn remote_call_until(words: &[&str], deadline: Instant) -> Option<(bo
             launch: Default::default(),
         },
         None,
-    )
-    .ok()?;
-    Some((
-        output.status.success(),
-        String::from_utf8(output.stdout).ok()?,
     ))
+}
+/// What one call of Remote's hidden `launch` seam produced.
+pub(crate) enum Launch {
+    /// The seam could not be reached at all: no core executable, or it would not start.
+    Unreachable,
+    /// The call started but gave no complete answer (deadline, output cap, interruption). Whether
+    /// the browser opened is unknown, so the caller must not open a second time.
+    NoAnswer,
+    /// The command ran: its exit code and what it printed.
+    Ran { code: Option<u32>, stdout: String },
+}
+/// Calls `tmt remote launch <target> <flag>` once. The launch URL stays inside Remote; only its
+/// versioned JSON answer comes back.
+pub(crate) fn remote_launch(target: &str, flag: &str, deadline: Instant) -> Launch {
+    match invoke_remote(&["launch", target, flag], deadline) {
+        None => Launch::Unreachable,
+        Some(Err(error)) if error.kind == tmt_invoke::FailureKind::Spawn => Launch::Unreachable,
+        Some(Err(_)) => Launch::NoAnswer,
+        Some(Ok(output)) => match String::from_utf8(output.stdout) {
+            Ok(stdout) => Launch::Ran {
+                code: output.status.code,
+                stdout,
+            },
+            Err(_) => Launch::NoAnswer,
+        },
+    }
 }
 /// One creation snapshot reused for recipient provenance and link presentation.
 pub struct CreationObservation {
