@@ -186,6 +186,8 @@ pub enum HostError {
     },
     /// TMT could not record an external server's incarnation.
     ServerIds(Box<dyn std::error::Error + Send + Sync>),
+    /// TMT's own read of the caller's processes could not clean up.
+    Process(CommandError),
 }
 
 impl HostError {
@@ -193,6 +195,7 @@ impl HostError {
         match self {
             Self::Tmux(error) => error.cleanup_failed(),
             Self::Driver(external::CallError::Process { error, .. }) => error.cleanup_failed(),
+            Self::Process(error) => error.cleanup_failed(),
             Self::Unavailable(_)
             | Self::Driver(_)
             | Self::Refused { .. }
@@ -208,7 +211,8 @@ impl HostError {
             | Self::Driver(_)
             | Self::Refused { .. }
             | Self::Evidence { .. }
-            | Self::ServerIds(_) => false,
+            | Self::ServerIds(_)
+            | Self::Process(_) => false,
         }
     }
 }
@@ -233,6 +237,7 @@ impl fmt::Display for HostError {
             } => write!(output, "Host driver {driver}: {message}"),
             Self::Evidence { driver, reason } => write!(output, "Host driver {driver}: {reason}."),
             Self::ServerIds(error) => write!(output, "Could not record the host server: {error}"),
+            Self::Process(error) => error.fmt(output),
         }
     }
 }
@@ -254,6 +259,7 @@ impl std::error::Error for HostError {
             Self::Tmux(error) => error.source(),
             Self::Driver(error) => Some(error),
             Self::ServerIds(error) => Some(error.as_ref()),
+            Self::Process(error) => Some(error),
             Self::Unavailable(_) | Self::Refused { .. } | Self::Evidence { .. } => None,
         }
     }

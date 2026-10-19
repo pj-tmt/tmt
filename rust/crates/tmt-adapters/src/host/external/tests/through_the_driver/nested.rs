@@ -28,6 +28,9 @@ struct State {
     /// Every `ps` and `tmux` call, and the native link reads asked for.
     calls: Vec<String>,
     native_links: usize,
+    /// A `ps` read (`"link"` or `"observe"`) whose child could not be
+    /// cleaned up.
+    unclean: Option<&'static str>,
 }
 
 #[derive(Clone)]
@@ -114,6 +117,11 @@ impl World {
         self
     }
 
+    fn unclean(self, read: &'static str) -> Self {
+        self.edit(|state| state.unclean = Some(read));
+        self
+    }
+
     fn calls(&self) -> Vec<String> {
         self.0.borrow().calls.clone()
     }
@@ -123,6 +131,11 @@ impl World {
         let pids: Vec<u64> = list.split(',').map(|pid| pid.parse().unwrap()).collect();
         let state = self.0.borrow();
         let link = args.iter().any(|arg| arg == "ppid=");
+        if state.unclean == Some(if link { "link" } else { "observe" }) {
+            let mut error = exit(1);
+            error.cleanup_error = Some(std::io::Error::other("ps survived"));
+            return Some(Err(error));
+        }
         if !pids.iter().all(|pid| state.processes.contains_key(pid)) {
             // Real ps exits 1 for a pid that is gone.
             return link.then(|| Err(exit(1)));
@@ -272,6 +285,9 @@ fn a_driver_in_doubt_refuses_and_never_falls_back_to_tmux() {
     doubt(nested(&tmux_in_herdr(), Pane::Fails));
     doubt(nested(&tmux_in_herdr(), Pane::Changed(500)));
     doubt(nested(&tmux_in_herdr(), Pane::NotText(500)));
+    // A driver that names the tmux pane's own shell: one pane process has
+    // one host, so neither owns it.
+    doubt(nested(&tmux_in_herdr(), Pane::Shell(30)));
 }
 
 #[test]
@@ -318,7 +334,7 @@ fn tmux_in_doubt_refuses_and_never_counts_as_absent() {
 }
 
 #[test]
-fn a_partial_tmux_environment_refuses_without_a_tmux_call() {
+fn a_partial_tmux_environment_refuses_before_any_read() {
     let ids = &mut Ids::default();
     herdr_owns(
         nested_in(&detached(), Pane::Shell(30), TmuxEnv::Full, ids),
@@ -327,13 +343,8 @@ fn a_partial_tmux_environment_refuses_without_a_tmux_call() {
     for env in [TmuxEnv::PaneOnly, TmuxEnv::TmuxOnly] {
         let world = detached();
         doubt(nested_in(&world, Pane::Shell(30), env, ids));
-        let calls = world.calls();
-        assert!(
-            !calls
-                .iter()
-                .any(|call| call.starts_with("tmux") || call.starts_with("ps ")),
-            "{calls:?}"
-        );
+        // Refused before the pin, the driver and tmux: no read at all.
+        assert_eq!(world.calls(), Vec::<String>::new());
     }
 }
 
@@ -530,4 +541,16 @@ fn a_caller_named_by_one_host_or_none_reads_no_pinned_chain() {
         (HostKind::Tmux, None)
     );
     assert_eq!(*builtin.pinned.borrow(), 0);
+}
+
+#[test]
+fn a_failed_cleanup_is_an_error_of_its_own() {
+    herdr_owns(nested(&herdr_in_tmux(), Pane::Shell(30)), 30);
+    for read in ["link", "observe"] {
+        let result = nested(&herdr_in_tmux().unclean(read), Pane::Shell(30));
+        assert!(
+            matches!(&result, Err(error @ HostError::Process(_)) if error.cleanup_failed()),
+            "{read}: {result:?}"
+        );
+    }
 }

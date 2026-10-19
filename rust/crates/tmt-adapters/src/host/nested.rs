@@ -4,7 +4,7 @@
 //! either side refuses; it never falls back to the other host.
 
 use super::{CallerEnvironment, Host, HostError};
-use crate::process::{CommandRunner, ancestry, runtime::observe_starts};
+use crate::process::{CommandError, CommandRunner, ancestry, runtime::observe_starts};
 use std::time::Instant;
 use tmt_core::host::HostServerIds;
 
@@ -24,8 +24,9 @@ impl<R: CommandRunner + Clone> Host<R> {
     /// one server-checked `display-message`. A host whose conclusive answer
     /// is not on the chain is absent; the nearer located pane owns the
     /// caller. Every entry from the caller up to the owner pane must still
-    /// be the process that was pinned. Doubt on either side, no located
-    /// pane, or a changed entry refuses.
+    /// be the process that was pinned. A partial tmux environment, doubt on
+    /// either side, both hosts naming one pane process, no located pane, or a
+    /// changed entry refuses; a failed cleanup is its own error.
     pub(super) fn for_nested_caller<I: HostServerIds>(
         environment: &CallerEnvironment,
         builtin: Self,
@@ -36,8 +37,27 @@ impl<R: CommandRunner + Clone> Host<R> {
     ) -> Result<Self, HostError> {
         let unverified =
             |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
-        let chain = ancestry::pinned_chain(&runner, environment.process_id, deadline)
-            .map_err(|_| unverified("the caller's ancestry could not be pinned"))?;
+        // Only a failed cleanup is an error of its own; anything else is doubt.
+        let cleanup = |error: CommandError, reason: &str| {
+            if error.cleanup_failed() {
+                HostError::Process(error)
+            } else {
+                unverified(reason)
+            }
+        };
+        let set =
+            |value: &Option<std::ffi::OsString>| value.as_ref().is_some_and(|v| !v.is_empty());
+        if !(set(&environment.tmux) && set(&environment.pane)) {
+            return Err(unverified("the caller's tmux variables are partial"));
+        }
+        let pinning = "the caller's ancestry could not be pinned";
+        let chain =
+            ancestry::pinned_chain(&runner, environment.process_id, deadline).map_err(|error| {
+                match error {
+                    ancestry::AncestryError::Command(error) => cleanup(error, pinning),
+                    ancestry::AncestryError::Unavailable => unverified(pinning),
+                }
+            })?;
         let callers = builtin
             .external
             .callers(environment, Some(&chain), deadline)?;
@@ -55,11 +75,16 @@ impl<R: CommandRunner + Clone> Host<R> {
                 }
             })?;
         let tmux = chain.position(tmux);
-        let external = callers
-            .found
-            .into_iter()
-            .next()
-            .filter(|external| tmux.is_none_or(|tmux| external.depth < tmux));
+        let external = callers.found.into_iter().next();
+        // One pane process belongs to one host: both naming it is doubt.
+        if external
+            .as_ref()
+            .zip(tmux)
+            .is_some_and(|(external, tmux)| external.depth == tmux)
+        {
+            return Err(unverified("both hosts name the same pane process"));
+        }
+        let external = external.filter(|external| tmux.is_none_or(|tmux| external.depth < tmux));
         let owner = match (&external, tmux) {
             (Some(external), _) => external.depth,
             (None, Some(tmux)) => tmux,
@@ -68,7 +93,7 @@ impl<R: CommandRunner + Clone> Host<R> {
         let segment = &chain.links()[..=owner];
         let pids: Vec<u64> = segment.iter().map(|link| link.process.pid()).collect();
         let now = observe_starts(&runner, &pids, deadline)
-            .map_err(|_| unverified("the caller's ancestry could not be observed again"))?;
+            .map_err(|error| cleanup(error, "the caller's ancestry could not be observed again"))?;
         if Instant::now() >= deadline
             || !segment
                 .iter()

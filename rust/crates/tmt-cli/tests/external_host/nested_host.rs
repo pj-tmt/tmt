@@ -169,8 +169,8 @@ fn a_nested_pane_that_is_not_the_pinned_shell_refuses() {
 }
 
 /// Caller-session discovery after an ordinary command is scheduled by the
-/// caller's pane locators. A nested caller's only pane ID is tmux's (an
-/// external host's variable holds a target), so with no binding on that
+/// caller's pane locators. A nested caller's only pane ID is tmux's (Herdr's
+/// caller variable, like this fake host's, holds a target), so with no binding on that
 /// tmux pane the worker does not run: nothing is asked or recorded. Without
 /// the tmux variables the same command records the session
 /// (`a_caller_in_an_external_pane_records_its_session_after_a_command`).
