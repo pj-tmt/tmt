@@ -11,6 +11,7 @@ import {
   failingTests,
   renderInfraTick,
   QUEUE_QUERY,
+  REVIEW_QUERY,
   type TickOptions,
 } from '../../scripts/infra-tick-summary.mjs';
 
@@ -120,15 +121,24 @@ function fixture({
       }
       if (endpoint.includes('/logs')) return log;
       if (endpoint.includes('/pulls?state=open'))
-        return open.map((row: any) => ({ updated_at: options.until, head: { sha: SHA }, ...row }));
+        return open.map((row: any) => ({
+          updated_at: options.until,
+          head: { sha: SHA },
+          node_id: `PR_${row.id}`,
+          ...row,
+        }));
       if (endpoint.includes('/pulls?state=closed'))
         return closed.map((row: any) => ({
           updated_at: options.until,
           head: { sha: SHA },
+          node_id: `PR_${row.id}`,
           ...row,
         }));
-      if (endpoint.includes('/files?')) return files;
-      if (endpoint.includes('/comments?')) return comments;
+      if (endpoint.includes('/files?') || endpoint.includes('/comments?')) {
+        const rows = endpoint.includes('/files?') ? files : comments;
+        const page = Number(new URL(`https://api.github.com/${endpoint}`).searchParams.get('page'));
+        return rows.slice((page - 1) * 100, page * 100);
+      }
       if (/\/pulls\/\d+$/.test(endpoint))
         return {
           number: 1,
@@ -139,6 +149,38 @@ function fixture({
     },
     releases: () => releases,
     queue: () => queue,
+    reviews: (ids: string[]) => {
+      calls.push('graphql:InfraTickReviews');
+      return ids.map((id) => {
+        const pr: any = [...open, ...closed].find(
+          (row: any) => (row.node_id ?? `PR_${row.id}`) === id
+        );
+        return {
+          __typename: 'PullRequest',
+          id,
+          number: pr.number,
+          repository: { nameWithOwner: options.repository },
+          headRefOid: changedHead ? 'b'.repeat(40) : (pr.head?.sha ?? SHA),
+          changedFiles: files.length,
+          files: {
+            totalCount: files.length,
+            pageInfo: { hasNextPage: files.length > 100 },
+            nodes: files.slice(0, 100).map((file) => ({ path: file.filename })),
+          },
+          comments: {
+            totalCount: comments.length,
+            pageInfo: { hasPreviousPage: comments.length > 100, hasNextPage: false },
+            nodes: comments.slice(-100).map((comment: any) => ({
+              id: `IC_${comment.id}`,
+              body: comment.body,
+              url:
+                comment.html_url ??
+                `https://github.com/pj-tmt/tmt/pull/${pr.number}#issuecomment-${comment.id}`,
+            })),
+          },
+        };
+      });
+    },
     evidence: () => ({ requests: calls.length }),
   };
 }
@@ -674,7 +716,7 @@ describe('bounded read-only tick transport', () => {
     );
     try {
       expect(() => api.get('repos/pj-tmt/tmt/probe')).toThrow(
-        'time budget exhausted (120 seconds; 1/80 calls)'
+        'time budget exhausted (120 seconds; 1/80 calls; stage=acquisition; PRs=0)'
       );
     } finally {
       rmSync(cache, { recursive: true, force: true });
@@ -799,45 +841,49 @@ else throw Error('Unexpected endpoint');
   });
 });
 
-it('cannot converge by retrying mutable review reads, even with no failed-run details', () => {
-  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-no-convergence-'));
+it('batches 30 PR reviews in one pass without mutable REST review reads', () => {
+  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-batched-'));
   const evidence = fixture({
-    open: Array.from({ length: 25 }, (_, i) => ({ id: i + 1, number: i + 1 })),
+    open: Array.from({ length: 30 }, (_, i) => ({ id: i + 1, number: i + 1 })),
     files: [{ filename: '.github/workflows/ci.yml' }],
   });
-  const trace: string[][] = [];
+  const calls: string[] = [];
   try {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const calls: string[] = [];
-      trace.push(calls);
-      const api = createTickClient({
-        repository: 'pj-tmt/tmt',
-        cache,
-        trace: (row) => calls.push(row.endpoint!),
-        execute: (_program, args) => {
-          if (args[1] === 'graphql')
+    const api = createTickClient({
+      repository: 'pj-tmt/tmt',
+      cache,
+      trace: (row) => calls.push(row.endpoint!),
+      execute: (_program, args) => {
+        if (args[1] === 'graphql') {
+          if (args.includes(`query=${REVIEW_QUERY}`))
             return JSON.stringify({
-              data: { repository: { mergeQueue: { entries: evidence.queue() } } },
+              data: {
+                rateLimit: { cost: 1 },
+                nodes: evidence.reviews(
+                  args.filter((arg) => arg.startsWith('ids[]=')).map((arg) => arg.slice(6))
+                ),
+              },
             });
-          const endpoint = args.find((arg) => arg.startsWith('repos/'))!;
-          if (endpoint === 'repos/pj-tmt/tmt') return '{"permissions":{"push":true}}';
-          if (endpoint.includes('/releases?')) return 'HTTP/2 200 OK\r\n\r\n[]';
-          const detail = /\/pulls\/(\d+)$/.exec(endpoint);
-          if (detail)
-            return JSON.stringify({
-              number: Number(detail[1]),
-              head: { sha: SHA },
-              changed_files: 1,
-            });
-          return JSON.stringify(evidence.get(endpoint));
-        },
-      });
-      expect(() => collectInfraTick(api, options)).toThrow('call budget exhausted');
-      expect(calls).toHaveLength(80);
-    }
-    expect(trace[1]).toEqual(trace[0]);
-    expect(trace[2]).toEqual(trace[0]);
-    expect(trace[0].filter((endpoint) => endpoint.includes('/pulls/')).length).toBeGreaterThan(40);
+          return JSON.stringify({
+            data: { repository: { mergeQueue: { entries: evidence.queue() } } },
+          });
+        }
+        const endpoint = args.find((arg) => arg.startsWith('repos/'))!;
+        if (endpoint === 'repos/pj-tmt/tmt') return '{"permissions":{"push":true}}';
+        if (endpoint.includes('/releases?')) return 'HTTP/2 200 OK\r\n\r\n[]';
+        return JSON.stringify(evidence.get(endpoint));
+      },
+    });
+    const report = collectInfraTick(api, options);
+    expect(report.complete).toBe(true);
+    expect(report.reviewEvidence).toHaveLength(30);
+    expect(api.evidence()).toMatchObject({
+      requests: 19,
+      queueQueries: 1,
+      reviewQueries: 1,
+      reviewPoints: 1,
+    });
+    expect(calls.filter((endpoint) => /\/(pulls|issues)\/\d+/.test(endpoint))).toEqual([]);
   } finally {
     rmSync(cache, { recursive: true, force: true });
   }
@@ -913,3 +959,319 @@ it('traces only actual network calls, including errors, without response bodies'
     rmSync(cache, { recursive: true, force: true });
   }
 });
+
+describe('one-pass hourly PR volume through the real CLI', () => {
+  function volume(count: number, mode = 'normal') {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-hourly-'));
+    const cursorFile = path.join(directory, 'cursor.json');
+    const cursor =
+      mode === 'corrupt'
+        ? '{broken cursor'
+        : JSON.stringify({
+            schema: 1,
+            until: options.since,
+            failedDraftIds: [],
+            failedRunAttempts: [],
+            activeRunIds: Array.from({ length: 32 }, (_, i) => i + 1),
+          });
+    writeFileSync(cursorFile, cursor);
+    const map = path.join(directory, 'review-map.json');
+    writeFileSync(map, JSON.stringify(options.reviewMap));
+    writeExecutable(
+      path.join(directory, 'gh'),
+      `#!${process.execPath}
+const args=process.argv.slice(2), mode=process.env.VOLUME_MODE, count=Number(process.env.VOLUME_COUNT);
+const sha=${JSON.stringify(SHA)}, until=${JSON.stringify(options.until)};
+const endpoint=args.find(arg=>arg.startsWith('repos/'));
+const run=id=>({id,head_sha:sha,run_attempt:1,created_at:'2026-10-18T00:30:00Z',name:'CI',event:'pull_request',status:'completed',conclusion:'success',pull_requests:[{number:id}]});
+const files=pr=>Array.from({length:mode==='overflow'||(mode==='pagination'&&pr===1)?101:1},(_,i)=>({filename:'.github/file-'+i+'.yml'}));
+const comment=pr=>({id:pr,body:'Observed '+sha+'\\nAgent: tmt-lead codex-sol-high',html_url:'https://github.com/pj-tmt/tmt/pull/'+pr+'#issuecomment-'+pr});
+if(args[1]==='graphql'){
+ const query=args[args.indexOf('-f')+1];
+ if(query.includes('InfraTickQueue'))console.log(JSON.stringify({data:{repository:{mergeQueue:{entries:{totalCount:0,pageInfo:{hasNextPage:false},nodes:[]}}}}}));
+ else {
+  if(!query.includes('InfraTickReviews'))throw Error('Unknown query');
+  const ids=args.filter(arg=>arg.startsWith('ids[]=')).map(arg=>arg.slice(6));
+  const nodes=ids.map(id=>{const number=Number(id.slice(3)), paths=files(number);return {__typename:'PullRequest',id,number,repository:{nameWithOwner:'pj-tmt/tmt'},headRefOid:mode==='changed-head'&&number===1?'b'.repeat(40):sha,changedFiles:paths.length,files:{totalCount:paths.length,pageInfo:{hasNextPage:paths.length>100},nodes:mode==='truncated'&&number===1?[]:paths.slice(0,100).map(file=>({path:file.filename}))},comments:{totalCount:1,pageInfo:{hasPreviousPage:false,hasNextPage:false},nodes:[{id:'IC_'+number,body:comment(number).body,url:comment(number).html_url}]}};});
+  console.log(JSON.stringify({data:{rateLimit:{cost:mode==='cost'?21:1},nodes},...(mode==='unavailable'?{errors:[{message:'fixture unavailable'}]}:{})}));
+ }
+} else if(endpoint==='repos/pj-tmt/tmt')console.log('{"permissions":{"push":true}}');
+else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
+else if(endpoint.includes('/actions/runs?')){
+ const status=new URL('https://api.github.com/'+endpoint).searchParams.get('status');
+ console.log(JSON.stringify(status?{total_count:0,workflow_runs:[]}:{total_count:32,workflow_runs:[run(1)]}));
+} else if(endpoint.startsWith('repos/pj-tmt/tmt/actions/runs/'))console.log(JSON.stringify(run(Number(endpoint.split('/').at(-1)))));
+else if(endpoint.includes('/pulls?')){
+ const q=new URL('https://api.github.com/'+endpoint).searchParams, page=Number(q.get('page'));
+ const rows=q.get('state')==='open'?Array.from({length:count},(_,i)=>({id:i+1,number:i+1,node_id:'PR_'+(i+1),updated_at:until,head:{sha}})):[];
+ console.log(JSON.stringify(rows.slice((page-1)*100,page*100)));
+} else if(mode==='pagination'||mode==='overflow'){
+ const number=Number(endpoint.split('/')[4]);
+ const page=Number(new URL('https://api.github.com/'+endpoint).searchParams.get('page'));
+ if(endpoint.includes('/files?'))console.log(JSON.stringify(files(number).slice((page-1)*100,page*100)));
+ else if(endpoint.includes('/comments?'))console.log(JSON.stringify([comment(number)]));
+ else console.log(JSON.stringify({number,head:{sha},changed_files:files(number).length}));
+} else throw Error('Unexpected REST review read: '+endpoint);
+`,
+      0o700
+    );
+    return {
+      directory,
+      cursor,
+      invoke: () =>
+        spawnSync(
+          process.execPath,
+          [
+            fileURLToPath(new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)),
+            '--output',
+            directory,
+            '--review-map',
+            map,
+            '--until',
+            options.until,
+          ],
+          {
+            encoding: 'utf8',
+            timeout: 30_000,
+            env: {
+              ...process.env,
+              PATH: `${directory}${path.delimiter}${process.env.PATH}`,
+              VOLUME_COUNT: String(count),
+              VOLUME_MODE: mode,
+              TMT_AGENT: '1',
+              BROWSER: 'true',
+            },
+          }
+        ),
+      report: () => JSON.parse(readFileSync(path.join(directory, 'summary.json'), 'utf8')),
+      currentCursor: () => readFileSync(cursorFile, 'utf8'),
+      calls: () =>
+        readFileSync(path.join(directory, 'calls.jsonl'), 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line)),
+      cleanup: () => rmSync(directory, { recursive: true, force: true }),
+    };
+  }
+  it.each([20, 30])('completes a %i-PR, 50-call non-review window in one invocation', (count) => {
+    const test = volume(count);
+    try {
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(test.report()).toMatchObject({
+        complete: true,
+        until: options.until,
+        evidence: { requests: 51, reviewQueries: 1, reviewPoints: 1 },
+      });
+      expect(
+        test.report().reviewEvidence.map((row: any) => ({
+          pr: row.pr,
+          head: row.head,
+          shared: row.shared,
+          statements: row.statements.map((statement: any) => ({
+            lead: statement.lead,
+            head: statement.head,
+            url: statement.url,
+          })),
+        }))
+      ).toEqual(
+        Array.from({ length: count }, (_, i) => ({
+          pr: i + 1,
+          head: SHA,
+          shared: ['.github/file-0.yml'],
+          statements: [
+            {
+              lead: 'tmt-lead',
+              head: SHA,
+              url: `https://github.com/pj-tmt/tmt/pull/${i + 1}#issuecomment-${i + 1}`,
+            },
+          ],
+        }))
+      );
+      expect(JSON.parse(test.currentCursor()).until).toBe(options.until);
+      expect(
+        test.calls().filter((row) => row.endpoint === 'graphql:InfraTickReviews')
+      ).toMatchObject([{ graphqlCost: 1, outcome: 'success' }]);
+      expect(test.calls().some((row) => /\/(?:pulls|issues)\/\d+/.test(row.endpoint ?? ''))).toBe(
+        false
+      );
+    } finally {
+      test.cleanup();
+    }
+  });
+  it('falls back only for the PR whose files need another page', () => {
+    const test = volume(20, 'pagination');
+    try {
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(test.report()).toMatchObject({ complete: true, evidence: { requests: 55 } });
+      const reads = test
+        .calls()
+        .filter((row) => /\/(?:pulls|issues)\/\d+/.test(row.endpoint ?? ''));
+      expect(reads).toHaveLength(4);
+      expect(reads.every((row) => /\/(?:pulls|issues)\/1(?:\/|$)/.test(row.endpoint))).toBe(true);
+    } finally {
+      test.cleanup();
+    }
+  });
+  it.each(['overflow', 'changed-head', 'truncated', 'cost', 'unavailable', 'corrupt'])(
+    'refuses %s without advancing the cursor or claiming health',
+    (mode) => {
+      const test = volume(20, mode);
+      try {
+        const result = test.invoke();
+        expect(result.status, result.stdout + result.stderr).toBe(1);
+        expect(test.currentCursor()).toBe(test.cursor);
+        expect(test.report().complete).toBe(false);
+        expect(result.stdout).not.toContain('No anomalies');
+        if (mode !== 'corrupt')
+          expect(test.report().anomalies[0]).toMatchObject({ stage: 'PR review', prCount: 20 });
+        if (mode === 'overflow') expect(test.report().evidence.requests).toBe(80);
+        if (mode === 'cost')
+          expect(
+            test.calls().find((row) => row.endpoint === 'graphql:InfraTickReviews')
+          ).toMatchObject({ graphqlCost: 21, outcome: 'error' });
+      } finally {
+        test.cleanup();
+      }
+    }
+  );
+});
+
+it('fetches the full REST comments only for a paginated PR, including an older head statement', () => {
+  const api = fixture({
+    open: [
+      { id: 1, number: 1 },
+      { id: 2, number: 2 },
+    ],
+    files: [{ filename: '.github/workflows/ci.yml' }],
+    comments: Array.from({ length: 101 }, (_, i) => ({
+      id: i + 1,
+      body: i === 0 ? `Observed ${SHA}\nAgent: tmt-lead codex-sol-high` : `Note ${i}`,
+      html_url: `https://github.com/pj-tmt/tmt/pull/1#issuecomment-${i + 1}`,
+    })),
+  });
+  const reviews = api.reviews;
+  api.reviews = (ids) =>
+    reviews(ids).map((row, i) =>
+      i === 0
+        ? row
+        : {
+            ...row,
+            comments: {
+              totalCount: 0,
+              pageInfo: { hasPreviousPage: false, hasNextPage: false },
+              nodes: [],
+            },
+          }
+    );
+  const report = collectInfraTick(api, options);
+  expect(report.complete).toBe(true);
+  expect(report.reviewEvidence[0].statements[0]).toMatchObject({
+    head: SHA,
+    lead: 'tmt-lead',
+    url: 'https://github.com/pj-tmt/tmt/pull/1#issuecomment-1',
+  });
+  const rest = api.calls.filter((endpoint) => /\/(?:pulls|issues)\/\d+/.test(endpoint));
+  expect(rest).toHaveLength(4);
+  expect(rest.every((endpoint) => /\/(?:pulls|issues)\/1(?:\/|$)/.test(endpoint))).toBe(true);
+});
+
+it.each(['comments', 'files', 'count', 'repository', 'duplicate'])(
+  'refuses malformed batched %s evidence instead of treating it as pagination',
+  (mode) => {
+    const api = fixture({
+      open: [{ id: 1, number: 1 }],
+      files: [{ filename: '.github/workflows/ci.yml' }],
+      comments: [{ id: 1, body: 'Note' }],
+    });
+    const reviews = api.reviews;
+    api.reviews = (ids) =>
+      reviews(ids).map((row) => {
+        if (mode === 'comments') row.comments.nodes = [];
+        if (mode === 'files') row.files.nodes = [];
+        if (mode === 'count') row.changedFiles++;
+        if (mode === 'repository') row.repository.nameWithOwner = 'foreign/repo';
+        if (mode === 'duplicate') {
+          row.files.nodes.push(row.files.nodes[0]);
+          row.files.totalCount++;
+          row.changedFiles++;
+        }
+        return row;
+      });
+    expect(() => collectInfraTick(api, options)).toThrow(/Truncated|file count|identity|Duplicate/);
+    expect(api.calls.some((endpoint) => /\/(?:pulls|issues)\/\d+/.test(endpoint))).toBe(false);
+  }
+);
+
+it('admits exactly the two fixed read-only queries, counts review cost and rejects variable injection', () => {
+  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-query-guard-'));
+  const calls: string[][] = [],
+    trace: unknown[] = [];
+  const api = createTickClient({
+    repository: options.repository,
+    cache,
+    trace: (row) => trace.push(row),
+    execute: (_program, args) => {
+      calls.push(args);
+      return JSON.stringify(
+        args.includes(`query=${REVIEW_QUERY}`)
+          ? { data: { rateLimit: { cost: 2 }, nodes: [] } }
+          : { data: { repository: { mergeQueue: { entries: { totalCount: 0 } } } } }
+      );
+    },
+  });
+  try {
+    for (const ids of [
+      ['@/private/credential'],
+      ['PR_1) { mutation { unsafe } }'],
+      ['PR_1', 'PR_1'],
+      Array.from({ length: 101 }, (_, i) => `PR_${i}`),
+    ])
+      expect(() => api.reviews(ids)).toThrow(/node|variables/);
+    expect(calls).toHaveLength(0);
+    api.reviews(['PR_1']);
+    api.queue();
+    expect(api.evidence()).toMatchObject({
+      requests: 2,
+      queueQueries: 1,
+      reviewQueries: 1,
+      reviewPoints: 2,
+    });
+    expect(trace[0]).toMatchObject({ endpoint: 'graphql:InfraTickReviews', graphqlCost: 2 });
+    expect(calls[0]).toEqual([
+      'api',
+      'graphql',
+      '--method',
+      'POST',
+      '-f',
+      `query=${REVIEW_QUERY}`,
+      '-F',
+      'ids[]=PR_1',
+    ]);
+    expect(REVIEW_QUERY).not.toMatch(/\bmutation\b/);
+    expect(() => api.reviews(['PR_2'])).toThrow('one review query');
+    expect(() => api.queue()).toThrow('one queue query');
+    expect(calls).toHaveLength(2);
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+it.each([undefined, 0, -1, 1.5, '1'])(
+  'refuses invalid GraphQL cost %s before accepting review evidence',
+  (cost) => {
+    const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-query-cost-'));
+    const api = createTickClient({
+      repository: options.repository,
+      cache,
+      execute: () => JSON.stringify({ data: { rateLimit: { cost }, nodes: [] } }),
+    });
+    try {
+      expect(() => api.reviews(['PR_1'])).toThrow(/cost missing, invalid/);
+      expect(api.evidence().requests).toBe(1);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  }
+);

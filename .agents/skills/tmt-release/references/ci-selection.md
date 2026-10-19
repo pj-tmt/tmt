@@ -370,8 +370,9 @@ statements are anomalies. The JSON keeps each exact comment, head and stated lea
 presence of a statement never means scripted acceptance. Guide-index changes
 are conservatively flagged at file level for the lead to inspect.
 
-Remote calls are GET-only REST, with **one fixed read-only GraphQL queue query**
-as the sole exception. All calls, catalogue reads, logs and the query share
+Remote calls are GET-only REST, with **two fixed read-only GraphQL queries**:
+one for queue positions and one batch for the recent PR cohort. All calls,
+catalogue reads, logs and both queries share
 80 API calls / 120 seconds; the existing consistent catalogue reader keeps its
 stricter inner budget. Queue query failure, errors or more than 100 entries print
 `queue coverage unavailable`; positions are never inferred from timestamps.
@@ -398,28 +399,43 @@ Workflow `startup_failure` conclusions are not searchable by status and are outs
 detail coverage; the report states this gap. Only failed attempts absent from the previous cursor incur job/log analysis.
 Previously observed test evidence stays in the cursor for 24-hour recurrence.
 Review evidence covers **open PRs updated since `since`, plus PRs merged in that
-interval**; both updated-desc walks stop on the first older row. The listed head
-and the final exact PR read bind complete file counts and comment statements.
+interval**; both updated-desc walks stop on the first older row. One fixed
+`InfraTickReviews` query binds each listed head to its changed-file count,
+complete paths and comment bodies/URLs. Its cost is recorded in `calls.jsonl`;
+missing/invalid cost, GraphQL errors or cost above 20 points refuses collection.
+The batch admits at most 100 PRs. If files or the last 100 comments need another
+page, only that PR uses the complete REST walk and final exact-head/file-count
+check. Truncation without pagination, changed heads and foreign/duplicate evidence
+refuse rather than producing an empty healthy review sweep. Statements stay
+facts for lead judgement, including explicit NO-GO comments.
 
 A quiet invocation with one page per listing costs `17 + P` calls, where `P`
 is the release catalogue's page count: two health counts, nine status searches,
 one queue query, repository visibility, `P+2` catalogue reads and two PR walks.
 Add tracked-run reads, new failed-attempt job pages/logs, extra list pages, and
-two reads per recent PR (files and final identity/count) plus comment pages for
-shared paths. Bootstrap avoids all historical detail reads, independent of the
+one review query for a nonempty PR cohort, plus REST pagination fallbacks only
+for PRs that do not fit the batch. A 20–30 PR window with a 50-call non-review
+acquisition fits one 51-call invocation when every PR fits one page. Bootstrap
+avoids all historical detail reads, independent of the
 number of old failures and reviews. An explicit `--since` without a cursor opts
 into historical collection within 24 hours; qualified terminal job/log evidence
-can be reused after refusal, but **convergence is not guaranteed**: mutable status
-and PR reads repeat and can alone exhaust 80 calls. Use bootstrap to start a new
-observer, rather than repeatedly retrying a busy historical baseline.
+can be reused after refusal, but **convergence is not guaranteed** for an unbounded
+history or heavily paginated
+window. Bootstrap starts a new observer; it does not repair an oversized
+incremental window. For a backlog, use `--since UTC --until UTC` to collect a
+smaller window without resetting the cursor, then collect the remainder.
 
 `calls.jsonl` appends each invocation's network endpoint, method, outcome and
 elapsed milliseconds (including the fixed queue query); cache hits do not appear
 as new network calls. It records no credentials, response bodies or raw logs.
-Each invocation stays inside 80 calls / 120 seconds; inspect repeated endpoints
-when diagnosing exhaustion. A transient "Truncated REST evidence" refusal can
-occur when a listing changes; retry the same output directory with the cursor
-unchanged. No incomplete or bootstrap report claims healthy coverage.
+Each invocation stays inside 80 calls / 120 seconds, including failed calls;
+refusals name the acquisition stage and cohort PR count. There is no pending-window
+checkpoint or automatic retry. Use at most two invocations for a window (160 calls
+maximum); after a second refusal stop, split the window or escalate. A transient
+"Truncated REST evidence" refusal can
+occur when a listing changes; retry the same output directory once with the cursor
+unchanged. `--until` keeps the requested end fixed for that retry. No incomplete
+or bootstrap report claims healthy coverage.
 
 `summary.md` lists anomalies first (up to 20, with an explicit pointer to the full
 JSON), coverage and host disk/load. `summary.json` keeps the complete evidence and

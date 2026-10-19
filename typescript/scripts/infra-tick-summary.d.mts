@@ -1,11 +1,22 @@
 export const QUEUE_QUERY: string;
+export const REVIEW_QUERY: string;
 export const COVERAGE: string;
 export interface TickApi {
   get(endpoint: string, immutable?: boolean, text?: boolean): unknown;
   releases(): unknown[];
   queue(): unknown;
+  reviews(ids: string[]): unknown;
+  stage?(name: string, prCount?: number): void;
   qualifyTerminalJobs?(paths: string[]): void;
-  evidence?(): { requests: number; queueQueries?: number; files?: string[] };
+  evidence?(): {
+    requests: number;
+    queueQueries?: number;
+    reviewQueries?: number;
+    reviewPoints?: number;
+    stage?: string;
+    prCount?: number;
+    files?: string[];
+  };
 }
 export interface TickOptions {
   repository: string;
@@ -71,7 +82,15 @@ export interface TickReport {
   }[];
   guides: unknown[];
   host: { freeBytes: number; load1: number };
-  evidence: { requests?: number; queueQueries?: number; files?: string[] };
+  evidence: {
+    requests?: number;
+    queueQueries?: number;
+    reviewQueries?: number;
+    reviewPoints?: number;
+    stage?: string;
+    prCount?: number;
+    files?: string[];
+  };
 }
 export function collectInfraTick(api: TickApi, options: TickOptions): TickReport;
 export function renderInfraTick(report: TickReport): string;
@@ -86,10 +105,21 @@ export function createTickClient(options: {
     endpoint: string | undefined;
     outcome: string;
     milliseconds: number;
+    graphqlCost?: number;
   }) => void;
   execute?: (
     program: string,
     args: string[],
     options: { timeoutMs: number; [key: string]: unknown }
   ) => string;
-}): TickApi & { evidence(): { requests: number; queueQueries: number; files: string[] } };
+}): TickApi & {
+  evidence(): {
+    requests: number;
+    queueQueries: number;
+    reviewQueries: number;
+    reviewPoints: number;
+    stage: string;
+    prCount: number;
+    files: string[];
+  };
+};
