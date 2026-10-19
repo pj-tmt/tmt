@@ -366,7 +366,7 @@ for (const width of [1440, 390])
           await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
         const block = group.locator('.question-compact-block');
         const rows = group.locator('.question-line');
-        const background = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+        const background = 'rgba(0, 0, 0, 0)';
         const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
         for (const surface of [
           block,

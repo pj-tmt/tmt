@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { forwardRef } from 'react';
 import { answerOf, questionText, type Question } from '../questions.js';
 import type { CommentView } from '../thread-records.js';
@@ -50,9 +51,9 @@ export const QuestionLine = forwardRef<
         {answer ? '✓' : '◆'}
       </span>
       <span className="question-line-title">{question.title}</span>
-      <span className="question-line-state">· {state}</span>
+      <span className="question-line-state">{state}</span>
       <span className="question-line-chevron" aria-hidden="true">
-        {expanded ? '▾' : '▸'}
+        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </span>
     </button>
   );

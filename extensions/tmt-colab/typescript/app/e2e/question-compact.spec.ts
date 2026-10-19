@@ -142,6 +142,60 @@ test('a split question cannot bypass the recipient read by pressing Enter', asyn
 });
 
 for (const width of [1440, 390]) {
+  test(`compact rows stay flat and legible at ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const rows = await mount(page, { darkPage: true });
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = 'dark';
+    });
+    const row = rows.first();
+    await expect(page.locator('.question-compact-block')).toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)',
+    );
+    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '16px');
+    await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '16px');
+    expect(
+      await row
+        .locator('.question-line-state')
+        .evaluate((node) => getComputedStyle(node, '::before').content),
+    ).toBe(width === 390 ? 'none' : '"· "');
+    await row.focus();
+    await row.press('Enter');
+    await page.mouse.move(0, 0);
+    await row.focus();
+    await expect(row).toHaveAttribute('aria-expanded', 'true');
+    await expect(row).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(row).not.toHaveCSS('outline-style', 'none');
+    for (const surface of [
+      page.locator('.question-card:visible .question-controls'),
+      page.locator('.question-group-footer'),
+    ])
+      await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await row.hover();
+    await expect(row).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await page.getByRole('button', { name: 'Needs you: 1', exact: true }).click();
+    const menuRow = page.getByRole('menu').locator('.needs-you-header-row');
+    const agent = menuRow.locator('.agent-chip-name');
+    await expect(agent).toHaveText('Agent 1');
+    await expect(agent).toHaveCSS('white-space', 'nowrap');
+    // Long attribution ellipsizes on one row instead of wrapping and clipping its first letter.
+    await agent.evaluate((node) => {
+      node.textContent = 'Agent with a deliberately long display name';
+    });
+    expect(
+      await menuRow.evaluate((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node.querySelector('.agent-chip-name')!);
+        const rects = [...range.getClientRects()];
+        return rects.length > 0 && rects.every((rect) => Math.abs(rect.y - rects[0].y) < 1);
+      }),
+    ).toBe(true);
+    await expect(menuRow).toHaveCSS('text-overflow', 'ellipsis');
+    expect(await run(page, 'discussionProof')).toHaveLength(0);
+    expect((await run(page, 'proof')).sends).toHaveLength(0);
+  });
+
   test(`compact stacks reserve their full trusted height at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/src/main.tsx', (route) =>

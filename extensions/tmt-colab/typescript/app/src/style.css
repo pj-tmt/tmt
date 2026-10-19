@@ -160,6 +160,13 @@ body:has(.needs-you-header-menu) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Menu rows stay on one ellipsized line, including inline agent attribution. */
+.needs-you-header-row
+  .agent-chip[data-variant='inline']
+  :is(.agent-chip-name, .agent-chip-machine, .agent-chip-driver) {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
 @media (max-width: 640px) {
   .needs-you-header {
     inline-size: 48px;

@@ -388,23 +388,17 @@ for (const width of [1440, 390])
         const frame = page.frameLocator('#ask-page-fixture iframe');
         await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
         const question = card.locator('.question-compact-block');
-        await expect(question).toHaveCSS(
-          'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
-        );
+        await expect(question).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
         await expect(question).toHaveCSS(
           'color',
           theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
-        // The frame question and parent-drawn controls form one themed card.
+        // Compact questions stay flat while text and controls follow the effective theme.
         for (const surface of [
           card.locator('.question-controls'),
           card.locator('.question-group-footer'),
         ]) {
-          await expect(surface).toHaveCSS(
-            'background-color',
-            theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
-          );
+          await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
           await expect(surface).toHaveCSS(
             'color',
             theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
@@ -503,7 +497,7 @@ for (const width of [1440, 390])
         await send(page);
         await expect(card.locator('.question-controls')).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          'rgba(0, 0, 0, 0)',
         );
         // Focus moved to the folded line's action; its resting colour is the text role.
         const change = card.getByRole('button', { name: 'Change answer', exact: true });
