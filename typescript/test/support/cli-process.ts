@@ -81,7 +81,11 @@ function diagnosticPath(value: string): string {
 function reportDiagnostic(scope: 'call' | 'sandbox', diagnostic: object): void {
   try {
     const text = JSON.stringify(diagnostic);
-    // Never emit raw output, stdin, environment, /proc cmdline or unrelated process facts.
+    // Never emit raw output, stdin, environment or unrelated process facts. The one /proc
+    // cmdline use is residentCommand's `command` of a leaked sandbox process: a bounded,
+    // redacted summary of its argv. It differs from diagnosticArgument/diagnosticTokens, which
+    // show only listed tokens plus a hash: a leaked process's argv is how it is named, so any
+    // plain word is shown, and everything else only by its byte length.
     console.error(
       `CLI ${scope} diagnostics:`,
       Buffer.byteLength(text) <= 16_384
@@ -701,6 +705,35 @@ function sandboxProcesses(root: string, pid?: number): number[] {
     .map(({ pid }) => pid);
 }
 
+/**
+ * The leaked process's argv for a diagnostic: a word of up to 32 bytes made only of letters,
+ * digits and `._-` is shown (a one-word message too), anything else (a path, a payload, longer
+ * text) only by its byte length. At most eight words from the first 4096 bytes, and an
+ * unreadable argv is reported as such, never as empty.
+ */
+function residentCommand(pid: number): (string | { bytes: number })[] | string {
+  try {
+    const fd = openSync(`/proc/${pid}/cmdline`, 'r');
+    let text: string;
+    try {
+      const buffer = Buffer.alloc(4096);
+      text = buffer.subarray(0, readSync(fd, buffer)).toString('utf8');
+    } finally {
+      closeSync(fd);
+    }
+    const words = text
+      .split('\0')
+      .filter((word, index, all) => word !== '' || index < all.length - 1);
+    return words
+      .slice(0, 8)
+      .map((word) =>
+        /^[A-Za-z0-9._-]{1,32}$/.test(word) ? word : { bytes: Buffer.byteLength(word) }
+      );
+  } catch {
+    return 'argv unavailable';
+  }
+}
+
 function residentIdentity(pid: number, root: string, preTermination = false): object {
   try {
     // Fixed proc facts only; one read bounds both allocation and observation work.
@@ -768,6 +801,7 @@ function residentIdentity(pid: number, root: string, preTermination = false): ob
       session: after[3],
       cwd: diagnosticPath(cwd),
       executable: diagnosticPath(executable),
+      command: residentCommand(pid),
     };
   } catch {
     return { pid, observation: 'identity unavailable' };
@@ -841,15 +875,17 @@ export async function withSandbox<T>(
           continue;
         }
         if (pid === process.pid) throw new Error('The test runner is still inside the sandbox.');
+        // Optional endpoint facts are read after the admission recheck and before the signal:
+        // SIGKILL ends the process, and a dying process shows nothing a moment later. They
+        // never authorize cleanup, and a denied or changed read leaves only pid/unavailable.
+        const index = leaked.indexOf(pid);
+        const observed = index < residents.length ? residentIdentity(pid, processRoot) : undefined;
+        if (observed) residents[index] = observed;
         try {
           process.kill(pid, 'SIGKILL');
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
         }
-        // Optional endpoint facts follow the existing recheck and signal, never preceding
-        // either or authorizing cleanup. A denied recheck leaves only pid/unavailable.
-        const index = leaked.indexOf(pid);
-        if (index < residents.length) residents[index] = residentIdentity(pid, processRoot);
       }
       const deadline = performance.now() + 1000;
       while (

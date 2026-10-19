@@ -1211,8 +1211,24 @@ it.each(['EACCES', 'EPERM'])(
   }
 );
 
-it.each(['observed', 'denied', 'replacement', 'reused'])(
-  'diagnostic resident %s is scoped and retains terminal-cleanup observation',
+// The argv a leaked resident has per case: a subcommand word is kept, a path and a payload are
+// reduced to their sizes, and only the first eight words count; a word is shown up to 32 bytes.
+const residentArgv: Record<string, { cmdline: string; command: unknown }> = {
+  observed: {
+    cmdline: 'fixture\0ops\0ui\0/private/path\0{"message":"x"}\0',
+    command: ['fixture', 'ops', 'ui', { bytes: 13 }, { bytes: 15 }],
+  },
+  'argv-capped': {
+    cmdline: ['w1', 'w2', 'x'.repeat(33), 'y'.repeat(32), 'w5', 'w6', 'w7', 'w8', 'w9', ''].join(
+      '\0'
+    ),
+    command: ['w1', 'w2', { bytes: 33 }, 'y'.repeat(32), 'w5', 'w6', 'w7', 'w8'],
+  },
+  'argv-unavailable': { cmdline: '', command: 'argv unavailable' },
+};
+
+it.each(['observed', 'denied', 'replacement', 'reused', 'argv-capped', 'argv-unavailable'])(
+  'diagnostic resident %s is scoped and read before the terminal-cleanup signal',
   async (kind) => {
     const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     const readdir = fs.readdirSync.bind(fs);
@@ -1248,6 +1264,31 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
       }
       return readlink(file, options);
     });
+    const open = fs.openSync.bind(fs);
+    const readInto = fs.readSync.bind(fs);
+    const close = fs.closeSync.bind(fs);
+    const argvFd = 900_903;
+    const argv = residentArgv[kind] ?? residentArgv.observed;
+    // The argv is read through one bounded open/read/close, never a whole-file read.
+    vi.spyOn(fs, 'openSync').mockImplementation(((file: fs.PathLike, ...rest: unknown[]) => {
+      if (String(file) !== '/proc/900003/cmdline') return (open as Function)(file, ...rest);
+      facts.push(String(file));
+      inspectionOrder.push('argv');
+      if (kind === 'argv-unavailable') throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      return argvFd;
+    }) as typeof fs.openSync);
+    vi.spyOn(fs, 'readSync').mockImplementation(((
+      fd: number,
+      buffer: Buffer,
+      ...rest: unknown[]
+    ) =>
+      fd === argvFd
+        ? argv.cmdline.length
+          ? Buffer.from(argv.cmdline).copy(buffer)
+          : 0
+        : (readInto as Function)(fd, buffer, ...rest)) as typeof fs.readSync);
+    vi.spyOn(fs, 'closeSync').mockImplementation(((fd: number) =>
+      fd === argvFd ? undefined : close(fd)) as typeof fs.closeSync);
     vi.spyOn(fs, 'readFileSync').mockImplementation((file, options) => {
       const name = String(file);
       if (name.startsWith('/proc/')) {
@@ -1291,7 +1332,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
       expect(diagnostic.residentCleanup).toBe('absence confirmed by existing cleanup checks');
       expect(diagnostic.cleanupFailed).toBe(false);
       expect(diagnostic.residents[0]).toEqual(
-        kind === 'observed'
+        kind === 'observed' || kind.startsWith('argv-')
           ? {
               pid: 900003,
               observation: 'endpoint identity observed',
@@ -1302,6 +1343,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
               session: '900003',
               cwd: fs.realpathSync(path.dirname(root)) + path.sep + path.basename(root),
               executable: '/owned/fixture',
+              command: argv.command,
             }
           : {
               pid: 900003,
@@ -1313,7 +1355,11 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
                     : 'no longer a sandbox resident',
             }
       );
-      expect(inspectionOrder.slice(0, 4)).toEqual(['cwd', 'cwd', 'signal', 'stat']);
+      // The scan and the admission recheck come first, every endpoint fact is read before
+      // the one signal, and nothing is read once the process has been signalled.
+      expect(inspectionOrder.slice(0, 2)).toEqual(['cwd', 'cwd']);
+      expect(inspectionOrder.filter((step) => step === 'signal')).toHaveLength(1);
+      expect(inspectionOrder.at(-1)).toBe('signal');
       expect(facts.every((file) => file.startsWith('/proc/900003/'))).toBe(true);
       expect(JSON.stringify(diagnostic)).not.toContain('/foreign/root');
       expect(signals.mock.calls.every(([pid]) => pid === 900003)).toBe(true);
