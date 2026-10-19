@@ -5,6 +5,14 @@ import { landingPage, pairingPage } from '../src/browser.js';
 import { Door, paired } from './door.js';
 import { DeviceKey } from '../src/device.js';
 
+function pairingLabels() {
+  return {
+    'pairing-title': { textContent: 'Pair a browser' },
+    heading: { textContent: 'Pair this browser with tmt remote' },
+    'pairing-eyebrow': { hidden: false },
+  };
+}
+
 for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
   test(`automatic ${failure} offers show the approved recovery command as code`, async () => {
     const children: { textContent: string; tagName?: string; className?: string }[] = [];
@@ -16,10 +24,16 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
         status.textContent = nodes.map((node) => node.textContent).join('');
       },
     };
-    const form = { hidden: false, querySelector: () => ({ disabled: true }) };
+    const form = {
+      hidden: false,
+      querySelector: () => ({ disabled: true }),
+      addEventListener: () => {},
+    };
     const comparison = { hidden: false };
     const entry = { hidden: false };
+    const labels = pairingLabels();
     const nodes: Record<string, unknown> = {
+      ...labels,
       pair: form,
       comparison,
       'entry-link': entry,
@@ -45,9 +59,11 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       },
     });
     let requests = 0;
+    let manual = false;
     vi.stubGlobal('fetch', async (_url: string, init?: RequestInit) => {
       requests++;
       assert.equal(init?.method, undefined, 'no enrollment after a failed descriptor');
+      if (manual) return Response.json(door.descriptor);
       if (failure === 'transport') throw new Error('Fixture transport failure.');
       return failure === 'storage-colab'
         ? Response.json({ ...door.descriptor, automatic: true, target: '/p/abcd' })
@@ -59,6 +75,10 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       assert.equal(comparison.hidden, true, 'a reused manual page must hide its old comparison');
       assert.equal(entry.hidden, true, 'a reused manual page must hide its old success link');
       assert.equal(status.dataset.state, 'blocked');
+      assert.equal(labels['pairing-title'].textContent, 'Connect this browser');
+      assert.equal(labels.heading.textContent, 'Connect this browser');
+      assert.equal(labels['pairing-eyebrow'].hidden, true);
+      assert.equal((nodes['state-label'] as { textContent: string }).textContent, 'Not connected');
       assert.equal(
         status.textContent,
         failure === 'consumed'
@@ -77,6 +97,14 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
           .every((node) => node.className === 'tmt-ui-code'),
       );
       assert.equal(requests, 1);
+      manual = true;
+      await pairingPage(door.link());
+      assert.equal(labels['pairing-title'].textContent, 'Pair a browser');
+      assert.equal(labels.heading.textContent, 'Pair this browser with tmt remote');
+      assert.equal(labels['pairing-eyebrow'].hidden, false);
+      assert.equal((nodes['state-label'] as { textContent: string }).textContent, 'Ready to pair');
+      assert.equal((nodes.notice as { dataset: { tone: string } }).dataset.tone, 'waiting');
+      assert.equal((nodes.mark as { textContent: string }).textContent, '◆');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -572,10 +600,14 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
       readyState: 'complete',
       getElementById: (id: string) =>
         (
-          ({ pair: form, status, mark, notice, 'state-label': stateLabel }) as Record<
-            string,
-            unknown
-          >
+          ({
+            ...pairingLabels(),
+            pair: form,
+            status,
+            mark,
+            notice,
+            'state-label': stateLabel,
+          }) as Record<string, unknown>
         )[id],
     });
     vi.stubGlobal('fetch', async () => {
@@ -674,6 +706,7 @@ for (const ownsFocus of [true, false]) {
       },
     };
     const nodes: Record<string, unknown> = {
+      ...pairingLabels(),
       pair: form,
       status,
       name: { value: 'Fixture' },

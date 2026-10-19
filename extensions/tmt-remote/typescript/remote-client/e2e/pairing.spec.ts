@@ -387,6 +387,13 @@ async function automaticOffer(target: string): Promise<{ link: string; offerId: 
   });
 }
 
+async function expectAutomaticLabels(page: Page, blocked: boolean) {
+  await expect(page.locator('.header-title')).toHaveText('Connect this browser');
+  await expect(page.locator('#heading')).toHaveText('Connect this browser');
+  await expect(page.locator('.eyebrow')).toBeHidden();
+  await expect(page.locator('#state-label')).toHaveText(blocked ? 'Not connected' : 'Waiting');
+}
+
 test('native automatic opening is single-use, strips history and reuses a paired browser', async () => {
   const page = await browser.newPage();
   const requests: { url: string; referer: string }[] = [];
@@ -447,6 +454,7 @@ test('native automatic opening is single-use, strips history and reuses a paired
     await expect(stranger.locator('#status code')).toHaveText('tmt remote open');
     expect(stranger.url()).toBe(`${origin}/pair`);
     expect(list().devices).toHaveLength(1);
+    await expectAutomaticLabels(stranger, true);
     await captureState(stranger, 'automatic-used', '#notice', [1280, 390], ['light', 'dark']);
     // A fresh native offer works for another profile even though the machine already has a device.
     const fresh = await automaticOffer('/read/abcd');
@@ -504,6 +512,7 @@ test('native automatic connection has a code-free waiting state', async () => {
     expect(page.url()).toBe(`${origin}/pair`);
     await expect(page.locator('#status')).toHaveText('Connecting this browser…');
     await expect(page.locator('#pair')).toBeHidden();
+    await expectAutomaticLabels(page, false);
     await captureState(page, 'automatic-connecting', '#notice', [1280, 390], ['light', 'dark']);
     barrier.release();
     await page.waitForURL(`${origin}/`);
@@ -523,6 +532,7 @@ test('native automatic transport failure offers reopening before manual pairing'
   await expect(page.locator('#status code')).toHaveText(['tmt remote open', 'tmt remote pair']);
   expect(page.url()).toBe(`${origin}/pair`);
   await expect(page.locator('#pair')).toBeHidden();
+  await expectAutomaticLabels(page, true);
   await captureState(page, 'automatic-unavailable', '#notice', [1280, 390], ['light', 'dark']);
 });
 
@@ -776,6 +786,10 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     await route.continue();
   });
   await page.goto(link);
+  await expect(page.locator('.header-title')).toHaveText('Pair a browser');
+  await expect(page.locator('#heading')).toHaveText('Pair this browser with tmt remote');
+  await expect(page.locator('.eyebrow')).toHaveText('Browser pairing');
+  await expect(page.locator('.eyebrow')).toBeVisible();
   // The page removed the fragment before anything else ran.
   await page.waitForFunction(() => location.hash === '');
   await page.fill('#name', 'E2E browser');

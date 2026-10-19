@@ -5,6 +5,8 @@ an exact CSP hash. It captures/erases the fragment before any script import or s
 `no-referrer` and `no-store` remain. `Pages` exposes only the public current descriptor through
 `/sdk/pair-offer`. [Pairing](../../../../contracts/remote-channel-v1.md#pairing) owns the manual
 ceremony, native `#auto=CODE` first-use flow, cancellation proof and local-process boundary.
+The automatic flow labels its page “Connect this browser”, hides the pairing eyebrow and uses
+“Not connected” for its blocked state; manual pairing retains its own wording.
 The automatic form is hidden before paint; the SDK either reuses/cancels with the stored device
 or enrolls exactly the read-only default, then replaces the same tab with its validated target.
 No code enters logs, requests, ordinary output or continuation links. Used/cancelled/expired

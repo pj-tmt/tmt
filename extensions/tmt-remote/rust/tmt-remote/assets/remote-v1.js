@@ -4286,6 +4286,7 @@ function showState(status, state, text) {
 }
 /** Called by the fragment-erasing bootstrap after the page DOM is ready. */
 var pairingAttempt;
+var manualPairingText = /* @__PURE__ */ new WeakMap();
 async function pairingPage(link) {
 	pairingAttempt?.abort();
 	const lifetime = new AbortController();
@@ -4296,7 +4297,14 @@ async function pairingPage(link) {
 	});
 	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	if (lifetime.signal.aborted) return;
-	if (link.includes("#auto=")) return automaticPairingPage(link, lifetime);
+	const automatic = link.includes("#auto=");
+	for (const id of ["pairing-title", "heading"]) {
+		const node = element(id);
+		if (!manualPairingText.has(node)) manualPairingText.set(node, node.textContent ?? "");
+		node.textContent = automatic ? "Connect this browser" : manualPairingText.get(node);
+	}
+	element("pairing-eyebrow").hidden = automatic;
+	if (automatic) return automaticPairingPage(link, lifetime);
 	const status = element("status");
 	const form = element("pair");
 	const button = form.querySelector("button");
@@ -4327,8 +4335,8 @@ async function pairingPage(link) {
 		});
 	}, { signal: lifetime.signal });
 	form.hidden = false;
+	showState(status, "waiting", "Name this browser and choose Pair to request terminal confirmation.");
 	element("state-label").textContent = "Ready to pair";
-	status.textContent = "Name this browser and choose Pair to request terminal confirmation.";
 	button.disabled = false;
 }
 async function automaticPairingPage(link, lifetime) {
@@ -4396,6 +4404,7 @@ async function automaticPairingPage(link, lifetime) {
 	} catch (error) {
 		if (!leaving && pairingAttempt === lifetime) {
 			showState(status, "blocked", "");
+			element("state-label").textContent = "Not connected";
 			const command = document.createElement("code");
 			command.className = "tmt-ui-code";
 			command.textContent = openCommand;
