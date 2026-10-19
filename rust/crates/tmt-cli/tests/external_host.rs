@@ -40,6 +40,7 @@ use tmt_core::{
 const DRIVER: &str = r#"#!/bin/sh
 d=$(dirname "$0")
 echo "$3" >> "$d/calls"
+echo $$ >> "$d/pids"
 input=$(cat)
 case "$3" in
   capabilities) cat "$d/capabilities" ;;
@@ -1753,40 +1754,43 @@ fn a_hook_whose_locators_name_two_hosts_refuses() {
     assert_hook_refused(&fixture, &output);
 }
 
-/// One Codex stand-in that runs each hook given to it from the same process,
-/// so that start, prompt and interrupt belong to one provider incarnation. As
-/// in `hook`, it is a link to `sh` named `codex`, the child of this test
-/// process (the pane shell). It is stopped and reaped on drop, also on panic.
-struct Codex {
+/// One provider stand-in that runs each hook given to it from the same
+/// process, so that its lifecycle events (start, prompt, interrupt, end)
+/// belong to one provider incarnation. As in `hook`, it is a link to `sh`
+/// named after `provider`, the child of this test process (the pane shell).
+/// It is stopped and reaped on drop, also on panic.
+struct SteppedProvider {
     child: std::process::Child,
+    provider: &'static str,
     steps: PathBuf,
     next: usize,
 }
 
-impl Codex {
-    fn start(fixture: &Fixture, name: &str) -> Self {
-        let codex = fixture.root.join("bin/codex");
-        if !codex.exists() {
+impl SteppedProvider {
+    fn start(fixture: &Fixture, provider: &'static str, name: &str) -> Self {
+        let program = fixture.root.join("bin").join(provider);
+        if !program.exists() {
             fs::create_dir_all(fixture.root.join("bin")).unwrap();
-            std::os::unix::fs::symlink("/bin/sh", &codex).unwrap();
+            std::os::unix::fs::symlink("/bin/sh", &program).unwrap();
         }
         let steps = fixture.root.join(name);
         fs::create_dir_all(&steps).unwrap();
         let tmt = fixture.command_in(Some("f1"), &[]);
         // Each step waits at most 30 s, so a killed test process cannot
         // leave the stand-in behind for long.
-        let child = std::process::Command::new(codex)
+        let child = std::process::Command::new(program)
             .args([
                 "-c",
                 "i=0; while :; do w=0
                    while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
                    [ -e \"$1/$i.json\" ] || exit 0
-                   \"$0\" __hook codex < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
+                   \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
                    touch \"$1/$i.done\"; i=$((i+1))
                  done",
             ])
             .arg(tmt.get_program())
             .arg(&steps)
+            .arg(provider)
             .env_clear()
             .envs(
                 tmt.get_envs()
@@ -1798,6 +1802,7 @@ impl Codex {
             .unwrap();
         Self {
             child,
+            provider,
             steps,
             next: 0,
         }
@@ -1810,7 +1815,9 @@ impl Codex {
         let staged = step.with_extension("staged");
         fs::write(&staged, payload.to_string()).unwrap();
         fs::rename(&staged, step.with_extension("json")).unwrap();
-        wait_until("the Codex hook", || step.with_extension("done").exists());
+        wait_until(&format!("the {} hook", self.provider), || {
+            step.with_extension("done").exists()
+        });
         self.next += 1;
         let read = |extension| fs::read_to_string(step.with_extension(extension)).unwrap();
         (
@@ -1821,7 +1828,7 @@ impl Codex {
     }
 }
 
-impl Drop for Codex {
+impl Drop for SteppedProvider {
     fn drop(&mut self) {
         let _ = fs::write(self.steps.join("stop"), "");
         if !matches!(self.child.try_wait(), Ok(Some(_))) {
@@ -1927,7 +1934,7 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
         serde_json::json!({"hooks":{"Stop":[observer]}}).to_string(),
     )
     .unwrap();
-    let mut codex = Codex::start(&fixture, "codex-steps");
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
     let captured = |fixture: &Fixture| {
         stored_rows(fixture)
             .into_iter()
@@ -1937,7 +1944,7 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     let silent = |(status, out, err): (i32, String, String)| {
         assert_eq!((status, out.as_str(), err.as_str()), (0, "", ""));
     };
-    let unchanged = |codex: &mut Codex, payload: Value| {
+    let unchanged = |codex: &mut SteppedProvider, payload: Value| {
         let rows = stored_rows(&fixture);
         let files = settings_files(&fixture);
         silent(codex.hook(payload.clone()));
@@ -1975,7 +1982,7 @@ fn a_codex_interrupt_ends_only_its_own_turn_and_a_refused_one_changes_nothing() 
     {
         // A replaced provider process: the same session from another
         // incarnation is not the admitted one.
-        let mut replaced = Codex::start(&fixture, "replaced-steps");
+        let mut replaced = SteppedProvider::start(&fixture, "codex", "replaced-steps");
         unchanged(&mut replaced, codex_event("Interrupt", Some("a")));
     }
     assert_eq!(activity(&fixture), working);
@@ -2051,8 +2058,8 @@ fn the_observed_model_follows_only_admitted_codex_events() {
     let fixture = Fixture::new("codex-observed-model");
     let record = fixture.approve();
     bind(&fixture, record);
-    let mut codex = Codex::start(&fixture, "codex-steps");
-    let mut run = |codex: &mut Codex, payload: Value| {
+    let mut codex = SteppedProvider::start(&fixture, "codex", "codex-steps");
+    let mut run = |codex: &mut SteppedProvider, payload: Value| {
         // A start prints its identity context; every other event prints nothing.
         let (status, out, err) = codex.hook(payload.clone());
         assert_eq!((status, err.as_str()), (0, ""), "{payload}");
@@ -2061,9 +2068,9 @@ fn the_observed_model_follows_only_admitted_codex_events() {
         }
     };
     let kept = |fixture: &Fixture,
-                codex: &mut Codex,
+                codex: &mut SteppedProvider,
                 payload: Value,
-                run: &mut dyn FnMut(&mut Codex, Value)| {
+                run: &mut dyn FnMut(&mut SteppedProvider, Value)| {
         let before = observed_model(fixture);
         run(codex, payload.clone());
         assert_eq!(observed_model(fixture), before, "{payload}");
@@ -2106,7 +2113,7 @@ fn the_observed_model_follows_only_admitted_codex_events() {
     other["session_id"] = "s-2".into();
     kept(&fixture, &mut codex, other, &mut run);
     {
-        let mut replaced = Codex::start(&fixture, "replaced-steps");
+        let mut replaced = SteppedProvider::start(&fixture, "codex", "replaced-steps");
         kept(
             &fixture,
             &mut replaced,
@@ -2201,4 +2208,212 @@ fn a_claude_start_records_its_observed_model_in_both_projections() {
     assert_eq!(listed["model"], "claude-test");
     let shown = fixture.json(&["identity", "show", "worker", "--json"]);
     assert_eq!(shown["resume"], listed, "{shown:#}");
+}
+
+/// The driver operations an approved external Claude hook runs to verify its
+/// caller, frozen from unfixed main: the caller's pane, its server, then the
+/// pane's snapshot. Nothing after them belongs to the hook.
+const VERIFIED_HOOK_CALLS: [&str; 3] = ["caller", "server", "snapshot"];
+
+/// A Claude lifecycle payload for session `s-1`.
+fn claude_event(event: &str) -> Value {
+    serde_json::json!({"hook_event_name": event, "session_id": "s-1", "source": "startup",
+        "reason": "other", "cwd": "/src", "model": "claude-test"})
+}
+
+/// The binding's committed session state, read only.
+fn session_state(fixture: &Fixture) -> Vec<String> {
+    let connection = rusqlite::Connection::open_with_flags(
+        fixture.state().join("tmt.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    connection
+        .query_row(
+            "SELECT runtime_state, last_transition, runtime_pid, runtime_start_identity, \
+             observed_provider_session_id FROM bindings",
+            [],
+            |row| {
+                (0..5)
+                    .map(|index| {
+                        Ok(match row.get_ref(index)? {
+                            rusqlite::types::ValueRef::Text(text) => {
+                                String::from_utf8_lossy(text).into_owned()
+                            }
+                            rusqlite::types::ValueRef::Integer(value) => value.to_string(),
+                            value => format!("{value:?}"),
+                        })
+                    })
+                    .collect()
+            },
+        )
+        .unwrap()
+}
+
+/// The stepped provider's live incarnation, so its end can be checked after
+/// it is dropped.
+fn live_provider(provider: &SteppedProvider) -> Owned {
+    let pid = u64::from(provider.child.id());
+    let observed = observe_runtime_process(&UnixCommandRunner, pid, deadline()).unwrap();
+    let ProcessObservation::Live(incarnation) = observed else {
+        panic!("the provider {pid} is not live: {observed:?}");
+    };
+    Owned {
+        incarnation,
+        group: false,
+    }
+}
+
+/// Every fake driver process the test started has ended: `kill(pid, 0)`
+/// finds no process, or `ps` shows the pid now names another program. A
+/// process that cannot be inspected, a refused `kill` included, fails the
+/// test.
+fn assert_drivers_ended(fixture: &Fixture) {
+    use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
+    let pids = fs::read_to_string(fixture.root.join("driver/pids")).unwrap();
+    for pid in pids.lines() {
+        let pid: i32 = pid.parse().unwrap();
+        match kill(Pid::from_raw(pid), None) {
+            Err(Errno::ESRCH) => {}
+            Ok(()) => {
+                let ps = std::process::Command::new("/bin/ps")
+                    .args(["-o", "command=", "-p", &pid.to_string()])
+                    .output()
+                    .unwrap();
+                let command = String::from_utf8_lossy(&ps.stdout);
+                assert!(
+                    ps.status.success() && !command.trim().is_empty(),
+                    "driver {pid} could not be inspected: {ps:?}"
+                );
+                assert!(
+                    !command.contains(fixture.driver.to_str().unwrap()),
+                    "driver {pid} is still running: {command}"
+                );
+            }
+            Err(error) => panic!("driver {pid} could not be inspected: {error}"),
+        }
+    }
+}
+
+/// An external pane has no badge (#3582): an admitted Claude start and end
+/// run only the hook's own verification, and leave a stale marker name as it
+/// is. With the driver removed, a hook starts no driver and changes nothing.
+#[test]
+fn an_external_hook_starts_no_driver_for_the_pane_badge() {
+    register();
+    let fixture = Fixture::new("hook-no-badge");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let marker = fixture.root.join("driver/marker");
+    let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
+    let provider = live_provider(&claude);
+
+    // Each step stales only the marker's name, keeping its ownership IDs, so
+    // a refresh would rewrite it. The evidence is read at once, while the
+    // provider lives and before any other command runs the driver.
+    let mut steps = Vec::new();
+    for event in ["SessionStart", "SessionEnd"] {
+        let mut stale: Value = serde_json::from_str(&fs::read_to_string(&marker).unwrap()).unwrap();
+        stale["name"] = "Stale".into();
+        stale["canonicalName"] = "stale".into();
+        let stale = stale.to_string();
+        fs::write(&marker, &stale).unwrap();
+        let before = fixture.calls().len();
+        let output = claude.hook(claude_event(event));
+        let calls = fixture.calls()[before..].to_vec();
+        let after = fs::read_to_string(&marker).unwrap();
+        let live = provider.seen();
+        steps.push((
+            event,
+            output,
+            calls,
+            stale,
+            after,
+            session_state(&fixture),
+            live,
+        ));
+    }
+
+    // Both hooks were admitted, not refused or timed out.
+    for (event, (status, stdout, stderr), ..) in &steps {
+        assert_eq!(*status, 0, "{event}: {stdout} {stderr}");
+        assert_eq!(stderr, "", "{event}");
+        if *event == "SessionStart" {
+            let context: Value = serde_json::from_str(stdout).unwrap();
+            assert_eq!(
+                context["hookSpecificOutput"]["hookEventName"],
+                "SessionStart"
+            );
+        } else {
+            assert_eq!(stdout, "", "{event}");
+        }
+    }
+    // One comparison for both branches, so a refresh shows in each.
+    let ran: Vec<_> = steps
+        .iter()
+        .map(|(event, _, calls, stale, after, ..)| (*event, calls.clone(), after == stale))
+        .collect();
+    assert_eq!(
+        ran,
+        [
+            (
+                "SessionStart",
+                VERIFIED_HOOK_CALLS.map(String::from).to_vec(),
+                true
+            ),
+            (
+                "SessionEnd",
+                VERIFIED_HOOK_CALLS.map(String::from).to_vec(),
+                true
+            ),
+        ],
+        "markers: {:?}",
+        steps
+            .iter()
+            .map(|step| (&step.3, &step.4))
+            .collect::<Vec<_>>()
+    );
+    let pid = provider.incarnation.pid().to_string();
+    let start = provider.incarnation.start_identity().to_owned();
+    let committed: Vec<_> = steps
+        .iter()
+        .map(|(_, _, _, _, _, session, live)| (session.clone(), live))
+        .collect();
+    assert_eq!(
+        committed,
+        [
+            (
+                vec![
+                    "running".into(),
+                    "started".into(),
+                    pid.clone(),
+                    start.clone(),
+                    "s-1".into()
+                ],
+                &Seen::Live
+            ),
+            (
+                vec!["unknown".into(), "ended".into(), pid, start, "s-1".into()],
+                &Seen::Live
+            ),
+        ]
+    );
+    assert_drivers_ended(&fixture);
+    drop(claude);
+    assert_eq!(provider.seen(), Seen::Ended);
+
+    // Removal leaves remembered sessions; the baseline is taken after it.
+    let removed = fixture.tmt(&["driver", "rm", "fake"]);
+    assert!(removed.status.success(), "{removed:?}");
+    let rows = stored_rows(&fixture);
+    let calls = fixture.calls().len();
+    let mut unapproved = SteppedProvider::start(&fixture, "claude", "unapproved-steps");
+    let unapproved_provider = live_provider(&unapproved);
+    let (status, stdout, stderr) = unapproved.hook(claude_event("SessionStart"));
+    assert_eq!((status, stdout.as_str(), stderr.as_str()), (0, "", ""));
+    assert_eq!(fixture.calls().len(), calls);
+    assert_eq!(stored_rows(&fixture), rows);
+    drop(unapproved);
+    assert_eq!(unapproved_provider.seen(), Seen::Ended);
+    assert_drivers_ended(&fixture);
 }
