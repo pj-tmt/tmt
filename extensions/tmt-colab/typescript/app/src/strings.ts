@@ -139,7 +139,8 @@ export const text = {
   unknownPageTitle: 'Untitled page',
   originalAuthor: 'Original author',
   headerByAuthor: (name: string) => `by ${name}`,
-  remoteAttribution: (name: string) => `Remote: ${name}`,
+  /** The brand's accessible name and tooltip: the product and the connection it shows. */
+  brandIdentity: (connection: string) => `${text.product} · ${connection}`,
   byAuthor: (name: string) => `By ${name}`,
   unknownAuthor: 'Unknown author',
   latestPublisher: 'Latest publisher',

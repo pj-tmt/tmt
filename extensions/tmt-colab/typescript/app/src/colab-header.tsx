@@ -21,7 +21,8 @@ export function ColabHeader({
   title: string;
   caption?: string;
   actions?: ReactNode;
-  home?: (brand: ReactNode) => ReactNode;
+  /** Wraps the brand in the page's home link; `name` is its accessible name and tooltip. */
+  home?: (brand: ReactNode, name: string) => ReactNode;
   headerRef?: Ref<HTMLElement>;
   status?: ReactNode;
   remote?: { deviceName?: string };
@@ -33,25 +34,14 @@ export function ColabHeader({
 }) {
   const remoteAvailable = useRemoteHeaderAvailable();
   const deviceName = remote?.deviceName?.trim();
-  const remoteLabel = deviceName ? `local · ${deviceName}` : 'local';
+  // The connection identity names the brand: no visible element beside the mark and the wordmark.
+  const identity =
+    remote === undefined
+      ? undefined
+      : text.brandIdentity(deviceName ? `local · ${deviceName}` : 'local');
   return (
     <BrowserHeader
       productLabel={text.product}
-      leading={
-        remote === undefined ? undefined : (
-          <span
-            className="colab-remote-attribution"
-            role="group"
-            aria-label={text.remoteAttribution(remoteLabel)}
-            title={text.remoteAttribution(remoteLabel)}
-          >
-            <span aria-hidden="true">◉</span>
-            <span className="colab-remote-label" aria-hidden="true">
-              {remoteLabel}
-            </span>
-          </span>
-        )
-      }
       headingPrefix={
         remote === undefined ? undefined : (
           <>
@@ -73,7 +63,17 @@ export function ColabHeader({
       title={title}
       caption={caption}
       captionId={caption === undefined ? undefined : 'colab-header-caption'}
-      brandLink={home}
+      brandLink={
+        home
+          ? (brand) => home(brand, identity ?? text.home)
+          : identity === undefined
+            ? undefined
+            : (brand) => (
+                <span className="colab-brand" role="group" aria-label={identity} title={identity}>
+                  {brand}
+                </span>
+              )
+      }
       actions={
         <>
           <QuickSwitcherControl />

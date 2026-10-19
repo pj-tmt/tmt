@@ -132,51 +132,32 @@ body {
   white-space: normal;
 }
 
-/* Mounted pages and space home opt into the one-row attribution slots. */
-.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-mark {
-  display: none;
-}
-.colab-remote-attribution {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  color: var(--c-muted);
-  font: 11px var(--f-mono);
-}
-.colab-remote-label {
-  max-width: 20ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-heading {
+/* The crumbs and the title share one row after the brand; the divider marks a heading that has them. */
+.tmt-ui-heading:has(> .colab-title-divider) {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-title {
+.tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-title {
   min-width: 0;
+}
+.colab-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--tmt-ui-header-brand-gap);
+  color: var(--tmt-ui-color-text);
 }
 .colab-title-divider {
   flex: none;
   color: var(--c-muted);
 }
-.tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-caption {
+.tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-caption {
   max-width: 22ch;
   min-width: 0;
 }
 @media (max-width: 900px) {
-  .tmt-ui-header:has(.colab-remote-attribution) .tmt-ui-caption {
+  .tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-caption {
     display: none;
-  }
-}
-@media (max-width: 640px) {
-  .colab-remote-label {
-    display: none;
-  }
-  .tmt-ui-header:has(.colab-remote-attribution) {
-    gap: 6px;
   }
 }
 

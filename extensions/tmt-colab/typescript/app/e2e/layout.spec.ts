@@ -48,11 +48,15 @@ for (const width of [1440, 390])
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
-      await expect(page.getByRole('heading', { name: 'Release notes', exact: true })).toBeVisible();
-      await expect(bar.locator('.colab-remote-label')).toHaveText('local · Studio Mac');
-      await expect(bar.getByRole('group', { name: 'Remote: local · Studio Mac' })).toHaveAttribute(
+      const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
+      // A phone's header has no width left for the title beside the mark, the wordmark, the sharing
+      // chip and the actions: it stays in the document, named, and its tooltip carries it.
+      if (width < 480) await expect(heading).toHaveAttribute('title', 'Release notes');
+      else await expect(heading).toBeVisible();
+      await expect(bar.locator('.tmt-ui-mark')).toBeVisible();
+      await expect(bar.getByRole('link', { name: 'Colab · local · Studio Mac' })).toHaveAttribute(
         'title',
-        'Remote: local · Studio Mac',
+        'Colab · local · Studio Mac',
       );
       await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
       expect(
@@ -352,10 +356,10 @@ test('one-row fitting retains full labels, stable content and compact action aut
   );
   const header = page.locator('.tmt-ui-header:visible');
   const heading = header.getByRole('heading', { name: title, exact: true });
-  const remote = header.getByRole('group', { name: `Remote: local · ${deviceName}`, exact: true });
+  const remote = header.getByRole('link', { name: `Colab · local · ${deviceName}`, exact: true });
   await expect(heading).toBeVisible();
   await expect(header.locator('.tmt-ui-caption')).toBeVisible();
-  await expect(header.locator('.colab-remote-label')).toBeVisible();
+  await expect(header.locator('.tmt-ui-mark')).toBeVisible();
   const iframe = page.locator('#layout-fixture iframe');
   await expect(
     page.frameLocator('#layout-fixture iframe').getByRole('heading', { name: 'Stable content' }),
@@ -365,10 +369,9 @@ test('one-row fitting retains full labels, stable content and compact action aut
   for (const width of [800, 640, 390, 320, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(header.locator('.tmt-ui-caption'))[width <= 900 ? 'toBeHidden' : 'toBeVisible']();
-    await expect(header.locator('.colab-remote-label'))[
-      width <= 640 ? 'toBeHidden' : 'toBeVisible'
-    ]();
-    await expect(remote).toHaveAttribute('title', `Remote: local · ${deviceName}`);
+    // The mark stays at every width, as in Remote; the identity is only in the brand's name.
+    await expect(header.locator('.tmt-ui-mark')).toBeVisible();
+    await expect(remote).toHaveAttribute('title', `Colab · local · ${deviceName}`);
     await expect(heading).toHaveAttribute('title', title);
     await expect(header).toHaveCSS('height', width < 480 ? '48px' : '56px');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
@@ -399,6 +402,6 @@ test('one-row fitting retains full labels, stable content and compact action aut
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount('<h1>Stable content</h1>', {}, {});
   });
-  await expect(header.getByRole('group', { name: 'Remote: local', exact: true })).toBeVisible();
+  await expect(header.getByRole('link', { name: 'Colab · local', exact: true })).toBeVisible();
   await expect(header.locator('.tmt-ui-caption')).toHaveCount(0);
 });

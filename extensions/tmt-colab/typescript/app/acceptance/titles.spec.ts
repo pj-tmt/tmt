@@ -7,7 +7,7 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'home') {
   const header = page.locator('.tmt-ui-header:visible');
-  const attribution = header.getByRole('group', { name: /^Remote: local/ });
+  const attribution = header.getByRole('link', { name: /^Colab · local/ });
   await expect(attribution).toBeVisible();
   const fullName = await attribution.getAttribute('aria-label');
   for (const theme of ['light', 'dark']) {
@@ -18,9 +18,7 @@ async function captureHeader(page: Page, testInfo: TestInfo, screen: 'page' | 'h
       await page.setViewportSize({ width, height: 900 });
       await expect(header).toHaveCSS('height', width === 390 ? '48px' : '56px');
       await expect(attribution).toHaveAttribute('aria-label', fullName!);
-      await expect(header.locator('.colab-remote-label'))[
-        width === 390 ? 'toBeHidden' : 'toBeVisible'
-      ]();
+      await expect(header.locator('.tmt-ui-mark')).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       if (screen === 'page') {
         const chip = header.locator('.page-sharing');
@@ -88,7 +86,7 @@ test('native page titles fill missing visible home labels without opening the pa
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByRole('link', { name: 'Space home', exact: true }).click();
+    await page.getByRole('link', { name: /^Colab · local/ }).click();
     await expect(row().getByRole('link')).toHaveText(title);
     await expect(page).toHaveTitle('Colab');
     await page.reload();

@@ -1139,7 +1139,7 @@ test('a disconnected active tab replaces its session on its own, with no click a
   await expect(heading).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
   await expect.poll(() => f.connections).toBe(1);
-  await page.getByRole('link', { name: 'Space home' }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
 });
 
@@ -1466,7 +1466,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.locator('.tmt-ui-notice')).toContainText(copy.pairAgain);
   await expect(page.locator('.tmt-ui-notice')).toContainText(copy.reconnectCommand);
   await capture('terminal-refusal');
-  await page.getByRole('link', { name: 'Space home' }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
 });
 
@@ -1726,7 +1726,7 @@ for (const width of [1440, 390])
         await expect(page.getByTestId('ask-reply')).toHaveText('Draft recovery reply');
         if (surface === 'Chat')
           await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
-        await page.getByRole('link', { name: 'Space home' }).click();
+        await page.getByRole('link', { name: /^Colab · local/ }).click();
         await expect.poll(() => f.connections).toBe(0);
       });
     }
@@ -2340,7 +2340,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'After compacted reload' }),
   ).toBeVisible();
-  await page.getByRole('link', { name: 'Space home' }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
   await expect
     .poll(() =>
@@ -2403,7 +2403,7 @@ test('baseline finishes before a signed large statement; exact owner log survive
   ).toBeVisible();
   expect(await persistedLog(page)).toEqual(log);
   expect(f.statementChunks).toBe(chunks);
-  await page.getByRole('link', { name: 'Space home' }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
 });
 test('tampered statement reference blocks home metadata and preserves the verified prefix', async ({
@@ -2601,7 +2601,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await download('page.html');
   await closeExport.click();
-  await page.getByRole('link', { name: 'Space home' }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(urlCount).toBe(0);
   await expect.poll(() => f.connections).toBe(0);
 });
@@ -2659,7 +2659,7 @@ test('failed export preparation requests no files and closing clears pending pre
   await (await pageAction(page, 'Export page')).click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await page.locator('.tmt-ui-drawer[data-panel="export"] .tmt-ui-drawer-header button').click();
-  await page.getByRole('link', { name: 'Space home' }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
 });
 
 test('accepted fold titles persist as encrypted display hints for home, dialog and the parent tab', async ({
@@ -2684,7 +2684,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await dialog.getByText('Details', { exact: true }).click();
   await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('link', { name: 'Space home', exact: true }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
   await expect(page).toHaveTitle('Colab');
   await page.reload();
@@ -2723,6 +2723,6 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await expect(
     page.locator('.tmt-ui-header').getByRole('heading', { name: title, exact: true }),
   ).toBeVisible();
-  await page.getByRole('link', { name: 'Space home', exact: true }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect(row().locator('.tmt-ui-list-title')).toHaveText(title);
 });

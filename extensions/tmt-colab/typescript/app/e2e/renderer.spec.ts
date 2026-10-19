@@ -144,7 +144,7 @@ test('space home opens a local page, scripts run, source stays in trusted chrome
       }),
   );
   await page.screenshot({ path: '/tmp/1187-page-dark.png', fullPage: true });
-  await page.getByRole('link', { name: 'Space home', exact: true }).click();
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect(page.locator('iframe')).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('link', { name: /A shared page/ }).click();

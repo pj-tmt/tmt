@@ -61,11 +61,12 @@ selection controls. Local choice/action menus, native actions, Ask previews, rea
 information panels and management dialogs use the shared one-pixel edge roles
 without shadows; keyboard focus keeps its visible outline.
 Explicit theme choices are radio menu items.
-Owner page and space-home headers use one shared-height row: neutral ◉ and the
-existing display-only `local · <backendName>` attribution (`local` when absent),
-Colab, `/`, title, then muted original author. Full attribution remains named and
-in a tooltip. Author hides below 900px before attribution text hides below 640px;
-the title truncates without changing its DOM copy. The page connection chip remains outside menus
+Owner page and space-home headers use one shared-height row that starts as Remote's does: the TMT
+mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted original author. The
+display-only `local · <backendName>` identity (`local` when absent) is not a visible element: it
+names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
+named group with the same title. Author hides below 900px; the title truncates without changing its
+DOM copy. The page connection chip remains outside menus
 and keeps its existing connection owner. At 640px and narrower, Discussion and More
 stay visible; Agents, Files (count), Source and Export move into More with the same
 handlers and disabled states. A single media-query observation selects those menu

@@ -140,7 +140,7 @@ for (const width of [1440, 390]) {
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
         await page
           .locator('#layout-fixture')
-          .getByRole('link', { name: 'Space home', exact: true })
+          .getByRole('link', { name: /^Colab · local/ })
           .click();
         await expect(frame).toHaveCount(0);
         await page
