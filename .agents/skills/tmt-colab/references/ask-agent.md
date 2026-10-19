@@ -86,12 +86,15 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   eviction paths carry the typed limit/settings notice and stop further work.
   The controller then calls `sessionEnded` once, after publication, refuses further work and
   stops observing.
-- **`writer.ts` and the fold Worker.** `Writer.submitOwn` is generic over the own roots
-  (`threads`, `intents`, `messages`, `replies`) and imports nothing from Ask. It has the
-  Worker `prepare-own` a candidate update (immutable per key, size-bounded, not committed),
-  then submits it through the same `submit(update, 'own')` path as content, so sequence,
-  Web Lock and exact-envelope staging are shared. The decoder state commits only after the
-  append is admitted.
+- **`writer.ts` and the fold Worker.** `Writer.submitOwnRecords` (and the single-record
+  `submitOwn`) is generic over the own roots (`threads`, `intents`, `messages`, `replies`)
+  and imports nothing from Ask. It has the Worker `prepare-own` a candidate update
+  (immutable per key, size-bounded, not committed); an optional `fits` check may refuse it
+  before anything is sealed, stored or sent. It then submits through the one-argument
+  `Writer.submit(update)`, which owns sequence, Web Lock and exact-envelope staging and
+  resolves with an `OwnPublicationReceipt`, waits until the connection admits those own
+  records for that receipt, and zeroes the prepared bytes either way. The decoder state
+  commits only after the append is admitted.
 - **`proposal-actions.ts`.** A trusted Approve/Decline fences and publishes the
   immutable decision, then publishes its ordinary comment and invokes this same Ask
   preparation/send path in that activation, with the proposer UUID pair. Failure
