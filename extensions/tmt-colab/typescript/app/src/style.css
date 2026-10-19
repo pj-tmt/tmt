@@ -876,6 +876,36 @@ body:has(.needs-you-header-menu) {
   overflow: visible;
   overscroll-behavior: auto;
 }
+/* The composer is pinned to the bottom of that scroller while its thread is on screen; an ended
+   composer can be taller than the viewport, so it stays in flow to keep its action reachable. */
+.comments-panel .conversation-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--c-paper);
+}
+.comments-panel .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
+  position: static;
+}
+/* Pinned flush with the drawer's bottom edge, so it does not shift at the end of the scroll. */
+.tmt-ui-drawer-body:has(.comments-panel .conversation-composer) {
+  padding-bottom: 0;
+}
+/* A pinned composer rests compact: a two-line input (it grows up to its max while typing) and
+   one footer line. */
+.comments-panel .annotation-compose .rich-input-field {
+  min-height: 2lh;
+}
+.comments-panel .annotation-compose .tmt-listbox {
+  margin-bottom: var(--conversation-gap);
+}
+.comments-panel .annotation-anchor-note,
+.comments-panel .annotation-anchor-note + .annotation-hint {
+  display: inline;
+}
+.comments-panel .annotation-anchor-note + .annotation-hint:not(:empty)::before {
+  content: ' · ';
+}
 /* Ended guidance can exceed an anchored window; keep its action scroll-reachable. */
 .conversation-composer:has(> .annotation-compose[data-connection='ended']) {
   flex-shrink: 1;

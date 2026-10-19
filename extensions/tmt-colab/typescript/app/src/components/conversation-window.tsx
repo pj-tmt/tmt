@@ -56,6 +56,7 @@ export function ConversationWindow({
   if (hideHeader && !historyLabel)
     throw new Error('A headerless conversation requires a history label');
   const headingId = useId();
+  const root = useRef<HTMLElement>(null);
   const history = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const arrivals = useRef<HTMLDivElement>(null);
@@ -158,8 +159,15 @@ export function ConversationWindow({
       document.removeEventListener('visibilitychange', reportReading);
     };
   }, [latest, requestReveal, reportReading]);
+  // A history with no scroll of its own (the Comments panel's) opens at its latest messages by
+  // revealing the window's end in the container that does scroll; it never follows arrivals.
+  useLayoutEffect(() => {
+    const node = history.current;
+    if (node && getComputedStyle(node).overflowY === 'visible')
+      root.current?.scrollIntoView({ block: 'end' });
+  }, []);
   return (
-    <section {...attributes} className={`conversation-window ${className}`}>
+    <section {...attributes} ref={root} className={`conversation-window ${className}`}>
       {!hideHeader && (
         <header className="conversation-window-bar thread-bar">
           <div className="conversation-heading">

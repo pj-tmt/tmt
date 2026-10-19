@@ -11,8 +11,8 @@ async function run(page: Page, method: string, argument?: unknown) {
 }
 
 /** Opens the long thread (40 messages) inside the Comments panel; returns its drawer scroller. */
-async function openLongThread(page: Page, width: number, theme: 'light' | 'dark') {
-  await page.setViewportSize({ width, height: 700 });
+async function openLongThread(page: Page, width: number, theme: 'light' | 'dark', height = 700) {
+  await page.setViewportSize({ width, height });
   await page.emulateMedia({ colorScheme: theme });
   await page.addInitScript((value) => {
     document.documentElement.dataset.theme = value;
@@ -28,6 +28,8 @@ async function openLongThread(page: Page, width: number, theme: 'light' | 'dark'
   const entries = panel.getByTestId('comment-entry');
   await expect(entries).toHaveCount(40);
   const scroller = panel.locator('xpath=ancestor::*[contains(@class,"tmt-ui-drawer-body")]');
+  // Opening a thread shows its latest message, the way it did when the composer took focus.
+  await expect.poll(() => visibleIn(entries.last())).toBe(true);
   return { panel, entries, scroller };
 }
 
@@ -43,12 +45,18 @@ const scrollContainers = (message: Locator) =>
     return found;
   });
 
-/** The last message is fully inside the scroller's visible box. */
-const visibleIn = (message: Locator, scroller: Locator) =>
-  Promise.all([message.boundingBox(), scroller.boundingBox()]).then(
-    ([item, box]) =>
-      !!item && !!box && item.y >= box.y && item.y + item.height <= box.y + box.height,
-  );
+/** The message is fully inside the scroller's visible box and clear of the pinned composer. */
+const visibleIn = (message: Locator) =>
+  message.evaluate((node) => {
+    const body = node.closest('.tmt-ui-drawer-body')!.getBoundingClientRect();
+    const bar = node
+      .closest('.comments-panel')
+      ?.querySelector('.conversation-composer')
+      ?.getBoundingClientRect();
+    const item = node.getBoundingClientRect();
+    const floor = bar && bar.top < body.bottom ? bar.top : body.bottom;
+    return item.top >= body.top && item.bottom <= floor + 1;
+  });
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const)
@@ -75,18 +83,18 @@ for (const width of [1440, 390])
       await expect(entries.first()).toBeVisible();
       const box = (await scroller.boundingBox())!;
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      for (let step = 0; step < 60 && !(await visibleIn(last, scroller)); step++) {
+      for (let step = 0; step < 60 && !(await visibleIn(last)); step++) {
         await page.mouse.wheel(0, 600);
         await page.waitForTimeout(50);
       }
-      expect(await visibleIn(last, scroller)).toBe(true);
+      expect(await visibleIn(last)).toBe(true);
 
       // Keyboard scrolling reaches it too: focus a message, then Home and End.
       await entries.first().click();
       await page.keyboard.press('Home');
       await expect.poll(() => scroller.evaluate((node) => node.scrollTop)).toBe(0);
       await page.keyboard.press('End');
-      await expect.poll(() => visibleIn(last, scroller)).toBe(true);
+      await expect.poll(() => visibleIn(last)).toBe(true);
 
       await page.screenshot({ path: await capturePath(`comments-scroll-${width}-${theme}.png`) });
     });
@@ -104,6 +112,93 @@ test('a message arriving in the Comments panel stays reachable and does not move
   expect(await scroller.evaluate((node) => node.scrollTop)).toBe(0);
   await entries.first().click();
   await page.keyboard.press('End');
-  await expect.poll(() => visibleIn(entries.last(), scroller)).toBe(true);
+  await expect.poll(() => visibleIn(entries.last())).toBe(true);
   await expect(entries.last()).toContainText('A new turn from another browser.');
+});
+
+const lineHeight = (node: Locator) =>
+  node.evaluate((element) => Number.parseFloat(getComputedStyle(element).lineHeight));
+/** The composer's bottom edge sits on the scroller's bottom edge (within a pixel). */
+const pinned = async (composer: Locator, scroller: Locator) => {
+  const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
+  return !!bar && !!box && Math.abs(bar.y + bar.height - (box.y + box.height)) <= 1;
+};
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`the Comments composer stays pinned and compact: ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      const { panel, entries, scroller } = await openLongThread(page, width, theme);
+      const composer = panel.locator('.conversation-composer');
+      const field = composer.locator('.rich-input-field');
+
+      // Pinned at the top, in the middle and at the end of the scroll, and never a scroller itself.
+      for (const top of [0, 700, 100000]) {
+        await scroller.evaluate((node, value) => {
+          node.scrollTop = value;
+        }, top);
+        await expect.poll(() => pinned(composer, scroller)).toBe(true);
+      }
+      await scroller.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      expect(await scrollContainers(composer.getByTestId('annotation-compose'))).toEqual([
+        'tmt-ui-drawer-body',
+      ]);
+
+      // At rest the input shows two lines and the footer reads as one line.
+      const line = await lineHeight(field);
+      const rest = (await field.boundingBox())!.height;
+      expect(Math.abs(rest - 2 * line)).toBeLessThanOrEqual(1);
+      const note = composer.locator('.annotation-anchor-note');
+      const hint = composer.locator('.annotation-hint');
+      await expect(note).toHaveText('Attached to this sentence');
+      const [noteBox, hintBox] = await Promise.all([note.boundingBox(), hint.boundingBox()]);
+      expect(Math.abs(noteBox!.y - hintBox!.y)).toBeLessThanOrEqual(1);
+      await expect(hint).toHaveText('Posts as a comment.');
+
+      await page.screenshot({
+        path: await capturePath(`comments-composer-rest-${width}-${theme}.png`),
+      });
+
+      // It grows while typing, up to its existing max, and stays pinned.
+      await field.click();
+      for (let index = 0; index < 12; index++) {
+        await page.keyboard.type(`Line ${index + 1}`);
+        await page.keyboard.press('Shift+Enter');
+      }
+      const grown = (await field.boundingBox())!.height;
+      const max = await field.evaluate((node) =>
+        Number.parseFloat(getComputedStyle(node).maxHeight),
+      );
+      expect(grown).toBeGreaterThan(rest + line);
+      expect(grown).toBeLessThanOrEqual(max + 1);
+      await expect.poll(() => pinned(composer, scroller)).toBe(true);
+      await expect(entries.first()).toBeAttached();
+      await page.screenshot({ path: await capturePath(`comments-composer-${width}-${theme}.png`) });
+    });
+
+test('the on-screen keyboard shrinks the Comments message area, not the composer', async ({
+  page,
+}) => {
+  const { panel, scroller } = await openLongThread(page, 390, 'light');
+  const composer = panel.locator('.conversation-composer');
+  const field = composer.locator('.rich-input-field');
+  const resting = (await composer.boundingBox())!.height;
+  // A short viewport stands in for the on-screen keyboard: the visible area shrinks.
+  await page.setViewportSize({ width: 390, height: 420 });
+  await field.click();
+  await expect(field).toBeFocused();
+  await expect.poll(() => pinned(composer, scroller)).toBe(true);
+  const [bar, box] = await Promise.all([composer.boundingBox(), scroller.boundingBox()]);
+  expect(Math.abs(bar!.height - resting)).toBeLessThanOrEqual(1);
+  // The composer is fully on screen and messages keep room above it.
+  expect(box!.height - bar!.height).toBeGreaterThan(100);
+  // The last message stays reachable above the pinned composer.
+  await scroller.evaluate((node) => {
+    node.scrollTop = node.scrollHeight;
+  });
+  await expect.poll(() => visibleIn(panel.getByTestId('comment-entry').last())).toBe(true);
+  await page.screenshot({ path: await capturePath('comments-composer-390-focused-short.png') });
 });
