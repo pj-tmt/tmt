@@ -55,6 +55,11 @@ export function setDirectory(value: string) {
 export function replaceBinding() {
   replace?.();
 }
+let block: ((value: boolean) => void) | undefined;
+/** Blocks the conversation, as a connection fault or a status change does mid-send. */
+export function setBlocked(value: boolean) {
+  block?.(value);
+}
 export function proof() {
   return structuredClone(state);
 }
@@ -230,10 +235,13 @@ export async function mount(
       abandon: async () => {},
     });
     const [binding, setBinding] = useState<AskBinding>(makeBinding);
+    const [blocked, setBlocked] = useState(false);
     useEffect(() => {
       replace = () => setBinding(makeBinding());
+      block = setBlocked;
       return () => {
         replace = undefined;
+        block = undefined;
       };
     }, []);
     return surface === 'chat' ? (
@@ -243,7 +251,7 @@ export async function mount(
         binding={binding}
         discussion={discussion}
         title="Retry fixture"
-        blocked={false}
+        blocked={blocked}
         close={() => {}}
       />
     ) : (

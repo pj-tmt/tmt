@@ -58,9 +58,15 @@ export function AskAgainAction({
     const captured = structuredClone({ input, recipient, retryOf });
     const current = () => active.current && owner.current === binding && !disabled.current;
     let keepBusy = false;
+    // A click abandoned before Send (binding replaced or conversation blocked) is reported,
+    // never dropped silently; nothing was sent, so the reader can ask again.
+    let abandoned = false;
     try {
       const destinations = await binding.destinations();
-      if (!current()) return;
+      if (!current()) {
+        abandoned = true;
+        return;
+      }
       const matches = destinations.filter(
         (value) =>
           value.machine === captured.recipient.machine && value.agent === captured.recipient.agent,
@@ -71,7 +77,10 @@ export function AskAgainAction({
         destination: matches[0],
         retryOf: captured.retryOf,
       });
-      if (!current()) return;
+      if (!current()) {
+        abandoned = true;
+        return;
+      }
       // A thrown Send, unlike rejected preparation, may have started adoption.
       let outcome: Awaited<ReturnType<typeof attempt.send>>;
       try {
@@ -94,6 +103,8 @@ export function AskAgainAction({
         setBusy(keepBusy);
         if (!keepBusy) sending.current = false;
       }
+      // A replaced binding already reset busy; the failure still shows on this action.
+      if (abandoned && active.current) setError(true);
     }
   }
   const Action = label ? BrowserAction : BrowserIconAction;
