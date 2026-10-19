@@ -1,6 +1,6 @@
 ---
 name: tmt-colab
-description: Build, run and verify Colab (`tmt-colab` executable, `tmt colab ...`, the local page app, the browser client and the native packaging path). Load when changing extensions/tmt-colab or running its checks. Owner - the tmt-colab squad.
+description: Build, run and verify Colab (`tmt-colab` executable, `tmt colab ...`, the local page app, the browser client and the native packaging path). Load when changing extensions/tmt-colab or running its checks. Owner - the tmt-feat squad.
 ---
 
 # Colab development
