@@ -759,8 +759,8 @@ export function AppHeader({
       headingSuffix={headingSuffix}
       home={
         linked
-          ? (brand) => (
-              <Link to="/" aria-label={text.home}>
+          ? (brand, name) => (
+              <Link to="/" aria-label={name} title={name}>
                 {brand}
               </Link>
             )
@@ -1603,8 +1603,8 @@ function Page() {
         caption={
           view.originalAuthor === undefined ? undefined : text.headerByAuthor(view.originalAuthor)
         }
-        home={(brand) => (
-          <Link to="/" aria-label={text.home}>
+        home={(brand, name) => (
+          <Link to="/" aria-label={name} title={name}>
             {brand}
           </Link>
         )}

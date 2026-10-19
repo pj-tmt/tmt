@@ -329,7 +329,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`page header keeps attribution, status and fitting icon actions: ${width}px ${theme}`, async ({
+    test(`page header shows the mark, names the connection, and keeps status and fitting icon actions: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -343,10 +343,12 @@ for (const width of [1440, 390, 320])
         await (await import(path)).mount('page');
       });
       const header = page.locator('#chrome-fixture .tmt-ui-header');
-      await expect(header.locator('.colab-remote-label')).toHaveText('local · Studio Mac');
+      // The connection names the brand; nothing but the mark and the wordmark shows beside it.
       await expect(
-        header.getByRole('group', { name: 'Remote: local · Studio Mac' }),
-      ).toHaveAttribute('title', 'Remote: local · Studio Mac');
+        header.getByRole('group', { name: 'Colab · local · Studio Mac' }),
+      ).toHaveAttribute('title', 'Colab · local · Studio Mac');
+      await expect(header.locator('.tmt-ui-mark')).toBeVisible();
+      await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
       await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
       expect(
         await header

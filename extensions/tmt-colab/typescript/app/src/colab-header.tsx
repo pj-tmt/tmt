@@ -5,6 +5,12 @@ import { text } from './strings.js';
 import './colab-header.css';
 import { QuickSwitcherControl } from './quick-switcher-control.js';
 
+/** The mark and the wordmark as one flex row; under 480px the wordmark is visually hidden (the brand's
+ * accessible name still carries the product). */
+function BrandParts({ children }: { children: ReactNode }) {
+  return <span className="colab-brand-parts">{children}</span>;
+}
+
 /** Colab supplies routing and content to the shared presentation. */
 export function ColabHeader({
   title,
@@ -21,7 +27,8 @@ export function ColabHeader({
   title: string;
   caption?: string;
   actions?: ReactNode;
-  home?: (brand: ReactNode) => ReactNode;
+  /** Wraps the brand in the page's home link; `name` is its accessible name and tooltip. */
+  home?: (brand: ReactNode, name: string) => ReactNode;
   headerRef?: Ref<HTMLElement>;
   status?: ReactNode;
   remote?: { deviceName?: string };
@@ -33,25 +40,14 @@ export function ColabHeader({
 }) {
   const remoteAvailable = useRemoteHeaderAvailable();
   const deviceName = remote?.deviceName?.trim();
-  const remoteLabel = deviceName ? `local · ${deviceName}` : 'local';
+  // The connection identity names the brand: no visible element beside the mark and the wordmark.
+  const identity =
+    remote === undefined
+      ? undefined
+      : text.brandIdentity(deviceName ? `local · ${deviceName}` : 'local');
   return (
     <BrowserHeader
       productLabel={text.product}
-      leading={
-        remote === undefined ? undefined : (
-          <span
-            className="colab-remote-attribution"
-            role="group"
-            aria-label={text.remoteAttribution(remoteLabel)}
-            title={text.remoteAttribution(remoteLabel)}
-          >
-            <span aria-hidden="true">◉</span>
-            <span className="colab-remote-label" aria-hidden="true">
-              {remoteLabel}
-            </span>
-          </span>
-        )
-      }
       headingPrefix={
         remote === undefined ? undefined : (
           <>
@@ -73,7 +69,17 @@ export function ColabHeader({
       title={title}
       caption={caption}
       captionId={caption === undefined ? undefined : 'colab-header-caption'}
-      brandLink={home}
+      brandLink={
+        home
+          ? (brand) => home(<BrandParts>{brand}</BrandParts>, identity ?? text.home)
+          : identity === undefined
+            ? (brand) => <BrandParts>{brand}</BrandParts>
+            : (brand) => (
+                <span className="colab-brand" role="group" aria-label={identity} title={identity}>
+                  <BrandParts>{brand}</BrandParts>
+                </span>
+              )
+      }
       actions={
         <>
           <QuickSwitcherControl />

@@ -39,7 +39,7 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
     ] as const) {
       await visited.goto(`${door.address}/${created.path}`);
       await expect(visited.locator('.tmt-ui-header h1')).toHaveText(title);
-      await visited.getByRole('link', { name: 'Space home', exact: true }).click();
+      await visited.getByRole('link', { name: /^Colab · local/ }).click();
       await expect(
         visited.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
       ).toHaveText(title);

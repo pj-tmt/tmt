@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, expectLive, freePort, openPage } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
-import { text } from '../src/strings.js';
 
 test.afterEach(disposeActiveWorlds);
 
@@ -24,7 +23,7 @@ test('a page entered again in the same tab is live and writable, also on a slow 
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
     await expectLive(page);
     // Leave the page inside the app and come back to it.
-    await page.getByRole('link', { name: text.home }).click();
+    await page.getByRole('link', { name: /^Colab · local/ }).click();
     await page.getByRole('link', { name: 'Re-entry page' }).click();
     const band = page.locator(`[data-inline-reading="${reading}"]`);
     await expect(band).toHaveAttribute('data-reading-state', 'unread');
