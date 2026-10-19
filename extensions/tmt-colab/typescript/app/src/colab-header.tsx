@@ -5,6 +5,12 @@ import { text } from './strings.js';
 import './colab-header.css';
 import { QuickSwitcherControl } from './quick-switcher-control.js';
 
+/** The mark and the wordmark as one flex row; under 480px the wordmark is visually hidden (the brand's
+ * accessible name still carries the product). */
+function BrandParts({ children }: { children: ReactNode }) {
+  return <span className="colab-brand-parts">{children}</span>;
+}
+
 /** Colab supplies routing and content to the shared presentation. */
 export function ColabHeader({
   title,
@@ -65,12 +71,12 @@ export function ColabHeader({
       captionId={caption === undefined ? undefined : 'colab-header-caption'}
       brandLink={
         home
-          ? (brand) => home(brand, identity ?? text.home)
+          ? (brand) => home(<BrandParts>{brand}</BrandParts>, identity ?? text.home)
           : identity === undefined
-            ? undefined
+            ? (brand) => <BrandParts>{brand}</BrandParts>
             : (brand) => (
                 <span className="colab-brand" role="group" aria-label={identity} title={identity}>
-                  {brand}
+                  <BrandParts>{brand}</BrandParts>
                 </span>
               )
       }

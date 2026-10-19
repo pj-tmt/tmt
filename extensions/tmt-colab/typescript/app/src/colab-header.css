@@ -141,11 +141,23 @@ body {
 .tmt-ui-heading:has(> .colab-title-divider) .tmt-ui-title {
   min-width: 0;
 }
-.colab-brand {
+.colab-brand,
+.colab-brand-parts {
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-header-brand-gap);
   color: var(--tmt-ui-color-text);
+}
+/* A phone shows the mark only: the wordmark stays for assistive technology and in the brand's name. */
+@media (max-width: 479px) {
+  .colab-brand-parts .tmt-ui-wordmark {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 .colab-title-divider {
   flex: none;

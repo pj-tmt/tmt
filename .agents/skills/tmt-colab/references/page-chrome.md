@@ -65,8 +65,9 @@ Owner page and space-home headers use one shared-height row that starts as Remot
 mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted original author. The
 display-only `local · <backendName>` identity (`local` when absent) is not a visible element: it
 names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
-named group with the same title. Author hides below 900px; the title truncates without changing its
-DOM copy. The page connection chip remains outside menus
+named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
+visually hidden and stays in that name. Author hides below 900px; the title truncates without
+changing its DOM copy. The page connection chip remains outside menus
 and keeps its existing connection owner. At 640px and narrower, Discussion and More
 stay visible; Agents, Files (count), Source and Export move into More with the same
 handlers and disabled states. A single media-query observation selects those menu

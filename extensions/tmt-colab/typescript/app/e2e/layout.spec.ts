@@ -49,11 +49,14 @@ for (const width of [1440, 390])
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
-      // A phone's header has no width left for the title beside the mark, the wordmark, the sharing
-      // chip and the actions: it stays in the document, named, and its tooltip carries it.
+      // A phone's header shows the mark only, yet has little width left for the title beside the
+      // sharing chip and the actions: it stays in the document, named, and its tooltip carries it.
       if (width < 480) await expect(heading).toHaveAttribute('title', 'Release notes');
       else await expect(heading).toBeVisible();
       await expect(bar.locator('.tmt-ui-mark')).toBeVisible();
+      if (width < 480) {
+        expect((await bar.locator('.tmt-ui-wordmark').boundingBox())?.width).toBeLessThanOrEqual(1);
+      }
       await expect(bar.getByRole('link', { name: 'Colab · local · Studio Mac' })).toHaveAttribute(
         'title',
         'Colab · local · Studio Mac',
