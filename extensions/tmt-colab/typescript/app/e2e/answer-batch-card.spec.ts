@@ -297,13 +297,15 @@ for (const recordBeforeFail of [false, true]) {
       'Could not confirm this answer. Your draft is kept for the next Send.',
     );
     await expect(card(page).getByLabel('Keep it', { exact: true })).toBeChecked();
+    // The echo became the error row: its alert and a Retry stand in the one status line.
+    await expect(card(page).locator('.question-status')).toContainText('Retry');
     if (recordBeforeFail)
       await expect(card(page).locator('.question-answer > p')).toHaveText('Keep it');
     else {
       await expect(card(page).locator('.question-answer')).toHaveCount(0);
       await expect(group.locator('.question-line').first()).toContainText('Waiting for you');
     }
-    await group.getByRole('button', { name: /^Send 1 answer/ }).click();
+    await card(page).getByRole('button', { name: 'Retry', exact: true }).click();
     await recorded(page, recordBeforeFail ? 4 : 3);
     await openRecorded(group, 0);
     const after: readonly ThreadView[] = await run(page, 'discussionProof');

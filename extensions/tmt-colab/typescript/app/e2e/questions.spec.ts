@@ -202,7 +202,10 @@ for (const change of [false, true]) {
     await run(page, 'pausePrepare');
     await card.getByRole('button', { name: /^Send answer/ }).click();
     await expect(card.locator('.question-answer > p')).toHaveText(change ? 'Change it' : 'Keep it');
-    await expect(card.getByText('Sending…', { exact: true })).toBeVisible();
+    // The answer stands in its place at once; no step is spelled out and nothing is inserted.
+    await expect(card.locator('.question-answer')).toHaveAttribute('data-echo', 'true');
+    await expect(card.getByText('Sending…', { exact: true })).toHaveCount(0);
+    await expect(card.getByText(/waiting for the verified view/)).toHaveCount(0);
     const recorded = await run(page, 'discussionProof');
     expect(recorded).toHaveLength(1);
     expect(recorded[0].comments).toHaveLength(change ? 2 : 1);

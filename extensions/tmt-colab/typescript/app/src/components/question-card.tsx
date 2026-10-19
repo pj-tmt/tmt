@@ -1,7 +1,8 @@
 import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
+  answerOf,
   canonicalQuestionThread,
   currentAnswer,
   QUESTION_SHORT_POINTS,
@@ -15,6 +16,27 @@ import type { ThreadView } from '../thread-records.js';
 import { ArchivedDraft } from '../annotation-input.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
+
+/** A send unconfirmed for this long gets the pending mark; one that ends sooner shows nothing. */
+const PENDING_MARK_MS = 400;
+
+/** True once `active` has lasted `PENDING_MARK_MS`, and then for at least as long, so it never flickers. */
+function usePendingMark(active: boolean) {
+  const [shown, setShown] = useState(false);
+  const since = useRef(0);
+  useEffect(() => {
+    if (active === shown) return;
+    const wait = active
+      ? PENDING_MARK_MS
+      : Math.max(0, PENDING_MARK_MS - (Date.now() - since.current));
+    const timer = setTimeout(() => {
+      since.current = Date.now();
+      setShown(active);
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [active, shown]);
+  return shown;
+}
 
 export interface QuestionDraft {
   choices: string[];
@@ -44,6 +66,7 @@ export function QuestionCard({
   replyLabel,
   onOpenReply,
   onSend,
+  onRetry,
   retryInput,
 }: {
   question: Question;
@@ -65,6 +88,8 @@ export function QuestionCard({
   replyLabel?: string;
   onOpenReply?(): void;
   onSend?(): void;
+  /** Sends the kept draft again after a failed send. */
+  onRetry?(): void;
   retryInput?: AskRetryInput;
 }) {
   const heading = useId();
@@ -76,9 +101,14 @@ export function QuestionCard({
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const disabled = blocked || busy || recorded || !discussion;
-  const compose = !answer || changing;
+  // From Send until the verified record arrives, the card shows the answer being sent where the
+  // verified one will stand. It is display only: nothing here is a record, and a failure drops it.
+  const echoing = !readOnly && (busy || recorded) && body !== undefined;
+  const echo = echoing ? answerOf(question, body) : undefined;
+  const pendingMark = usePendingMark(echoing);
+  const compose = !echoing && (!answer || changing);
   const changeAction =
-    answer && !readOnly && !changing ? (
+    !readOnly && (echoing || (answer && !changing)) ? (
       <BrowserAction
         label="Change answer"
         type="button"
@@ -124,10 +154,17 @@ export function QuestionCard({
       }}
     >
       <div className="question-controls">
-        {answer && (
-          <div className="question-answer">
-            <p>{pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}</p>
+        {(answer || echoing) && (
+          <div className="question-answer" data-echo={echoing || undefined}>
+            <p>{echo ?? (pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText)}</p>
             {changeAction}
+            <span className="question-pending" role="status">
+              {pendingMark && (
+                <span role="img" aria-label="Sending">
+                  ◌
+                </span>
+              )}
+            </span>
           </div>
         )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
@@ -220,9 +257,26 @@ export function QuestionCard({
             )}
           </>
         )}
-        {busy && <p role="status">Sending…</p>}
-        {!busy && recorded && <p role="status">Answer recorded; waiting for the verified view.</p>}
-        {error && (!connectionPresentation || recorded) && <p role="alert">{error}</p>}
+        {!readOnly && (
+          <div className="question-status">
+            {error && (!connectionPresentation || recorded) && (
+              <>
+                <p role="alert">{error}</p>
+                {onRetry && (
+                  <BrowserAction
+                    label="Retry"
+                    type="button"
+                    variant="text"
+                    disabled={disabled}
+                    onActivate={(event) => {
+                      if (event.isTrusted) onRetry();
+                    }}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        )}
         {sharedAsk && <p className="question-shared-ask">{sharedAsk}</p>}
         {onOpenReply && (
           <BrowserAction

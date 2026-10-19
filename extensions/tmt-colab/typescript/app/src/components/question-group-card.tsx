@@ -444,6 +444,13 @@ export function QuestionGroupCard({
               }
             : undefined
         }
+        onRetry={
+          row.draft.failed
+            ? () => {
+                void send();
+              }
+            : undefined
+        }
         retryInput={retryInput}
       />
     );
@@ -517,7 +524,7 @@ export function QuestionGroupCard({
               visibleLabel={sendLabel}
               type="button"
               variant="text"
-              busy={!!sending.length || resolvingDefaults}
+              busy={resolvingDefaults}
               disabled={
                 disabled ||
                 resolvingDefaults ||
