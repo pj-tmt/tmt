@@ -606,6 +606,9 @@ fn session(
         let interval = reload_interval(app);
         let mut wait =
             view::spinner_wait(app, Instant::now()).map_or(INPUT_WAIT, |wait| wait.min(INPUT_WAIT));
+        if let Some(motion) = view::feedback_wait(app, crate::status::now_ms()) {
+            wait = wait.min(motion);
+        }
         if let Some(motion) = app
             .meter
             .as_ref()

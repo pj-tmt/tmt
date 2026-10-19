@@ -31,6 +31,22 @@ impl Surface {
     }
 }
 
+impl Session {
+    /// Outgoing turns own their headers. Only an actual earlier exchange needs
+    /// a separate incoming heading above them, using that exchange's age.
+    fn group_heading_reply(&self) -> Option<&Reply> {
+        if !self.finals.is_empty() {
+            None
+        } else if self.outgoing.is_empty() {
+            self.reply.as_ref()
+        } else {
+            self.before_send
+                .as_ref()
+                .filter(|reply| !reply.body.is_empty())
+        }
+    }
+}
+
 /// Measure the held group with the same wrapped body the painter uses. Empty
 /// observations never reserve a minimum transcript or impose a growth cap.
 pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
@@ -66,9 +82,8 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
                 .as_ref()
                 .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
         });
-    (usize::from(
-        session.finals.is_empty() && (session.reply.is_some() || !session.outgoing.is_empty()),
-    ) + session.rendered.as_ref().unwrap().mapped.lines.len()
+    (usize::from(session.group_heading_reply().is_some())
+        + session.rendered.as_ref().unwrap().mapped.lines.len()
         + usize::from(waiting)
         + usize::from(has_link))
     .min(usize::from(u16::MAX)) as u16
@@ -167,7 +182,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             .is_some_and(|key| key.kind == super::super::home_leads::Kind::Question)
     });
     // Derived from the settled time at paint: a held reply keeps its true age.
-    let age = session.reply.as_ref().map_or_else(
+    let age = session.group_heading_reply().map_or_else(
         || "—".to_owned(),
         |reply| reply.age_at(crate::status::now_ms()),
     );
@@ -188,15 +203,22 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     };
     let read_only = read_only || session.change != Change::Current;
     let header = Rect {
-        height: area.height.min(u16::from(
-            session.finals.is_empty() && (session.reply.is_some() || !session.outgoing.is_empty()),
-        )),
+        height: area
+            .height
+            .min(u16::from(session.group_heading_reply().is_some())),
         ..area
     };
     strip::paint_left(
         frame.buffer_mut(),
         header,
-        exchange::header(name, me, &stamp, read_only, usize::from(area.width), look),
+        exchange::header(
+            exchange::Sender::Agent(name),
+            me,
+            &stamp,
+            read_only,
+            usize::from(area.width),
+            look,
+        ),
     );
     let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(
@@ -268,24 +290,28 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                     };
                 };
                 match session.authored_lines.get(&source) {
-                    Some(AuthoredLine::Outgoing { answer: true }) => exchange::replier(me, look),
-                    Some(AuthoredLine::Outgoing { answer: false }) => {
-                        exchange::header(me, name, "now", read_only, usize::from(body.width), look)
+                    Some(AuthoredLine::Outgoing { answer: true, .. }) => {
+                        exchange::replier(exchange::Sender::You(me), look)
                     }
-                    Some(AuthoredLine::ReplyHeading) => {
-                        exchange::replier(line.to_string().trim().trim_end_matches(" · now"), look)
-                    }
-                    Some(AuthoredLine::Status) => {
-                        let text = line.to_string();
-                        let suffix = format!(" · {}", session.agent_mark);
-                        exchange::feedback(
-                            text.trim_end()
-                                .strip_suffix(suffix.trim_end())
-                                .unwrap_or(text.trim_end())
-                                .trim_end(),
-                            look,
-                        )
-                    }
+                    Some(AuthoredLine::Outgoing {
+                        answer: false,
+                        sequence,
+                    }) => exchange::header(
+                        exchange::Sender::You(me),
+                        name,
+                        &session.outgoing_stamp(app, *sequence),
+                        read_only,
+                        usize::from(body.width),
+                        look,
+                    ),
+                    Some(AuthoredLine::ReplyHeading) => exchange::replier(
+                        exchange::Sender::Agent(line.to_string().trim().trim_end_matches(" · now")),
+                        look,
+                    ),
+                    Some(AuthoredLine::Status { .. }) => exchange::feedback(
+                        session.feedback_line(mapped.sources[index], line, crate::status::now_ms()),
+                        look,
+                    ),
                     None => exchange::body(line.clone(), look),
                 }
             },
@@ -309,6 +335,9 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                 role: Role::Text,
             },
         );
+    }
+    for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
+        session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
     }
     let fold_hits = if surface.interactive() {
         session

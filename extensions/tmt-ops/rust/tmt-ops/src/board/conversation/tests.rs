@@ -190,7 +190,8 @@ fn clicking_a_fold_preserves_a_new_unsent_draft_and_stale_target_hits_do_nothing
 #[test]
 fn a_long_outgoing_body_has_a_twelve_row_preview_without_hiding_its_delivery_status() {
     let app = long_outgoing_app();
-    let screen = draw(&app, 103, 48);
+    // R1: the sending row appears 400 ms after Enter.
+    let screen = crate::status::with_now_ms(crate::status::now_ms() + 500, || draw(&app, 103, 48));
     assert!(screen.contains("more lines · ⏎ expand"), "{screen}");
     assert!(
         screen.contains("sending"),

@@ -4390,6 +4390,7 @@ pub(crate) mod tests {
             workspace: Default::default(),
             window: crate::config::TokenWindow::MINUTE,
             windows: crate::config::TokenWindow::DEFAULTS,
+            reduced_motion: false,
             summary: super::super::home::Counts {
                 members: 7,
                 ..Default::default()
@@ -5209,6 +5210,7 @@ mod token_window_tests {
             workspace: Default::default(),
             window: crate::config::TokenWindow::MINUTE,
             windows: TokenWindow::DEFAULTS,
+            reduced_motion: false,
             summary: Default::default(),
             failures: Vec::new(),
             incomplete: false,

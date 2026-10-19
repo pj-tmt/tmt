@@ -436,6 +436,32 @@ fn cells(text: &str) -> usize {
     text.chars().map(|c| c.width().unwrap_or(0)).sum()
 }
 
+/// Wrap application-authored spans with the same cell and word rules as Markdown.
+/// Literal status text carries no member links or parsed markup.
+pub(super) fn wrap_styled(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
+    let style = line.style;
+    wrap(
+        Block {
+            prefix: String::new(),
+            indent: 0,
+            spans: line
+                .spans
+                .into_iter()
+                .map(|span| Part::new(span.content.into_owned(), style.patch(span.style), 0, None))
+                .collect(),
+            source_line: 0,
+            literal: false,
+            style: Style::new(),
+            prefix_style: Style::new(),
+            quote_depth: 0,
+        },
+        width.max(1),
+    )
+    .into_iter()
+    .map(|(line, _, _)| line)
+    .collect()
+}
+
 /// Greedy word wrap over styled spans; continuation lines use the hanging
 /// indent, and a word longer than a line is split between characters.
 fn wrap(block: Block, width: usize) -> Vec<(Line<'static>, usize, Vec<super::member_links::Link>)> {

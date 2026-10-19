@@ -224,6 +224,21 @@ pub(in crate::board) const SPINNER_DELAY: std::time::Duration =
 pub(super) const SPINNER_TICK: std::time::Duration = std::time::Duration::from_millis(80);
 pub(super) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/// Provider feedback shares the shell spinner's frames and cadence.
+pub(in crate::board) fn feedback_glyph(now_ms: u64, motion: bool) -> &'static str {
+    if motion {
+        SPINNER[((now_ms / SPINNER_TICK.as_millis() as u64) % SPINNER.len() as u64) as usize]
+    } else {
+        "⠹"
+    }
+}
+
+pub(in crate::board) fn feedback_wait(app: &App, now_ms: u64) -> Option<std::time::Duration> {
+    app.frame_clocks.borrow().iter().any(|surface| {
+        matches!(surface, ClockSurface::OutgoingFeedback(clock) if clock.animates(now_ms))
+    }).then(|| SPINNER_TICK - std::time::Duration::from_millis(now_ms % SPINNER_TICK.as_millis() as u64))
+}
+
 pub(in crate::board) fn spinner_frame(app: &App, now: std::time::Instant) -> Option<usize> {
     let elapsed = now.checked_duration_since(app.loading_since?)?;
     (elapsed >= SPINNER_DELAY).then(|| {
@@ -274,6 +289,11 @@ pub(in crate::board) enum ClockSurface {
     ActivityStale(std::time::Instant),
     /// A painted activity age counts from this core time.
     ActivityAge(u64),
+    OutgoingFeedback(crate::board::conversation::FeedbackClock),
+    /// The sending row changes at this core time (R1: 400 ms in, 400 ms visible).
+    SendingGate {
+        until_ms: u64,
+    },
 }
 
 impl ClockSurface {
@@ -309,6 +329,8 @@ impl ClockSurface {
             } => super::super::digest_dashboard::details_clock_mark(
                 app, target, *width, *height, now,
             ),
+            Self::OutgoingFeedback(clock) => clock.mark(now),
+            Self::SendingGate { until_ms } => (now >= *until_ms).to_string(),
             Self::QuotaDetails => app
                 .quota_details
                 .as_ref()

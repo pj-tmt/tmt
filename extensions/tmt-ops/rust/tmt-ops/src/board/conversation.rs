@@ -24,6 +24,7 @@ pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
 pub(super) mod outgoing;
+pub(in crate::board) use outgoing::FeedbackClock;
 pub(in crate::board) mod source;
 mod transcript;
 
@@ -51,16 +52,6 @@ pub(super) struct State {
     pub pane: Option<Rect>,
 }
 
-#[cfg(test)]
-impl State {
-    /// The active conversation's agent status mark, for integrated board tests.
-    pub(in crate::board) fn active_agent_mark(&self) -> Option<&str> {
-        self.sessions
-            .get(self.active.as_ref()?)
-            .map(|session| session.agent_mark.as_str())
-    }
-}
-
 struct Rendered {
     width: usize,
     gutter: usize,
@@ -83,9 +74,9 @@ enum Change {
 
 #[derive(Clone, Copy)]
 enum AuthoredLine {
-    Outgoing { answer: bool },
+    Outgoing { answer: bool, sequence: u64 },
     ReplyHeading,
-    Status,
+    Status { sequence: u64 },
 }
 impl AuthoredLine {
     fn role(self) -> Role {
@@ -109,12 +100,13 @@ struct Session {
     /// A question that arrived after the sends above it; it is shown below them
     /// and becomes the next send's lead-in.
     tail: Option<Reply>,
+    /// Requests of this session's sends whose reply exists but whose body is still being read.
+    pending_replies: std::collections::BTreeSet<String>,
     response_spans: Vec<(
         Option<u64>,
         super::home_leads::MessageKey,
         std::ops::Range<usize>,
     )>,
-    agent_mark: String,
     authored_lines: BTreeMap<usize, AuthoredLine>,
     compact_separators: std::collections::BTreeSet<usize>,
     pane_output: super::recent_responses::Observation,
@@ -136,8 +128,8 @@ impl Default for Session {
             outgoing: Default::default(),
             before_send: None,
             tail: None,
+            pending_replies: Default::default(),
             response_spans: Default::default(),
-            agent_mark: String::new(),
             authored_lines: Default::default(),
             compact_separators: Default::default(),
             pane_output: Default::default(),
@@ -260,15 +252,25 @@ impl Session {
                 head + task.as_deref().unwrap_or("")
             },
         );
-        self.agent_observed(row["name"].as_str().unwrap_or("unknown agent"),
-            state, &words,
-            app.loading() || app.error.is_some() || app.workspace_snapshot().is_some_and(|snapshot| {
+        let stale = app.loading() || app.error.is_some() || app.workspace_snapshot().is_some_and(|snapshot| {
                 use super::workspace::{OpsObservation, OpsTarget};
                 snapshot.roster.observation != OpsObservation::Complete || !snapshot.roster.membership_complete
                     || matches!(target, RowTarget::Workspace(OpsTarget::Member { room_id: Some(room), .. })
                         if snapshot.roster.squads.iter().find(|squad| &squad.room_id == room)
                             .is_none_or(|squad| squad.observation != OpsObservation::Complete))
-            }) || app.view.as_ref().is_none_or(|view| view.document["partial"] == true));
+            }) || app.view.as_ref().is_none_or(|view| view.document["partial"] == true);
+        let name = row["name"].as_str().unwrap_or("unknown agent");
+        let observation = projected
+            .as_ref()
+            .and_then(|row| row.activity.as_ref())
+            .filter(|_| !stale && !app.activity_stale(std::time::Instant::now()))
+            .map(|member| member.activity);
+        self.observe_progress(
+            name,
+            observation,
+            crate::status::now_ms(),
+            outgoing::motion_allowed(app, target),
+        );
         self.correlate_loaded(
             app,
             &sanitize(row["name"].as_str().unwrap_or("unknown agent")),
@@ -326,7 +328,7 @@ impl Session {
             let mut lines = Vec::with_capacity(mapped.lines.len());
             let mut sources = Vec::with_capacity(mapped.sources.len());
             let mut mentions = Vec::with_capacity(mapped.mentions.len());
-            for ((mut line, source), links) in mapped
+            for ((mut line, source), mut links) in mapped
                 .lines
                 .into_iter()
                 .zip(mapped.sources)
@@ -337,10 +339,26 @@ impl Session {
                 }
                 if let Some(kind) = self.authored_lines.get(&source) {
                     let style = look.role(kind.role());
+                    if gutter > 0
+                        && let AuthoredLine::Status { sequence } = kind
+                        && let Some(status) =
+                            self.grouped_feedback(*sequence, width.saturating_sub(gutter), look)
+                    {
+                        if sources.last() != Some(&source) {
+                            for mut status_line in status {
+                                status_line.style = style;
+                                lines.push(status_line);
+                                sources.push(source);
+                                mentions.push(Vec::new());
+                            }
+                        }
+                        continue;
+                    }
                     line.style = style;
                     for span in &mut line.spans {
-                        span.style = span.style.patch(style);
+                        span.style = style;
                     }
+                    links.clear();
                 }
                 lines.push(line);
                 sources.push(source);
@@ -994,9 +1012,14 @@ fn render_target(
                 .unwrap_or_default(),
         )]);
     }
-    let (offset, shown) = app
-        .scrolls
-        .show(frame, Pane::Replies, body, &mapped.lines, look);
+    let (offset, shown) = app.scrolls.show_with(
+        frame,
+        Pane::Replies,
+        body,
+        &mapped.lines,
+        look,
+        |index, line| session.feedback_line(mapped.sources[index], line, crate::status::now_ms()),
+    );
     if interactive {
         super::member_links::paint_hits(
             frame,
@@ -1043,6 +1066,9 @@ fn render_target(
                 look.role(Role::Dim),
             ),
         );
+    }
+    for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
+        session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
     }
     if switched || rebuilt || previous != offset {
         session.anchor.select_visual(

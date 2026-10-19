@@ -1,8 +1,31 @@
 //! Storage-backed finals remain distinct messages, independent of follow mode.
 use super::*;
 
+/// A reply to one of this session's sends whose body is still being read stays
+/// invisible for this long; the working line remains until the reply replaces it,
+/// so no "reading" placeholder flashes between them. A body unreadable for longer
+/// shows its honest placeholder instead of an endless working line.
+const PLACEHOLDER_HOLD_MS: u64 = 15_000;
+
 impl Session {
     pub(super) fn observe_finals(&mut self, mut next: Vec<Reply>) {
+        let now = crate::status::now_ms();
+        self.pending_replies.clear();
+        next.retain(|reply| {
+            let held = !reply.acquired
+                && reply
+                    .at_ms
+                    .is_some_and(|at| now.saturating_sub(at) < PLACEHOLDER_HOLD_MS)
+                && reply.key.as_ref().is_some_and(|key| {
+                    self.outgoing
+                        .iter()
+                        .any(|entry| entry.request() == Some(key.request.as_str()))
+                });
+            if held && let Some(key) = &reply.key {
+                self.pending_replies.insert(key.request.clone());
+            }
+            !held
+        });
         for reply in &mut next {
             // A body refresh cannot erase a source already acquired for this ID.
             if !reply.acquired

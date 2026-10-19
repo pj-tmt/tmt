@@ -63,7 +63,7 @@ fn fixture() -> App {
     app.view.as_mut().unwrap().me_id = Some("ben-id".into());
     app
 }
-fn send(app: &mut App, fake: &Fake, text: &str) -> Completed {
+fn begin(app: &mut App, text: &str) -> (Ticket, crate::board::app::Request) {
     app.perform(&crate::action::Action::parse("talk").unwrap());
     assert!(matches!(
         app.input.as_ref().unwrap().compose,
@@ -76,6 +76,10 @@ fn send(app: &mut App, fake: &Fake, text: &str) -> Completed {
     let ticket = app.outgoing_ticket(&request).unwrap();
     app.in_flight += 1;
     assert!(app.reload_blocked());
+    (ticket, request)
+}
+fn send(app: &mut App, fake: &Fake, text: &str) -> Completed {
+    let (ticket, request) = begin(app, text);
     let BoardEvent::Acted {
         outcome: Ok(ActionOutcome::Send(completed)),
         sends: true,
@@ -226,9 +230,12 @@ fn draw(app: &App) -> String {
 }
 
 #[test]
-fn five_dispositions_keep_delivery_separate_from_the_acquired_agent_state() {
+fn five_dispositions_preserve_delivery_and_never_infer_activity_from_task_state() {
     for (document, label) in [
-        (json!({"requestId":"sent", "status":"sent"}), "✓ delivered"),
+        (
+            json!({"requestId":"sent", "status":"sent"}),
+            "✓ sent · auth-fix's activity is not reported",
+        ),
         (
             json!({"requestId":"queued", "status":"queued"}),
             "◌ queued · inbox",
@@ -249,17 +256,24 @@ fn five_dispositions_keep_delivery_separate_from_the_acquired_agent_state() {
         let fake = Fake::new(document, false);
         let mut app = fixture();
         let completed = send(&mut app, &fake, "exact outgoing text");
-        let sending = draw(&app);
+        // R1: `sending…` appears only after 400 ms.
+        let started = crate::status::now_ms();
+        let sending = crate::status::with_now_ms(started + 500, || draw(&app));
         assert!(
-            sending.contains("You · now")
+            sending.contains("You")
                 && sending.contains("exact outgoing text")
                 && sending.contains("sending")
         );
         assert!(app.input.as_ref().unwrap().text.is_empty());
         finish(&mut app, completed);
-        let painted = draw(&app);
+        // The visible `sending…` row is kept for 400 ms before the outcome.
+        let painted = crate::status::with_now_ms(started + 6_000, || draw(&app));
         assert!(painted.contains(label), "{painted}");
-        assert!(painted.contains("● auth-fix working"), "{painted}");
+        assert!(painted.contains("working · product · member"), "{painted}");
+        assert!(
+            !painted.contains("is working"),
+            "the row's task state is not a provider observation: {painted}"
+        );
         assert!(!painted.contains("read by") && !painted.contains("seen by"));
         assert!(!app.composer.has_drafts());
         let arguments = fake.arguments();
@@ -276,6 +290,131 @@ fn five_dispositions_keep_delivery_separate_from_the_acquired_agent_state() {
         );
         assert!(app.input.as_ref().unwrap().text.is_empty());
     }
+}
+
+fn provider_observation(app: &mut App, phase: crate::board::activity::Phase, since_ms: u64) {
+    let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    snapshot
+        .roster
+        .members
+        .get_mut(crate::board::app::workspace::tests::MEMBER)
+        .unwrap()
+        .activity = crate::board::activity::ObservedActivity {
+        phase,
+        since_ms: Some(since_ms),
+        last_ms: Some(since_ms),
+    };
+}
+
+#[test]
+fn sent_feedback_uses_provider_time_even_when_request_attention_and_task_disagree() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        for (since, expected) in [
+            (SENT, "⠹ worker is working · 0:42"),
+            (SENT - 180_000, "◌ worker is finishing an earlier turn · 3m"),
+        ] {
+            let mut app = crate::board::app::workspace::tests::board();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .reduced_motion = true;
+            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            let membership = snapshot.roster.squads[0]
+                .member_states
+                .get_mut(MEMBER)
+                .unwrap();
+            membership.waiting = true;
+            membership.state = Some("blocked".into());
+            provider_observation(&mut app, Phase::Working, since);
+            let fake = Fake::new(json!({"requestId":"provider-time","status":"sent"}), false);
+            let completed = send(&mut app, &fake, "one explicit message");
+            finish(&mut app, completed);
+            let _no_acquisition = crate::runner::forbid_commands();
+            let screen = crate::status::with_now_ms(SENT + 42_000, || draw(&app));
+            assert!(screen.contains(expected), "{screen}");
+            assert!(screen.contains("waiting · blocked · product"), "{screen}");
+            assert_eq!(
+                app.conversation
+                    .borrow()
+                    .sessions
+                    .values()
+                    .next()
+                    .unwrap()
+                    .outgoing
+                    .len(),
+                1
+            );
+        }
+    });
+}
+
+#[test]
+fn observed_completion_then_exact_reply_replaces_feedback_without_another_send() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        provider_observation(&mut app, Phase::Working, SENT);
+        let fake = Fake::new(
+            json!({"requestId":"provider-completion","status":"sent"}),
+            false,
+        );
+        let completed = send(&mut app, &fake, "one explicit message");
+        finish(&mut app, completed);
+        assert!(
+            crate::status::with_now_ms(SENT + 42_000, || draw(&app))
+                .contains("⠹ worker is working · 0:42")
+        );
+        provider_observation(&mut app, Phase::Idle, SENT + 60_000);
+        let _no_acquisition = crate::runner::forbid_commands();
+        assert!(
+            crate::status::with_now_ms(SENT + 180_000, || draw(&app))
+                .contains("✓ worker finished without replying · 2m ago")
+        );
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":MEMBER,"requestId":"provider-completion", "response":"Exact acquired reply"
+        }));
+        let screen = crate::status::with_now_ms(SENT + 181_000, || draw(&app));
+        assert!(screen.contains("Exact acquired reply"), "{screen}");
+        assert!(
+            !screen.contains("finished without replying") && !screen.contains("is working"),
+            "{screen}"
+        );
+        let state = app.conversation.borrow();
+        let session = state.sessions.values().next().unwrap();
+        assert_eq!(session.outgoing.len(), 1);
+        let key = session.outgoing[0]
+            .reply
+            .as_ref()
+            .unwrap()
+            .key
+            .as_ref()
+            .unwrap();
+        assert_eq!(key.request, "provider-completion");
+        assert_eq!(
+            session.outgoing[0].reply.as_ref().unwrap().body,
+            "Exact acquired reply"
+        );
+        assert_eq!(
+            fake.arguments()
+                .iter()
+                .filter(|argument| argument.as_str() == "talk")
+                .count(),
+            1
+        );
+    });
 }
 
 #[test]
@@ -422,6 +561,26 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let completed = send(&mut app, &fake, "literal auth-fix · now");
     finish(&mut app, completed);
     assert_eq!(app.notice.as_deref(), Some("Sent to auth-fix"));
+    // Past the evidence grace period an agent without activity says so.
+    crate::status::with_now_ms(crate::status::now_ms() + 6_000, || draw(&app));
+    {
+        let state = app.conversation.borrow();
+        let lines = &state
+            .sessions
+            .values()
+            .next()
+            .unwrap()
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines;
+        assert_eq!(
+            lines[2].to_string(),
+            "✓ sent · auth-fix's activity is not reported"
+        );
+        assert_eq!(lines[2].style, app.look().role(Role::Muted));
+    }
     app.view.as_mut().unwrap().replies = vec![json!({
         "recipientId":"auth-fix", "requestId":"req-private-display-id", "response":"answer body"
     })];
@@ -434,37 +593,44 @@ fn turns_have_distinct_roles_tight_status_and_short_notice_without_request_ids()
     let lines = &rendered.mapped.lines;
     let text: Vec<_> = lines.iter().map(ToString::to_string).collect();
     assert_eq!(
-        &text[..4],
+        &text[..3],
         [
             "You · now",
             "[product · auth-fix] literal auth-fix · now",
-            "✓ delivered · ● auth-fix working",
             ""
         ]
     );
     assert!(
-        text[4].contains("auth-fix")
-            && text[4].contains("→")
-            && text[4].contains("Ben")
-            && text[4].contains('—'),
+        text[3].contains("auth-fix")
+            && text[3].contains("→")
+            && text[3].contains("Ben")
+            && text[3].contains('—'),
         "unknown settled time is not invented: {text:?}"
     );
-    assert_eq!(text[5], "answer body");
+    assert_eq!(text[4], "answer body");
     assert_eq!(lines[0].style, app.look().role(Role::Muted));
-    assert_eq!(lines[2].style, app.look().role(Role::Muted));
     assert!(
-        lines[4]
+        lines[3]
             .spans
             .iter()
             .any(|span| span.content.contains("auth-fix")
                 && span.style.fg == app.look().role(Role::Text).fg)
+    );
+    assert!(
+        session
+            .authored_lines
+            .values()
+            .all(|line| !matches!(line, super::super::AuthoredLine::Status { .. }))
     );
     assert_ne!(
         lines[1].style,
         app.look().role(Role::Accent),
         "dynamic text has no authored turn role"
     );
-    assert_eq!(crate::board::glyph_guard::glyph_error(&text[2]), None);
+    assert_eq!(
+        crate::board::glyph_guard::glyph_error(&text.join("\n")),
+        None
+    );
 }
 
 #[test]
@@ -501,7 +667,12 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
                 .iter()
                 .position(|line| line == &format!("[product · auth-fix] message {index}"))
                 .unwrap();
-            assert!(lines[message + 1].starts_with("✓ delivered"), "{lines:?}");
+            assert_eq!(lines[message + 1], "", "{lines:?}");
+            assert_eq!(
+                lines[message + 3],
+                format!("reply {index}"),
+                "the correlated reply immediately replaces feedback: {lines:?}"
+            );
             let reply = lines
                 .iter()
                 .position(|line| line.trim().trim_start_matches("│ ") == format!("reply {index}"))
@@ -524,84 +695,141 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
 }
 
 #[test]
+fn a_replied_outgoing_body_folds_without_swallowing_its_reply_or_the_next_turn() {
+    let mut app = fixture();
+    let message = (0..16)
+        .map(|n| format!("outgoing line {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let fake = Fake::new(json!({"requestId":"long-turn","status":"sent"}), false);
+    let completed = send(&mut app, &fake, &message);
+    finish(&mut app, completed);
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId":"auth-fix","requestId":"long-turn","response":"Exact final remains visible"
+    })];
+    draw(&app);
+    let next = Fake::new(json!({"requestId":"next-turn","status":"sent"}), false);
+    let completed = send(&mut app, &next, "Next turn remains visible");
+    finish(&mut app, completed);
+    let shown = draw(&app);
+    assert!(shown.contains("… 5 more lines · ⏎ expand"), "{shown}");
+    assert!(shown.contains("Exact final remains visible"), "{shown}");
+    assert!(shown.contains("Next turn remains visible"), "{shown}");
+    let state = app.conversation.borrow();
+    let session = state.sessions.values().next().unwrap();
+    assert!(session.outgoing[0].reply.is_some());
+    assert!(session.outgoing[1].reply.is_none());
+}
+
+#[test]
 fn delivery_and_acquired_agent_freshness_remain_independent_after_failed_reads() {
     use crate::board::workspace::OpsObservation;
-    for source in ["roster", "squad", "membership", "read-error"] {
-        let mut app = crate::board::app::workspace::tests::board();
-        let fake = Fake::new(json!({"requestId":"req-freshness","status":"sent"}), false);
-        let completed = send(&mut app, &fake, "one explicit message");
-        finish(&mut app, completed);
-        let _no_acquisition = crate::runner::forbid_commands();
-        draw(&app);
-        assert!(
-            !app.conversation
-                .borrow()
-                .sessions
-                .values()
-                .next()
-                .unwrap()
-                .agent_mark
-                .contains("stale")
-        );
-        match source {
-            "roster" => {
-                app.view
-                    .as_mut()
-                    .unwrap()
-                    .home
-                    .as_mut()
-                    .unwrap()
-                    .workspace
-                    .roster
-                    .observation = OpsObservation::Stale
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        for source in [
+            "roster",
+            "squad",
+            "membership",
+            "read-error",
+            "read-age",
+            "document",
+        ] {
+            let mut app = crate::board::app::workspace::tests::board();
+            let view = app.view.as_mut().unwrap();
+            view.look.depth = tmt_cli_style::Depth::None;
+            view.home.as_mut().unwrap().workspace.squad_looks.clear();
+            provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
+            let fake = Fake::new(json!({"requestId":"req-freshness","status":"sent"}), false);
+            let completed = send(&mut app, &fake, "one explicit message");
+            finish(&mut app, completed);
+            let _no_acquisition = crate::runner::forbid_commands();
+            let first = board_frame(&app, 148, 51);
+            assert!(
+                first.contains("⠹ worker is working · 0:00"),
+                "{source}: {first}"
+            );
+            assert_eq!(feedback_marks(&app, SENT).len(), 1);
+            match source {
+                "roster" => {
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .observation = OpsObservation::Stale
+                }
+                "squad" => {
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .squads[0]
+                        .observation = OpsObservation::Partial
+                }
+                "membership" => {
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .roster
+                        .membership_complete = false
+                }
+                "read-error" => app.error = Some("retained after failed read".into()),
+                "read-age" => {
+                    app.view
+                        .as_mut()
+                        .unwrap()
+                        .home
+                        .as_mut()
+                        .unwrap()
+                        .workspace
+                        .read_at =
+                        Some(std::time::Instant::now() - std::time::Duration::from_secs(3600))
+                }
+                "document" => app.view.as_mut().unwrap().document["partial"] = json!(true),
+                _ => unreachable!(),
             }
-            "squad" => {
-                app.view
-                    .as_mut()
-                    .unwrap()
-                    .home
-                    .as_mut()
-                    .unwrap()
-                    .workspace
-                    .roster
-                    .squads[0]
-                    .observation = OpsObservation::Partial
-            }
-            "membership" => {
-                app.view
-                    .as_mut()
-                    .unwrap()
-                    .home
-                    .as_mut()
-                    .unwrap()
-                    .workspace
-                    .roster
-                    .membership_complete = false
-            }
-            "read-error" => app.error = Some("retained after failed read".into()),
-            _ => unreachable!(),
+            let screen = crate::status::with_now_ms(crate::status::now_ms() + 6_000, || {
+                board_frame(&app, 148, 51)
+            });
+            assert!(
+                screen.contains("worker's activity is not reported"),
+                "{source}: {screen}"
+            );
+            assert!(!screen.contains("worker is working"), "{source}: {screen}");
+            assert!(feedback_marks(&app, SENT).is_empty());
+            assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+            let state = app.conversation.borrow();
+            let session = state.sessions.values().next().unwrap();
+            assert!(
+                session.outgoing[0].status() == "✓ sent · worker's activity is not reported"
+                    && !session.text.contains("is working"),
+                "{source}: missing provider evidence stays unknown: {}",
+                session.text
+            );
+            assert!(
+                matches!(
+                    &session.outgoing.front().unwrap().outcome,
+                    Some(Outcome::Send(Ok(Accepted {
+                        disposition: Disposition::Sent,
+                        ..
+                    })))
+                ),
+                "{source}: delivery stays the typed acceptance fact"
+            );
+            assert_eq!(session.outgoing.len(), 1, "a failed read never resends");
         }
-        draw(&app);
-        let state = app.conversation.borrow();
-        let session = state.sessions.values().next().unwrap();
-        // A failed roster read makes core activity stale itself; other
-        // failures keep the activity and mark the read stale.
-        let expected = if source == "roster" {
-            "worker stale · working"
-        } else {
-            "worker working · stale"
-        };
-        assert!(
-            session.agent_mark.contains(expected),
-            "{source}: {}",
-            session.agent_mark
-        );
-        assert!(
-            session.text.contains("✓ delivered"),
-            "{source}: delivery stays the typed acceptance fact"
-        );
-        assert_eq!(session.outgoing.len(), 1, "a failed read never resends");
-    }
+    });
 }
 
 #[test]
@@ -843,7 +1071,7 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
 }
 
 #[test]
-fn header_and_status_show_core_activity_even_when_the_task_disagrees() {
+fn header_shows_core_activity_and_feedback_never_infers_it_from_task_state() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     for (waiting, words) in [(false, "working · blocked"), (true, "waiting · blocked")] {
         let mut app = crate::board::app::workspace::tests::board();
@@ -869,12 +1097,13 @@ fn header_and_status_show_core_activity_even_when_the_task_disagrees() {
             screen.contains(&format!("{words} · product")),
             "header: {screen}"
         );
-        let state = app.conversation.borrow();
-        let mark = &state.sessions.values().next().unwrap().agent_mark;
-        assert!(mark.ends_with(&format!("worker {words}")), "status: {mark}");
         assert!(
-            !mark.contains("✗"),
-            "the task never picks the status glyph: {mark}"
+            screen.contains("✓ sent · worker's activity is not reported"),
+            "task words do not prove provider progress: {screen}"
+        );
+        assert!(
+            !screen.contains("✗ worker") && !screen.contains("worker is working"),
+            "the task never picks the feedback glyph or phase: {screen}"
         );
     }
 }
@@ -971,6 +1200,431 @@ exit {status}
     }
 }
 
+fn board_frame(app: &App, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
+fn feedback_marks(app: &App, now_ms: u64) -> Vec<String> {
+    app.frame_clocks
+        .borrow()
+        .iter()
+        .filter_map(|surface| match surface {
+            crate::board::view::ClockSurface::OutgoingFeedback(clock) => Some(clock.mark(now_ms)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn only_painted_feedback_animates_and_covered_or_scrolled_out_feedback_stops() {
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::TrueColor;
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .clear();
+        provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
+        let fake = Fake::new(json!({"requestId":"visible-motion","status":"sent"}), false);
+        let body = (0..90)
+            .map(|n| format!("outgoing line {n}\n\n"))
+            .collect::<String>();
+        let completed = send(&mut app, &fake, &body);
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let screen = board_frame(&app, 148, 51);
+        assert!(screen.contains("⠋ worker is working · 0:00"), "{screen}");
+        let first = feedback_marks(&app, SENT);
+        assert_eq!(first.len(), 1, "wrapped status admits one clock");
+        assert_ne!(first, feedback_marks(&app, SENT + 80));
+        assert!(crate::board::view::feedback_wait(&app, SENT).is_some());
+        let animated = crate::status::with_now_ms(SENT + 80, || board_frame(&app, 148, 51));
+        assert!(
+            animated.contains("⠙ worker is working · 0:00"),
+            "{animated}"
+        );
+        let screen = crate::status::with_now_ms(SENT + 1_000, || board_frame(&app, 148, 51));
+        assert!(screen.contains("worker is working · 0:01"), "{screen}");
+        app.help = true;
+        board_frame(&app, 148, 51);
+        assert!(feedback_marks(&app, SENT).is_empty());
+        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        app.help = false;
+        // Main's per-body folding keeps status visible beside the preview.
+        // Expand through its painted control before proving offscreen clocks stop.
+        board_frame(&app, 148, 51);
+        let fold = app.conversation.borrow().fold_hits.first().unwrap().clone();
+        assert_eq!(
+            app.conversation_body_mouse(ratatui::crossterm::event::MouseEvent {
+                kind: ratatui::crossterm::event::MouseEventKind::Down(
+                    ratatui::crossterm::event::MouseButton::Left
+                ),
+                column: fold.area.x,
+                row: fold.area.y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            Some(Effect::None)
+        );
+        app.scroll_pane(
+            crate::config::Pane::Replies,
+            crate::board::scroll::Step::Top,
+        );
+        let screen = board_frame(&app, 148, 51);
+        assert!(screen.contains("outgoing line 0"), "{screen}");
+        assert!(!screen.contains("worker is working"), "{screen}");
+        assert!(feedback_marks(&app, SENT).is_empty());
+        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        app.scroll_pane(
+            crate::config::Pane::Replies,
+            crate::board::scroll::Step::Bottom,
+        );
+        assert!(board_frame(&app, 148, 51).contains("worker is working"));
+        assert_eq!(feedback_marks(&app, SENT).len(), 1);
+        assert_eq!(
+            fake.arguments().iter().filter(|arg| *arg == "talk").count(),
+            1
+        );
+    });
+}
+
+#[test]
+fn reduced_motion_and_no_color_keep_static_glyph_and_live_elapsed_text() {
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        for no_color in [false, true] {
+            let mut app = crate::board::app::workspace::tests::board();
+            let view = app.view.as_mut().unwrap();
+            let home = view.home.as_mut().unwrap();
+            home.reduced_motion = !no_color;
+            if no_color {
+                home.workspace.squad_looks.clear();
+                view.look.depth = tmt_cli_style::Depth::None;
+            }
+            provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
+            let fake = Fake::new(json!({"requestId":"static-motion","status":"sent"}), false);
+            let completed = send(&mut app, &fake, "one static status");
+            finish(&mut app, completed);
+            let _no_acquisition = crate::runner::forbid_commands();
+            let screen = board_frame(&app, 148, 51);
+            assert!(screen.contains("⠹ worker is working · 0:00"), "{screen}");
+            let first = feedback_marks(&app, SENT);
+            assert_eq!(first.len(), 1);
+            assert_eq!(first, feedback_marks(&app, SENT + 80));
+            assert_ne!(first, feedback_marks(&app, SENT + 1_000));
+            assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+            let screen = crate::status::with_now_ms(SENT + 1_000, || board_frame(&app, 148, 51));
+            assert!(screen.contains("⠹ worker is working · 0:01"), "{screen}");
+        }
+    });
+}
+
+#[test]
+fn disabled_sampling_still_supplies_the_selected_rooms_motion_preference() {
+    let mut app = crate::board::app::workspace::tests::board();
+    app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::TrueColor;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .squad_looks
+        .clear();
+    let target = app.conversation_target().unwrap();
+    let view = app.view.as_mut().unwrap();
+    let home = view.home.as_mut().unwrap();
+    home.reduced_motion = true;
+    let squad = home.workspace.roster.squads[0].name.clone();
+    assert!(!motion_allowed(&app, &target));
+    app.view.as_mut().unwrap().home_rate.insert(
+        squad.clone(),
+        crate::board::app::RateView {
+            settings: crate::config::TokenRate {
+                enabled: false,
+                reduced_motion: false,
+                ..Default::default()
+            },
+            input: crate::board::rate::tests::input(0),
+            history: None,
+        },
+    );
+    assert!(motion_allowed(&app, &target));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home_rate
+        .get_mut(&squad)
+        .unwrap()
+        .settings
+        .reduced_motion = true;
+    assert!(!motion_allowed(&app, &target));
+    let crate::board::app::RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
+        identity_id,
+        ..
+    }) = target
+    else {
+        panic!("member target");
+    };
+    let common =
+        crate::board::app::RowTarget::Workspace(crate::board::workspace::OpsTarget::Member {
+            identity_id,
+            room_id: None,
+        });
+    assert!(
+        !motion_allowed(&app, &common),
+        "common pool uses the global preference"
+    );
+}
+
+#[test]
+fn unknown_and_correlated_replies_never_admit_a_feedback_clock() {
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        let fake = Fake::new(json!({"requestId":"unknown-clock","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "one explicit message");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let screen = board_frame(&app, 148, 51);
+        assert!(
+            screen.contains("worker's activity is not reported"),
+            "{screen}"
+        );
+        assert!(feedback_marks(&app, SENT).is_empty());
+        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
+        board_frame(&app, 148, 51);
+        assert_eq!(feedback_marks(&app, SENT).len(), 1);
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":crate::board::app::workspace::tests::MEMBER,
+            "requestId":"unknown-clock", "response":"This exact reply replaces feedback"
+        }));
+        let screen = board_frame(&app, 148, 51);
+        assert!(
+            screen.contains("This exact reply replaces feedback"),
+            "{screen}"
+        );
+        assert!(!screen.contains("worker is working"), "{screen}");
+        assert!(feedback_marks(&app, SENT).is_empty());
+        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+    });
+}
+
+#[test]
+fn a_visible_wrapped_continuation_keeps_elapsed_text_without_a_hidden_spinner_wakeup() {
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::TrueColor;
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .squad_looks
+            .clear();
+        provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
+        let fake = Fake::new(
+            json!({"requestId":"clipped-spinner","status":"sent"}),
+            false,
+        );
+        let completed = send(&mut app, &fake, "one outgoing message");
+        finish(&mut app, completed);
+        let surface = crate::board::conversation::exchange::Surface::Agents {
+            target: app.conversation_target().unwrap(),
+            interactive: true,
+        };
+        let paint = |width, height| {
+            app.frame_clocks.borrow_mut().clear();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    crate::board::conversation::exchange::render_for(
+                        frame,
+                        &app,
+                        frame.area(),
+                        &surface,
+                    )
+                })
+                .unwrap();
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        let _no_acquisition = crate::runner::forbid_commands();
+        let narrow = paint(12, 3);
+        assert!(narrow.contains("0:00"), "{narrow}");
+        assert!(!narrow.contains('⠋'), "{narrow}");
+        let first = feedback_marks(&app, SENT);
+        assert_eq!(first.len(), 1);
+        assert_eq!(first, feedback_marks(&app, SENT + 80));
+        assert_ne!(first, feedback_marks(&app, SENT + 1000));
+        assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
+        let wide = paint(80, 8);
+        assert!(wide.contains("⠋ worker is working · 0:00"), "{wide}");
+        assert!(crate::board::view::feedback_wait(&app, SENT).is_some());
+        assert_eq!(feedback_marks(&app, SENT).len(), 1);
+    });
+}
+
+pub(in crate::board) mod captures;
+
+#[test]
+fn grouped_outgoing_turns_keep_an_actual_earlier_reply_heading_and_its_age() {
+    use crate::board::app::workspace::tests::MEMBER;
+    const NOW: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(NOW, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":MEMBER,"requestId":"older-retained",
+            "submittedAtMs":NOW-120_000,"response":"Older retained exact reply"
+        }));
+        let fake = Fake::new(json!({"requestId":"new-message","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "A new explicit message");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":MEMBER,"requestId":"new-message",
+            "submittedAtMs":NOW,"response":"New exact acquired reply"
+        }));
+        let screen = board_frame(&app, 148, 51);
+        assert!(screen.contains("worker → Owner"), "{screen}");
+        assert!(
+            screen.contains("2m ago"),
+            "the retained root keeps its own age: {screen}"
+        );
+        assert!(
+            screen.contains("Older retained exact reply")
+                && screen.contains("New exact acquired reply"),
+            "{screen}"
+        );
+        let state = app.conversation.borrow();
+        let session = state.sessions.values().next().unwrap();
+        let held = session.before_send.as_ref().unwrap();
+        let key = held.key.as_ref().unwrap();
+        assert_eq!(key.request, "older-retained");
+        assert_eq!(held.body, "Older retained exact reply");
+        assert_eq!(
+            fake.arguments().iter().filter(|arg| *arg == "talk").count(),
+            1
+        );
+    });
+}
+
+#[test]
+fn provider_feedback_names_are_literal_and_do_not_create_authored_member_links() {
+    use crate::board::app::workspace::tests::MEMBER;
+    const SENT: u64 = 1_791_600_000_000;
+    const NAME: &str = "*night-2* #tmt:worker";
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        let view = app.view.as_mut().unwrap();
+        view.look.depth = tmt_cli_style::Depth::None;
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
+        provider_observation(&mut app, crate::board::activity::Phase::Working, SENT);
+        let fake = Fake::new(json!({"requestId":"literal-name","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "**Authored bold** #tmt:worker");
+        finish(&mut app, completed);
+        let target = app.workspace.selected.clone().unwrap();
+        let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+        snapshot.rows.get_mut(&target).unwrap()["name"] = json!(NAME);
+        snapshot.roster.members.get_mut(MEMBER).unwrap().name = NAME.into();
+        app.references = crate::board::inventory::Inventory::from_listed(
+            &[],
+            &Ok(json!({"identities":[
+                {"id":MEMBER,"name":NAME,"canonicalName":NAME},
+                {"id":"99999999-9999-4999-8999-999999999999","name":"worker","canonicalName":"worker"}
+            ]})),
+        );
+        let _no_acquisition = crate::runner::forbid_commands();
+        let screen = crate::status::with_now_ms(SENT + 42_000, || board_frame(&app, 148, 51));
+        assert!(
+            screen.contains("⠹ *night-2* #tmt:worker is working · 0:42"),
+            "{screen}"
+        );
+        {
+            let state = app.conversation.borrow();
+            let session = state.sessions.values().next().unwrap();
+            let mapped = &session.rendered.as_ref().unwrap().mapped;
+            assert_eq!(
+                mapped.mentions.iter().map(Vec::len).sum::<usize>(),
+                1,
+                "only the authored body creates a reference, never generated names"
+            );
+            assert!(
+                mapped
+                    .lines
+                    .iter()
+                    .any(|line| line.to_string().contains("Authored bold worker")
+                        && line
+                            .spans
+                            .iter()
+                            .filter(|span| span
+                                .style
+                                .add_modifier
+                                .contains(ratatui::style::Modifier::BOLD))
+                            .map(|span| span.content.as_ref())
+                            .collect::<String>()
+                            .contains("Authored bold")),
+                "authored message Markdown remains styled"
+            );
+            assert!(
+                session.outgoing[0]
+                    .ticket
+                    .text
+                    .ends_with("**Authored bold** #tmt:worker")
+            );
+        }
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":MEMBER,"requestId":"literal-name","submittedAtMs":SENT+43_000,
+            "response":"Exact reply body stays literal source evidence"
+        }));
+        crate::status::with_now_ms(SENT + 43_000, || board_frame(&app, 148, 51));
+        let state = app.conversation.borrow();
+        let session = state.sessions.values().next().unwrap();
+        let mapped = &session.rendered.as_ref().unwrap().mapped;
+        assert!(
+            mapped
+                .lines
+                .iter()
+                .any(|line| line.to_string().starts_with(&format!(" {NAME} → "))),
+            "reply author names stay literal"
+        );
+        assert_eq!(mapped.mentions.iter().map(Vec::len).sum::<usize>(), 1);
+        assert_eq!(
+            session.outgoing[0].reply.as_ref().unwrap().body,
+            "Exact reply body stays literal source evidence"
+        );
+        assert_eq!(
+            fake.arguments().iter().filter(|arg| *arg == "talk").count(),
+            1
+        );
+    });
+}
+
 #[test]
 fn a_settled_send_stays_in_order_when_the_same_agent_asks_a_new_question() {
     let fake = Fake::new(json!({"requestId":"r1", "status":"queued"}), false);
@@ -1031,6 +1685,10 @@ fn the_item_cap_folds_only_the_oldest_send_and_keeps_order() {
             question: None,
             lead_in: None,
             reply: None,
+            feedback: String::new(),
+            feedback_clock: None,
+            sending_shown_ms: None,
+            sending_held: false,
         });
     }
     session.trim_outgoing();
@@ -1119,4 +1777,138 @@ fn sends_and_later_questions_alternate_in_arrival_order() {
         painted.windows(2).all(|pair| pair[0] < pair[1]),
         "{screen:?}"
     );
+}
+
+#[test]
+fn a_reply_still_being_read_never_flashes_a_loading_row_between_working_and_reply() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        provider_observation(&mut app, Phase::Working, SENT);
+        let fake = Fake::new(json!({"requestId":"slow","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "one explicit message");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let at = |app: &App, ms: u64| crate::status::with_now_ms(SENT + ms, || draw(app));
+        assert!(at(&app, 2_000).contains("⠹ worker is working · 0:02"));
+        // The final's metadata lands first and the provider goes idle, but its
+        // body takes about 900 ms to read.
+        app.view.as_mut().unwrap().replies.push(json!({
+            "recipientId":MEMBER,"requestId":"slow","submittedAtMs":SENT + 3_000
+        }));
+        provider_observation(&mut app, Phase::Idle, SENT + 3_000);
+        for ms in [3_100, 3_500, 3_950] {
+            let screen = at(&app, ms);
+            assert!(screen.contains("worker is working"), "{ms}: {screen}");
+            assert!(
+                !screen.contains("reading reply")
+                    && !screen.contains("finished without replying")
+                    && !screen.contains("Loading"),
+                "{ms}: {screen}"
+            );
+        }
+        app.view.as_mut().unwrap().replies.last_mut().unwrap()["response"] =
+            json!("Slow exact reply");
+        let screen = at(&app, 4_000);
+        assert!(screen.contains("Slow exact reply"), "{screen}");
+        assert!(
+            !screen.contains("is working") && !screen.contains("reading reply"),
+            "{screen}"
+        );
+    });
+}
+
+#[test]
+fn the_sending_row_is_nothing_for_400ms_then_visible_for_at_least_400ms() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    let at = |app: &App, ms: u64| crate::status::with_now_ms(SENT + ms, || draw(app));
+    let fresh = |text: &str, fake: &Fake| {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        provider_observation(&mut app, Phase::Working, SENT);
+        let completed = crate::status::with_now_ms(SENT, || send(&mut app, fake, text));
+        (app, completed)
+    };
+    let _ = MEMBER;
+    crate::status::with_now_ms(SENT, || {
+        // A fast send, admitted at 200 ms, never paints `sending…`.
+        let fake = Fake::new(json!({"requestId":"fast","status":"sent"}), false);
+        let (mut app, completed) = fresh("fast message", &fake);
+        for ms in [0, 100, 190] {
+            let screen = at(&app, ms);
+            assert!(!screen.contains("sending"), "{ms}: {screen}");
+        }
+        crate::status::with_now_ms(SENT + 200, || finish(&mut app, completed));
+        for ms in [210, 250, 600] {
+            let screen = at(&app, ms);
+            assert!(!screen.contains("sending"), "{ms}: {screen}");
+            assert!(screen.contains("worker is working"), "{ms}: {screen}");
+        }
+        // A slow send shows `sending…` from 400 ms and keeps it for 400 ms
+        // after it was first painted, even if the send settles right away.
+        let fake = Fake::new(json!({"requestId":"slow","status":"sent"}), false);
+        let (mut app, completed) = fresh("slow message", &fake);
+        assert!(!at(&app, 399).contains("sending"));
+        assert!(at(&app, 450).contains("sending…"));
+        crate::status::with_now_ms(SENT + 500, || finish(&mut app, completed));
+        let held = at(&app, 600);
+        assert!(
+            held.contains("sending…") && !held.contains("worker is working"),
+            "{held}"
+        );
+        let done = at(&app, 900);
+        assert!(
+            !done.contains("sending") && done.contains("worker is working"),
+            "{done}"
+        );
+    });
+}
+
+#[test]
+fn a_hooked_agent_that_starts_late_shows_a_neutral_sent_and_never_not_reported() {
+    use crate::board::{activity::Phase, app::workspace::tests::MEMBER};
+    const SENT: u64 = 1_791_600_000_000;
+    let _ = MEMBER;
+    crate::status::with_now_ms(SENT, || {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .reduced_motion = true;
+        // The agent reports activity: idle before this send.
+        provider_observation(&mut app, Phase::Idle, SENT - 60_000);
+        let fake = Fake::new(json!({"requestId":"late","status":"sent"}), false);
+        let completed = send(&mut app, &fake, "wake up");
+        finish(&mut app, completed);
+        let _no_acquisition = crate::runner::forbid_commands();
+        let at = |app: &App, ms: u64| crate::status::with_now_ms(SENT + ms, || draw(app));
+        for ms in [100, 1_000, 8_000] {
+            let screen = at(&app, ms);
+            assert!(screen.contains("✓ sent"), "{ms}: {screen}");
+            assert!(!screen.contains("not reported"), "{ms}: {screen}");
+        }
+        // Hooks answer a moment later: straight to working, no false line between.
+        provider_observation(&mut app, Phase::Working, SENT + 1_200);
+        let screen = at(&app, 1_300);
+        assert!(screen.contains("worker is working"), "{screen}");
+        assert!(!screen.contains("not reported"), "{screen}");
+    });
 }

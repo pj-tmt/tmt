@@ -2687,6 +2687,7 @@ printf '%s\n' '{{}}'
                         workspace: Default::default(),
                         window: crate::config::TokenWindow::MINUTE,
                         windows: crate::config::TokenWindow::DEFAULTS,
+                        reduced_motion: false,
                         summary: Default::default(),
                         squads: vec![],
                         failures: vec![],
