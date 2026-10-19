@@ -122,6 +122,7 @@ export function finishMentionDirectory() {
 }
 let holdAttachmentUploads = false;
 let releaseAttachmentUpload: (() => void) | undefined;
+let replacedFiles = false;
 /** Reload-surviving stand-in for the encrypted device store (its crypto has unit tests). */
 let releaseDraftRead: (() => void) | undefined;
 let releaseDraftWrites: (() => void) | undefined;
@@ -341,6 +342,7 @@ export async function mount(
   let lostOnce = true;
   scope = 'epoch-1';
   pageEpoch = '1';
+  replacedFiles = false;
   const attachments: AttachmentBinding | undefined = options.attachments
     ? {
         scope: () => scope,
@@ -442,6 +444,26 @@ export async function mount(
       };
       emit();
     },
+  };
+  // A replacement owner of the same page's files: it records its own uploads and targets, then
+  // delegates, so a test tells which owner an upload went through.
+  const replacementFiles: DocumentFiles | undefined = files && {
+    attachments: {
+      ...files.attachments,
+      async upload(input, target, progress) {
+        actions.push(`files-b:upload:${input.filename}`);
+        return files.attachments.upload(input, target, progress);
+      },
+    },
+    get epoch() {
+      return files.epoch;
+    },
+    target() {
+      actions.push('files-b:target');
+      return files.target();
+    },
+    add: (list) => files.add(list),
+    remove: (ids) => files.remove(ids),
   };
   let answerPublications = 0;
   function publishAnswer<T>(body: string, commit: () => T): T {
@@ -810,6 +832,10 @@ export async function mount(
       })
     : undefined;
   const secondPage = '<p id="review-b-page">Second page</p>';
+  const replacedBinding = Object.defineProperties({} as PageBinding, {
+    ...Object.getOwnPropertyDescriptors(binding),
+    files: { value: replacementFiles },
+  });
   const transport: PageTransport = {
     management: options.management,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
@@ -852,7 +878,7 @@ export async function mount(
         id: id(1),
         sharing: 'private',
         ...current,
-        binding,
+        binding: replacedFiles ? replacedBinding : binding,
       };
     },
   };
@@ -916,6 +942,11 @@ export function notificationSources(
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
   emit();
+}
+/** The same page reopens with a binding whose files have a replacement owner. */
+export function replaceFilesOwner() {
+  replacedFiles = true;
+  fail?.(new Error('STALE_EPOCH'));
 }
 export function block() {
   fail?.(new Error('Page unavailable'));

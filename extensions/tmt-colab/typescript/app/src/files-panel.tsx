@@ -1,5 +1,5 @@
 import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
-import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { attachment } from '@tmt/colab-client';
 import { AttachmentDraft } from './attachment-draft.js';
 import { isRaster, useAttachmentOpener } from './attachment-opener.js';
@@ -154,11 +154,17 @@ export function FilesPanel({
   disabled: boolean;
   readOnly?: boolean;
 }) {
+  // A same-page reopen may replace the files owner; the draft keeps its picked bytes and reads
+  // the current owner at each upload.
+  const owner = useRef(files);
+  useEffect(() => {
+    owner.current = files;
+  }, [files]);
   const [draft] = useState(
     () =>
       new AttachmentDraft(
-        () => files.attachments,
-        () => files.target(),
+        () => owner.current.attachments,
+        () => owner.current.target(),
       ),
   );
   useEffect(() => () => draft.dispose(), [draft]);
