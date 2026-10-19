@@ -31,8 +31,8 @@ export function pageSearch(search: Record<string, unknown>): { read?: string; an
   return read !== undefined ? { read } : anchor !== undefined ? { anchor } : {};
 }
 
-/** Router-internal paths carry the cosmetic hint as search; owner URLs keep it in the fragment. */
-export function ownerReadingHref(path: string, pathname: string, space: string): string {
+/** A router path with its cosmetic hint, when it carries exactly one valid one. */
+export function splitPageHint(path: string): { route: string; hint?: PageHint } {
   const [route, query] = path.split('?');
   const search = new URLSearchParams(query);
   const hint: PageHint | undefined =
@@ -45,7 +45,12 @@ export function ownerReadingHref(path: string, pathname: string, space: string):
           ? { anchor: search.get('anchor')! }
           : undefined
       : undefined;
-  const target = hint ? route : path;
+  return hint ? { route, hint } : { route: path };
+}
+
+/** Router-internal paths carry the cosmetic hint as search; owner URLs keep it in the fragment. */
+export function ownerReadingHref(path: string, pathname: string, space: string): string {
+  const { route: target, hint } = splitPageHint(path);
   const tail = hint ? ('read' in hint ? `&read=${hint.read}` : `&anchor=${hint.anchor}`) : '';
   return `${pathname}#space=${space}${target === '/' ? '' : `&path=${encodeURIComponent(target)}`}${tail}`;
 }

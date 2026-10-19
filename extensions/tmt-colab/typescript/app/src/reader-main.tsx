@@ -1,3 +1,4 @@
+import { entryMount, publicEntry } from './entry.js';
 import { createRoot } from 'react-dom/client';
 import type { AttachmentBinding } from './attachment-service.js';
 import { ReaderApp, type ReaderState } from './reader-app.js';
@@ -39,7 +40,11 @@ async function start() {
     return;
   }
   show({ kind: 'opening' });
-  if (!/^\/r\/[a-z0-9]+\/x\/colab\/read$/.test(location.pathname) || location.search) {
+  if (
+    (!/^\/read\/[A-Za-z0-9_-]{4,64}$/.test(location.pathname) &&
+      !/^\/r\/[a-z0-9]+\/x\/colab\/read$/.test(location.pathname)) ||
+    location.search
+  ) {
     return show({ kind: 'invalid' });
   }
   let link;
@@ -48,6 +53,8 @@ async function start() {
     const parsed = parseReaderFragment(fragment);
     fragment = '';
     link = await parsed;
+    if (publicEntry() && location.pathname.slice(6) !== link.link)
+      throw new Error('Invalid reader target');
   } catch {
     return show({ kind: older ? 'older' : 'invalid' });
   }
@@ -56,7 +63,7 @@ async function start() {
   try {
     const session = await ReaderSession.open(
       link,
-      new URL('./', location.href),
+      publicEntry() ? entryMount() : new URL('./', location.href),
       (view) => show({ kind: 'ready', view, pageId: link.page }),
       failure,
     );

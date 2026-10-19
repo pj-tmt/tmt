@@ -274,21 +274,19 @@ async function native() {
     throw error;
   }
 }
-test('a direct mounted short URL redirects into the native owner page with working relative assets', async ({
+test('a public short URL opens the native owner page with mounted assets', async ({
   page,
   context,
 }) => {
   const server = await native();
   try {
     await keys(context, server.fixture);
-    await page.goto(`${server.origin}${mount}p/${server.fixture.pageId.slice(0, 8)}`);
+    await page.goto(`${server.origin}/p/${server.fixture.pageId.slice(0, 8)}`);
     await expect(page.getByRole('heading', { name: 'CLI page', exact: true })).toBeVisible();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),
     ).toBeVisible();
-    await expect(page).toHaveURL(
-      new RegExp(`/${mount.slice(1)}#space=.*&path=%2Fpages%2F${server.fixture.pageId}$`),
-    );
+    await expect(page).toHaveURL(new RegExp(`/p/${server.fixture.pageId.slice(0, 8)}$`));
     await page.reload();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),
@@ -314,7 +312,7 @@ test('a direct mounted short URL redirects into the native owner page with worki
         }
       }
     }
-    await page.goto(`${server.origin}${mount}p/99999999`);
+    await page.goto(`${server.origin}/p/99999999`);
     await expect(page.getByRole('alert')).toContainText('Page unavailable');
   } finally {
     await page.goto('about:blank');

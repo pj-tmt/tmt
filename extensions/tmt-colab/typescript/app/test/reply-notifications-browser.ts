@@ -55,6 +55,7 @@ export async function mount() {
   const management: ManagementPort = {
     async read(pageId) {
       return {
+        root: 'A'.repeat(43),
         revision: '1',
         ownerMember: own,
         members: [],

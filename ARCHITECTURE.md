@@ -599,8 +599,8 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
   `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
-  from a browser. Remote forwards public short entries without device context; Colab redirects only
-  to validated `tmt-mount`, resolving page prefixes from its verified catalog.
+  from a browser. Public short entries bootstrap from validated `tmt-mount` without device context;
+  Colab resolves page prefixes from its verified catalog; reader seeds stay in fragments.
   It stores ciphertext, never decodes Yjs; creation opening ignores TTY/JSON.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), `tmt-extension-state`, `-objects`, `-serve` and `tmt-invoke`/`tmt-cli-style`; the browser

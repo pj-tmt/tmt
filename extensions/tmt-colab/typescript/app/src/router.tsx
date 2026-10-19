@@ -4,6 +4,7 @@ import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
+import { entryTarget, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -12,8 +13,15 @@ import {
   BrowserNotifications,
 } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
-import { validPagePrefix } from './short-links.js';
-import { ownerPageHint, ownerReadingHref, pageSearch, readingSearch } from './reading-link.js';
+import { shortPageId, validPagePrefix } from './short-links.js';
+import {
+  ownerPageHint,
+  ownerReadingHref,
+  pageSearch,
+  readingSearch,
+  splitPageHint,
+  type PageHint,
+} from './reading-link.js';
 import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
@@ -542,7 +550,14 @@ function composerConnection(state: ConnectionState): ComposerConnectionPresentat
   };
 }
 
-const root = createRootRouteWithContext<{ transport: PageTransport; space?: string }>()({
+type KnownPages = readonly { pageId: string; deleted: boolean }[];
+type AppContext = {
+  transport: PageTransport;
+  space?: string;
+  // The short-URL history resolves a prefix against the catalog the loaders last saw.
+  rememberPages?: (pages: KnownPages) => void;
+};
+const root = createRootRouteWithContext<AppContext>()({
   component: Shell,
   errorComponent: function RootError({ error }) {
     const header = useRef<HTMLElement>(null);
@@ -598,12 +613,11 @@ const root = createRootRouteWithContext<{ transport: PageTransport; space?: stri
     </>
   ),
 });
-async function loadSpaceHome({
-  context,
-}: {
-  context: { transport: PageTransport; space?: string };
-}) {
+async function loadSpaceHome({ context }: { context: AppContext }) {
   const home = await context.transport.spaceHome();
+  context.rememberPages?.(
+    home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false })),
+  );
   // A quick switcher opened later shows this list at once and refreshes it.
   rememberPages(context.transport, context.space, home.pages);
   return home;
@@ -657,6 +671,7 @@ const shortPage = createRoute({
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
     const known = home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false }));
+    context.rememberPages?.(known);
     const pages = known
       .filter((page) => page.pageId.startsWith(params.prefix))
       .map((row) => ({
@@ -1242,6 +1257,8 @@ function Page() {
     binding.current?.markThreadStatusSeen?.(ref);
     setActiveThread(id);
     setPanel('comments');
+    if (location.pathname.startsWith('/p/'))
+      history.replaceState(history.state, '', `${location.pathname}#t=${ref.id}`);
     renderer.current?.scrollAnchor(id);
   }
   function continueAnnotation(ref: DiscussionRef) {
@@ -1295,6 +1312,19 @@ function Page() {
         : state === 'loading'
           ? text.loading
           : text.blocked;
+  const deepThread = useRef<string | null>(null);
+  useEffect(() => {
+    if (state !== 'ready' || !location.pathname.startsWith('/p/')) return;
+    const target = new URLSearchParams(location.hash.slice(1)).get('t');
+    if (!target || deepThread.current === `${snapshot.id}:${target}`) return;
+    const thread = view.threads?.find((value) => value.threadId === target && !value.deleted);
+    if (!thread) return;
+    deepThread.current = `${snapshot.id}:${target}`;
+    setActiveThread(`${thread.ref.writer}:${thread.ref.id}`);
+    setPanel('comments');
+    renderer.current?.scrollAnchor(`${thread.ref.writer}:${thread.ref.id}`);
+  }, [state, snapshot.id, view.threads]);
+
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
   const canSelect =
@@ -2181,15 +2211,40 @@ function Page() {
     </CreatorDefaultProvider>
   );
 }
-export function createAppRouter(transport: PageTransport, space?: string) {
+export function createAppRouter(
+  transport: PageTransport,
+  space?: string,
+  pageIds: readonly { pageId: string; deleted: boolean }[] = [],
+) {
+  let knownPages = pageIds;
   const history = space
     ? createBrowserHistory({
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
-          let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
+          const prefix = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+          let path: string;
+          let hint: PageHint | undefined;
+          if (publicEntry()) {
+            try {
+              const target = entryTarget();
+              const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
+              path = !prefix
+                ? '/'
+                : matches.length === 1 && !matches[0].deleted
+                  ? `/pages/${matches[0].pageId}`
+                  : `/short/${prefix}`;
+              // A thread names a place inside the page; a reading or shell anchor is a page hint.
+              if (target && !('thread' in target) && path !== '/') hint = target;
+              if (hint && 'anchor' in hint && !path.startsWith('/pages/')) hint = undefined;
+            } catch {
+              path = '/blocked';
+            }
+          } else {
+            path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
+            hint = ownerPageHint(new URL(location.href), space);
+          }
           if (!/^\/(?:all|pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path))
             path = '/blocked';
-          const hint = ownerPageHint(new URL(location.href), space);
           const search = hint
             ? 'read' in hint
               ? `?read=${hint.read}`
@@ -2203,13 +2258,36 @@ export function createAppRouter(transport: PageTransport, space?: string) {
             state: { ...window.history.state, __TSR_index: window.history.state?.__TSR_index ?? 0 },
           };
         },
-        createHref: (path) => ownerReadingHref(path, location.pathname, space),
+        createHref: (path) => {
+          if (!publicEntry()) return ownerReadingHref(path, location.pathname, space);
+          const { route, hint } = splitPageHint(path);
+          const id = route.replace(/^\/(?:pages|short)\//, '');
+          if (route === '/' || !validPagePrefix(id)) return '/colab/';
+          const current = location.pathname.startsWith('/p/') ? location.pathname.slice(3) : '';
+          const matches = knownPages.filter((row) => row.pageId.startsWith(current));
+          const target = route.startsWith('/pages/')
+            ? validPagePrefix(current) && matches.length === 1 && matches[0].pageId === id
+              ? current
+              : shortPageId(
+                  id,
+                  knownPages.map((row) => row.pageId),
+                )
+            : id;
+          const tail = hint
+            ? 'read' in hint
+              ? `#read=${hint.read}`
+              : `#anchor=${hint.anchor}`
+            : target === current && location.hash.startsWith('#t=')
+              ? location.hash
+              : '';
+          return `/p/${target}${tail}`;
+        },
       })
     : createHashHistory();
   const router = createRouter({
     routeTree: root.addChildren([home, allPages, page, shortPage, blocked]),
     history,
-    context: { transport, space },
+    context: { transport, space, rememberPages: (pages) => (knownPages = pages) },
   });
   router.subscribe('onResolved', () => void buildWatch.check());
   return router;

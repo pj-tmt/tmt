@@ -1,3 +1,4 @@
+import { readerUrl } from './reader-link.js';
 import { BearerArtifact } from './bearer-artifact.js';
 import { localTime } from './expiry.js';
 import { text } from './strings.js';
@@ -276,17 +277,24 @@ export function ShareDialog({
                 <> {text.deletedStorage(ack.storage, ack.storageHint)}</>
               )}
             </p>
-            {pending?.artifact && (
+            {pending?.artifact && ack && (
               <div className="bearer">
                 <p>
-                  Copy this link ID and seed now. They are shown once and are never stored. Anyone
-                  with the seed has bearer access. Shared links open in a separate read-only view,
-                  whatever their role. This dialog does not create a URL to open.
+                  Copy this link now. It is shown only once and is not saved. Anyone with the link
+                  can open this page in a read-only view.
                 </p>
                 <BearerArtifact
                   key={pending.artifact.linkId}
-                  linkId={pending.artifact.linkId}
-                  seed={pending.artifact.seed}
+                  url={readerUrl(location.origin, {
+                    space: pending.artifact.space,
+                    page: pageId,
+                    link: pending.artifact.linkId,
+                    revision: ack.membershipHead.revision,
+                    statement: ack.membershipHead.statementHash,
+                    seed: pending.artifact.seed,
+                    root: pending.artifact.root,
+                    role: pending.artifact.role,
+                  })}
                 />
               </div>
             )}
@@ -552,7 +560,7 @@ export function ShareDialog({
                   review(
                     { operation: 'link.add', value: newLink(role, [pageId]) },
                     'Create link',
-                    `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification. Shared links open read-only, whatever their role.`,
+                    `Grant ${role} bearer access under ${view.page.history} history. You can copy the link once, right after it is created. Shared links open read-only, whatever their role.`,
                   )
                 }
               >

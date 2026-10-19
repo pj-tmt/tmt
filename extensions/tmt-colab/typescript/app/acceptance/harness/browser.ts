@@ -25,7 +25,11 @@ export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door>
     String(port),
   ]);
   const descriptor = await remote.event((value) => typeof value.address === 'string');
-  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+    'serve',
+    '--json',
+    '--no-open',
+  ]);
   const ready = await colab.event((value) => value.state === 'mounted');
   if (ready.socket !== path.join(world.dataRoot, 'colab', 'door.sock'))
     throw new Error('Colab mounted outside the isolated data root');
@@ -55,13 +59,23 @@ export interface ServedDoor extends Pick<Door, 'address' | 'origin' | 'mounts' |
  */
 export async function startServe(world: AcceptanceWorld): Promise<ServedDoor> {
   world.linkExtensions();
-  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+    'serve',
+    '--json',
+    '--no-open',
+  ]);
   const ready = await colab.event((value) => value.state === 'mounted');
   if (ready.door !== 'attached' && ready.door !== 'started')
     throw new Error(`Colab found no door: ${String(ready.warning)}`);
   const url = ready.url as string;
-  const address = url.replace(/\/x\/colab\/$/, '');
-  if (address === url) throw new Error(`Unexpected page link ${url}`);
+  const descriptor = JSON.parse(run(world, world.binaries.remote, ['status', '--json'])) as {
+    running: boolean;
+    origin: string;
+    path: string;
+  };
+  if (!descriptor.running) throw new Error('Colab reported a stopped door');
+  const address = `${descriptor.origin}${descriptor.path}`;
+  if (new URL(url).origin !== descriptor.origin) throw new Error(`Unexpected page link ${url}`);
   return {
     state: ready.door,
     status: ready,
@@ -157,6 +171,7 @@ export async function pairBrowser(
   const pair = world.spawn(`pair-${name}`, world.binaries.remote, [
     'pair',
     '--json',
+    '--no-open',
     ...(options.talk ? ['--talk'] : []),
   ]);
   const offer = await pair.event((value) => typeof value.link === 'string');
@@ -226,7 +241,11 @@ export async function restartColab(
 ): Promise<void> {
   await door.colab.stop();
   await whileStopped?.();
-  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, [
+    'serve',
+    '--json',
+    '--no-open',
+  ]);
   await colab.event((value) => value.state === 'mounted');
   door.colab = colab;
 }
@@ -260,6 +279,6 @@ export async function openReaderLink(
   );
   const page = await context.newPage();
   await beforeNavigate?.(page);
-  await page.goto(`${door.address}/${readerPath}`);
+  await page.goto(new URL(readerPath, `${door.address}/`).href);
   return { context, page, requests };
 }

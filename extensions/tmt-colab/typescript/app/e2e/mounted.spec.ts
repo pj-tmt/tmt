@@ -21,7 +21,7 @@ test.afterEach(async ({ page }, info) => {
   }
 });
 
-const mount = '/r/abcd/x/colab/';
+const mount = '/r/abcdefghijklmnop/x/colab/';
 const device = '00000000-0000-4000-8000-000000000100';
 const member = '00000000-0000-4000-8000-000000000101';
 const pageId = '00000000-0000-4000-8000-000000000102';
@@ -95,6 +95,16 @@ async function fixture(
   const g = await genesis.verifyNext(space, ownerKey, null);
   const shared = await signed('page.share', { pageId, mode: 'private', epoch: '1' }, g.head);
   const head = await shared.verifyNext(space, ownerKey, g.head);
+  await page.addInitScript((mount) => {
+    const install = () => {
+      const meta = document.createElement('meta');
+      meta.name = 'tmt-colab-mount';
+      meta.content = mount;
+      document.head.append(meta);
+    };
+    if (document.head) install();
+    else document.addEventListener('readystatechange', install, { once: true });
+  }, mount);
   await page.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
@@ -207,10 +217,10 @@ async function fixture(
 test('mounted owner discovers a pinned space; registration failure stays blocked', async ({
   page,
 }) => {
-  const f = await fixture(page);
+  await fixture(page);
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`#space=${f.space}$`));
+  await expect(page).toHaveURL(/\/colab\/$/);
   await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
   await page.route(`**${mount}api/devices/register`, (route) =>
     route.fulfill({ status: 403, json: { code: 'DENIED' } }),
@@ -224,11 +234,15 @@ test('mounted owner discovers a pinned space; registration failure stays blocked
 test('discovery cannot silently replace an existing mount pin or conflicting fragment', async ({
   page,
 }) => {
-  const f = await fixture(page);
+  await fixture(page);
   await page.goto(mount);
-  await expect(page).toHaveURL(new RegExp(`#space=${f.space}$`));
-  await page.goto(`${mount}#space=${'a'.repeat(32)}`);
+  await expect(page).toHaveURL(/\/colab\/$/);
+  await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
+  await page.goto(`/colab/#space=${'a'.repeat(32)}`);
   await expect(page.getByRole('alert')).toContainText('does not match the pinned space');
+  await expect(page.locator('iframe')).toHaveCount(0);
+  await page.goto(`${mount}#space=${'a'.repeat(32)}`);
+  await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
   await expect(page.locator('iframe')).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
@@ -281,8 +295,9 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
   await page.goto(mount);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page.getByRole('alert')).toContainText('no verified page key');
-  // The mounted history keeps its route in the fragment.
-  expect(new URL(page.url()).hash).toContain(encodeURIComponent(`/pages/${pageId}`));
+  // The visible location keeps the short page path, with no space or route in the fragment.
+  expect(new URL(page.url()).pathname).toBe(`/p/${pageId.slice(0, 8)}`);
+  expect(new URL(page.url()).hash).toBe('');
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);
   await expect(page.locator('.page-header-actions')).toHaveCount(0);
@@ -300,7 +315,7 @@ test('a successful HTTP registration with a forged certificate remains blocked',
     await page.evaluate(async () => {
       const path = '/src/storage.ts';
       const { record } = await import(path);
-      return record(`pin:${location.origin}/r/abcd/x/colab/`);
+      return record(`pin:${location.origin}/r/abcdefghijklmnop/x/colab/`);
     }),
   ).toBeUndefined();
 });
@@ -571,11 +586,18 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await expect(dialog.getByRole('status')).toContainText('Change verified');
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await dialog.getByRole('button', { name: 'Create link' }).click();
-  await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
+  await expect(dialog.getByLabel('Share link', { exact: true })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Confirm create link' }).click();
-  await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
+  await expect(dialog.getByLabel('Share link', { exact: true })).toBeVisible();
+  const shared = new URL(await dialog.getByLabel('Share link', { exact: true }).inputValue());
+  const capability = new URLSearchParams(shared.hash.slice(1));
+  expect(shared.origin).toBe(new URL(page.url()).origin);
+  expect(shared.pathname).toBe(`/read/${capability.get('link')}`);
+  expect(capability.get('seed')).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(capability.get('page')).toBe(pageId);
+  await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
   await expect(dialog).toContainText(
-    'Shared links open in a separate read-only view, whatever their role',
+    'Anyone with the link can open this page in a read-only view.',
   );
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await choose(dialog, 'Audience', 'Private');
@@ -761,10 +783,8 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(page.getByRole('menu').locator('.retention-hint')).toHaveText('kept forever');
   await page.getByRole('menu').press('Escape');
   await expect(row(pageId).getByRole('link')).toHaveCount(1);
-  await expect(row(pageId).getByRole('link')).toHaveAttribute(
-    'href',
-    `${mount}#space=${f.space}&path=%2Fpages%2F${pageId}`,
-  );
+  // The two catalog IDs differ only in the last character, so the shortest unique prefix is the ID.
+  await expect(row(pageId).getByRole('link')).toHaveAttribute('href', `/p/${pageId}`);
   await row(pageId)
     .getByRole('button', { name: /^Actions for/ })
     .click();

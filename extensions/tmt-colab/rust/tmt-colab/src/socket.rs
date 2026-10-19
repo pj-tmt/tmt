@@ -968,8 +968,15 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
-    if let Some(prefix) = request.path.strip_prefix("/p/") {
-        if request.method != "GET" || !crate::short_links::valid_prefix(prefix) {
+    if request.path.starts_with("/p/") || request.path.starts_with("/read/") {
+        let id = request.path.split('/').nth(2).unwrap_or_default();
+        if request.method != "GET"
+            || request.path.matches('/').count() != 2
+            || !(4..=64).contains(&id.len())
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        {
             let _ = response(&mut socket, 404, b"NOT FOUND", false);
             return;
         }
@@ -977,34 +984,50 @@ fn serve(
             let _ = response(&mut socket, 400, b"INVALID", false);
             return;
         };
-        // Recovery must keep the requested alias without revealing private inventory.
-        let result = if request.owner.is_none() {
-            Ok(format!("{mount}#path=%2Fshort%2F{prefix}"))
-        } else {
-            registration
-                .ok_or(registration::Code::Unavailable)
-                .and_then(|service| {
-                    service
-                        .lock()
-                        .map_err(|_| registration::Code::Unavailable)?
-                        .page_alias(request.context.as_deref(), prefix, mount)
+        // Public bootstrap never consults the page or link catalog, even for a known device.
+        let reader = request.path.starts_with("/read/");
+        let html = if reader {
+            browser
+                .app
+                .as_ref()
+                .and_then(|app| app.find("/reader.html"))
+                .and_then(|(_, bytes)| std::str::from_utf8(bytes).ok())
+                .map(|html| {
+                    html.replace("./assets/", &format!("{mount}assets/"))
+                        .replace(
+                            "</head>",
+                            &format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\"></head>"),
+                        )
                 })
+        } else {
+            Some(public_entry(browser, mount))
         };
-        match result {
-            Ok(location) => {
-                let _ = response_with_headers(
-                    &mut socket,
-                    302,
-                    b"",
-                    "text/plain",
-                    POLICY,
-                    &format!("Location: {location}\r\n"),
-                );
-            }
-            Err(code) => {
-                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
-            }
+        if let Some(html) = html {
+            let _ = response_with_policy(
+                &mut socket,
+                200,
+                html.as_bytes(),
+                "text/html; charset=utf-8",
+                assets::POLICY,
+            );
+        } else {
+            let _ = response(&mut socket, 503, b"UNAVAILABLE", false);
         }
+        return;
+    }
+    if request.method == "GET"
+        && request.path == "/"
+        && request.owner.is_none()
+        && let Some(mount) = crate::short_links::mounted_root(request.mount.as_deref())
+    {
+        let html = public_entry(browser, mount);
+        let _ = response_with_policy(
+            &mut socket,
+            200,
+            html.as_bytes(),
+            "text/html; charset=utf-8",
+            assets::POLICY,
+        );
         return;
     }
     if request.method == "GET"
@@ -1039,7 +1062,20 @@ fn serve(
         } else {
             assets::POLICY
         };
-        let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
+        // Preserve the verified internal mount when legacy entry discovery canonicalizes
+        // the visible location. Assets and API never resolve relative to the short URL.
+        if matches!(request.path.as_str(), "/" | "/index.html")
+            && let Some(mount) = crate::short_links::mounted_root(request.mount.as_deref())
+            && let Ok(html) = std::str::from_utf8(bytes)
+        {
+            let html = html.replace(
+                "</head>",
+                &format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\"></head>"),
+            );
+            let _ = response_with_policy(&mut socket, 200, html.as_bytes(), kind, policy);
+        } else {
+            let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
+        }
         return;
     }
     if request.path.starts_with("/assets/")
@@ -1060,13 +1096,49 @@ fn serve(
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
     }
-    let (eyebrow, heading, detail) = match &request.owner {
+    let recovery = request.owner.is_none()
+        && browser
+            .app
+            .as_ref()
+            .is_some_and(|app| app.find("/assets/recovery.js").is_some());
+    let page = guidance_page(
+        request.owner.as_deref(),
+        &browser.space_id,
+        "./",
+        "",
+        recovery,
+    );
+    let _ = response_with_policy(
+        &mut socket,
+        200,
+        page.as_bytes(),
+        "text/html; charset=utf-8",
+        assets::POLICY,
+    );
+}
+/// This entry contains no inventory or authority; all owner assets remain admitted.
+fn public_entry(browser: &Browser, mount: &str) -> String {
+    let meta = format!("<meta name=\"tmt-colab-mount\" content=\"{mount}\">");
+    let recovery = browser
+        .app
+        .as_ref()
+        .is_some_and(|app| app.find("/assets/recovery.js").is_some());
+    guidance_page(None, "", mount, &meta, recovery)
+}
+fn guidance_page(
+    owner: Option<&str>,
+    space: &str,
+    assets: &str,
+    meta: &str,
+    recovery: bool,
+) -> String {
+    let (eyebrow, heading, detail) = match owner {
         Some(name) => (
             "Signed-in space",
             "Update Colab to open this page",
             format!(
                 "<p>Colab space {} is running. You are signed in as {}.</p><p>Update Colab on this machine, then restart the serving process.</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt extension upgrade colab</code></div>",
-                escape(&browser.space_id),
+                escape(space),
                 escape(name),
             ),
         ),
@@ -1076,13 +1148,8 @@ fn serve(
             "<p>This Colab space is private. For page access, pair this browser with</p><div class=\"tmt-ui-command\"><code class=\"tmt-ui-command-text\">tmt remote pair</code></div><p>or open a share link. To send to agents, pair with tmt remote pair --talk or ask the owner to enable sending for this device in Remote settings.</p>".into(),
         ),
     };
-    let recovery = request.owner.is_none()
-        && browser
-            .app
-            .as_ref()
-            .is_some_and(|app| app.find("/assets/recovery.js").is_some());
-    let stylesheet = "<link rel=\"stylesheet\" href=\"./assets/chrome.css\">";
-    let screen_title = if request.owner.is_some() {
+    let stylesheet = format!("<link rel=\"stylesheet\" href=\"{assets}assets/chrome.css\">");
+    let screen_title = if owner.is_some() {
         "App unavailable"
     } else {
         "Pair browser"
@@ -1094,13 +1161,13 @@ fn serve(
     };
     let hidden = if recovery { " hidden" } else { "" };
     let script = if recovery {
-        "<script type=\"module\" src=\"./assets/recovery.js\"></script>"
+        format!("<script type=\"module\" src=\"{assets}assets/recovery.js\"></script>")
     } else {
-        ""
+        String::new()
     };
     // Lucide Diamond geometry (lucide-react 1.52.0, ISC); text carries the state.
     let mark = "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/></svg>";
-    let (state, state_label) = if request.owner.is_some() {
+    let (state, state_label) = if owner.is_some() {
         ("waiting", "Update needed")
     } else {
         ("waiting", "waiting")
@@ -1111,16 +1178,9 @@ fn serve(
         r#"<path fill-rule="evenodd" d="M20 0H76C87.05 0 96 8.95 96 20V76C96 87.05 87.05 96 76 96H20C8.95 96 0 87.05 0 76V20C0 8.95 8.95 0 20 0ZM58.84 33.59C58.79 33.69 58.73 33.8 58.68 33.89C57.54 33.12 56.48 32.2 55.25 31.56C46.86 27.14 37.03 27.23 28.91 32.34C23.71 35.61 21.76 38.08 17.37 42.47C16.62 41.79 13 39.01 13.32 38.11C13.7 37.06 14.61 36.29 15.35 35.45C18.89 31.49 23.35 28.11 28.44 26.41C37.06 23.55 46.41 23.82 54.01 29.23C55.77 30.48 57.23 32.14 58.84 33.59ZM19.87 45.28C23.1 41.07 23.78 39.67 28.6 36.24C39.52 28.46 53 30.15 62.58 39.04C60.76 39.95 62.99 38.95 58.06 36.71C55.69 35.63 52.11 34.82 49.49 34.68C38.21 34.06 31.29 41.34 23.92 48.71C20.8 46.56 22.11 47.74 19.87 45.28ZM26.73 49.96C28.44 48.14 30.07 46.23 31.87 44.49C38.49 38.13 48.26 35.69 56.97 38.89C58.46 39.43 59.77 40.34 61.17 41.07C59.72 41.55 61.43 41.09 58.06 40.29C56.98 40.03 55.89 39.87 54.79 39.83C51.29 39.68 47.84 40.21 44.65 41.69C43.37 42.29 42.08 42.92 40.91 43.72C38.41 45.43 32.68 51.65 28.44 50.89C27.8 50.77 27.3 50.27 26.73 49.96ZM34.84 52.29C41.1 54.64 48.12 54.44 53.85 50.57C57.98 47.8 61.25 42.94 66.16 42.16C66.68 42.08 67.23 42 67.72 42.16C68.93 42.53 70.01 43.2 71.15 43.72C69.91 45.02 68.78 46.45 67.41 47.61C60.76 53.33 52.48 57.88 43.41 56.19C40.15 55.58 37.3 54.45 34.84 52.29ZM44.81 45.59C47.1 40.44 53.13 42.19 52.45 47.61C50.85 51.33 45.61 51.64 44.81 47.46C44.69 46.85 44.81 46.21 44.81 45.59ZM34.21 54.79C35.56 55.56 36.86 56.46 38.27 57.12C48.99 62.18 59.4 57.68 67.88 50.57C69.85 48.93 71.63 47.05 73.49 45.28C76.04 46.41 74.51 45.57 77.7 48.4C68.28 62.53 46.56 68.68 34.21 54.79ZM38.11 60.4C42.39 62.97 42.53 63.47 47.15 64.76C56.3 67.32 66.34 63.41 73.49 57.75C75.88 55.85 78.06 53.69 80.35 51.67C81.23 52.6 82.12 53.54 83 54.48C75.91 65.11 61 72.45 48.4 67.72C46.11 66.87 42.48 65.01 40.44 63.05C39.6 62.23 38.89 61.28 38.11 60.4Z"/>"#,
         "</svg>",
     );
-    let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\">{brand_mark}<span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main>{script}</body></html>"
-    );
-    let _ = response_with_policy(
-        &mut socket,
-        200,
-        page.as_bytes(),
-        "text/html; charset=utf-8",
-        assets::POLICY,
-    );
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{meta}{stylesheet}</head><body class=\"guidance\"><div id=\"root\"><header class=\"tmt-ui-header\"><span class=\"tmt-ui-brand\">{brand_mark}<span class=\"tmt-ui-wordmark\">Colab</span></span><h1 class=\"tmt-ui-title\">{screen_title}</h1><div class=\"tmt-ui-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card tmt-ui-notice\" data-tone=\"{state}\"><div class=\"tmt-ui-notice-eyebrow\">{eyebrow}</div><div class=\"tmt-ui-notice-mark\"><span aria-hidden=\"true\">{mark}</span><span>{state_label}</span></div><h2 class=\"tmt-ui-notice-heading\">{heading}</h2><div class=\"tmt-ui-notice-body\">{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></div></section></main></div>{script}</body></html>"
+    )
 }
 type ActiveTunnels = Arc<Mutex<Vec<(String, Arc<UnixStream>)>>>;
 struct TunnelGuard<'a> {

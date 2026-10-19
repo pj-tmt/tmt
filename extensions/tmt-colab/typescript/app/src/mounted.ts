@@ -25,6 +25,7 @@ import { Connection } from './connection.js';
 
 export async function mountedTransport(signal?: AbortSignal): Promise<{
   space: string;
+  pageIds: { pageId: string; deleted: boolean }[];
   transport: PageTransport;
   close(): void;
 }> {
@@ -196,6 +197,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
   } satisfies LiveSessionOwner;
   return {
     space: bootstrap.space,
+    pageIds: bootstrap.pageIds,
     close: () => {
       signal?.removeEventListener('abort', abort);
       lifetime.abort();
@@ -218,7 +220,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
             pageIds: boot.pageIds,
             pages: await Promise.all(
               boot.pages.map(async (page) => {
-                const policy = project(page, log).page;
+                const policy = project(page, log, boot.owner).page;
                 const cachedTitle = await titles.read(page.pageId);
                 return {
                   id: page.pageId,

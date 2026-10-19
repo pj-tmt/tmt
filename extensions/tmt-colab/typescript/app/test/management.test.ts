@@ -105,7 +105,7 @@ async function fixture() {
     pages: [page],
     pageIds: [{ pageId: page.pageId, deleted: false }],
   };
-  const view = project(page, log);
+  const view = project(page, log, boot.owner);
   return { client, registration, log, raw, append, boot, view };
 }
 beforeEach(() => {
@@ -422,7 +422,7 @@ it('projects signed retention and rejects invalid days, extra fields and wrong p
       selected.value,
     );
     await f.append('retention.set', selected.value);
-    expect(project(page, f.log).page.retentionDays).toBe(days);
+    expect(project(page, f.log, f.boot.owner).page.retentionDays).toBe(days);
   }
   for (const days of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity]) {
     await expect(

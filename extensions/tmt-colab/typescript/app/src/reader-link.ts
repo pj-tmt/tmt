@@ -68,3 +68,30 @@ export async function parseReaderFragment(hash: string): Promise<ReaderLink> {
     role: get('role') as ReaderLink['role'],
   };
 }
+
+/** One copyable capability: all authority stays in the fragment. The reader derives `space` from
+ * `root` again; this side checks every field's grammar before the link is shown. */
+export function readerUrl(
+  origin: string,
+  value: {
+    space: string;
+    page: string;
+    link: string;
+    revision: string;
+    statement: string;
+    seed: string;
+    root: string;
+    role: ReaderLink['role'];
+  },
+): string {
+  spaceId(value.space);
+  generatedId(value.page);
+  generatedId(value.link);
+  decimal(value.revision);
+  binary(value.statement, 32, 32);
+  binary(value.seed, 32, 32);
+  binary(value.root, 32, 32);
+  requireValue(ROLES.includes(value.role));
+  const fragment = `#v=1&space=${value.space}&page=${value.page}&link=${value.link}&rev=${value.revision}&st=${value.statement}&seed=${value.seed}&root=${value.root}&role=${value.role}`;
+  return new URL(`/read/${value.link}${fragment}`, origin).href;
+}
