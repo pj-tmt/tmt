@@ -6,7 +6,8 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    host::CallerEnvironment,
+    driver_protocol::registry::DriverRecord,
+    host::{CallerEnvironment, NamedHost},
     process::{
         CommandFailure, CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner,
         runtime::observe_runtime_process,
@@ -25,6 +26,7 @@ use tmt_core::{
         session::{HarnessId, RuntimeLiveness},
     },
     endpoint::EndpointProbe,
+    host::HostKind,
 };
 
 const BUDGET: Duration = Duration::from_millis(500);
@@ -95,8 +97,17 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
             deadline,
             now_ms: tmt_adapters::request_runtime::wall_time_ms(),
         },
-        CallerEnvironment::current,
+        current_caller,
     )
+}
+
+/// The caller's environment and the approvals it was read with, once, and
+/// only after the remembered-session shortcut. The approval owner may
+/// resolve or adopt a first-party companion here; the precheck itself runs
+/// no host driver operation.
+fn current_caller() -> (CallerEnvironment, Vec<DriverRecord>) {
+    let records = tmt_adapters::host::external::approved();
+    (CallerEnvironment::approved(&records), records)
 }
 
 fn observe_candidate(
@@ -104,7 +115,7 @@ fn observe_candidate(
     harness: &HarnessId,
     coordinates: &CallerSession,
     discovery: Discovery<'_>,
-    caller_environment: impl FnOnce() -> CallerEnvironment,
+    caller_environment: impl FnOnce() -> (CallerEnvironment, Vec<DriverRecord>),
 ) -> Result<(), &'static str> {
     let Discovery {
         database,
@@ -120,14 +131,18 @@ fn observe_candidate(
         // effect, so this path needs neither ps nor provider-file evidence.
         return Ok(());
     }
-    let caller = caller_environment();
-    let Some(binding) =
-        Storage::caller_session_binding(database, &caller).map_err(|_| "storage")?
-    else {
-        return Err("binding");
+    let (caller, records) = caller_environment();
+    let key = if caller.pane_locators().is_empty() {
+        external_caller_key(database, harness, coordinates, &caller, &records)?
+    } else {
+        let Some(binding) =
+            Storage::caller_session_binding(database, &caller).map_err(|_| "storage")?
+        else {
+            return Err("binding");
+        };
+        Key::new(harness, coordinates, &binding)
     };
     let refusals = Refusals::in_directory(global_dir);
-    let key = Key::new(harness, coordinates, &binding);
     if let Some(layer) = refusals.lookup(&key, now_ms)
         && let Some(layer) = REFUSAL_LAYERS.iter().copied().find(|known| *known == layer)
     {
@@ -180,6 +195,30 @@ fn observe_candidate(
         refusals.remember(key, layer, now_ms);
     }
     result
+}
+
+/// An external host's caller variables hold a target, not a pane ID, so no
+/// locator selects its binding here. With exactly one approved external host
+/// named and no tmux, the worker resolves the pane through its driver; this
+/// precheck runs no driver and only checks that the host has a binding.
+fn external_caller_key(
+    database: &std::path::Path,
+    harness: &HarnessId,
+    coordinates: &CallerSession,
+    caller: &CallerEnvironment,
+    records: &[DriverRecord],
+) -> Result<Key, &'static str> {
+    let NamedHost::External(record) = caller.named_host(records) else {
+        return Err("binding");
+    };
+    let Some(host @ HostKind::External(_)) = HostKind::parse(&record.name) else {
+        return Err("binding");
+    };
+    let bindings = Storage::caller_session_host_bindings(database, host).map_err(|_| "storage")?;
+    if bindings.is_empty() {
+        return Err("binding");
+    }
+    Ok(Key::caller(harness, coordinates, record, caller, &bindings))
 }
 
 pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {

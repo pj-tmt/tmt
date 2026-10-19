@@ -6,6 +6,8 @@
 //! binding stays unknown and is never retired.
 #![cfg(unix)]
 // This fixture uses only the shared private command environment.
+#[path = "external_host/caller_session.rs"]
+mod caller_session;
 #[path = "external_host/sampling.rs"]
 mod sampling;
 #[allow(dead_code)]
@@ -37,22 +39,38 @@ use tmt_core::{
 
 /// Answers from files beside it, records each operation, keeps the marker
 /// `publish` sent and returns it from `snapshot`, as a real host would.
+/// With `two-panes`, a second pane `fake-2` (target `f2`) has its own shell
+/// (`pid-2`) and marker (`marker-2`).
 const DRIVER: &str = r#"#!/bin/sh
 d=$(dirname "$0")
 echo "$3" >> "$d/calls"
 echo $$ >> "$d/pids"
 input=$(cat)
+marker="$d/marker"
+case "$input" in *'"paneId":"fake-2"'*) marker="$d/marker-2" ;; esac
 case "$3" in
   capabilities) cat "$d/capabilities" ;;
   server) cat "$d/server" ;;
   publish)
-    printf '%s' "$input" | sed -n 's/.*"marker":\({[^}]*}\).*/\1/p' > "$d/marker"
+    printf '%s' "$input" | sed -n 's/.*"marker":\({[^}]*}\).*/\1/p' > "$marker"
     printf '{"ok":{}}' ;;
-  clear) rm -f "$d/marker"; printf '{"ok":{"cleared":true}}' ;;
+  clear) rm -f "$marker"; printf '{"ok":{"cleared":true}}' ;;
   caller)
+    # While `hold-caller` exists, a caller call records itself and a copy
+    # of the file `watch` names, then waits (at most 30 s).
+    if [ -f "$d/hold-caller" ]; then
+      echo "$$ $PPID $(ps -o pgid= -p $$ | tr -d ' ')" > "$d/held.staged"
+      cp "$(cat "$d/watch")" "$d/watched" 2>/dev/null
+      mv "$d/held.staged" "$d/held"
+      i=0; while [ -f "$d/hold-caller" ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done
+    fi
     case "$input" in
       *'"FAKE_PANE_ID":"f1"'*)
         printf '{"ok":{"pane":{"id":"fake-1","socket":"/tmp/fake.sock","shellPid":%s}}}' "$(cat "$d/shell")" ;;
+      *'"FAKE_PANE_ID":"f2"'*)
+        if [ -f "$d/two-panes" ]; then
+          printf '{"ok":{"pane":{"id":"fake-2","socket":"/tmp/fake.sock","shellPid":%s}}}' "$(cat "$d/pid-2")"
+        else printf '{"ok":{"pane":null}}'; fi ;;
       *) printf '{"ok":{"pane":null}}' ;;
     esac ;;
   input) printf '%s\n' "$input" >> "$d/typed"; printf '{"ok":{}}' ;;
@@ -116,7 +134,12 @@ case "$3" in
     fi
     m=$(cat "$d/marker" 2>/dev/null); [ -n "$m" ] || m=null
     a=$(cat "$d/agentname" 2>/dev/null); if [ -n "$a" ]; then a=",\"agentName\":\"$a\""; fi
-    printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}]}}' "$(cat "$d/pid")" "$m" "$a" ;;
+    p2=
+    if [ -f "$d/two-panes" ]; then
+      m2=$(cat "$d/marker-2" 2>/dev/null); [ -n "$m2" ] || m2=null
+      p2=$(printf ',{"id":"fake-2","target":"f2","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s}' "$(cat "$d/pid-2")" "$m2")
+    fi
+    printf '{"ok":{"panes":[{"id":"fake-1","target":"f1","cwd":"/src","command":"sh","panePid":%s,"suggestedName":null,"marker":%s%s}%s]}}' "$(cat "$d/pid")" "$m" "$a" "$p2" ;;
   *) printf '{"error":{"code":"unsupported","message":"no %s"}}' "$3" ;;
 esac
 "#;
@@ -251,6 +274,11 @@ impl Drop for Fixture {
 /// Binds `worker` to the driver's pane through the core port, as `tmt add`
 /// will once 3b-2b selects external hosts.
 fn bind(fixture: &Fixture, record: registry::DriverRecord) {
+    bind_pane(fixture, record, "fake-1", "worker");
+}
+
+/// `bind` for the identity `name` on the driver's pane `pane`.
+fn bind_pane(fixture: &Fixture, record: registry::DriverRecord, pane: &str, name: &str) {
     let fake = HostName::new("fake").unwrap();
     let pid = u64::from(std::process::id());
     let start = observe_start(&UnixCommandRunner, pid, deadline())
@@ -273,7 +301,7 @@ fn bind(fixture: &Fixture, record: registry::DriverRecord) {
     };
     let host = Host::for_server_with(&server, UnixCommandRunner).with_drivers(vec![record]);
     let mut session = host.session();
-    bind_identity(&mut storage, &mut session, "fake-1", "worker", true).unwrap();
+    bind_identity(&mut storage, &mut session, pane, name, true).unwrap();
     storage.close().unwrap();
 }
 
@@ -1764,10 +1792,26 @@ struct SteppedProvider {
     provider: &'static str,
     steps: PathBuf,
     next: usize,
+    /// The child is a pane shell that leads its own process group, with the
+    /// provider and its commands in it.
+    shell: bool,
 }
 
 impl SteppedProvider {
     fn start(fixture: &Fixture, provider: &'static str, name: &str) -> Self {
+        Self::start_in(fixture, provider, name, "f1", false)
+    }
+
+    /// `start` in the pane whose target is `pane`. With `shell`, the
+    /// provider is the child of its own pane shell, a `sh` the test owns,
+    /// instead of the child of this test process.
+    fn start_in(
+        fixture: &Fixture,
+        provider: &'static str,
+        name: &str,
+        pane: &str,
+        shell: bool,
+    ) -> Self {
         let program = fixture.root.join("bin").join(provider);
         if !program.exists() {
             fs::create_dir_all(fixture.root.join("bin")).unwrap();
@@ -1775,19 +1819,42 @@ impl SteppedProvider {
         }
         let steps = fixture.root.join(name);
         fs::create_dir_all(&steps).unwrap();
-        let tmt = fixture.command_in(Some("f1"), &[]);
+        let tmt = fixture.command_in(Some(pane), &[]);
         // Each step waits at most 30 s, so a killed test process cannot
-        // leave the stand-in behind for long.
-        let child = std::process::Command::new(program)
-            .args([
-                "-c",
-                "i=0; while :; do w=0
-                   while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
-                   [ -e \"$1/$i.json\" ] || exit 0
-                   \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
+        // leave the stand-in behind for long. A step is a hook (`<i>.json`)
+        // or a command (`<i>.args`, one argument a line, with the
+        // `NAME=value` lines of `<i>.env` exported). With `hang`, it ignores
+        // its stop file and SIGHUP, for a cleanup test.
+        let script = "echo $$ > \"$1/provider.pid\"
+                 if [ -e \"$1/hang\" ]; then trap '' HUP
+                   i=0; while [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done; exit 0; fi
+                 i=0; while :; do w=0
+                   while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
+                   if [ -e \"$1/$i.json\" ]; then
+                     \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"; echo $? > \"$1/$i.status\"
+                   elif [ -e \"$1/$i.args\" ]; then
+                     (t=\"$0\"; s=\"$1/$i\"; set --
+                      while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
+                      while IFS= read -r v; do export \"$v\"; done < \"$s.env\"
+                      exec \"$t\" \"$@\" > \"$s.out\" 2> \"$s.err\"); echo $? > \"$1/$i.status\"
+                   else exit 0; fi
                    touch \"$1/$i.done\"; i=$((i+1))
-                 done",
-            ])
+                 done";
+        let mut command = if shell {
+            // The pane shell waits for the provider (`; :` keeps it from
+            // replacing itself with it), and leads a group the test owns.
+            use std::os::unix::process::CommandExt;
+            let mut command = std::process::Command::new("/bin/sh");
+            command
+                .args(["-c", "\"$0\" \"$@\"; :"])
+                .arg(program)
+                .process_group(0);
+            command
+        } else {
+            std::process::Command::new(program)
+        };
+        let child = command
+            .args(["-c", script])
             .arg(tmt.get_program())
             .arg(&steps)
             .arg(provider)
@@ -1805,7 +1872,46 @@ impl SteppedProvider {
             provider,
             steps,
             next: 0,
+            shell,
         }
+    }
+
+    /// The provider stand-in's pid, once it has started.
+    fn provider_pid(&self) -> u64 {
+        let file = self.steps.join("provider.pid");
+        wait_until("the provider starts", || {
+            fs::read_to_string(&file).is_ok_and(|pid| pid.ends_with('\n'))
+        });
+        fs::read_to_string(&file).unwrap().trim().parse().unwrap()
+    }
+
+    /// Runs `tmt` with `args` from the provider, with `env` added, and
+    /// returns its exit code, stdout and stderr.
+    fn command(&mut self, env: &[(&str, &str)], args: &[&str]) -> (i32, String, String) {
+        let step = self.steps.join(self.next.to_string());
+        let lines = |items: Vec<String>| {
+            items
+                .iter()
+                .map(|item| format!("{item}\n"))
+                .collect::<String>()
+        };
+        fs::write(
+            step.with_extension("env"),
+            lines(
+                env.iter()
+                    .map(|(name, value)| format!("{name}={value}"))
+                    .collect(),
+            ),
+        )
+        .unwrap();
+        let staged = step.with_extension("staged");
+        fs::write(
+            &staged,
+            lines(args.iter().map(|arg| (*arg).to_owned()).collect()),
+        )
+        .unwrap();
+        fs::rename(&staged, step.with_extension("args")).unwrap();
+        self.finish(step)
     }
 
     /// Runs one hook with `payload` and returns its exit code, stdout and
@@ -1815,7 +1921,11 @@ impl SteppedProvider {
         let staged = step.with_extension("staged");
         fs::write(&staged, payload.to_string()).unwrap();
         fs::rename(&staged, step.with_extension("json")).unwrap();
-        wait_until(&format!("the {} hook", self.provider), || {
+        self.finish(step)
+    }
+
+    fn finish(&mut self, step: PathBuf) -> (i32, String, String) {
+        wait_until(&format!("the {} step", self.provider), || {
             step.with_extension("done").exists()
         });
         self.next += 1;
@@ -1828,14 +1938,73 @@ impl SteppedProvider {
     }
 }
 
+impl SteppedProvider {
+    /// With a pane shell: asks the stand-in to stop, and gives the shell up
+    /// to 5 s to exit, without reaping it. Then the owned group is ended
+    /// while its leader is unreaped, so its id names no other group: a
+    /// stopped or stuck provider and its commands end with it.
+    fn stop_pane(&mut self) {
+        let _ = fs::write(self.steps.join("stop"), "");
+        let pid = u64::from(self.child.id());
+        let graceful = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < graceful
+            && !matches!(
+                observe_runtime_process(&UnixCommandRunner, pid, deadline()),
+                Ok(ProcessObservation::UnreapedZombie(_) | ProcessObservation::Gone)
+            )
+        {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        stop_owned_group(&mut self.child, "the pane shell");
+    }
+}
+
 impl Drop for SteppedProvider {
     fn drop(&mut self) {
-        let _ = fs::write(self.steps.join("stop"), "");
-        if !matches!(self.child.try_wait(), Ok(Some(_))) {
-            let _ = self.child.kill();
+        if !self.shell {
+            let _ = fs::write(self.steps.join("stop"), "");
+            if !matches!(self.child.try_wait(), Ok(Some(_))) {
+                let _ = self.child.kill();
+            }
+            let _ = self.child.wait();
+        } else if std::thread::panicking() {
+            // The same cleanup; a second panic while unwinding would abort,
+            // so a failure is only reported.
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.stop_pane())).is_err()
+            {
+                eprintln!("the pane shell {} was not cleaned up", self.child.id());
+            }
+        } else {
+            self.stop_pane();
         }
-        let _ = self.child.wait();
     }
+}
+
+/// Ends the group that `child` leads while `child` is still unreaped, so the
+/// group's id names no other group; then reaps `child` within 3 s and waits,
+/// read only, up to 3 s for the group to be empty. A failure panics with
+/// `what`.
+fn stop_owned_group(child: &mut std::process::Child, what: &str) -> std::process::ExitStatus {
+    use nix::sys::signal::{Signal::SIGKILL, killpg};
+    let group = nix::unistd::Pid::from_raw(i32::try_from(child.id()).unwrap());
+    let _ = killpg(group, SIGKILL);
+    let reaped = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(std::time::Instant::now() < reaped, "{what} was not reaped");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    let empty = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while !matches!(killpg(group, None), Err(nix::errno::Errno::ESRCH)) {
+        assert!(
+            std::time::Instant::now() < empty,
+            "{what}'s group is not empty"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    status
 }
 
 /// A Codex hook payload for `event` in session `s-1`; `turn` adds `turn_id`.
@@ -2253,10 +2422,14 @@ fn session_state(fixture: &Fixture) -> Vec<String> {
 /// The stepped provider's live incarnation, so its end can be checked after
 /// it is dropped.
 fn live_provider(provider: &SteppedProvider) -> Owned {
-    let pid = u64::from(provider.child.id());
+    live_process(provider.provider_pid())
+}
+
+/// The live incarnation of `pid`, so its end can be checked later.
+fn live_process(pid: u64) -> Owned {
     let observed = observe_runtime_process(&UnixCommandRunner, pid, deadline()).unwrap();
     let ProcessObservation::Live(incarnation) = observed else {
-        panic!("the provider {pid} is not live: {observed:?}");
+        panic!("process {pid} is not live: {observed:?}");
     };
     Owned {
         incarnation,

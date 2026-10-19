@@ -77,6 +77,32 @@ impl Storage {
         })
     }
 
+    /// Scheduling only, for an external caller that has no pane locator:
+    /// the sorted IDs of `host`'s stored bindings whose identity is not
+    /// retired, whatever their runtime state. Empty skips discovery.
+    pub fn caller_session_host_bindings(
+        path: &Path,
+        host: HostKind,
+    ) -> Result<Vec<String>, StorageError> {
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|error| classify(error, "Open caller host precheck read-only"))?;
+        connection
+            .busy_timeout(Duration::ZERO)
+            .map_err(|error| classify(error, "Disable caller host precheck wait"))?;
+        super::migrations::require_current(&connection)?;
+        let mut statement = connection
+            .prepare(
+                "SELECT b.id FROM bindings b JOIN identities i ON i.id = b.identity_id
+             WHERE i.retired_at_ms IS NULL AND b.transport = ?1 ORDER BY b.id",
+            )
+            .map_err(|error| classify(error, "Prepare caller host precheck"))?;
+        let rows = statement
+            .query_map(params![host.as_str()], |row| row.get::<_, String>(0))
+            .map_err(|error| classify(error, "Select caller host precheck"))?;
+        rows.map(|row| row.map_err(|error| classify(error, "Decode caller host precheck")))
+            .collect()
+    }
+
     /// A no-effect shortcut for optional caller discovery, never binding or
     /// delivery authority. Only agreeing current observations can skip rediscovery.
     pub fn observes_provider_session(
