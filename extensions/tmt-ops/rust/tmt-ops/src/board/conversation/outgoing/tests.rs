@@ -695,7 +695,7 @@ fn every_correlated_reply_has_one_blank_before_the_next_turn_after_source_repain
 }
 
 #[test]
-fn a_replied_outgoing_body_folds_without_swallowing_its_reply_or_the_next_turn() {
+fn a_replied_outgoing_body_renders_in_full_beside_its_reply_and_the_next_turn() {
     let mut app = fixture();
     let message = (0..16)
         .map(|n| format!("outgoing line {n}"))
@@ -712,7 +712,8 @@ fn a_replied_outgoing_body_folds_without_swallowing_its_reply_or_the_next_turn()
     let completed = send(&mut app, &next, "Next turn remains visible");
     finish(&mut app, completed);
     let shown = draw(&app);
-    assert!(shown.contains("… 5 more lines · ⏎ expand"), "{shown}");
+    assert!(!shown.contains("more lines"), "{shown}");
+    assert!(shown.contains("outgoing line 15"), "{shown}");
     assert!(shown.contains("Exact final remains visible"), "{shown}");
     assert!(shown.contains("Next turn remains visible"), "{shown}");
     let state = app.conversation.borrow();
@@ -1266,21 +1267,6 @@ fn only_painted_feedback_animates_and_covered_or_scrolled_out_feedback_stops() {
         assert!(feedback_marks(&app, SENT).is_empty());
         assert_eq!(crate::board::view::feedback_wait(&app, SENT), None);
         app.help = false;
-        // Main's per-body folding keeps status visible beside the preview.
-        // Expand through its painted control before proving offscreen clocks stop.
-        board_frame(&app, 148, 51);
-        let fold = app.conversation.borrow().fold_hits.first().unwrap().clone();
-        assert_eq!(
-            app.conversation_body_mouse(ratatui::crossterm::event::MouseEvent {
-                kind: ratatui::crossterm::event::MouseEventKind::Down(
-                    ratatui::crossterm::event::MouseButton::Left
-                ),
-                column: fold.area.x,
-                row: fold.area.y,
-                modifiers: KeyModifiers::NONE,
-            }),
-            Some(Effect::None)
-        );
         app.scroll_pane(
             crate::config::Pane::Replies,
             crate::board::scroll::Step::Top,

@@ -79,7 +79,7 @@ fn final_wide_composition_has_joined_divider_direct_matrix_and_filled_reply_fiel
 }
 
 #[test]
-fn input_tracks_folded_body_height_and_pins_when_expanded_content_overflows() {
+fn input_tracks_body_height_and_pins_when_content_overflows() {
     let _commands = crate::runner::forbid_commands();
     let mut app = board_app();
     paint(&mut app, 148, 51);
@@ -112,29 +112,15 @@ fn input_tracks_folded_body_height_and_pins_when_expanded_content_overflows() {
         .collect::<Vec<_>>()
         .join("\n\n");
     app.apply_message(&read, Ok(body));
-    let folded = paint(&mut app, 148, 51);
-    let row = folded
-        .content
-        .chunks(148)
-        .position(|row| {
-            row.iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>()
-                .contains("more lines · ⏎ expand")
-        })
-        .expect("the long question has a fold control");
+    let long = text(&paint(&mut app, 148, 51));
     assert!(
-        app.input_band.get().unwrap().bottom() < pane.bottom(),
-        "a folded body does not reserve expanded height"
+        !long.contains("more lines") && !long.contains("expand"),
+        "{long}"
     );
-    app.mouse(
-        MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: pane.x + 1,
-            row: row as u16,
-            modifiers: KeyModifiers::NONE,
-        },
-        std::time::Instant::now(),
+    assert_eq!(
+        app.input_band.get().unwrap().bottom(),
+        pane.bottom(),
+        "a long body pins the input at the pane bottom"
     );
     app.scroll_pane(
         crate::config::Pane::Replies,
@@ -152,7 +138,6 @@ fn input_tracks_folded_body_height_and_pins_when_expanded_content_overflows() {
     let authored = text(&paint(&mut app, 148, 51));
     assert!(authored.contains(" earlier · u"));
     assert!(!authored.contains(" earlier · PgUp"));
-    key(&mut app, KeyCode::Esc); // Leave the read-only fold control first.
     key(&mut app, KeyCode::Enter);
     let typing = text(&paint(&mut app, 148, 51));
     assert!(

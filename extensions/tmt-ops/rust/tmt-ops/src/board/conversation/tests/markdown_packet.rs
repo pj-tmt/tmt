@@ -31,16 +31,8 @@ fn capture_conversation_markdown_packet() {
         ),
     ] {
         for width in [103, 148] {
-            for scene in [
-                "inline",
-                "code",
-                "quote",
-                "table",
-                "table-fallback",
-                "folded",
-                "expanded",
-            ] {
-                let mut app = if matches!(scene, "folded" | "expanded") {
+            for scene in ["inline", "code", "quote", "table", "table-fallback", "long"] {
+                let mut app = if scene == "long" {
                     long_outgoing_app()
                 } else {
                     fixture()
@@ -49,7 +41,7 @@ fn capture_conversation_markdown_packet() {
                     theme: tmt_cli_style::Theme::new(base),
                     depth,
                 };
-                if !matches!(scene, "folded" | "expanded") {
+                if scene != "long" {
                     let body = match scene {
                         "inline" => "# Delivery plan\n\n- **Ready** for review\n- Read `config.toml` and #3717\n\n<https://github.com/pj-tmt/tmt/issues/3717>".to_owned(),
                         "code" => format!("Before the code block.\n\n```rust\n  let recipient = member;\n{}\n```\n\nAfter the code block.", "a_long_identifier_".repeat(16)),
@@ -60,13 +52,6 @@ fn capture_conversation_markdown_packet() {
                     app.view.as_mut().unwrap().replies[0]["response"] = json!(body);
                 }
                 draw(&app, width, 36);
-                if scene == "expanded" {
-                    let mut state = app.conversation.borrow_mut();
-                    let active = state.active.clone().unwrap();
-                    let session = state.sessions.get_mut(&active).unwrap();
-                    assert!(session.folds.toggle(&super::super::body::Key::Outgoing(1)));
-                    session.rendered = None;
-                }
                 let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
                 terminal
                     .draw(|frame| {
@@ -89,8 +74,7 @@ fn capture_conversation_markdown_packet() {
                 let buffer = terminal.backend().buffer();
                 frames.push(json!({"surface":if grouped {"Agents"} else {"legacy"},"scene":scene,"base":name,"depth":format!("{depth:?}"),"width":width,"height":36,
                     "lines":buffer.content.chunks(usize::from(width)).map(|row|row.iter().map(|cell|cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
-                    "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
-                    "foldHits":app.conversation.borrow().fold_hits.len()}));
+                    "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>()}));
             }
         }
     }

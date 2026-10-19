@@ -81,126 +81,47 @@ fn long_outgoing_app() -> App {
 }
 
 #[test]
-fn ordinary_reader_navigation_does_not_acquire_fold_focus() {
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = long_outgoing_app();
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.focus = 1;
-    draw(&app, 103, 48);
-    assert!(!app.conversation.borrow().fold_hits.is_empty());
-    for code in [KeyCode::Down, KeyCode::Up, KeyCode::Char('j')] {
-        assert_eq!(
-            app.conversation_body_key(KeyEvent::new(code, KeyModifiers::NONE)),
-            None,
-            "a visible fold control does not own ordinary reader navigation"
-        );
-    }
-    assert_eq!(
-        app.conversation_body_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-        Some(app::Effect::None)
-    );
-    assert_eq!(
-        app.conversation_body_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
-        Some(app::Effect::None),
-        "Down moves between controls only after explicit fold focus"
-    );
-}
-
-#[test]
-fn fold_controls_toggle_by_keyboard_and_never_submit_another_message() {
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let mut app = long_outgoing_app();
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.focus = 1;
-    draw(&app, 103, 48);
-    let key = super::body::Key::Outgoing(1);
-    let count = app.conversation.borrow().fold_hits.len();
-    assert!(count > 0);
-    for _ in 0..count {
-        assert_eq!(
-            app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-            app::Effect::None
-        );
-        let state = app.conversation.borrow();
-        if state.sessions[state.active.as_ref().unwrap()]
-            .folds
-            .focused
-            .as_ref()
-            == Some(&key)
-        {
-            break;
-        }
-        drop(state);
-        draw(&app, 103, 48);
-    }
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        app::Effect::None
-    );
-    app.scroll_pane(Pane::Replies, Step::Bottom);
-    assert!(draw(&app, 103, 48).contains("outgoing line 023"));
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
-        app::Effect::None
-    );
-    let screen = draw(&app, 103, 48);
-    assert!(screen.contains("more lines · ⏎ expand") && !screen.contains("outgoing line 023"));
-    let state = app.conversation.borrow();
-    assert_eq!(
-        state.sessions[state.active.as_ref().unwrap()]
-            .outgoing
-            .len(),
-        1
-    );
-}
-
-#[test]
-fn clicking_a_fold_preserves_a_new_unsent_draft_and_stale_target_hits_do_nothing() {
-    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    let mut app = long_outgoing_app();
-    app.paste("a second unsent draft");
-    draw(&app, 103, 48);
-    let hit = app
-        .conversation
-        .borrow()
-        .fold_hits
-        .iter()
-        .find(|hit| hit.key == super::body::Key::Outgoing(1))
-        .unwrap()
-        .clone();
-    let click = MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: hit.area.x,
-        row: hit.area.y,
-        modifiers: KeyModifiers::NONE,
-    };
-    assert_eq!(
-        app.mouse(click, std::time::Instant::now()),
-        app::Effect::None
-    );
-    app.perform(&crate::action::Action::parse("talk").unwrap());
-    assert_eq!(app.input.as_ref().unwrap().text, "a second unsent draft");
-    app.selected = 1;
-    assert!(
-        app.conversation_body_mouse(click).is_none(),
-        "a painted control cannot toggle another selected conversation"
-    );
-}
-
-#[test]
-fn a_long_outgoing_body_has_a_twelve_row_preview_without_hiding_its_delivery_status() {
+fn a_long_outgoing_body_renders_every_line_beside_its_delivery_status() {
     let app = long_outgoing_app();
     // R1: the sending row appears 400 ms after Enter.
     let screen = crate::status::with_now_ms(crate::status::now_ms() + 500, || draw(&app, 103, 48));
-    assert!(screen.contains("more lines · ⏎ expand"), "{screen}");
-    assert!(
-        screen.contains("sending"),
-        "delivery status is outside the folded body: {screen}"
+    assert!(!screen.contains("more lines"), "{screen}");
+    assert!(screen.contains("outgoing line 000"), "{screen}");
+    assert!(screen.contains("outgoing line 023"), "{screen}");
+    assert!(screen.contains("sending"), "{screen}");
+}
+
+#[test]
+fn a_two_hundred_line_reply_renders_in_full_and_scrolling_reaches_both_ends() {
+    let mut app = fixture();
+    app.view.as_mut().unwrap().replies[0]["response"] = json!(
+        (0..200)
+            .map(|line| format!("reply line {line:03}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
-    assert!(
-        !screen.contains("outgoing line 023"),
-        "the tail stays retained but initially folded: {screen}"
-    );
+    let bottom = draw(&app, 103, 36);
+    assert!(!bottom.contains("more lines") && !bottom.contains("expand"));
+    assert!(bottom.contains("reply line 199"), "{bottom}");
+    app.scroll_pane(Pane::Replies, Step::Top);
+    let top = draw(&app, 103, 36);
+    assert!(top.contains("reply line 000") && !top.contains("reply line 199"));
+    let rendered: usize = {
+        let state = app.conversation.borrow();
+        let session = state.sessions.get(state.active.as_ref().unwrap()).unwrap();
+        session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines
+            .iter()
+            .filter(|line| line.to_string().contains("reply line"))
+            .count()
+    };
+    assert_eq!(rendered, 200);
+    app.scroll_pane(Pane::Replies, Step::Bottom);
+    assert!(draw(&app, 103, 36).contains("reply line 199"));
 }
 
 #[test]
@@ -1468,20 +1389,8 @@ fn ten_long_pane_outputs_share_scroll_follow_and_leave_real_exchange_reachable()
         "one read per held observation"
     );
     let bottom = draw(&app, 80, 18);
-    assert!(bottom.contains("more lines · ⏎ expand"));
-    assert!(!bottom.contains("end 9"));
-    let hit = app.conversation.borrow().fold_hits.last().unwrap().clone();
-    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    assert_eq!(
-        app.conversation_body_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: hit.area.x,
-            row: hit.area.y,
-            modifiers: KeyModifiers::NONE,
-        }),
-        Some(app::Effect::None)
-    );
-    draw(&app, 80, 18);
+    assert!(!bottom.contains("more lines"));
+    assert!(bottom.contains("end 9"));
     app.scroll_pane(Pane::Replies, Step::Bottom);
     assert!(draw(&app, 80, 18).contains("end 9"));
     app.scroll_pane(Pane::Replies, Step::Top);

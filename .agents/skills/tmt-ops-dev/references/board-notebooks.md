@@ -28,13 +28,9 @@ literal. Code lines clip without wrapping, and inline code adds no padding. The 
 continuations; it reconciles nearest duplicates and clamps deleted lines.
 Conversation Scrolls owns the viewport, independently of that source anchor.
 
-Conversation bodies fold independently after 12 rendered rows (11 plus the expand
-caption); the newest reply starts expanded. The conversation session retains
-presentation choices by request/source or outgoing sequence and prunes vanished
-bodies. Fold captions have neither exact-source nor member-action hits. A separate
-anchor map preserves reading position while source mappings retain raw identities.
-Visible fold controls support pointer activation and read-focus Tab/Enter/Esc;
-editors, member menus and authored bindings keep priority. No fold action sends.
+Conversation bodies always render in full: there is no fold state, caption or
+control, and the pane scrolls. A separate anchor map preserves reading position
+while source mappings retain raw identities.
 
 Markdown keeps styled text and source-line mapping; it retains no URL destinations
 or URL activation hits. `member_links` resolves explicit `#tmt:` references against

@@ -19,7 +19,6 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-mod body;
 pub(in crate::board) mod exchange;
 mod history;
 pub(super) mod layout;
@@ -43,7 +42,6 @@ pub(super) struct State {
     sequence: u64,
     pending_send: Option<outgoing::Ticket>,
     pub header_hits: Vec<HeaderHit>,
-    fold_hits: Vec<body::Hit>,
     source_surfaces: Vec<source::Surface>,
     source_areas: Vec<(RowTarget, Rect)>,
     selection: Option<source::Source>,
@@ -62,7 +60,6 @@ struct Rendered {
     anchor_sources: Vec<usize>,
     response_sources: Option<Vec<Option<usize>>>,
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
-    fold_controls: BTreeMap<usize, body::Key>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,7 +109,6 @@ struct Session {
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
     transcript_context: transcript::Context,
-    folds: body::Folds,
 }
 
 impl Default for Session {
@@ -135,7 +131,6 @@ impl Default for Session {
             pane_output: Default::default(),
             pane_output_fresh: false,
             transcript_context: Default::default(),
-            folds: Default::default(),
         }
     }
 }
@@ -370,26 +365,32 @@ impl Session {
                 mentions,
             };
             let transcript = self.merge_pane_output(mapped, width, look, inventory);
-            let bodies = self.visual_bodies(&transcript);
-            let folded = self.folds.project(
-                transcript.mapped,
-                transcript.response_sources,
-                &bodies,
-                width,
-                look,
-            );
             let anchor_text = transcript.anchor_text;
+            // Visual rows keep the transcript's source rows for anchors and, through
+            // the transcript's own map, for the retained response lines.
+            let anchor_sources = transcript.mapped.sources.clone();
+            let response_sources: Vec<_> = anchor_sources
+                .iter()
+                .map(|source| {
+                    transcript
+                        .response_sources
+                        .as_ref()
+                        .map_or(Some(*source), |map| map.get(*source).copied().flatten())
+                })
+                .collect();
             self.anchor.reconcile(&anchor_text);
             self.rendered = Some(Rendered {
                 width,
                 gutter,
                 look,
                 identities,
-                mapped: folded.mapped,
+                mapped: Mapped {
+                    sources: (0..transcript.mapped.lines.len()).collect(),
+                    ..transcript.mapped
+                },
                 anchor_text,
-                anchor_sources: folded.anchors,
-                response_sources: Some(folded.original),
-                fold_controls: folded.controls,
+                anchor_sources,
+                response_sources: Some(response_sources),
                 final_spans: transcript.final_spans,
             });
         }
@@ -560,7 +561,6 @@ fn render_target(
 ) {
     let look = app.look();
     app.conversation.borrow_mut().header_hits.clear();
-    app.conversation.borrow_mut().fold_hits.clear();
     app.conversation.borrow_mut().response_area = None;
     let row = target
         .as_ref()
@@ -1034,23 +1034,6 @@ fn render_target(
             },
         );
     }
-    let painted_folds: Vec<_> = if interactive {
-        session
-            .rendered
-            .as_ref()
-            .unwrap()
-            .fold_controls
-            .iter()
-            .filter(|(line, _)| **line >= offset && **line < offset + shown)
-            .map(|(line, key)| body::Hit {
-                area: Rect::new(body.x, body.y + (*line - offset) as u16, body.width, 1),
-                conversation: identity.clone(),
-                key: key.clone(),
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
     if let Some(position) = position {
         let visible = shown.min(mapped.lines.len().saturating_sub(offset));
         strip::paint_left(
@@ -1078,7 +1061,6 @@ fn render_target(
         );
     }
     state.response_area = Some(body);
-    state.fold_hits = painted_folds;
     state.header_hits = painted_controls;
 }
 

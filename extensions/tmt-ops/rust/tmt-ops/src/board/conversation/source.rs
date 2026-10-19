@@ -261,13 +261,6 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
 
 impl Session {
     pub(super) fn response_key_at(&self, line: usize) -> Option<(&MessageKey, Option<u64>)> {
-        if self
-            .rendered
-            .as_ref()
-            .is_some_and(|rendered| rendered.fold_controls.contains_key(&line))
-        {
-            return None;
-        }
         if let Some((_, index)) = self.rendered.as_ref().and_then(|rendered| {
             let original = *rendered.anchor_sources.get(line)?;
             rendered
@@ -309,13 +302,6 @@ impl Session {
 }
 
 impl App {
-    pub(in crate::board::conversation) fn receiving_conversation(
-        &self,
-    ) -> Option<(super::ConversationKey, RowTarget)> {
-        let target = self.conversation_target()?;
-        let id = self.target_row(&target)?["id"].as_str()?.to_owned();
-        Some(((self.view.as_ref()?.me_id.clone(), id), target))
-    }
     pub(in crate::board) fn rendered_selection_at(&self, point: ratatui::layout::Position) -> bool {
         !self.modal_open()
             && self
@@ -507,7 +493,6 @@ impl App {
                     && let Some(session) = state.sessions.get_mut(&active)
                 {
                     session.follow = false;
-                    session.folds.focused = None;
                 }
                 drop(state);
                 self.focus = 1;
