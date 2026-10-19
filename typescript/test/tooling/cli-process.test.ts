@@ -1212,7 +1212,7 @@ it.each(['EACCES', 'EPERM'])(
 );
 
 it.each(['observed', 'denied', 'replacement', 'reused'])(
-  'diagnostic resident %s is scoped and retains terminal-cleanup observation',
+  'diagnostic resident %s is scoped and read before the terminal-cleanup signal',
   async (kind) => {
     const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     const readdir = fs.readdirSync.bind(fs);
@@ -1250,6 +1250,12 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
     });
     vi.spyOn(fs, 'readFileSync').mockImplementation((file, options) => {
       const name = String(file);
+      if (name === '/proc/900003/cmdline') {
+        facts.push(name);
+        inspectionOrder.push('argv');
+        // A subcommand word is kept; a path and a payload are reduced to their sizes.
+        return Buffer.from('fixture\0ops\0ui\0/private/path\0{"message":"x"}\0');
+      }
       if (name.startsWith('/proc/')) {
         facts.push(name);
         inspectionOrder.push('stat');
@@ -1302,6 +1308,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
               session: '900003',
               cwd: fs.realpathSync(path.dirname(root)) + path.sep + path.basename(root),
               executable: '/owned/fixture',
+              command: ['fixture', 'ops', 'ui', { bytes: 13 }, { bytes: 15 }],
             }
           : {
               pid: 900003,
@@ -1313,7 +1320,11 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
                     : 'no longer a sandbox resident',
             }
       );
-      expect(inspectionOrder.slice(0, 4)).toEqual(['cwd', 'cwd', 'signal', 'stat']);
+      // The scan and the admission recheck come first, every endpoint fact is read before
+      // the one signal, and nothing is read once the process has been signalled.
+      expect(inspectionOrder.slice(0, 2)).toEqual(['cwd', 'cwd']);
+      expect(inspectionOrder.filter((step) => step === 'signal')).toHaveLength(1);
+      expect(inspectionOrder.at(-1)).toBe('signal');
       expect(facts.every((file) => file.startsWith('/proc/900003/'))).toBe(true);
       expect(JSON.stringify(diagnostic)).not.toContain('/foreign/root');
       expect(signals.mock.calls.every(([pid]) => pid === 900003)).toBe(true);
