@@ -7,8 +7,8 @@ use super::{
     tree::{Id, Tree},
 };
 use crate::limits::{
-    QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS, QUESTION_CHOICES, QUESTION_PAGE,
-    QUESTION_TITLE_POINTS, READING_PAGE, REVIEW_PAGE,
+    GROUP_QUESTIONS, QUESTION_AGENT_POINTS, QUESTION_CHOICE_POINTS, QUESTION_CHOICES,
+    QUESTION_PAGE, QUESTION_TITLE_POINTS, READING_PAGE, REVIEW_PAGE,
 };
 
 const KINDS: [&str; 4] = ["single", "multiple", "short", "long"];
@@ -30,6 +30,9 @@ pub(super) struct Candidate {
     /// `question-id-duplicate`.
     holder: bool,
     holders: usize,
+    split_id: Option<String>,
+    split_conflict: bool,
+    split_count: usize,
 }
 
 pub(super) type Rule = (&'static str, fn(&Candidate) -> bool);
@@ -44,13 +47,20 @@ fn valid_kind(c: &Candidate) -> bool {
 /// The ordered rule table; a question is admitted exactly when no rule fails. Title rules wait for
 /// exactly one heading and the choice-shape rules for a valid kind, so one defect is not reported
 /// twice.
-pub(super) const RULES: [Rule; 19] = [
+pub(super) const RULES: [Rule; 22] = [
     ("question-id-invalid", |c| !is_uuid(&c.id)),
     ("question-id-duplicate", |c| {
         c.holder && is_uuid(&c.id) && c.holders > 1
     }),
     ("question-nested", |c| c.nested),
     ("question-group-child-invalid", |c| c.wrapped),
+    ("question-group-id-invalid", |c| {
+        c.split_id.as_ref().is_some_and(|id| !is_uuid(id))
+    }),
+    ("question-group-conflict", |c| {
+        c.split_id.is_some() && c.split_conflict
+    }),
+    ("question-group-limit", |c| c.split_count > GROUP_QUESTIONS),
     ("question-heading-missing", |c| c.headings == 0),
     ("question-heading-multiple", |c| c.headings > 1),
     ("question-title-empty", |c| {
@@ -225,7 +235,20 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
     };
     let mut identity_holders = reviews.clone();
     identity_holders.extend(&readings);
-    let survey = group::Survey::new(tree, &groups, &questions, &identity_holders);
+    // A logical group holds one ID independently of its raw members' question validity.
+    let split_eligible = |id| {
+        tree.closest(id, &["tmt-questions", "tmt-question", "tmt-read"])
+            .is_none()
+    };
+    let mut split_groups: HashMap<String, usize> = HashMap::new();
+    for id in &questions {
+        if let Some(group) = tree.attr(*id, "data-group").filter(|group| is_uuid(group))
+            && split_eligible(*id)
+        {
+            *split_groups.entry(group.to_owned()).or_insert(0) += 1;
+        }
+    }
+    let survey = group::Survey::new(tree, &groups, &questions, &identity_holders, &split_groups);
     for group in &groups {
         if let Some((code, skipped)) = survey.skipped(*group) {
             report
@@ -249,7 +272,18 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             .collect();
         let id_value = tree.attr(id, "data-id").unwrap_or("");
         let container = tree.closest(id, &["tmt-question", "tmt-questions"]);
+        let split_id = tree.attr(id, "data-group").map(str::to_owned);
         let candidate = Candidate {
+            split_conflict: !split_eligible(id)
+                || split_id
+                    .as_ref()
+                    .is_some_and(|group| is_uuid(group) && survey.holders(group) != 1),
+            split_count: split_id
+                .as_ref()
+                .and_then(|group| split_groups.get(group))
+                .copied()
+                .unwrap_or(0),
+            split_id: split_id.clone(),
             id: id_value.to_owned(),
             kind: tree.attr(id, "data-kind").unwrap_or("").to_owned(),
             agent: tree.attr(id, "data-agent").unwrap_or("").to_owned(),
@@ -315,16 +349,35 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
             choices: candidate.choices,
             other: candidate.other,
             agent: candidate.agent,
-            group: group.map(|g| tree.attr(g, "data-id").unwrap_or("").to_owned()),
+            group: group
+                .map(|g| tree.attr(g, "data-id").unwrap_or("").to_owned())
+                .or(split_id),
             label,
         });
     }
 
     // Groups the page shows, and a lone question as the internal group of itself.
     let mut shown: HashMap<Id, usize> = HashMap::new();
+    let mut shown_split: HashMap<String, usize> = HashMap::new();
     for (index, (group, admitted_question)) in admitted.iter().zip(&report.questions).enumerate() {
         match group {
             None => {
+                if let Some(group) = &admitted_question.group {
+                    let index = *shown_split.entry(group.clone()).or_insert_with(|| {
+                        report.groups.push(QuestionGroup {
+                            id: group.clone(),
+                            title: None,
+                            questions: Vec::new(),
+                            chip: false,
+                            split: true,
+                        });
+                        report.groups.len() - 1
+                    });
+                    report.groups[index]
+                        .questions
+                        .push(admitted_question.id.clone());
+                    continue;
+                }
                 let node = admitted_nodes[index].0;
                 let form = group::form(tree.attr(node, "data-form"));
                 if form == group::Form::Invalid {
@@ -340,6 +393,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                     title: None,
                     questions: vec![admitted_question.id.clone()],
                     chip: form == group::Form::Chip,
+                    split: false,
                 });
             }
             Some(group) => {
@@ -358,6 +412,7 @@ pub(super) fn check(tree: &Tree, elements: &[(Id, usize)], report: &mut Report) 
                         title: Some(survey.title(*group).to_owned()),
                         questions: Vec::new(),
                         chip: form == group::Form::Chip,
+                        split: false,
                     });
                     report.groups.len() - 1
                 });

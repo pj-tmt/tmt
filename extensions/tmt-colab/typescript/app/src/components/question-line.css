@@ -1,0 +1,121 @@
+.question-compact-block {
+  max-height: 1900px;
+  overflow: auto;
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+  pointer-events: auto;
+}
+.question-compact-heading {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: 13px;
+}
+.question-line {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.question-line:hover {
+  background: var(--tmt-ui-surface-selection);
+}
+.question-line:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: -1px;
+}
+.question-line[data-state='waiting'] .question-line-mark,
+.question-line-mark[data-state='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.question-line[data-state='answered'] .question-line-mark {
+  color: var(--tmt-ui-color-working);
+}
+.question-line-title {
+  overflow-wrap: anywhere;
+}
+.question-line-state,
+.question-line-chevron {
+  color: var(--tmt-ui-color-secondary);
+}
+.question-line-state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.question-line-state::before {
+  content: '· ';
+}
+.question-line-chevron {
+  align-self: center;
+  display: flex;
+}
+.question-line-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+.question-compact-controls {
+  margin: 8px 0 12px 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--tmt-ui-surface-rule);
+}
+.question-compact-controls .question-controls {
+  background: transparent;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+.question-compact-controls .question-group-footer {
+  background: transparent;
+  padding: 12px 0 0;
+  border: 0;
+}
+.question-compact-inline {
+  pointer-events: auto;
+}
+.question-group-card[data-split] {
+  display: contents;
+}
+@media (max-width: 600px) {
+  .question-line {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .question-line-title {
+    grid-column: 2;
+  }
+  .question-line-state {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .question-line-state::before {
+    content: none;
+  }
+  .question-line-chevron {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+/* The existing inline placeholder anchors placement; the after spacer reserves the
+   complete trusted block through its normal 2000px measurement bound. */
+.question-placement-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}

@@ -900,13 +900,18 @@ test('answer blocks publish verified normal annotations and keep changes and age
     );
     const page = await openPage(door, browser, created);
     const card = page.locator('.question-group-card');
+    const row = card.locator('.question-line');
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await row.click();
     await expect(
       card.getByRole('button', { name: 'Send answer · to @answer-agent', exact: true }),
     ).toBeVisible();
     await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveText('Send answer');
     await card.getByLabel('Keep it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
-    await expect(card.locator('.needs-you-bar')).toContainText('Answered');
+    await expect(row).toContainText('Answered: Keep it');
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await row.click();
     await until(() => agent.received().length === 1, 'first question answer');
     const first = agent.received()[0];
     expect(first.identityId).toBe(agent.id);
@@ -936,13 +941,15 @@ test('answer blocks publish verified normal annotations and keep changes and age
     await card.getByLabel('Change it', { exact: true }).check();
     await card.getByRole('button', { name: /^Send answer/ }).click();
     await until(() => agent.received().length === 2, 'changed question answer');
-    await expect(card.locator('.question-answer')).toContainText('Change it');
+    await expect(row).toContainText('Answered: Change it');
     const changed = threads();
     expect(changed).toHaveLength(1);
     expect(changed[0].id).toBe(initial[0].id);
     expect(changed[0].comments).toHaveLength(2);
     await page.reload();
-    await expect(card.locator('.question-answer')).toContainText('Change it');
+    await expect(row).toContainText('Answered: Change it');
+    await expect(row).toHaveAttribute('aria-expanded', 'false');
+    await row.click();
     await expect(card.getByRole('button', { name: 'Change answer', exact: true })).toBeEnabled();
     expect(agent.received()).toHaveLength(2);
     const captures = process.env.COLAB_QUESTION_NATIVE_CAPTURE_DIR;
@@ -1002,6 +1009,8 @@ test('answer Send names start with visible text through the served question grou
     );
     const page = await openPage(door, browser, created);
     const group = page.locator('[data-question-group]');
+    const rows = group.locator('.question-line');
+    await rows.first().click();
     const first = group.locator('.question-card:visible');
     await first.getByLabel('Yes', { exact: true }).check();
     const send = group.getByRole('button', { name: /^Send 1 answer/ });
@@ -1010,9 +1019,9 @@ test('answer Send names start with visible text through the served question grou
       group.getByRole('button', { name: 'Send 1 answer · to thread only', exact: true }),
     ).toBeVisible();
     await send.click();
-    await expect(group.getByRole('tab').nth(0)).toHaveAttribute('aria-selected', 'true');
-    await expect(first.locator('.question-answer')).toHaveText('Yes');
-    await group.getByRole('tab').nth(1).click();
+    await expect(rows.first()).toHaveAttribute('aria-expanded', 'false');
+    await expect(rows.first()).toContainText('Answered: Yes');
+    await rows.nth(1).click();
     const last = group.locator('.question-card:visible');
     await last.getByLabel('Your answer', { exact: true }).fill('One detail');
     await expect(group.getByRole('button', { name: /^Send 1 answer/ })).toHaveText('Send 1 answer');
@@ -1042,6 +1051,8 @@ test('a served question group records three answers and asks each recipient once
     );
     const page = await openPage(door, browser, created);
     const group = page.locator('[data-question-group]');
+    const rows = group.locator('.question-line');
+    await rows.first().click();
     const current = () => group.locator('.question-card:visible');
     await expect(
       group.getByRole('button', { name: 'Remove @batch-alpha', exact: true }),
@@ -1050,9 +1061,9 @@ test('a served question group records three answers and asks each recipient once
       group.getByRole('button', { name: 'Remove @batch-beta', exact: true }),
     ).toHaveCount(1);
     await current().getByLabel('Yes', { exact: true }).check();
-    await group.getByRole('tab').nth(1).click();
+    await rows.nth(1).click();
     await current().getByLabel('Your answer', { exact: true }).fill('Keep the introduction brief');
-    await group.getByRole('tab').nth(2).click();
+    await rows.nth(2).click();
     await current().getByLabel('Your answer', { exact: true }).fill('Explain the tradeoffs');
     expect(alpha.received()).toHaveLength(0);
     expect(beta.received()).toHaveLength(0);
@@ -1066,7 +1077,8 @@ test('a served question group records three answers and asks each recipient once
       () => alpha.received().length === 1 && beta.received().length === 1,
       'one batch Ask per recipient',
     );
-    await expect(group.getByRole('tab').nth(2)).toHaveAttribute('aria-selected', 'true');
+    await expect(rows.nth(2)).toHaveAttribute('aria-expanded', 'false');
+    await rows.nth(2).click();
     for (const agent of [alpha, beta]) {
       const receipt = agent.received()[0];
       expect(receipt.identityId).toBe(agent.id);
@@ -1105,7 +1117,7 @@ test('a served question group records three answers and asks each recipient once
     await expect(group.getByTestId('ask-reply')).toHaveCount(2);
     expect(alpha.received()).toHaveLength(1);
     expect(beta.received()).toHaveLength(1);
-    await group.getByRole('tab').nth(1).click();
+    await rows.nth(1).click();
     await current().getByRole('button', { name: 'Change answer', exact: true }).click();
     await current().getByLabel('Your answer', { exact: true }).fill('One revised detail');
     // Reload restores answer history before the fresh directory has seeded recipients.

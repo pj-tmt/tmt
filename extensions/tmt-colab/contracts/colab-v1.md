@@ -1154,10 +1154,15 @@ scoped to the render ID and request ID. A slot is `{id,height}` or, for an answe
 `{id,height,before}`; both heights have the same bound. For a chip-form group (its entry in the
 questions request carries `form:"chip"`) a slot is `{id,height,chip:{width,height}}`: `height` is
 the open panel's, 0 while collapsed, and `chip` the chip's own integer size, 1–1000 by 1–200;
-`chip` is refused for any other group and next to `before`. The iframe inserts the after spacer
+`chip` is refused for any other group and next to `before`. Compact question
+blocks retain a 1px inert marker in that placeholder and render at the bounded
+after spacer's top using the authored column's horizontal bounds; the placeholder never carries the
+whole expanded block's height. Split logical groups request one physical entry
+per question ID, while structural wrappers use their group ID. These remain
+cosmetic entries under the same page-wide slot bound. The iframe inserts the after spacer
 beside exactly one live `tmt-proposal[data-id]`, `tmt-question[data-id]`,
 `tmt-questions[data-id]` or `tmt-review[data-id]`. A group uses its parent-selected active question for placement.
-Its before spacer reserves the trusted tabs/state band above the authored description;
+Its before spacer reserves trusted state above the authored description;
 the after spacer reserves controls below it. Responses use explicit closed key sets selected by the currently requested slot kind:
 `{id,top}` for proposals, or `{id,top,beforeTop,descriptionHeight,left,width}` for
 an admitted question group with a requested `before` height, or
@@ -1185,20 +1190,17 @@ changing rounds per trigger until the next trigger. Malformed, duplicate, stale
 or over-budget reports are ignored; geometry grants no publication, dispatch or
 focus authority.
 
-Changing the parent-selected question retires that group's old answer geometry and requests
-fresh split geometry on the existing ordered port. Controls stay detached until a
-current response arrives; a stale description cannot be paired with newly selected
-controls. The tab strip retains its last admitted position and focus during this
-refresh. Trusted strip digits can update local draft choices, while Send requires
-current placement. The renderer leaves the description within its authored group/container instead of
-moving it to a viewport gutter. The trusted card uses that group's admitted
-horizontal bounds. Viewport narrowing retires formerly admitted bounds that no
-longer fit until a current slot reply reattaches the card. Parent question footer dimensions remain measured by the same
-inline-slot owner. The floating Chat/Annotate placement owner clears visible,
-attached question cards containing those footers as well as existing chrome, using
-parent-window bounds; when no room remains above a card it temporarily hides the floating controls.
-Header entry points remain available. Neither placement nor visibility changes
-answer, recipient, draft, focus or publication admission.
+Changing the parent-selected question requests current cosmetic placement on the
+existing ordered port. Controls stay detached until a current response arrives;
+old description geometry never authorizes a new Send. Compact rows retain
+viewer drafts while closed. Digits inside opened controls can update local
+choices, while Send requires current placement. The trusted block uses the
+admitted authored container bounds. Viewport narrowing retires bounds that no
+longer fit until a current reply reattaches the block. The existing inline-slot
+owner measures its complete height. Floating Chat/Annotate controls clear visible,
+attached answer footers using parent-window bounds, and hide temporarily when no
+room remains; header entry points stay available. Placement and visibility never
+change answer, recipient, draft or publication admission.
 
 Approve/Decline is an explicit trusted parent activation. An in-flight fence and
 live proposal/finality admission precede decision publication. The immutable
@@ -2296,57 +2298,57 @@ supply no controls. Choice kinds require choices; text kinds have neither choice
 nor `data-other`. Short answers allow 200 code points; long/Other text allows
 8192 UTF-8 bytes. The complete comment remains within the existing 16 KiB limit.
 
-Wrap related questions in `<tmt-questions data-id="UUID">` with exactly one direct
-`<p data-title>` heading and up to 12 direct question children. The heading has the
-question text bounds. A question's optional `data-label` names its tab (24 normalized
-code points, no control characters); missing, empty or invalid labels use `Q<n>` in
-admitted order. The page markup check below owns the complete admission rules and
-the shared question/group ID namespace. A lone question is an internal group of one
-with no group title. One-member groups and lone questions omit the tab strip.
+Related questions can share one logical group across separate passages: set
+`data-group="GROUP_UUID"` on each standalone `tmt-question`. A logical group has at
+most 12 raw question placements, ordered as authored. Its ID holds the shared
+question/group/review/reading namespace once; it cannot collide with a control ID
+or a structural group's ID. A question inside a structural wrapper cannot also
+supply `data-group`. Invalid references, conflicting identities and over-limit
+logical groups supply no controls, rather than silently becoming standalone.
 
-**Chip form.** `data-form="chip"` on a lone `tmt-question` or on a `tmt-questions` group opts the
-block into a compact form. `chip` is the only value (exact, lowercase); any other value is a
-warning and the full block shows, and a group member's own `data-form` is ignored because the
-group decides. The author places the element inline in running text, inside an element that can
-hold it (a `div`, `li` or `td`, not a `p`, which its `p` children would end). The frame collapses
-the block to an inline placeholder sized by the parent, and its text stays in the text map as an
-inactive tab's does. The parent draws one chip in its place: `◆ Please answer N questions ▾`, or
-the neutral `✓ Answered N questions ▾` once every question has a verified answer, still openable.
-`N` counts the group's admitted questions that lack a verified answer (all of them once answered),
-never author text. Opening shows the existing group card, with tabs, drafts, recipients and the
-group Send unchanged, as a panel in the flow below the block that holds the chip: the frame
-reserves the panel's height after that containing block, so the text below makes room and
-nothing is overlaid. A shared band with `Collapse` tops the panel. The panel draws each admitted
-question title as plain text, never HTML, with the same 200 code point bound; this is the one
-exception to the authored question being the only visible title, because in chip form the authored
-text stays collapsed and remains the quote anchor. The panel stays mounted while collapsed, so
-drafts survive. Opening moves focus into the panel; Esc, when no inner popup has taken it, or
-`Collapse` closes the panel and returns focus to the chip. The panel has the width of the text
-column at every viewport width, so a narrow screen expands it in place. Reload derives the chip
-from verified answers like `N of M answered`. A chip-form block the frame cannot place (inner-scroll
-fallback, removed or duplicate markup) shows no chip.
+A structural group remains `<tmt-questions data-id="UUID">` with exactly one direct
+`<p data-title>` and at most 12 direct question children. Its title has the question
+text bounds. Optional legacy `data-label` retains its 24-code-point/control
+validation; labels no longer create tabs. A lone question is an internal group of
+one. The page markup check owns complete admission rules and ID-holder ordering.
 
-The authored question remains the only visible title and selectable quote text;
-admitted author choice children are hidden while the trusted parent draws controls
-and current answer, with conversation history and agent replies expanded. Groups use
-the shared controlled BrowserTabs leaf: Arrow keys wrap, Home/End select endpoints,
-and native Enter/Space activates a tab. Inactive trusted panels remain mounted to retain
-in-tab drafts. Answered/waiting marks include state words. `N of M answered` counts
-complete unsent drafts plus questions with a verified device answer; only completed
-unsent drafts enter Send. A local callback or frame claim cannot provide a verified
-current answer. The group heading inherits authored ink; its `Q:` prefix uses
-currentColor at 45%. The whole question card, including frame text, tabs and parent
-controls, follows Colab's effective theme even on a fixed-look author page;
-selected controls use that theme's existing link color role, and the card's actions are inline text actions. An answered
-question folds to one neutral line (`✓ Answered`, who, when, the answer) with Change answer; its choices and the recipients and
-Send row show only while an answer is being written, and a tabbed group keeps that row while another tab has drafts to send.
+All question forms render compact lines without tabs. Each line is a trusted
+button with the admitted plain-text title, state word and chevron: waiting uses
+`◆` and `Waiting for you`; answered uses `✓` and `Answered: <short answer>` with
+one-line ellipsis. Only the mark carries the state colour; title, state text and
+chevron remain neutral. Two or more adjacent questions have one muted
+`Questions from <agent> · N of M waiting` header; a question placed alone has none.
+Needs you counts the logical group once across every placement. Existing
+`data-form="chip"` markup remains admitted under its existing attribute checks,
+but uses the same compact lines instead of a tabbed panel.
+
+Every question starts closed except an explicit Needs-you or notification arrival,
+which opens the target, scrolls it into view and focuses its first control.
+Open/closed state belongs to the viewer, never the page or answer records. Opening
+reveals the existing parent-owned answer controls under a 1px left rule, without
+a card frame. Answered questions are read-only until the existing Change answer
+action is admitted. Answering closes the question and focuses the next waiting
+question in the same group, or its own line when none remains. There is no
+Dismissed state or dismissal action in this slice; closing a row acknowledges
+nothing. Enter/Space toggles, Escape closes and returns focus to its line, and
+Up/Down moves between a stack's lines. At narrow widths the state wraps under
+the title while the chevron stays on its first line.
+
+The authored text remains available to the normal quote/association owner while
+the parent draws the compact title and controls. A local callback or frame claim
+cannot provide a verified current answer. The whole question presentation follows
+Colab's effective theme, including parent controls on a fixed-look author page.
 Sibling in-page Proposal cards also follow the effective Colab theme throughout their
 bodies, Approve/Decline/Follow up/Resolve controls and follow-up composers, even when
 the author fixes a different page palette.
 
-The group owns one footer and visible recipient chips using BrowserChips. Asking
-agent names resolve through the existing directory: one default chip for each
-uniquely resolved identity, in tab order, deduplicated within the cap of eight.
+The parent group owns drafts, answer publication and visible recipient chips using
+BrowserChips. Each physical block owns its Send scope: a split question sends only
+that question, with defaults from its asking agent; a structural wrapper keeps one
+batched Send for its questions. A Send never includes a different passage's draft.
+Asking agent names resolve through the existing directory: one default chip for
+each uniquely resolved identity in that block's authored order, deduplicated within
+the cap of eight.
 Until initial recipient discovery resolves and default chips are committed, Send is pending
 and cannot publish; answer drafts remain editable. Resolved-empty or failed discovery retains
 comment-only Send. Removing a default is intentional and directory refresh never restores it. The
@@ -2360,15 +2362,15 @@ eligible answers and no batch in flight, the disabled action reads `Send answers
 Its accessible name starts with that visible text, followed by ` · to <recipients>`
 or ` · to thread only`.
 
-Only trusted explicit Send publishes complete unsent drafts, in tab order, through
+Only trusted explicit Send publishes complete unsent drafts in its own block, in authored order, through
 `sendAnswers`; one-question short-answer Enter uses the same one-answer path.
-Choosing answers, changing tabs, render, reload and sync publish nothing. Each
+Choosing answers, opening/closing rows, render, reload and sync publish nothing. Each
 answer is one plain-text comment, `Answer to “<question>”: <answer>`, followed by page
 title and the visible recipient text. Multiple choices retain authored order;
 Other uses `Other: <text>`. Partial Sends retain untouched and failed drafts.
 Sending freezes the answer/selector/thread/recipient snapshot, holds its controls
-and keeps the selected tab; tabs remain available for reading. Long-answer Enter
-inserts a newline. Digits select choice tiles only from a tablist, panel or tile,
+while the other compact rows remain available for reading. Long-answer Enter
+inserts a newline. Digits select choice tiles only from an opened answer panel or tile,
 never while typing in a text or recipient control. A composed-cap refusal shows
 `These answers are too long to send together. Send fewer answers.` with no effects.
 
@@ -2376,7 +2378,7 @@ An admitted multi-answer Ask shows `Asked <recipients> with <N> answers.` on its
 participating questions; a single answer keeps `Asked <recipients>`. Replies render
 once in the canonical first-recorded question's conversation. Other participating
 questions with a reply show `Open reply`, named `Open reply · <canonical question
-label>`, which selects that tab and focuses its reply after current placement is
+label>`, which opens that question and focuses its reply after current placement is
 admitted. Recipient retries retain the same recorded batch, per recipient, using
 the existing AskAgainAction; they never republish its comments or appear under
 every participating question. Change answer is an ordinary one-question follow-up.
@@ -2385,7 +2387,7 @@ The renderer's existing text-map owner produces a normal QuoteSelector for the
 rendered question text and its surrounding context. The UUID never appears as a
 synthetic quote. Inactive authored questions collapse through a renderer-managed
 visual attribute, never `[hidden]`, and remain in this canonical text map. Switching
-tabs and reloading therefore preserve quote context and verified answer association.
+disclosure changes and reloading therefore preserve quote context and verified answer association.
 Existing verified annotation threads whose selectors resolve
 inside that block are associated cosmetically; the frame cannot supply comments,
 answer state or recipients. Concurrent first answers may create sibling threads.
@@ -4998,6 +5000,9 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `question-choice-empty` / `-too-long` / `-control` / `-duplicate` | ignored  | a choice fails the same text bounds (200 code points), or two are equal after normalization                                                                                               |
 | `question-choices-missing`                                        | ignored  | `single` or `multiple` without a choice                                                                                                                                                   |
 | `question-choices-unexpected` / `question-other-unexpected`       | ignored  | `short` or `long` with a choice, or with `data-other`                                                                                                                                     |
+| `question-group-id-invalid`                                       | ignored  | explicit `data-group` is not a canonical lowercase UUID                                                                                                                                   |
+| `question-group-conflict`                                         | ignored  | `data-group` appears inside a wrapper or its ID collides in the shared control namespace                                                                                                  |
+| `question-group-limit`                                            | ignored  | more than 12 raw standalone questions share a logical group; none of its members supplies controls                                                                                        |
 | `question-agent-invalid`                                          | ignored  | `data-agent` over 64 code points or with a control character                                                                                                                              |
 | `question-marker-misplaced`                                       | warning  | an element with `data-question` or `data-choice` whose parent is not a `tmt-question`: plain content to the browser                                                                       |
 | `group-id-invalid` / `-duplicate`                                 | ignored  | a group `data-id` missing or not a canonical lowercase UUID, or shared (see the namespace below); every holder is ignored                                                                 |
@@ -5007,7 +5012,7 @@ the choice-shape rules for a valid kind, so one defect is not reported twice):
 | `group-questions-too-many`                                        | ignored  | more than 12 direct `tmt-question` children                                                                                                                                               |
 | `group-empty`                                                     | ignored  | the group passed its rules but none of its questions is shown                                                                                                                             |
 | `group-label-too-long` / `-control`                               | warning  | a shown question's `data-label` is over 24 code points or has a control character; its tab shows `Q<n>`; the finding is on the question                                                   |
-| `group-form-invalid` / `question-form-invalid`                    | warning  | `data-form` on a shown group or lone question has any value but `chip` (exact, lowercase); the full block shows                                                                           |
+| `group-form-invalid` / `question-form-invalid`                    | warning  | `data-form` on a shown group or lone question has any value but `chip` (exact, lowercase); the invalid presentation hint is ignored                                                       |
 | `question-form-member`                                            | warning  | a shown question inside a group carries `data-form`; it is ignored because the group decides; the finding is on the question                                                              |
 | `reading-page-limit`                                              | ignored  | more than 50 reading anchors; none supplies reading controls                                                                                                                              |
 | `reading-id-invalid` / `-duplicate`                               | ignored  | missing/noncanonical UUID, or an ID shared with a reading, review, question or group                                                                                                      |

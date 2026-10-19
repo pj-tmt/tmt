@@ -33,6 +33,8 @@ export interface QuestionGroup {
   questions: string[];
   /** `chip`: the author opted into the compact inline form (`data-form="chip"`); absent = block. */
   form?: 'chip';
+  /** Separate authored placements share one logical group; each placement owns its Send scope. */
+  split?: true;
 }
 /** An admitted review section: the authored heading is its quote anchor. `questions` lists the
  * admitted questions inside it, in document order; answering all of them closes the section. */
@@ -82,6 +84,9 @@ export type QuestionFindingCode =
   | 'question-agent-invalid'
   | 'question-marker-misplaced'
   | 'question-group-child-invalid'
+  | 'question-group-id-invalid'
+  | 'question-group-conflict'
+  | 'question-group-limit'
   | 'group-id-invalid'
   | 'group-id-duplicate'
   | 'group-nested'
@@ -149,6 +154,9 @@ interface Candidate {
   nested: boolean;
   holders: number;
   groupChildInvalid: boolean;
+  splitId: string | null;
+  splitConflict: boolean;
+  splitCount: number;
 }
 const over = (value: string, points: number) => [...value].length > points;
 const sibling = (candidate: Candidate) => candidate.headings === 1;
@@ -164,6 +172,9 @@ const QUESTION_RULES: ReadonlyArray<readonly [QuestionFindingCode, (c: Candidate
   ['question-id-duplicate', (c) => uuid.test(c.id) && c.holders > 1],
   ['question-nested', (c) => c.nested],
   ['question-group-child-invalid', (c) => c.groupChildInvalid],
+  ['question-group-id-invalid', (c) => c.splitId !== null && !uuid.test(c.splitId)],
+  ['question-group-conflict', (c) => c.splitId !== null && c.splitConflict],
+  ['question-group-limit', (c) => c.splitCount > QUESTION_GROUP_LIMIT],
   ['question-heading-missing', (c) => c.headings === 0],
   ['question-heading-multiple', (c) => c.headings > 1],
   ['question-title-empty', (c) => sibling(c) && !c.title],
@@ -252,7 +263,7 @@ const LABEL_RULES: ReadonlyArray<readonly [QuestionFindingCode, (label: string) 
   ['group-label-too-long', (label) => over(label, QUESTION_LABEL_POINTS)],
   ['group-label-control', hasControl],
 ];
-/** `data-form` is opt-in and has one value: `chip`. Anything else is a warning and the block form. */
+/** Retain the declared `chip` hint for checking; every admitted form uses compact lines. */
 const formOf = (node: Element): 'chip' | 'invalid' | undefined =>
   !node.hasAttribute('data-form')
     ? undefined
@@ -326,7 +337,17 @@ export function inspectQuestions(source: string): QuestionInspection {
     GROUP_RULES.some(
       ([code, fails]) => code !== 'group-id-duplicate' && fails(groupCandidates.get(node)!),
     );
-  const holders = new Map<string, number>();
+  // A logical group holds its ID once even when its questions have separate placements.
+  // Count raw members before admission, just as structural groups count their direct children.
+  const splitGroups = new Map<string, number>();
+  const splitEligible = (node: Element) =>
+    !node.parentElement?.closest('tmt-questions, tmt-question, tmt-read');
+  for (const node of nodes) {
+    const group = node.getAttribute('data-group');
+    if (group !== null && uuid.test(group) && splitEligible(node))
+      splitGroups.set(group, (splitGroups.get(group) ?? 0) + 1);
+  }
+  const holders = new Map<string, number>([...splitGroups.keys()].map((id) => [id, 1]));
   const hold = (node: Element) => {
     const id = idOf(node);
     holders.set(id, (holders.get(id) ?? 0) + 1);
@@ -382,7 +403,13 @@ export function inspectQuestions(source: string): QuestionInspection {
     const group = node.parentElement?.closest('tmt-questions') ?? null;
     const nested = !!node.parentElement?.closest('tmt-question, tmt-read');
     const headings = [...node.children].filter((child) => child.hasAttribute('data-question'));
+    const splitId = node.getAttribute('data-group');
     const candidate: Candidate = {
+      splitId,
+      splitConflict:
+        !splitEligible(node) ||
+        (splitId !== null && uuid.test(splitId) && holders.get(splitId) !== 1),
+      splitCount: splitId === null ? 0 : (splitGroups.get(splitId) ?? 0),
       id,
       kind: node.getAttribute('data-kind') ?? '',
       agent: node.getAttribute('data-agent') ?? '',
@@ -439,7 +466,7 @@ export function inspectQuestions(source: string): QuestionInspection {
       choices: candidate.choices,
       other: candidate.other,
       agent: candidate.agent,
-      group: group ? idOf(group) : null,
+      group: group ? idOf(group) : splitId,
       label,
     };
     questions.push(question);
@@ -555,7 +582,14 @@ export function inspectQuestions(source: string): QuestionInspection {
       }
     } else {
       const question = admittedNodes.get(node);
-      if (question && !question.group) {
+      if (question && question.group && splitGroups.has(question.group)) {
+        let group = groups.find((group) => group.id === question.group);
+        if (!group) {
+          group = { id: question.group, title: null, questions: [], split: true };
+          groups.push(group);
+        }
+        group.questions.push(question.id);
+      } else if (question && !question.group) {
         const form = formOf(node);
         if (form === 'invalid')
           findings.push({

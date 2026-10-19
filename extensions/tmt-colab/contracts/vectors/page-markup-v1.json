@@ -8933,6 +8933,429 @@
           "code": "reading-page-limit"
         }
       ]
+    },
+    {
+      "name": "split-group-across-passages",
+      "scope": "parser",
+      "why": "Standalone questions retain one logical group across separate authored passages without a wrapper.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\" data-agent=\"Agent 1\"><p data-question>First decision?</p></tmt-question>",
+        "<p>A different passage that separates the two questions.</p>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"long\" data-agent=\"Agent 2\"><p data-question>Second decision?</p></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "First decision?",
+            "choices": [],
+            "other": false,
+            "agent": "Agent 1",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "long",
+            "title": "Second decision?",
+            "choices": [],
+            "other": false,
+            "agent": "Agent 2",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "20000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002"
+            ],
+            "split": true
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "split-group-id-invalid",
+      "scope": "parser",
+      "why": "An explicit group reference must be a canonical UUID, never a selector or empty string.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-group=\"#group\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-group-id-invalid"
+        }
+      ]
+    },
+    {
+      "name": "split-group-id-collides-with-question",
+      "scope": "parser",
+      "why": "A logical group ID holds the shared control namespace once and cannot equal a question ID.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-group=\"10000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-id-duplicate"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-group-conflict"
+        }
+      ]
+    },
+    {
+      "name": "split-group-thirteen-questions",
+      "scope": "parser",
+      "why": "The group limit counts raw separate placements and refuses the whole over-limit group.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000013\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question?</p></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 2,
+          "id": "10000000-0000-4000-8000-000000000002",
+          "line": 2,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 3,
+          "id": "10000000-0000-4000-8000-000000000003",
+          "line": 3,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 4,
+          "id": "10000000-0000-4000-8000-000000000004",
+          "line": 4,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 5,
+          "id": "10000000-0000-4000-8000-000000000005",
+          "line": 5,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 6,
+          "id": "10000000-0000-4000-8000-000000000006",
+          "line": 6,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 7,
+          "id": "10000000-0000-4000-8000-000000000007",
+          "line": 7,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 8,
+          "id": "10000000-0000-4000-8000-000000000008",
+          "line": 8,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 9,
+          "id": "10000000-0000-4000-8000-000000000009",
+          "line": 9,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 10,
+          "id": "10000000-0000-4000-8000-000000000010",
+          "line": 10,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 11,
+          "id": "10000000-0000-4000-8000-000000000011",
+          "line": 11,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 12,
+          "id": "10000000-0000-4000-8000-000000000012",
+          "line": 12,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        },
+        {
+          "element": "tmt-question",
+          "ordinal": 13,
+          "id": "10000000-0000-4000-8000-000000000013",
+          "line": 13,
+          "severity": "ignored",
+          "code": "question-group-limit"
+        }
+      ]
+    },
+    {
+      "name": "split-group-twelve-questions",
+      "scope": "parser",
+      "why": "The inclusive group bound admits twelve distinct standalone placements in authored order.",
+      "source": [
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 1?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000002\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 2?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000003\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 3?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000004\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 4?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000005\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 5?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000006\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 6?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000007\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 7?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000008\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 8?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000009\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 9?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000010\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 10?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000011\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 11?</p></tmt-question>",
+        "<tmt-question data-id=\"10000000-0000-4000-8000-000000000012\" data-group=\"20000000-0000-4000-8000-000000000001\" data-kind=\"short\"><p data-question>Question 12?</p></tmt-question>"
+      ],
+      "admitted": {
+        "questions": [
+          {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "kind": "short",
+            "title": "Question 1?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000002",
+            "kind": "short",
+            "title": "Question 2?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000003",
+            "kind": "short",
+            "title": "Question 3?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000004",
+            "kind": "short",
+            "title": "Question 4?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000005",
+            "kind": "short",
+            "title": "Question 5?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000006",
+            "kind": "short",
+            "title": "Question 6?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000007",
+            "kind": "short",
+            "title": "Question 7?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000008",
+            "kind": "short",
+            "title": "Question 8?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000009",
+            "kind": "short",
+            "title": "Question 9?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000010",
+            "kind": "short",
+            "title": "Question 10?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000011",
+            "kind": "short",
+            "title": "Question 11?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          },
+          {
+            "id": "10000000-0000-4000-8000-000000000012",
+            "kind": "short",
+            "title": "Question 12?",
+            "choices": [],
+            "other": false,
+            "agent": "",
+            "group": "20000000-0000-4000-8000-000000000001",
+            "label": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "20000000-0000-4000-8000-000000000001",
+            "title": null,
+            "questions": [
+              "10000000-0000-4000-8000-000000000001",
+              "10000000-0000-4000-8000-000000000002",
+              "10000000-0000-4000-8000-000000000003",
+              "10000000-0000-4000-8000-000000000004",
+              "10000000-0000-4000-8000-000000000005",
+              "10000000-0000-4000-8000-000000000006",
+              "10000000-0000-4000-8000-000000000007",
+              "10000000-0000-4000-8000-000000000008",
+              "10000000-0000-4000-8000-000000000009",
+              "10000000-0000-4000-8000-000000000010",
+              "10000000-0000-4000-8000-000000000011",
+              "10000000-0000-4000-8000-000000000012"
+            ],
+            "split": true
+          }
+        ]
+      },
+      "findings": []
+    },
+    {
+      "name": "split-group-inside-wrapper-refused",
+      "scope": "parser",
+      "why": "A question cannot take membership from a wrapper and an explicit logical group together.",
+      "source": [
+        "<tmt-questions data-id=\"20000000-0000-4000-8000-000000000001\"><p data-title>Review</p><tmt-question data-id=\"10000000-0000-4000-8000-000000000001\" data-group=\"20000000-0000-4000-8000-000000000002\" data-kind=\"short\"><p data-question>Question?</p></tmt-question></tmt-questions>"
+      ],
+      "admitted": {
+        "questions": [],
+        "groups": []
+      },
+      "findings": [
+        {
+          "element": "tmt-question",
+          "ordinal": 1,
+          "id": "10000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "question-group-conflict"
+        },
+        {
+          "element": "tmt-questions",
+          "ordinal": 1,
+          "id": "20000000-0000-4000-8000-000000000001",
+          "line": 1,
+          "severity": "ignored",
+          "code": "group-empty"
+        }
+      ]
     }
   ]
 }

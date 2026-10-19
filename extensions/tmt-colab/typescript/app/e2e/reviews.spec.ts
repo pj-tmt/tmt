@@ -180,6 +180,7 @@ test('answering the questions inside a section closes it in the same Send', asyn
   const card = await mount(page, { question: true });
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
   const question = page.locator('.question-group-card');
+  await question.locator('.question-line').click();
   await question.getByLabel('Your answer', { exact: true }).fill('Use a clearer heading.');
   await question.getByRole('button', { name: /^Send answer/ }).press('Enter');
   await expect(card).toHaveAttribute('data-review-state', 'closed');
@@ -265,15 +266,15 @@ test('a group inside a section closes it only when every question is answered', 
   await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
   const group = page.locator('.question-group-card');
   const active = page.locator('.question-card:visible').first();
-  await group.getByRole('tab', { name: /Q1/ }).click();
+  await group.locator('.question-line').first().click();
   await active.getByLabel('Your answer', { exact: true }).fill('First answer.');
   await group.getByRole('button', { name: /^Send/ }).press('Enter');
-  await expect(group.locator('.needs-you-bar').first()).toContainText('Answered');
+  await expect(group.locator('.question-line').first()).toContainText('Answered: First answer.');
   await expect(page.getByRole('button', { name: 'Needs you: 2', exact: true })).toBeVisible();
   // One of two answered: the section stays open and nothing was resolved.
   await expect(card).toHaveAttribute('data-review-state', 'waiting');
   expect((await run(page, 'proof')).actions).toEqual([]);
-  await group.getByRole('tab', { name: /Q2/ }).click();
+  await group.locator('.question-line').nth(1).click();
   await active.getByLabel('Your answer', { exact: true }).fill('Second answer.');
   await group.getByRole('button', { name: /^Send/ }).press('Enter');
   await expect(card).toHaveAttribute('data-review-state', 'closed');

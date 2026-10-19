@@ -1,20 +1,15 @@
 import type { ReplyNotification } from './reply-notifications.js';
 import type { ComposerConnectionPresentation } from './router.js';
-import { BrowserAction } from '@tmt/browser-ui/react';
 import {
   Fragment,
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type RefObject,
 } from 'react';
-import { AgentList } from './components/agent-chip.js';
-import { NeedsYouBar } from './components/needs-you-bar.js';
-import { QuestionChip } from './components/question-chip.js';
 import { QuestionGroupCard } from './components/question-group-card.js';
 import { focusNeedsYouTarget, unansweredQuestions, type NeedsYouCandidate } from './needs-you.js';
 import type { Question, QuestionGroup } from './questions.js';
@@ -29,7 +24,7 @@ import type {
 } from './renderer.js';
 import type { CommentContext } from './thread-store.js';
 
-/** The parent owns admitted groups, verified answers and active tabs. The frame supplies quotes/geometry. */
+/** The parent owns logical groups and viewer disclosures. The frame supplies quotes/geometry. */
 export function useQuestionLayer({
   snapshot,
   view,
@@ -64,13 +59,11 @@ export function useQuestionLayer({
     setAnchors(checked ? next : null);
   }, []);
   const [active, setActive] = useState<Record<string, string>>({});
-  // Chip-form panels the reader has opened. A panel stays mounted while collapsed, so its drafts survive.
+  // One active disclosure per logical group; all group drafts remain parent-owned.
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
-  const chips = useRef(new Map<string, HTMLButtonElement>());
   const panels = useRef(new Map<string, HTMLElement>());
   const focusPanel = useRef<string | undefined>(undefined);
   const navigationFocus = useRef<string | undefined>(undefined);
-  const panelPrefix = useId();
   const threads = useMemo(
     () =>
       (view.threads ?? []).filter((thread) => !thread.deleted && !thread.proposal && thread.anchor),
@@ -92,8 +85,27 @@ export function useQuestionLayer({
   );
   const renderedReviews = JSON.stringify(reviews);
   const renderedReadings = JSON.stringify(readings);
+  // Logical groups retain one action owner; the renderer only needs physical placements.
   const renderedGroups = JSON.stringify(
-    groups.map((group) => ({ ...group, active: selected(group) })),
+    groups.flatMap((group) =>
+      group.split
+        ? group.questions.map((id) => ({
+            id,
+            title: null,
+            questions: [id],
+            active: id,
+            form: 'chip',
+          }))
+        : [
+            {
+              id: group.id,
+              title: group.title,
+              questions: group.questions,
+              active: selected(group),
+              form: 'chip',
+            },
+          ],
+    ),
   );
   const identity = JSON.stringify(
     threads.map((thread) => ({
@@ -140,24 +152,24 @@ export function useQuestionLayer({
   useEffect(() => {
     // Opening hands focus to the panel; the next render has it visible.
     const id = focusPanel.current;
-    if (!id || (groups.find((group) => group.id === id)?.form === 'chip' && !opened.has(id)))
-      return;
+    if (!id || !opened.has(id)) return;
     focusPanel.current = undefined;
-    if (navigationFocus.current === id) {
-      navigationFocus.current = undefined;
-      focusNeedsYouTarget(panels.current.get(id));
-    } else
-      panels.current.get(id)?.querySelector<HTMLElement>('.question-group-card')?.focus({
-        preventScroll: true,
-      });
-  }, [opened, active, groups]);
-  /** Opens the chip-form panel of a group (or of the group holding a question) and selects that
-   * question. False when the ID names no chip-form group, so a caller can fall back to jumping. */
+    const group = groups.find((group) => group.id === id);
+    const target = panels.current
+      .get(id)
+      ?.querySelector<HTMLElement>(`[id="question-panel-${group && selected(group)}"]`);
+    if (navigationFocus.current === id) navigationFocus.current = undefined;
+    if (!focusNeedsYouTarget(target ?? undefined)) target?.focus({ preventScroll: true });
+  }, [opened, active, groups, selected]);
+  /** Opens an admitted question's disclosure, including a group ID's current member. */
   const open = useCallback(
     (id: string) => {
       const group = groups.find((value) => value.id === id || value.questions.includes(id));
-      if (!group || group.form !== 'chip') return false;
-      if (group.questions.includes(id)) setActive((previous) => ({ ...previous, [group.id]: id }));
+      if (!group) return false;
+      setActive((previous) => ({
+        ...previous,
+        [group.id]: group.questions.includes(id) ? id : (previous[group.id] ?? group.questions[0]),
+      }));
       focusPanel.current = group.id;
       setOpen(group.id, true);
       return true;
@@ -173,9 +185,11 @@ export function useQuestionLayer({
     state !== 'ready' || anchors === null
       ? []
       : rows.flatMap(({ group, members, agents, pending }) => {
-          const slot = slots.find((value) => value.id === group.id);
-          const attached =
-            group.form === 'chip' ? !!slot?.chip : slot?.descriptionHeight !== undefined;
+          const ids = group.split ? group.questions : [group.id];
+          const attached = ids.some((id) => {
+            const slot = slots.find((value) => value.id === id);
+            return !!slot?.chip;
+          });
           if (
             !attached ||
             !members.every((member) => anchors.some((anchor) => anchor.id === member.id))
@@ -184,6 +198,7 @@ export function useQuestionLayer({
           return [
             {
               kind: 'answer',
+              questionCount: { waiting: pending.length, total: members.length },
               state: pending.length ? 'unanswered' : 'answered',
               id: group.id,
               title: group.title ?? members[0].title,
@@ -201,16 +216,8 @@ export function useQuestionLayer({
     jump: (id: string) => {
       const item = navigation.find((value) => value.id === id || value.targetId === id);
       if (!item) return false;
-      const group = groups.find((value) => value.id === item.id)!;
-      if (group.form === 'chip') {
-        open(item.targetId ?? item.id);
-        navigationFocus.current = group.id;
-        return true;
-      }
-      focusPanel.current = group.id;
-      navigationFocus.current = group.id;
-      setActive((previous) => ({ ...previous, [group.id]: item.targetId ?? group.questions[0] }));
-      return true;
+      navigationFocus.current = item.id;
+      return open(item.targetId ?? item.id);
     },
     notificationThreads,
     activateNotification: (event: ReplyNotification) => {
@@ -219,132 +226,68 @@ export function useQuestionLayer({
         !group ||
         !slots.some(
           (slot) =>
-            slot.id === group.id &&
-            (group.form === 'chip'
-              ? slot.chip !== undefined
-              : slot.descriptionHeight !== undefined),
+            slot.id === (group.split ? event.questionId : group.id) && slot.chip !== undefined,
         )
       )
         return false;
-      if (group.form === 'chip') return open(event.questionId!);
-      setActive((previous) => ({ ...previous, [group.id]: event.questionId! }));
-      return true;
+      return open(event.questionId!);
     },
     inline: (
       <>
-        {rows.map(({ group, members, agents, pending }) => {
+        {rows.map(({ group, members }) => {
           const current = selected(group);
-          const slot = slots.find((slot) => slot.id === group.id);
-          const chip = group.form === 'chip';
-          const attached = chip ? !!slot?.chip : !!slot && slot.descriptionHeight !== undefined;
-          const isOpen = opened.has(group.id);
-          const panelId = `${panelPrefix}-panel-${group.id}`;
-          const close = () => {
-            setOpen(group.id, false);
-            chips.current.get(group.id)?.focus({ preventScroll: true });
-          };
-          const unanswered = chip ? pending.length : 0;
-          const panel = (
+          const slot = slots.find((value) => value.id === (group.split ? current : group.id));
+          const attached = !!slot?.chip;
+          return (
             <div
-              key={chip ? undefined : group.id}
-              id={chip ? panelId : undefined}
+              key={group.id}
               ref={(node) => {
                 if (node) panels.current.set(group.id, node);
                 else panels.current.delete(group.id);
               }}
-              hidden={chip && !isOpen ? true : undefined}
-              data-inline-question={current}
-              data-question-group={group.id}
-              data-inline-slot={group.id}
-              className="proposal-inline question-inline"
-              data-detached={!attached || undefined}
-              data-tab-placement={slot?.beforeTop !== undefined || undefined}
-              style={{
-                top: chip ? (slot?.top ?? 0) : (slot?.beforeTop ?? slot?.top ?? 0),
-                left: slot?.left,
-                width: slot?.width,
-              }}
-              onKeyDown={(event) => {
-                if (
-                  chip &&
-                  event.key === 'Escape' &&
-                  event.isTrusted &&
-                  !event.defaultPrevented &&
-                  !event.repeat &&
-                  !event.nativeEvent.isComposing &&
-                  event.keyCode !== 229 &&
-                  !event.altKey &&
-                  !event.ctrlKey &&
-                  !event.metaKey &&
-                  !event.shiftKey
-                ) {
-                  event.preventDefault();
-                  close();
-                  return;
-                }
-                if (
-                  !event.isTrusted ||
-                  event.defaultPrevented ||
-                  event.altKey ||
-                  event.ctrlKey ||
-                  event.metaKey ||
-                  event.shiftKey ||
-                  !/^[1-9]$/.test(event.key)
-                )
-                  return;
-                const target = event.target as HTMLElement;
-                if (
-                  target.closest(
-                    'input,textarea,[contenteditable],[role="combobox"],[role="listbox"]',
-                  )
-                )
-                  return;
-                if (!target.closest('[role="tablist"],[role="tabpanel"],.question-option')) return;
-                const option = [
-                  ...event.currentTarget.querySelectorAll<HTMLInputElement>(
-                    `[data-choice-index="${event.key}"] input`,
-                  ),
-                ].find((input) => !input.disabled && !input.closest('[hidden]'));
-                if (option) {
-                  event.preventDefault();
-                  option.click();
-                }
-              }}
             >
-              {chip && (
-                <NeedsYouBar
-                  role="status"
-                  tone={unanswered ? 'needs' : 'done'}
-                  word={
-                    unanswered
-                      ? `Please answer ${unanswered} ${unanswered === 1 ? 'question' : 'questions'}`
-                      : `Answered ${members.length} ${members.length === 1 ? 'question' : 'questions'}`
-                  }
-                  who={agents.length > 0 ? <AgentList names={agents} /> : undefined}
-                  actions={
-                    <BrowserAction
-                      label="Collapse"
-                      type="button"
-                      variant="text"
-                      onActivate={(event) => {
-                        if (event.isTrusted) close();
-                      }}
-                    />
-                  }
-                />
-              )}
               <QuestionGroupCard
-                key={`${snapshot.id}:${group.id}`}
                 group={group}
                 members={members}
                 selected={current}
                 onSelect={(id) => setActive((previous) => ({ ...previous, [group.id]: id }))}
+                expanded={opened.has(group.id)}
+                onToggle={(id) => {
+                  if (opened.has(group.id) && id === current) setOpen(group.id, false);
+                  else {
+                    focusPanel.current = group.id;
+                    setActive((previous) => ({ ...previous, [group.id]: id }));
+                    setOpen(group.id, true);
+                  }
+                }}
+                onCollapse={() => setOpen(group.id, false)}
+                renderBlock={(id, content) => {
+                  const position = slots.find((value) => value.id === id);
+                  return (
+                    <Fragment>
+                      <div
+                        data-inline-slot={id}
+                        data-inline-question={current}
+                        className="proposal-inline question-inline question-compact-inline"
+                        data-detached={!position?.chip || undefined}
+                        style={{
+                          top: position?.top ?? 0,
+                          left: position?.left ?? 0,
+                          width: position?.width ?? '100%',
+                        }}
+                      >
+                        <span
+                          data-inline-chip={id}
+                          className="question-placement-anchor"
+                          aria-hidden="true"
+                        />
+                        {content}
+                      </div>
+                    </Fragment>
+                  );
+                }}
                 associated={associated}
-                selectors={
-                  new Map(
-                    attached ? (anchors ?? []).map((anchor) => [anchor.id, anchor.selector]) : [],
-                  )
-                }
+                selectors={new Map((anchors ?? []).map((anchor) => [anchor.id, anchor.selector]))}
                 attached={attached}
                 placement={slot}
                 discussion={snapshot.binding?.discussion}
@@ -353,38 +296,10 @@ export function useQuestionLayer({
                 title={view.title || snapshot.title}
                 blocked={blocked}
                 readOnly={view.archived}
-                chip={chip}
                 connectionPresentation={connectionPresentation}
                 onRecorded={onRecorded}
               />
             </div>
-          );
-          if (!chip) return panel;
-          return (
-            <Fragment key={group.id}>
-              <div
-                data-inline-chip={group.id}
-                className="proposal-inline question-chip-inline"
-                data-detached={!slot?.chip || undefined}
-                style={{ top: slot?.chip?.top ?? 0, left: slot?.chip?.left ?? 0 }}
-              >
-                <QuestionChip
-                  ref={(node) => {
-                    if (node) chips.current.set(group.id, node);
-                    else chips.current.delete(group.id);
-                  }}
-                  answered={unanswered === 0}
-                  count={unanswered || members.length}
-                  open={isOpen}
-                  panelId={panelId}
-                  onToggle={() => {
-                    if (isOpen) close();
-                    else open(group.id);
-                  }}
-                />
-              </div>
-              {panel}
-            </Fragment>
           );
         })}
       </>

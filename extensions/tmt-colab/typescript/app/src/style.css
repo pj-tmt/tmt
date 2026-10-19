@@ -31,7 +31,7 @@ button {
   cursor: pointer;
 }
 button:not(.tmt-ui-action):not(.tmt-ui-toggle):not(.tmt-ui-command-copy):not(.tmt-ui-tab):not(
-    .question-chip
+    .question-line
   ):not(.needs-filter-button):not(:disabled):hover,
 a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
@@ -158,6 +158,13 @@ body:has(.needs-you-header-menu) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Menu rows stay on one ellipsized line, including inline agent attribution. */
+.needs-you-header-row
+  .agent-chip[data-variant='inline']
+  :is(.agent-chip-name, .agent-chip-machine, .agent-chip-driver) {
+  overflow-wrap: normal;
   white-space: nowrap;
 }
 @media (max-width: 640px) {
@@ -1433,12 +1440,6 @@ body:has(.needs-you-header-menu) {
   min-width: 0;
   pointer-events: none;
 }
-.question-chip-inline {
-  right: auto;
-  width: max-content;
-  padding: 0;
-}
-.question-inline .tmt-ui-tabs,
 .question-group-card {
   background: transparent;
   border: 0;
@@ -1449,21 +1450,9 @@ body:has(.needs-you-header-menu) {
 .question-group-card:focus-visible {
   outline: none;
 }
-.question-inline .tmt-ui-tab-panel {
-  padding: 0;
-}
-.question-inline[data-detached][data-tab-placement] .tmt-ui-tabs-header {
-  visibility: visible;
-}
-.question-inline .tmt-ui-tabs-header,
 .question-controls {
   background: var(--tmt-ui-surface-sheet);
   pointer-events: auto;
-}
-.question-inline .needs-you-bar {
-  pointer-events: auto;
-}
-.question-controls {
   padding: 0 16px 16px;
   max-height: 1900px;
   overflow: auto;

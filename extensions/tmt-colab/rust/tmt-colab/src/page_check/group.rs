@@ -48,11 +48,11 @@ pub(super) const RULES: [GroupRule; 9] = [
     }),
 ];
 
-/// Warnings about a question's `data-label`; the tab then shows `Q<n>`.
+/// Warnings about a question's `data-label`; its report label then falls back to `Q<n>`.
 pub(super) const LABEL_CODES: [&str; 2] = ["group-label-too-long", "group-label-control"];
 
 /// Warnings about `data-form`: an unknown value on a group or a lone question, and any value on a
-/// group member (the group decides). The block form is shown either way.
+/// group member (the group decides). All admitted forms use compact lines.
 pub(super) const FORM_CODES: [&str; 3] = [
     "group-form-invalid",
     "question-form-invalid",
@@ -83,7 +83,7 @@ fn failure(candidate: &GroupCandidate, duplicates: bool) -> Option<&'static str>
         .map(|(code, _)| *code)
 }
 
-/// A question's authored tab label, and the warnings that make the tab fall back to `Q<n>`: an
+/// A question's authored report label, and warnings that make it fall back to `Q<n>`: an
 /// absent or empty label falls back silently.
 pub(super) fn label(raw: Option<&str>) -> (Option<String>, Vec<&'static str>) {
     let text = question_text(raw.unwrap_or(""));
@@ -124,7 +124,13 @@ pub(super) struct Survey {
 }
 
 impl Survey {
-    pub(super) fn new(tree: &Tree, groups: &[Id], questions: &[Id], reviews: &[Id]) -> Survey {
+    pub(super) fn new(
+        tree: &Tree,
+        groups: &[Id],
+        questions: &[Id],
+        reviews: &[Id],
+        split: &HashMap<String, usize>,
+    ) -> Survey {
         let mut candidates: Vec<(Id, GroupCandidate)> = groups
             .iter()
             .map(|group| {
@@ -156,7 +162,7 @@ impl Survey {
         // Pass 1: every group holds its own ID wherever it sits; the structural rules other than a
         // duplicate ID fix whose direct questions hold theirs.
         let mut open = HashSet::new();
-        let mut holders: HashMap<String, usize> = HashMap::new();
+        let mut holders: HashMap<String, usize> = split.keys().map(|id| (id.clone(), 1)).collect();
         for (group, candidate) in &candidates {
             *holders.entry(candidate.id.clone()).or_insert(0) += 1;
             if failure(candidate, false).is_none() {

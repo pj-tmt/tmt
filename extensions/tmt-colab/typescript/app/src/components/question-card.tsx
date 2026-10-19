@@ -1,6 +1,6 @@
 import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useId, useRef, type ReactNode } from 'react';
 import {
   canonicalQuestionThread,
   currentAnswer,
@@ -15,9 +15,6 @@ import type { ThreadView } from '../thread-records.js';
 import { ArchivedDraft } from '../annotation-input.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
-import { compactRelativeTime } from '../display-time.js';
-import { AgentChip } from './agent-chip.js';
-import { NeedsYouBar } from './needs-you-bar.js';
 
 export interface QuestionDraft {
   choices: string[];
@@ -39,8 +36,6 @@ export function QuestionCard({
   blocked,
   connectionPresentation,
   readOnly = false,
-  descriptionHeight = 0,
-  titled = false,
   busy = false,
   recorded = false,
   error,
@@ -62,10 +57,6 @@ export function QuestionCard({
   blocked: boolean;
   connectionPresentation?: ComposerConnectionPresentation;
   readOnly?: boolean;
-  descriptionHeight?: number;
-  /** Chip-form panel: the parent shows the admitted title as plain text and the page's own
-   * question text stays collapsed. A waiting card then has no band of its own: the panel's has it. */
-  titled?: boolean;
   busy?: boolean;
   recorded?: boolean;
   error?: string;
@@ -82,12 +73,27 @@ export function QuestionCard({
   useNotificationBlock(answerNotificationDestination(question.id), section, true);
   const thread = canonicalQuestionThread(question, threads);
   const answer = currentAnswer(question, thread?.comments ?? []);
-  const [now, setNow] = useState(0);
-  useEffect(() => setNow(Date.now()), [answer]);
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const disabled = blocked || busy || recorded || !discussion;
   const compose = !answer || changing;
+  const changeAction =
+    answer && !readOnly && !changing ? (
+      <BrowserAction
+        label="Change answer"
+        type="button"
+        variant="text"
+        disabled={disabled}
+        onActivate={(event) => {
+          if (event.isTrusted) {
+            onDraft({ changing: true });
+            queueMicrotask(() =>
+              section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
+            );
+          }
+        }}
+      />
+    ) : undefined;
   return (
     <section
       className="question-card"
@@ -117,56 +123,13 @@ export function QuestionCard({
         }
       }}
     >
-      {(!titled || answer) && (
-        <NeedsYouBar
-          role="status"
-          tone={answer ? 'done' : 'needs'}
-          word={answer ? 'Answered' : 'Please answer'}
-          who={answer ? answer.deviceName : <AgentChip name={question.agent} />}
-          why={
-            answer
-              ? Number(answer.at) > 0 && Number.isFinite(Number(answer.at))
-                ? compactRelativeTime(Number(answer.at), now)
-                : 'time unknown'
-              : undefined
-          }
-          detail={
-            answer ? (
-              <span className="question-answer">
-                {pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}
-              </span>
-            ) : undefined
-          }
-          actions={
-            answer && !readOnly && !changing ? (
-              <BrowserAction
-                label="Change answer"
-                type="button"
-                variant="text"
-                disabled={disabled}
-                onActivate={(event) => {
-                  if (event.isTrusted) {
-                    onDraft({ changing: true });
-                    queueMicrotask(() =>
-                      section.current?.querySelector<HTMLInputElement>('input,textarea')?.focus(),
-                    );
-                  }
-                }}
-              />
-            ) : undefined
-          }
-        />
-      )}
-      {titled ? (
-        <p className="question-title">{question.title}</p>
-      ) : (
-        <div
-          className="question-description-space"
-          style={{ height: descriptionHeight }}
-          aria-hidden="true"
-        />
-      )}
       <div className="question-controls">
+        {answer && (
+          <div className="question-answer">
+            <p>{pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText}</p>
+            {changeAction}
+          </div>
+        )}
         {readOnly && compose && body && <ArchivedDraft value={body} />}
         {!readOnly && compose && (
           <>

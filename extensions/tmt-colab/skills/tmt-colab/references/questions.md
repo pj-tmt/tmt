@@ -1,52 +1,66 @@
 # Answer blocks
 
-When authorized, write inert question HTML in the page:
+When authorized, place each decision beside the passage it concerns. Colab renders
+compact question lines that the person can open; no tabs or layout HTML are needed.
+Use a unique canonical UUID for every question and group.
 
 ```html
-<tmt-question data-id="UUID" data-kind="single" data-agent="Your agent name" data-other>
-  <p data-question>Which option?</p>
-  <span data-choice>First</span><span data-choice>Second</span>
+<div>
+  <p>The first passage has one decision.</p>
+  <tmt-question data-id="10000000-0000-4000-8000-000000000001"
+    data-group="20000000-0000-4000-8000-000000000001"
+    data-kind="single" data-agent="Your agent name" data-other>
+    <p data-question>Which option fits this passage?</p>
+    <span data-choice>First</span><span data-choice>Second</span>
+  </tmt-question>
+</div>
+<p>A separate passage can have another question with that same data-group.</p>
+<tmt-question data-id="10000000-0000-4000-8000-000000000002"
+  data-group="20000000-0000-4000-8000-000000000001"
+  data-kind="short" data-agent="Your agent name">
+  <p data-question>What should this passage say?</p>
 </tmt-question>
+<tmt-questions data-id="20000000-0000-4000-8000-000000000002">
+  <p data-title>Two decisions about the next passage</p>
+  <tmt-question data-id="10000000-0000-4000-8000-000000000003"
+    data-kind="short" data-agent="Your agent name">
+    <p data-question>Which heading?</p>
+  </tmt-question>
+  <tmt-question data-id="10000000-0000-4000-8000-000000000004"
+    data-kind="long" data-agent="Your agent name">
+    <p data-question>Why does it fit?</p>
+  </tmt-question>
+</tmt-questions>
 ```
 
-For related questions, wrap up to 12 direct question children in
-`<tmt-questions data-id="UUID"><p data-title>Review heading</p>…</tmt-questions>`.
-Question and group IDs share one page-wide uniqueness namespace. Optional
-`data-label` names a tab (24 normalized code points, no control characters);
-missing, empty or invalid labels fall back to `Q<n>` among admitted questions.
-Empty groups are skipped. A lone question or one-member group has no tab strip.
+`data-group` links standalone questions across placements; do not put it on a
+question inside a `tmt-questions` wrapper. A group has at most 12 questions and
+counts once in Needs you. Question, group, review and reading IDs share one
+page-wide uniqueness namespace. A split question's Send sends only that question.
+A wrapper keeps one batched Send for its completed unsent answers. Neither sends
+another passage's draft. Defaults come from the asking agents in that physical
+block, deduplicated; the person can edit the visible recipient chips.
 
-Use a unique canonical UUID. Kinds: single/multiple with choices and optional
-`data-other`; short/long with no choices or Other. Limits: 50 blocks/page,
-20 distinct choices/block, 200 characters per question/choice. Colab provides
-trusted controls and visible recipient chips. Defaults are distinct uniquely resolved
-asking agents in tab order; readers can add or remove them. Empty recipients keep
-answers on the page. Answers are ordinary annotation comments; read with
-`tmt colab threads PAGE --json`. Changing an answer adds a normal follow-up;
-the latest verified device answer in its canonical thread wins. Colab prefers an
-answered thread, using writer/thread identity order for ties. HTML names grant no
-routing authority. Removing the question keeps its thread.
+Kinds: single/multiple with choices and optional `data-other`; short/long with no
+choices or Other. Limits: 50 questions/page, 20 distinct choices/question, 200 code
+points per question/choice. Put who asks in `data-agent`, and explain why the
+answer matters. Put elements inside a `div`, `li` or `td`, not a `p` that their
+child paragraphs would end. Do not gather unrelated decisions at the page's end.
 
-Place a block beside the passage it decides, one decision per block (one to a few related
-questions), never gathered at the end of the page. Give every choice question its options plus
-`data-other`, put who asks in `data-agent`, and write the question so it says why it matters.
-Choose the form: the full block (above) for a decision the reader must see, or the compact chip
-for a side decision inside running text: add `data-form="chip"` to the lone `tmt-question` or to
-the `tmt-questions` group (never to a member) and write the element inline inside a `div`, `li`
-or `td`, not a `p`. The reader sees `◆ Please answer N questions` in the sentence and opens a
-panel below that paragraph; the chip turns into `✓ Answered N questions`, still openable.
+Questions start closed, except an arrival from Needs you or a notification. The
+person's expanded/collapsed state is local and never changes the answer. Waiting
+and Answered states come from the existing verified answer path; collapse does
+not dismiss or acknowledge a question. HTML names grant no routing authority.
 
-In-tab drafts remain mounted while switching questions. The group's shared footer
-sends complete unsent drafts in one explicit action, including a partial group;
-untouched drafts stay for later. Each answer gets its own comment/thread, while
-each recipient receives one Ask listing the recorded answers. Sending keeps the
-selected tab. A one-question group uses Send answer. The canonical first-recorded
-question holds the reply; other participating tabs use Open reply. Failed comment
-drafts remain for the next Send, which publishes them again; a failed recipient
-retries the same recorded batch. Change answer sends only that question's follow-up.
-Grammar, counts, limits and publication/retry rules live in
-[the answer-block contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
+Answers are ordinary annotation comments; read with `tmt colab threads PAGE --json`.
+Changing an answer adds a normal follow-up; the latest verified device answer in
+its canonical thread wins. Each answer has its own comment/thread and each
+recipient receives one Ask for the recorded batch. Untouched and failed drafts
+remain for later. A failed recipient retries its same recorded batch without
+republishing comments. Removing markup keeps its conversations. Grammar, counts,
+limits and publication/retry rules live in the
+[answer-block contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#answer-blocks).
 
-Run `tmt colab page check FILE` before publishing: a malformed block is otherwise ignored
-without notice, and the check names the reason code and line. A structurally skipped group's finding adds
-`questionsSkipped`, how many questions it took with it.
+Run `tmt colab page check FILE` before publishing. Malformed controls are ignored;
+the check reports reason codes and lines. A structurally skipped wrapper also
+reports `questionsSkipped`.

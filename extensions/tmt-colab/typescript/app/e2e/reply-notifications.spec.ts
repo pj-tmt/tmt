@@ -552,8 +552,11 @@ for (const [width, theme] of [
         destination === 'Answer' ? '.question-card' : '.proposal-inline .proposal-card',
       );
       await expect(block).toHaveCount(1);
+      // A question starts closed; its compact row owns placement until arrival opens the controls.
+      const placement = destination === 'Answer' ? page.locator('.question-compact-block') : block;
+      await expect(placement).toBeVisible();
       await expect
-        .poll(() => block.evaluate((node) => node.getBoundingClientRect().top))
+        .poll(() => placement.evaluate((node) => node.getBoundingClientRect().top))
         .toBeGreaterThan(900);
       await run(page, 'arrive', { destination, body: `${destination} exact follow-up` });
       await expect(cards(page)).toHaveCount(1);
@@ -604,6 +607,7 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
 }) => {
   await page.goto('/test/reply-notifications.html');
   await run(page, 'mountBlocks');
+  await page.locator('.question-line').click();
   const answer = page.locator('.question-card');
   await answer.scrollIntoViewIfNeeded();
   await run(page, 'arrive', {
@@ -636,7 +640,7 @@ test('visible open Answer and Proposal histories suppress arrivals; folded and d
   await expect(fallback).toContainText('Detached folded follow-up');
 });
 
-test('Answer activation selects its inactive tab; a covering modal holds the arrival instead of suppressing it', async ({
+test('Answer activation opens its closed question; a covering modal holds the arrival instead of suppressing it', async ({
   page,
 }) => {
   await page.goto('/test/reply-notifications.html');
