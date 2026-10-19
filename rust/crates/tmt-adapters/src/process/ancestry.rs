@@ -1,6 +1,6 @@
-//! A process's parent chain from bounded `ps` calls. A host proves that a
-//! caller runs inside one of its panes by finding that pane's process in this
-//! chain; the nearest such pane is the caller's own.
+//! A process's parent chain from bounded native reads or `ps` calls. A host
+//! proves that a caller runs inside one of its panes by finding that pane's
+//! process in this chain; the nearest such pane is the caller's own.
 
 use super::{
     CommandError, CommandFailure, CommandRequest, CommandRunner,
@@ -225,7 +225,15 @@ fn ps_link<R: CommandRunner>(
     .into_iter()
     .map(Into::into)
     .collect();
-    let output = query_ps(runner, &args, deadline, 512).map_err(AncestryError::Command)?;
+    // ps exits 1 for a gone pid: that is absence, not a failed command. A
+    // timeout or a failed cleanup stays a command error.
+    let output = query_ps(runner, &args, deadline, 512).map_err(|error| {
+        if !error.cleanup_failed() && matches!(error.kind, CommandFailure::Exit { .. }) {
+            AncestryError::Unavailable
+        } else {
+            AncestryError::Command(error)
+        }
+    })?;
     let text = std::str::from_utf8(&output.stdout).map_err(|_| AncestryError::Unavailable)?;
     let lines: Vec<_> = text.trim().lines().collect();
     let [line] = lines.as_slice() else {
@@ -352,8 +360,15 @@ mod tests {
                 .parse()
                 .unwrap();
             self.ps_calls.borrow_mut().push(args);
+            // Real ps exits 1 and prints nothing for a pid that is gone.
+            let row = self.ps.get(&pid).ok_or_else(|| {
+                CommandError::new(CommandFailure::Exit {
+                    code: Some(1),
+                    signal: None,
+                })
+            })?;
             Ok(CommandOutput {
-                stdout: self.ps.get(&pid).cloned().unwrap_or_default().into_bytes(),
+                stdout: row.clone().into_bytes(),
                 stderr: vec![],
             })
         }
@@ -492,8 +507,8 @@ mod tests {
         let deep = (2..=70).fold(Tree::default().native(1, 0, 0, 0), |tree, pid| {
             tree.native(pid, pid - 1, pid, 0)
         });
-        assert!(refused(&deep, 70));
-        assert_eq!(pids(&pinned_chain(&deep, 60, soon()).unwrap()).len(), 60);
+        assert!(refused(&deep, 65));
+        assert_eq!(pids(&pinned_chain(&deep, 64, soon()).unwrap()).len(), 64);
         assert!(refused(&native_tree(), 0));
         assert!(matches!(
             pinned_chain(&native_tree(), 100, Instant::now()),
@@ -558,5 +573,15 @@ mod tests {
             chain(&UnixCommandRunner, pid, soon()).unwrap()
         );
         assert_eq!(native.position(pid), Some(0));
+        // A reaped child is gone for both reads, and its exit is no command error.
+        let mut child = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+        let gone = u64::from(child.id());
+        child.wait().unwrap();
+        for runner in [&UnixCommandRunner as &dyn CommandRunner, &PsOnly] {
+            assert!(matches!(
+                pinned_chain(&runner, gone, soon()),
+                Err(AncestryError::Unavailable)
+            ));
+        }
     }
 }

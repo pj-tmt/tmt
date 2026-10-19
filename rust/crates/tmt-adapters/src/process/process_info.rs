@@ -11,7 +11,9 @@ use tmt_core::endpoint::ProcessIncarnation;
 /// part), state and parent.
 struct Info {
     seconds: u64,
-    micros: u32,
+    /// `None` when the platform's value is out of range; only the start order
+    /// needs it, so `observe` does not depend on it.
+    micros: Option<u32>,
     state: u8,
     parent: u64,
 }
@@ -44,7 +46,7 @@ pub(super) fn link(pid: u64, deadline: Instant) -> Option<ProcessLink> {
     (Instant::now() < deadline).then_some(ProcessLink {
         observation,
         parent: info.parent,
-        start: StartOrder::precise(info.seconds, info.micros),
+        start: StartOrder::precise(info.seconds, info.micros?),
     })
 }
 
@@ -112,7 +114,7 @@ mod platform {
             seconds: info.pbi_start_tvsec,
             micros: u32::try_from(info.pbi_start_tvusec)
                 .ok()
-                .filter(|micros| *micros < 1_000_000)?,
+                .filter(|micros| *micros < 1_000_000),
             state,
             parent: u64::from(info.pbi_ppid),
         })
@@ -153,7 +155,7 @@ mod platform {
         Some(super::Info {
             seconds: boot.checked_add(ticks / hz)?,
             // btime has whole seconds; the subsecond part comes from the ticks.
-            micros: u32::try_from(ticks % hz * 1_000_000 / hz).ok()?,
+            micros: u32::try_from(ticks % hz * 1_000_000 / hz).ok(),
             state,
             parent,
         })
@@ -236,6 +238,12 @@ mod tests {
             super::link(pid, Instant::now()),
             None,
             "a late read is no link"
+        );
+        // The subsecond start reaches the order, not only whole seconds.
+        let info = platform::info(pid as i32).unwrap();
+        assert_eq!(
+            link.start,
+            StartOrder::precise(info.seconds, info.micros.unwrap())
         );
     }
 
