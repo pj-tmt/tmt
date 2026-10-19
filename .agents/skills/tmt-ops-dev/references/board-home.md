@@ -407,9 +407,10 @@ row is muted. There is no y-axis or vertical plot. The row below the heading lab
 TOK and % of all, followed by the shared quota selector in the muted role. Start/midpoint/now ticks occupy only the drawn
 spark width. Received hover or keyboard bucket selection temporarily replaces the
 axis row with the same exact-evidence text used by Details; the idle layout keeps
-its axis and gains no extra row. Each exact bucket repeats one eighth-height glyph over
-`floor(spark_width / bucket_count)` cells, starting immediately after the name
-track; leftover cells pad the right. Narrowing
+its axis and gains no extra row. Each exact bucket repeats one eighth-height glyph over its share of the spark
+track, starting immediately after the name track. The remainder cells go to buckets
+spread evenly along the track, so runs differ by at most one cell and the plot meets
+the TOK column at every width with no blank block between them. Narrowing
 changes only the spark track and never manufactures finer buckets.
 
 Provider shares divide by all observed tokens, including unknown provenance.
