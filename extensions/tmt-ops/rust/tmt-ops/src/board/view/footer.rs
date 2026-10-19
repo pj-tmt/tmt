@@ -705,11 +705,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         let mut line = paint_hints(&hints, look, Role::Text);
         line.spans.insert(0, Span::raw(" "));
         line
-    } else if let Some(hint) = app
-        .rendered_selection_hint()
-        .filter(|_| app.member_link_hint().is_none())
-    {
-        Line::styled(hint, look.role(Role::Muted))
     } else if let Some(hint) = app.member_link_hint() {
         if matches!(
             app.shell.tab,
@@ -767,6 +762,20 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             crate::board::reload::WAITING,
             look.role(Role::Dim),
         ));
+    }
+    // Read guidance uses the already reserved spare row, never the effective
+    // action-hint budget (including authored keys and the Escape ladder).
+    if footer.height >= 2
+        && legend.is_none()
+        && app.error.is_none()
+        && app.migration_notice.is_none()
+        && let Some(hint) = app.rendered_selection_hint()
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            Rect::new(footer.x, footer.y, footer.width, 1),
+            Line::styled(hint, look.role(Role::Muted)),
+        );
     }
     if let Some([first, _]) = legend {
         strip::paint_left(

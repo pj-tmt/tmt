@@ -390,13 +390,51 @@ fn the_actual_read_focus_footer_explains_rendered_selection() {
     let mut app = fixture("literal passage");
     app.focus = 1;
     let buffer = draw(&mut app, 100, 36);
-    let footer: String = buffer
-        .content
-        .chunks(100)
-        .last()
-        .unwrap()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect();
-    assert!(footer.contains("select text to copy"), "{footer}");
+    let painted: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(painted.contains("select text to copy"), "{painted}");
+    assert!(
+        painted.contains("Esc back"),
+        "effective Escape hint stays visible"
+    );
+}
+
+#[test]
+fn leaving_the_conversation_never_reuses_its_old_frame_rectangle() {
+    let mut app = fixture("literal passage");
+    draw(&mut app, 100, 36);
+    assert!(!app.conversation.borrow().source_surfaces.is_empty());
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    draw(&mut app, 100, 36);
+    let state = app.conversation.borrow();
+    assert!(state.response_area.is_none());
+    assert!(state.source_surfaces.is_empty());
+}
+
+#[test]
+fn changed_text_keeps_the_literal_quote_without_stray_partial_highlights() {
+    let mut app = fixture("literal passage");
+    let (x, y) = select_words(&mut app, "literal passage");
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 15, y);
+    let replacement = "lXteral pXssage";
+    app.view.as_mut().unwrap().replies[0]["response"] = json!(replacement);
+    let changed = draw(&mut app, 100, 36);
+    let mut plain = fixture(replacement);
+    let expected = draw(&mut plain, 100, 36);
+    for column in x..x + replacement.len() as u16 {
+        assert_eq!(
+            changed[(column, y)],
+            expected[(column, y)],
+            "stale selection must not highlight coincidental glyphs"
+        );
+    }
+    assert_eq!(
+        app.conversation
+            .borrow()
+            .selection
+            .as_ref()
+            .unwrap()
+            .selected()
+            .as_deref(),
+        Some("literal passage")
+    );
 }

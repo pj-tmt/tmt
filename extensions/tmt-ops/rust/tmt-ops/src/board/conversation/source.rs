@@ -112,6 +112,7 @@ pub(in crate::board) fn publish(app: &App, target: RowTarget, area: Rect) {
 
 pub(in crate::board) fn begin_frame(app: &App) {
     let mut state = app.conversation.borrow_mut();
+    state.response_area = None;
     state.source_areas.clear();
     state.source_surfaces.clear();
     if let Some(source) = &mut state.selection {
@@ -207,6 +208,7 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
             let layout = source.text.layout(source.surface.area.width);
             let mut end = None;
             let mut matches = true;
+            let mut highlights = Vec::new();
             for (row, line) in layout
                 .lines
                 .iter()
@@ -225,16 +227,16 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
                         matches = false;
                         continue;
                     }
-                    for column in x..x
-                        .saturating_add(cell.width as u16)
-                        .min(source.surface.area.right())
-                    {
-                        frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
-                    }
+                    highlights.push((x, y, cell.width as u16));
                     end = Some((x + cell.width as u16, y));
                 }
             }
             if matches && let Some((x, y)) = end {
+                for (x, y, width) in highlights {
+                    for column in x..x.saturating_add(width).min(source.surface.area.right()) {
+                        frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
+                    }
+                }
                 let area = source.surface.area;
                 let (x, y) = if area.right().saturating_sub(x + 1) >= 9 {
                     (x + 1, y)
