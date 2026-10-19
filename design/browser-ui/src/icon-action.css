@@ -44,6 +44,11 @@
   justify-content: center;
   background: inherit;
 }
+/* The icon and the shown busy mark share one square; a transparent text action shows one. */
+.tmt-ui-icon-action-control:has(> .tmt-ui-action-mark[data-busy='true'])
+  > .tmt-ui-icon-action-icon {
+  visibility: hidden;
+}
 .tmt-ui-icon-action-control:disabled:not([data-variant='text']) {
   color: var(--tmt-ui-color-disabled-text);
   background: var(--tmt-ui-surface-disabled);

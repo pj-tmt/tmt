@@ -410,6 +410,67 @@ async function run() {
   check(markShown(), 'Busy mark dropped before its 400 ms minimum');
   await wait(500);
   check(!markShown(), 'Busy mark stayed after its minimum');
+  for (const variant of ['primary', 'text', 'destructive'] as const) {
+    const iconAction = (busy: boolean) => (
+      <BrowserIconAction
+        type="button"
+        label="Check"
+        variant={variant}
+        icon="+"
+        busy={busy}
+        busyMark="◌"
+        onActivate={onActivate}
+      />
+    );
+    await act(() => root.render(iconAction(false)));
+    const control = host.querySelector('button')!;
+    const ready = control.getBoundingClientRect();
+    await act(() => root.render(iconAction(true)));
+    await wait(450);
+    const shown = control.getBoundingClientRect();
+    const mark = control.querySelector('.tmt-ui-action-mark')!.getBoundingClientRect();
+    check(
+      ['x', 'y', 'width', 'height'].every(
+        (key) => Math.abs(shown[key as 'x'] - ready[key as 'x']) <= 0.5,
+      ),
+      `Busy icon action changed its square: ${variant}`,
+    );
+    check(
+      mark.left >= shown.left - 0.5 &&
+        mark.right <= shown.right + 0.5 &&
+        mark.top >= shown.top - 0.5 &&
+        mark.bottom <= shown.bottom + 0.5,
+      `Busy mark left the icon square: ${variant}`,
+    );
+    check(
+      getComputedStyle(control.querySelector('.tmt-ui-icon-action-icon')!).visibility === 'hidden',
+      `Icon and busy mark both show: ${variant}`,
+    );
+    await act(() => root.render(iconAction(false)));
+    await wait(450);
+  }
+  await act(() => root.render(slowAction(false)));
+  const textAction = (busy: boolean) => (
+    <BrowserAction
+      type="button"
+      label="Reconnect"
+      variant="text"
+      busy={busy}
+      busyMark="◌"
+      onActivate={onActivate}
+    />
+  );
+  await act(() => root.render(textAction(true)));
+  await wait(450);
+  const underlined = host.querySelector('button')!;
+  check(
+    getComputedStyle(underlined).textDecorationLine === 'none' &&
+      getComputedStyle(underlined.querySelector('.tmt-ui-action-label')!).textDecorationLine ===
+        'underline',
+    'Text action underline runs under its busy mark',
+  );
+  await act(() => root.render(textAction(false)));
+  await wait(450);
   for (const state of [{}, { disabled: true }, { busy: true }]) {
     await act(() =>
       root.render(
