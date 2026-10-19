@@ -103,7 +103,11 @@ fn populated_chart_frame_cost() {
                             "chart-controls" => {
                                 let mut state = app.usage_chart.borrow_mut();
                                 state
-                                    .apply(Target::Each(if index % 2 == 0 { 15 } else { 5 }))
+                                    .apply(Target::Each(Each::Fixed(if index % 2 == 0 {
+                                        15
+                                    } else {
+                                        5
+                                    })))
                                     .unwrap();
                             }
                             _ => {}
@@ -215,7 +219,11 @@ fn populated_chart_ansi_phase_timing() {
                                 "chart-controls" => {
                                     app.usage_chart
                                         .get_mut()
-                                        .apply(Target::Each(if index % 2 == 0 { 15 } else { 5 }))
+                                        .apply(Target::Each(Each::Fixed(if index % 2 == 0 {
+                                            15
+                                        } else {
+                                            5
+                                        })))
                                         .unwrap();
                                 }
                                 _ => {}

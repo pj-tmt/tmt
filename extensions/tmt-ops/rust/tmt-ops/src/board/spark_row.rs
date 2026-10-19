@@ -100,6 +100,12 @@ fn time_ticks([first, middle, last_label]: &[String; 3], width: usize) -> String
     cells.into_iter().collect()
 }
 
+/// The middle column of one bucket's run, from the same widths the plot paints.
+pub(in crate::board) fn bar_center(track: usize, buckets: usize, index: usize) -> usize {
+    let start = track * index / buckets;
+    start + (track * (index + 1) / buckets - start) / 2
+}
+
 /// Splits the track into one run per exact bucket. The remainder cells go to
 /// buckets spread evenly along the track, so the plot meets the TOK column at
 /// every width and no two runs differ by more than one cell.
@@ -123,7 +129,7 @@ pub(in crate::board) fn minimum_width(data: &Data) -> usize {
         + 1
         + NUMERIC_TRACK_WIDTH
         + unicode_width::UnicodeWidthStr::width(data.share_caption.as_str()).max(MIN_SHARE_WIDTH)
-        + data.buckets
+        + 1 // One visible bucket; the controller slices larger loaded series.
 }
 pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
     let needed = minimum_width(data);
@@ -139,12 +145,37 @@ pub(in crate::board) fn quota_width(width: u16, data: &Data) -> u16 {
         0
     }
 }
+/// Reserve numeric and quota tracks independently of the loaded bucket count.
+/// Callers may then resolve Auto or slice a larger series to this exact width.
+pub(in crate::board) fn plot_layout(width: u16, data: &Data, quota: bool) -> (usize, u16) {
+    let quota = if quota { quota_width(width, data) } else { 0 };
+    let fixed = minimum_width(data) - 1
+        + if quota > 0 {
+            usize::from(quota) + QUOTA_GAP_WIDTH
+        } else {
+            0
+        };
+    (usize::from(width).saturating_sub(fixed), quota)
+}
 impl Scene {
     pub fn rows_for(data: &Data) -> u16 {
         (1 + data.rows.len().max(1) + usize::from(!data.no_data && data.show_axis))
             .min(usize::from(u16::MAX)) as u16
     }
     pub fn new(data: &Data, width: u16, quota_width: u16) -> Result<Self, String> {
+        Self::with_scale(
+            data,
+            width,
+            quota_width,
+            scale(data.rows.iter().flat_map(|row| row.values.iter().copied())).unwrap_or(0),
+        )
+    }
+    pub fn with_scale(
+        data: &Data,
+        width: u16,
+        quota_width: u16,
+        scale: u64,
+    ) -> Result<Self, String> {
         if data.buckets == 0 || data.rows.iter().any(|row| row.values.len() != data.buckets) {
             return Err("Spark rows must share one nonempty bucket grid".into());
         }
@@ -165,8 +196,6 @@ impl Scene {
             return Err("Spark rows need one cell per exact bucket".into());
         }
         let widths = bar_widths(spark_width, data.buckets);
-        let scale = quantize::scale(data.rows.iter().flat_map(|row| row.values.iter().copied()))
-            .unwrap_or(0);
         let mut heading = vec![
             json!({"id":"heading-padding","text":" ".repeat(name_width+1+spark_width+2)}),
             json!({"id":"heading-total","text":format!("{:>7}","TOK")}),
@@ -419,14 +448,12 @@ mod tests {
                 for row in &mut source.rows {
                     row.values = vec![Some(60); buckets];
                 }
-                let quota = quota_width(width, &source);
+                let (track, quota) = plot_layout(width, &source, true);
+                // The controller never asks for more buckets than the plot has cells.
+                if track < buckets {
+                    continue;
+                }
                 let scene = Scene::new(&source, width, quota).unwrap();
-                let tail = if quota > 0 {
-                    usize::from(quota) + QUOTA_GAP_WIDTH
-                } else {
-                    0
-                };
-                let track = usize::from(width) - (9 + NUMERIC_TRACK_WIDTH + 8 + tail);
                 let mut buffer = Buffer::empty(Rect::new(0, 0, width, 5));
                 let hits = scene
                     .paint(&mut buffer, &Theme::default(), Depth::TrueColor, &[], None)

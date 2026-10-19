@@ -314,6 +314,34 @@ pub(in crate::board) fn metered(look: crate::look::Look) -> App {
     app
 }
 
+fn capture_frame(
+    app: &App,
+    state: &str,
+    look_name: &str,
+    width: u16,
+    height: u16,
+    styles: &mut Styles,
+) -> Value {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| crate::board::view::render(frame, app))
+        .unwrap();
+    let mut captured = buffer_json(terminal.backend().buffer(), styles);
+    captured["state"] = json!(state);
+    captured["look"] = json!(look_name);
+    captured["width"] = json!(width);
+    captured["height"] = json!(height);
+    captured["hits"] = json!(format!("{:?}", app.hits.borrow()));
+    captured["actions"] = json!(format!("{:?}", app.workspace_action_hits.borrow()));
+    captured["tabs"] = json!(format!("{:?}", app.tab_hits.borrow()));
+    captured["starts"] = json!(*app.row_starts.borrow());
+    captured["selected"] = json!(format!("{:?}", app.workspace.selected));
+    captured["selectionState"] = json!(format!("{:?}", app.workspace_selection_state()));
+    captured["focus"] = json!(format!("{:?}", app.focused_pane()));
+    captured["input"] = json!(format!("{:?}", app.input_band.get()));
+    captured
+}
+
 fn captures() -> Value {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
@@ -363,27 +391,27 @@ fn captures() -> Value {
                         } else {
                             capture_case(state, look)
                         };
-                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-                        terminal
-                            .draw(|frame| crate::board::view::render(frame, &app))
-                            .unwrap();
-                        let mut captured = buffer_json(terminal.backend().buffer(), &mut styles);
-                        captured["state"] = json!(state);
-                        captured["look"] = json!(look_name);
-                        captured["width"] = json!(width);
-                        captured["height"] = json!(height);
-                        captured["hits"] = json!(format!("{:?}", app.hits.borrow()));
-                        captured["actions"] =
-                            json!(format!("{:?}", app.workspace_action_hits.borrow()));
-                        captured["tabs"] = json!(format!("{:?}", app.tab_hits.borrow()));
-                        captured["starts"] = json!(*app.row_starts.borrow());
-                        captured["selected"] = json!(format!("{:?}", app.workspace.selected));
-                        captured["selectionState"] =
-                            json!(format!("{:?}", app.workspace_selection_state()));
-                        captured["focus"] = json!(format!("{:?}", app.focused_pane()));
-                        captured["input"] = json!(format!("{:?}", app.input_band.get()));
+                        let captured =
+                            capture_frame(&app, state, look_name, width, height, &mut styles);
                         frames.push(captured);
                     }
+                }
+            }
+        }
+        for (look_name, look) in looks() {
+            for state in crate::board::overview::chart::host::tests::cases::NAMES {
+                for width in [60, 100, 103, 148, 200] {
+                    let app = crate::board::overview::chart::host::tests::cases::board_case(
+                        state, look, width,
+                    );
+                    frames.push(capture_frame(
+                        &app,
+                        state,
+                        look_name,
+                        width,
+                        51,
+                        &mut styles,
+                    ));
                 }
             }
         }

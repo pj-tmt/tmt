@@ -205,6 +205,17 @@ pub(super) fn model(app: &App) -> KeyHelp {
     if matches!(
         app.shell.tab,
         super::shell::OpsTab::Overview | super::shell::OpsTab::Digest
+    ) {
+        sections.push(section("usage-chart", "usage chart", &[
+            ("controls", "focus the chart control with its effective binding; Tab changes fields, Enter opens Range or Each, arrows choose and Enter applies; Esc closes"),
+            ("Auto", "uses the finest interval fitting the plot width and 720 buckets; fixed intervals survive resize; disabled choices explain the minimum interval"),
+            ("history", "arrows or wheel scroll; Home/End reach oldest/newest; hover or keyboard selection shows interval tokens and provider shares inline"),
+            ("readout", "click or Enter pins the selected interval; click again or Esc unpins; no Details window"),
+        ]));
+    }
+    if matches!(
+        app.shell.tab,
+        super::shell::OpsTab::Overview | super::shell::OpsTab::Digest
     ) && super::home::limits_enabled(app)
         && app.limits.as_ref().is_none_or(|values| !values.is_empty())
     {
