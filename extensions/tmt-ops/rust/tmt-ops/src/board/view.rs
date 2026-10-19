@@ -100,6 +100,7 @@ pub(in crate::board) fn render_frame(
     app.input_band.set(None);
     app.input_viewport.set(None);
     app.conversation.borrow_mut().pane = None;
+    super::conversation::source::begin_frame(app);
     app.pane_resize.begin_frame();
     app.buttons.begin_frame();
     app.hits.borrow_mut().clear();
@@ -246,6 +247,7 @@ pub(in crate::board) fn render_frame(
         look.selected_words_except(frame.buffer_mut(), &app.workspace_state_cells.borrow());
     }
     header::finish_meter_styles(frame, app, summary);
+    super::conversation::source::paint(frame, app);
 }
 
 #[cfg(test)]

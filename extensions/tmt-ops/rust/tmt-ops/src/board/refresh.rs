@@ -2245,6 +2245,7 @@ printf '%s\n' '{{}}'
             super::super::app::Effect::Act(super::super::app::Request::Copy {
                 text: "ship".into(),
                 program: Some(vec!["fixture-clipboard".into()]),
+                feedback: crate::board::app::CopyFeedback::Destination,
             })
         );
         drop(worker);

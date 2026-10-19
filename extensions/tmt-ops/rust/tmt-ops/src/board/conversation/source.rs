@@ -1,102 +1,260 @@
-//! Inline exact-source selection. Markdown geometry only opens the source view;
-//! byte selection belongs exclusively to a newly painted raw Editor layout.
-use super::{App, ConversationKey, RowTarget, Session, State, Target};
+//! Selection of already rendered text. A frozen passage is literal clipboard/chat
+//! content, never evidence for a request, recipient or exact row-note attachment.
+use super::{App, RowTarget, Session};
+use crate::board::home_leads::MessageKey;
 use crate::{
-    board::{
-        app::Effect,
-        home_leads::MessageKey,
-        response::{Attachment, Quote, Selection},
-    },
+    board::app::{CopyFeedback, Effect, Request},
     config::Pane,
-    look::Look,
 };
 use ratatui::{
     Frame,
-    crossterm::event::{MouseButton, MouseEvent, MouseEventKind},
+    crossterm::event::{
+        KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    },
     layout::Rect,
-    text::Line,
 };
-use tmt_cli_style::Role;
-use tmt_tui::components::strip;
-
-const ANNOTATE: &str = "Annotate selection";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Anchor {
-    Byte(usize),
-    Bottom,
-}
+use tmt_cli_style::{Role, grid::Align};
+use tmt_tui::components::Editor;
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone)]
-pub(super) struct ReplyHit {
-    pub area: Rect,
-    pub target: RowTarget,
-    pub key: MessageKey,
-    pub sequence: Option<u64>,
-    pub offset: usize,
+pub(super) struct Surface {
+    area: Rect,
+    target: RowTarget,
+    authors: Vec<String>,
+    text: Editor,
+}
+
+impl Surface {
+    #[cfg(test)]
+    pub(super) fn text(&self) -> &str {
+        self.text.as_str()
+    }
 }
 
 pub(super) struct Source {
-    target: Target,
-    selection: Selection,
-    anchor: Anchor,
-    // Text wrapping context, never pointer authority. Relative key bursts can
-    // advance before another paint while painted hit geometry is already gone.
-    layout_width: Option<u16>,
-    painted: Option<(Rect, usize)>,
-    annotate: Option<(Rect, Quote)>,
+    surface: Surface,
+    text: Editor,
+    dragging: bool,
+    control: Option<Rect>,
 }
 impl Source {
-    pub(super) fn desired_height(&self, width: u16) -> usize {
-        self.selection
-            .source
-            .layout(width)
+    fn author(&self) -> String {
+        let range = self.text.selection();
+        let layout = self.text.layout(self.surface.area.width);
+        let names: std::collections::BTreeSet<_> = layout
             .lines
-            .len()
-            .saturating_add(1)
-    }
-
-    pub(super) fn scroll(&mut self, offset: usize, step: super::Step, visible: bool) {
-        match step {
-            super::Step::Top => self.anchor = Anchor::Byte(0),
-            super::Step::Bottom => self.anchor = Anchor::Bottom,
-            super::Step::Lines(0) | super::Step::Pages(0) => {}
-            _ if visible => {
-                if let Some(width) = self.layout_width {
-                    let layout = self.selection.source.layout(width);
-                    let mut byte = layout
-                        .lines
-                        .get(offset.min(layout.lines.len().saturating_sub(1)))
-                        .map_or(0, |line| line.start)
-                        .min(self.selection.source.len());
-                    while !self.selection.source.is_char_boundary(byte) {
-                        byte = byte.saturating_sub(1);
-                    }
-                    self.anchor = Anchor::Byte(byte);
-                }
-            }
-            _ => {}
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.start < range.end && line.end > range.start)
+            .filter_map(|(index, _)| self.surface.authors.get(index))
+            .collect();
+        if names.len() == 1 {
+            (*names.first().unwrap()).clone()
+        } else {
+            "selection".into()
         }
-        self.invalidate();
     }
-
-    pub(super) fn invalidate(&mut self) {
-        self.painted = None;
-        self.annotate = None;
+    fn selected(&self) -> Option<String> {
+        let range = self.text.selection();
+        (!range.is_empty()).then(|| self.text.as_str()[range].to_owned())
     }
 }
 
-impl State {
+impl super::State {
     pub(in crate::board) fn invalidate_source_geometry(&mut self) {
-        self.reply_hits.clear();
+        self.source_surfaces.clear();
+        self.source_areas.clear();
         self.response_area = None;
-        self.source_drag = None;
-        for session in self.sessions.values_mut() {
-            if let Some(source) = &mut session.exact_source {
-                source.invalidate();
+        if let Some(source) = &mut self.selection {
+            source.control = None;
+        }
+    }
+}
+
+fn snapshot(
+    buffer: &ratatui::buffer::Buffer,
+    area: Rect,
+    target: RowTarget,
+    authors: Vec<String>,
+) -> Surface {
+    let mut rows = Vec::new();
+    for y in area.y..area.bottom() {
+        let mut line = String::new();
+        let mut x = area.x;
+        while x < area.right() {
+            let symbol = buffer[(x, y)].symbol();
+            line.push_str(symbol);
+            x = x.saturating_add(symbol.width().max(1) as u16);
+        }
+        rows.push(line.trim_end().to_owned());
+    }
+    let mut text = Editor::from(rows.join("\n"));
+    text.place(area.width, 0, 0, false);
+    Surface {
+        area,
+        target,
+        authors,
+        text,
+    }
+}
+
+/// Publish only the painted field rectangle. Literal selection captures its
+/// displayed cells after all ordinary renderers finish, not a hidden raw value.
+pub(in crate::board) fn publish(app: &App, target: RowTarget, area: Rect) {
+    if !area.is_empty() {
+        app.conversation
+            .borrow_mut()
+            .source_areas
+            .push((target, area));
+    }
+}
+
+pub(in crate::board) fn begin_frame(app: &App) {
+    let mut state = app.conversation.borrow_mut();
+    state.source_areas.clear();
+    state.source_surfaces.clear();
+    if let Some(source) = &mut state.selection {
+        source.control = None;
+    }
+}
+
+fn authors(app: &App, state: &super::State, target: &RowTarget, area: Rect) -> Vec<String> {
+    let name = app
+        .target_row(target)
+        .and_then(|row| row["name"].as_str())
+        .unwrap_or("agent");
+    let session = state
+        .active
+        .as_ref()
+        .and_then(|key| state.sessions.get(key));
+    (0..usize::from(area.height))
+        .map(|row| {
+            let Some(session) = session.filter(|_| state.response_area == Some(area)) else {
+                return name.to_owned();
+            };
+            let Some(rendered) = session.rendered.as_ref() else {
+                return name.to_owned();
+            };
+            let Some(line) = rendered
+                .mapped
+                .sources
+                .get(app.scrolls.offset(Pane::Replies) + row)
+                .copied()
+            else {
+                return name.to_owned();
+            };
+            if let Some((key, _)) = session.response_key_at(line) {
+                return app.quote_author(&key.lead).unwrap_or(name).to_owned();
+            }
+            let original = rendered
+                .response_sources
+                .as_ref()
+                .map_or(Some(line), |sources| sources.get(line).copied().flatten());
+            if original
+                .and_then(|line| session.authored_lines.range(..=line).next_back())
+                .is_some_and(|(_, kind)| matches!(kind, super::AuthoredLine::Outgoing { .. }))
+            {
+                app.view
+                    .as_ref()
+                    .and_then(|view| view.me.clone())
+                    .unwrap_or_else(|| "you".into())
+            } else {
+                name.to_owned()
+            }
+        })
+        .collect()
+}
+
+/// Paint follows the ordinary conversation, without reserving rows or replacing
+/// its Markdown. Only frame geometry expires; the selected literal text survives.
+pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
+    let mut state = app.conversation.borrow_mut();
+    state.source_surfaces.clear();
+    if let Some(source) = &mut state.selection {
+        source.control = None;
+    }
+    if !app.button_owner_is_active(None)
+        || app
+            .input
+            .as_ref()
+            .is_some_and(|input| input.draft_key.is_none())
+    {
+        return;
+    }
+    let mut areas = state.source_areas.clone();
+    if let Some((target, area)) = app.conversation_target().zip(state.response_area) {
+        areas.push((target, area));
+    }
+    let surfaces: Vec<_> = areas
+        .into_iter()
+        .filter_map(|(target, area)| {
+            let area = area.intersection(frame.area());
+            if area.is_empty() {
+                return None;
+            }
+            let authors = authors(app, &state, &target, area);
+            Some(snapshot(frame.buffer_mut(), area, target, authors))
+        })
+        .collect();
+    if let Some(source) = &mut state.selection {
+        let range = source.text.selection();
+        if !range.is_empty()
+            && surfaces.iter().any(|surface| {
+                surface.target == source.surface.target && surface.area == source.surface.area
+            })
+        {
+            let layout = source.text.layout(source.surface.area.width);
+            let mut end = None;
+            let mut matches = true;
+            for (row, line) in layout
+                .lines
+                .iter()
+                .enumerate()
+                .take(usize::from(source.surface.area.height))
+            {
+                for cell in &line.cells {
+                    if cell.source.start >= range.end || cell.source.end <= range.start {
+                        continue;
+                    }
+                    let x = source.surface.area.x + cell.column as u16;
+                    let y = source.surface.area.y + row as u16;
+                    if x >= source.surface.area.right()
+                        || frame.buffer_mut()[(x, y)].symbol() != cell.text
+                    {
+                        matches = false;
+                        continue;
+                    }
+                    for column in x..x
+                        .saturating_add(cell.width as u16)
+                        .min(source.surface.area.right())
+                    {
+                        frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
+                    }
+                    end = Some((x + cell.width as u16, y));
+                }
+            }
+            if matches && let Some((x, y)) = end {
+                let area = source.surface.area;
+                let (x, y) = if area.right().saturating_sub(x + 1) >= 9 {
+                    (x + 1, y)
+                } else {
+                    (area.x, y + 1)
+                };
+                if y < area.bottom() {
+                    source.control = crate::board::buttons::paint(
+                        app,
+                        frame.buffer_mut(),
+                        Rect::new(x, y, area.right().saturating_sub(x), 1),
+                        &[crate::board::buttons::Button::secondary("+ Quote")],
+                        Align::Left,
+                        None,
+                    )[0];
+                }
             }
         }
     }
+    state.source_surfaces = surfaces;
 }
 
 impl Session {
@@ -151,32 +309,125 @@ impl Session {
 impl App {
     pub(in crate::board::conversation) fn receiving_conversation(
         &self,
-    ) -> Option<(ConversationKey, RowTarget)> {
+    ) -> Option<(super::ConversationKey, RowTarget)> {
         let target = self.conversation_target()?;
         let id = self.target_row(&target)?["id"].as_str()?.to_owned();
         Some(((self.view.as_ref()?.me_id.clone(), id), target))
     }
-
-    /// This port owns only one Esc level, after all higher input/overlay owners.
     pub(in crate::board) fn conversation_source_escape(&mut self) -> bool {
-        if self.focused() != Pane::Replies {
-            return false;
+        self.conversation.borrow_mut().selection.take().is_some()
+    }
+    pub(in crate::board) fn conversation_source_outside_press(&mut self, event: MouseEvent) {
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return;
         }
-        let Some((key, _)) = self.receiving_conversation() else {
-            return false;
-        };
+        let point = (event.column, event.row).into();
         let mut state = self.conversation.borrow_mut();
-        let Some(session) = state.sessions.get_mut(&key) else {
-            return false;
-        };
-        if session.exact_source.take().is_none() {
-            return false;
+        if state.selection.as_ref().is_some_and(|source| {
+            !source.surface.area.contains(point)
+                && !source.control.is_some_and(|area| area.contains(point))
+        }) {
+            state.selection = None;
         }
-        // The normal response painter restores its retained source anchor.
-        session.rendered = None;
+    }
+    fn copy_rendered_selection(&self, text: String) -> Effect {
+        Effect::Act(Request::Copy {
+            text,
+            program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+            feedback: CopyFeedback::Selection,
+        })
+    }
+    pub(in crate::board) fn conversation_source_key(&mut self, event: KeyEvent) -> Option<Effect> {
+        if self.focused() != Pane::Replies
+            || self.searching
+            || self.input.is_some()
+            || event.kind == KeyEventKind::Release
+        {
+            return None;
+        }
+        let target = self.conversation_target()?;
+        let mut state = self.conversation.borrow_mut();
+        let movement = matches!(
+            event.code,
+            KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Home
+                | KeyCode::End
+        );
+        if movement && event.modifiers.contains(KeyModifiers::SHIFT) {
+            if state.selection.is_none() {
+                let surface = state
+                    .source_surfaces
+                    .iter()
+                    .find(|surface| surface.target == target)?
+                    .clone();
+                state.selection = Some(Source {
+                    text: surface.text.clone(),
+                    surface,
+                    dragging: false,
+                    control: None,
+                });
+            }
+            let source = state.selection.as_mut().unwrap();
+            source
+                .text
+                .key(event, source.surface.area.width, usize::MAX);
+            source.control = None;
+            return Some(Effect::None);
+        }
+        let source = state.selection.as_ref()?;
+        if event.code == KeyCode::Esc {
+            state.selection = None;
+            return Some(Effect::None);
+        }
+        let passage = source.selected()?;
+        match event.code {
+            KeyCode::Char('y') if event.modifiers.is_empty() => {
+                drop(state);
+                Some(self.copy_rendered_selection(passage))
+            }
+            KeyCode::Enter if event.modifiers.is_empty() => {
+                let author = source.author();
+                let target = source.surface.target.clone();
+                state.selection = None;
+                drop(state);
+                Some(self.quote_rendered(target, author, passage))
+            }
+            _ => None,
+        }
+    }
+    pub(in crate::board) fn conversation_quote_mouse(
+        &mut self,
+        event: MouseEvent,
+    ) -> Option<Effect> {
+        if event.kind != MouseEventKind::Down(MouseButton::Left) {
+            return None;
+        }
+        let point = (event.column, event.row).into();
+        let mut state = self.conversation.borrow_mut();
+        let source = state
+            .selection
+            .as_ref()
+            .filter(|source| source.control.is_some_and(|area| area.contains(point)))?;
+        let passage = source.selected()?;
+        let author = source.author();
+        let target = source.surface.target.clone();
+        state.selection = None;
         drop(state);
-        self.invalidate_frame_geometry();
-        true
+        Some(self.quote_rendered(target, author, passage))
+    }
+    fn quote_rendered(&mut self, target: RowTarget, author: String, passage: String) -> Effect {
+        if self.conversation_target().as_ref() != Some(&target)
+            && let RowTarget::Workspace(target) = &target
+        {
+            self.choose(crate::board::app::Choice::WorkspaceTarget(target.clone()));
+        }
+        if self.conversation_target().as_ref() != Some(&target) {
+            return self.say("This member is no longer available; draft retained.");
+        }
+        self.add_chat_quote(author, passage)
     }
 
     pub(in crate::board) fn conversation_source_mouse(
@@ -186,182 +437,73 @@ impl App {
         if self.searching {
             return None;
         }
-        let (key, target) = self.receiving_conversation()?;
         let point = (event.column, event.row).into();
         let mut state = self.conversation.borrow_mut();
-        if state.active.as_ref() != Some(&key) || !self.scrolls.visible(Pane::Replies) {
-            return None;
-        }
-        let pane = state.pane?;
-        let offset = self.scrolls.offset(Pane::Replies);
-        let session = state.sessions.get_mut(&key)?;
-        if let Some(source) = &mut session.exact_source {
-            let (area, painted_offset) = source.painted?;
-            if painted_offset != offset
-                || area.intersection(pane) != area
-                || source.target != Target::Row(target)
-            {
-                return None;
-            }
-            if event.kind == MouseEventKind::Down(MouseButton::Left)
-                && let Some((button, quote)) = &source.annotate
-                && button.contains(point)
-                && source.selection.quote().as_ref() == Some(quote)
-            {
-                let quote = quote.clone();
-                let target = source.target.clone();
-                drop(state);
-                let result = self.attach_response_quote(target, quote);
-                if matches!(result, Attachment::Composer(_) | Attachment::Opened { .. })
-                    && let Some(session) = self.conversation.borrow_mut().sessions.get_mut(&key)
-                {
-                    session.exact_source = None;
-                    session.rendered = None;
-                }
-                self.invalidate_frame_geometry();
-                return Some(result.finish(self));
-            }
-            if area.contains(point)
-                && matches!(
-                    event.kind,
-                    MouseEventKind::Down(MouseButton::Left)
-                        | MouseEventKind::Drag(MouseButton::Left)
-                )
-            {
-                source.selection.source.place(
-                    area.width,
-                    offset + usize::from(event.row - area.y),
-                    usize::from(event.column - area.x),
-                    matches!(event.kind, MouseEventKind::Drag(_))
-                        || event
-                            .modifiers
-                            .contains(ratatui::crossterm::event::KeyModifiers::SHIFT),
-                );
-                source.annotate = None;
-                return Some(Effect::None);
-            }
-            return None;
-        }
-        let hit = state
-            .reply_hits
-            .iter()
-            .find(|hit| hit.area.contains(point) && hit.target == target && hit.offset == offset)
-            .cloned();
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                state.source_drag = hit;
-                None
-            }
-            MouseEventKind::Drag(MouseButton::Left) => {
-                let hit = hit?;
-                let start = state.source_drag.take()?;
-                if (!start.key.same_source(&hit.key) || start.sequence != hit.sequence)
-                    || start.target != hit.target
-                    || start.offset != offset
-                {
-                    return None;
-                }
-                let session = state.sessions.get_mut(&key)?;
-                let reply = session.retained_response(&hit.key, hit.sequence)?;
-                session.exact_source = Some(Source {
-                    target: Target::Row(target),
-                    selection: Selection::new(hit.key, reply.body.clone()),
-                    anchor: Anchor::Byte(0),
-                    layout_width: None,
-                    painted: None,
-                    annotate: None,
+                let surface = state
+                    .source_surfaces
+                    .iter()
+                    .find(|surface| surface.area.contains(point))?
+                    .clone();
+                let mut text = surface.text.clone();
+                text.place(
+                    surface.area.width,
+                    usize::from(event.row - surface.area.y),
+                    usize::from(event.column - surface.area.x),
+                    false,
+                );
+                state.selection = Some(Source {
+                    surface,
+                    text,
+                    dragging: true,
+                    control: None,
                 });
-                session.follow = false;
+                if let Some(active) = state.active.clone()
+                    && let Some(session) = state.sessions.get_mut(&active)
+                {
+                    session.follow = false;
+                    session.folds.focused = None;
+                }
                 drop(state);
                 self.focus = 1;
-                self.invalidate_frame_geometry();
-                self.scrolls.restore([(Pane::Replies, 0)]);
                 Some(Effect::None)
             }
-            _ => None,
-        }
-    }
-}
-
-pub(super) fn paint_with_interactivity(
-    frame: &mut Frame,
-    app: &App,
-    source: &mut Source,
-    target: &RowTarget,
-    body: Rect,
-    look: Look,
-    interactive: bool,
-) {
-    source.invalidate();
-    let footer = (body.height > 1).then(|| Rect::new(body.x, body.bottom() - 1, body.width, 1));
-    let area = Rect {
-        height: body.height - u16::from(footer.is_some()),
-        ..body
-    };
-    let layout = source.selection.source.layout(area.width);
-    source.layout_width = Some(area.width);
-    let offset = match source.anchor {
-        Anchor::Bottom => layout.lines.len(),
-        Anchor::Byte(byte) => layout
-            .lines
-            .iter()
-            .rposition(|line| line.start <= byte)
-            .unwrap_or_default(),
-    };
-    app.scrolls.restore([(Pane::Replies, offset)]);
-    app.scrolls.show_paint(
-        frame,
-        Pane::Replies,
-        area,
-        layout.lines.len(),
-        look,
-        |frame, viewport, offset| {
-            layout.paint(
-                frame.buffer_mut(),
-                viewport,
-                offset,
-                source.selection.source.selection(),
-                look.role(Role::Text),
-                look.role(Role::Text)
-                    .add_modifier(ratatui::style::Modifier::REVERSED),
-            );
-            if interactive {
-                source.painted = Some((viewport, offset));
+            MouseEventKind::Drag(MouseButton::Left) => {
+                let fresh = state.selection.as_ref().is_some_and(|source| {
+                    state.source_surfaces.iter().any(|surface| {
+                        surface.area == source.surface.area
+                            && surface.target == source.surface.target
+                            && surface.text.as_str() == source.surface.text.as_str()
+                    })
+                });
+                if !fresh {
+                    if let Some(source) = &mut state.selection {
+                        source.dragging = false;
+                    }
+                    return Some(Effect::None);
+                }
+                let source = state.selection.as_mut().filter(|source| source.dragging)?;
+                let area = source.surface.area;
+                // A drag may end just beyond a field's final cell. Clamp its
+                // caret to the frozen surface rather than losing that last glyph.
+                source.text.place(
+                    area.width,
+                    usize::from(event.row.saturating_sub(area.y).min(area.height - 1)),
+                    usize::from(event.column.saturating_sub(area.x).min(area.width)),
+                    true,
+                );
+                source.control = None;
+                Some(Effect::None)
             }
-        },
-    );
-    if let Some(footer) = footer {
-        let quote = source.selection.quote().filter(|quote| {
-            source.target == Target::Row(target.clone())
-                && app.response_quote_current(&source.target, quote)
-        });
-        let control = if interactive && quote.is_some() {
-            super::super::buttons::paint(
-                app,
-                frame.buffer_mut(),
-                footer,
-                &[super::super::buttons::Button::secondary(ANNOTATE)],
-                tmt_cli_style::grid::Align::Left,
-                None,
-            )[0]
-        } else {
-            None
-        };
-        if let Some(control) = control.zip(quote) {
-            source.annotate = Some(control);
-        } else {
-            strip::paint_left(
-                frame.buffer_mut(),
-                footer,
-                Line::styled(
-                    if interactive {
-                        "Drag exact source · View reply for keyboard selection"
-                    } else {
-                        "Clear the filter to annotate this source."
-                    },
-                    look.role(Role::Dim),
-                ),
-            );
+            MouseEventKind::Up(MouseButton::Left) => {
+                let source = state.selection.as_mut().filter(|source| source.dragging)?;
+                source.dragging = false;
+                let passage = source.selected();
+                drop(state);
+                Some(passage.map_or(Effect::None, |text| self.copy_rendered_selection(text)))
+            }
+            _ => None,
         }
     }
 }

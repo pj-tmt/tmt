@@ -55,12 +55,6 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
     let mut state = app.conversation.borrow_mut();
     let session = state.sessions.entry(identity).or_default();
     session.observe_context(app, &target, row);
-    if let Some(source) = &session.exact_source {
-        return source
-            .desired_height(width)
-            .saturating_add(1)
-            .min(usize::from(u16::MAX)) as u16;
-    }
     if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
         return 1;
     }
@@ -88,7 +82,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     {
         let mut state = app.conversation.borrow_mut();
         state.header_hits.clear();
-        state.reply_hits.clear();
         state.fold_hits.clear();
         state.response_area = None;
     }
@@ -196,23 +189,14 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     let read_only = read_only || session.change != Change::Current;
     let header = Rect {
         height: area.height.min(u16::from(
-            session.exact_source.is_some()
-                || (session.finals.is_empty()
-                    && (session.reply.is_some() || !session.outgoing.is_empty())),
+            session.finals.is_empty() && (session.reply.is_some() || !session.outgoing.is_empty()),
         )),
         ..area
     };
     strip::paint_left(
         frame.buffer_mut(),
         header,
-        if session.exact_source.is_some() {
-            Line::styled(
-                format!("Exact response source · {name}"),
-                look.role(Role::Muted),
-            )
-        } else {
-            exchange::header(name, me, &stamp, read_only, usize::from(area.width), look)
-        },
+        exchange::header(name, me, &stamp, read_only, usize::from(area.width), look),
     );
     let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(question && session.outgoing.is_empty() && area.height >= 3)
@@ -234,18 +218,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         area.height.saturating_sub(header.height + footer_rows),
     );
     if body.is_empty() {
-        return;
-    }
-    if let Some(source) = &mut session.exact_source {
-        source::paint_with_interactivity(
-            frame,
-            app,
-            source,
-            &target,
-            body,
-            look,
-            surface.interactive(),
-        );
         return;
     }
     let mapped = &session.rendered.as_ref().unwrap().mapped;
@@ -337,21 +309,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             },
         );
     }
-    let mut hits = Vec::new();
-    for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
-        if surface.interactive()
-            && mapped.lines[index].width() > 0
-            && let Some((key, sequence)) = session.response_key_at(mapped.sources[index])
-        {
-            hits.push(source::ReplyHit {
-                area: Rect::new(body.x, body.y + (index - offset) as u16, body.width, 1),
-                target: target.clone(),
-                key: key.clone(),
-                sequence,
-                offset,
-            });
-        }
-    }
     let fold_hits = if surface.interactive() {
         session
             .rendered
@@ -395,7 +352,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             ),
         );
     }
-    state.reply_hits = hits;
     state.fold_hits = fold_hits;
     state.response_area = Some(body);
 }

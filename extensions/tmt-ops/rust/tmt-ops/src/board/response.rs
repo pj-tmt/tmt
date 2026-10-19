@@ -215,6 +215,7 @@ impl super::app::App {
                 Effect::Act(Request::Copy {
                     text: quote.text,
                     program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                    feedback: crate::board::app::CopyFeedback::Destination,
                 })
             });
         }

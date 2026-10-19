@@ -68,14 +68,38 @@ pub(in crate::board) fn line(row: &Row<'_>, width: usize, look: Look) -> Line<'s
 }
 
 pub(in crate::board) fn paint(buffer: &mut Buffer, area: Rect, row: &Row<'_>, look: Look) {
+    paint_value(buffer, area, row, look);
+}
+
+/// The same formatted line supplies the observed value's selectable geometry.
+pub(in crate::board) fn paint_value(
+    buffer: &mut Buffer,
+    area: Rect,
+    row: &Row<'_>,
+    look: Look,
+) -> Option<Rect> {
+    let painted = line(row, usize::from(area.width), look);
+    let value = if area.height > 0 && matches!(row.value, Value::Observed(_)) {
+        painted.spans.get(3).map(|span| {
+            Rect::new(
+                area.x + painted.spans.iter().take(3).map(Span::width).sum::<usize>() as u16,
+                area.y,
+                span.width() as u16,
+                1,
+            )
+        })
+    } else {
+        None
+    };
     strip::paint_left(
         buffer,
         Rect {
             height: area.height.min(1),
             ..area
         },
-        line(row, usize::from(area.width), look),
+        painted,
     );
+    value.filter(|area| !area.is_empty())
 }
 
 #[cfg(test)]

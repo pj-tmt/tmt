@@ -34,543 +34,316 @@ fn mouse(app: &mut App, kind: MouseEventKind, column: u16, row: u16) -> Effect {
         std::time::Instant::now(),
     )
 }
-fn enter(app: &mut App) {
-    draw(app, 100, 36);
-    let hit = app
-        .conversation
-        .borrow()
-        .reply_hits
-        .first()
-        .cloned()
-        .unwrap();
-    assert_eq!(
-        mouse(
-            app,
-            MouseEventKind::Down(MouseButton::Left),
-            hit.area.x,
-            hit.area.y
-        ),
-        Effect::None
+#[test]
+fn the_first_rendered_drag_selects_in_place_and_mouse_up_copies_visible_text() {
+    let mut app = fixture("first **styled** passage\nnext line");
+    let before = draw(&mut app, 100, 36);
+    let (row, column) = (0..before.area.height)
+        .find_map(|y| {
+            (0..before.area.width)
+                .find(|x| {
+                    let tail: String = (*x..before.area.width)
+                        .map(|column| before[(column, y)].symbol())
+                        .collect();
+                    tail.starts_with("first styled passage")
+                })
+                .map(|x| (y, x))
+        })
+        .expect("rendered message body is visible");
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
     );
-    assert_eq!(
-        mouse(
-            app,
-            MouseEventKind::Drag(MouseButton::Left),
-            hit.area.x + 2,
-            hit.area.y
-        ),
-        Effect::None
+    mouse(
+        &mut app,
+        MouseEventKind::Drag(MouseButton::Left),
+        column + 12,
+        row,
     );
-    let state = app.conversation.borrow();
-    let source = state
-        .sessions
-        .get(state.active.as_ref().unwrap())
-        .unwrap()
-        .exact_source
-        .as_ref()
-        .unwrap();
+    let after = draw(&mut app, 100, 36);
+    let painted: String = after.content.iter().map(|cell| cell.symbol()).collect();
     assert!(
-        source.selection.quote().is_none(),
-        "styled drag cannot guess bytes"
+        !painted.contains("Exact response source"),
+        "the first drag must keep the rendered conversation in place"
+    );
+    let copied = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        column + 12,
+        row,
     );
     assert!(
-        source.painted.is_none(),
-        "only a new raw-source paint grants geometry"
+        matches!(copied, Effect::Act(crate::board::app::Request::Copy { text, .. }) if text == "first styled")
     );
 }
-fn area(app: &App) -> Rect {
-    let state = app.conversation.borrow();
-    state
-        .sessions
-        .get(state.active.as_ref().unwrap())
-        .unwrap()
-        .exact_source
-        .as_ref()
-        .unwrap()
-        .painted
-        .unwrap()
-        .0
+
+fn select_words(app: &mut App, words: &str) -> (u16, u16) {
+    select_at_width(app, words, 100)
 }
-fn quote(app: &App) -> Quote {
-    let state = app.conversation.borrow();
-    state
-        .sessions
-        .get(state.active.as_ref().unwrap())
-        .unwrap()
-        .exact_source
-        .as_ref()
-        .unwrap()
-        .selection
-        .quote()
-        .unwrap()
-}
-fn select(app: &mut App, column: u16) {
-    let area = area(app);
-    mouse(app, MouseEventKind::Down(MouseButton::Left), area.x, area.y);
+fn select_at_width(app: &mut App, words: &str, width: u16) -> (u16, u16) {
+    let buffer = draw(app, width, 36);
+    let (x, y) = (0..buffer.area.height)
+        .find_map(|y| {
+            (0..buffer.area.width)
+                .find(|x| {
+                    let line: String = (*x..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect();
+                    line.starts_with(words)
+                })
+                .map(|x| (x, y))
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the visible passage exists at {width}:\n{}",
+                buffer
+                    .content
+                    .chunks(usize::from(width))
+                    .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        });
+    mouse(app, MouseEventKind::Down(MouseButton::Left), x, y);
     mouse(
         app,
         MouseEventKind::Drag(MouseButton::Left),
-        area.x + column,
-        area.y,
+        x + words.chars().count() as u16,
+        y,
     );
-}
-fn button(app: &App) -> Option<Rect> {
-    let state = app.conversation.borrow();
-    state
-        .sessions
-        .get(state.active.as_ref().unwrap())
-        .unwrap()
-        .exact_source
-        .as_ref()
-        .unwrap()
-        .annotate
-        .as_ref()
-        .map(|(area, _)| *area)
+    (x, y)
 }
 
 #[test]
-fn styled_drag_requires_a_new_exact_paint_and_annotation_keeps_unicode_raw_bytes() {
-    let raw = "漢字 e\u{301} **literal**\n\x1b[31m controls";
-    let mut app = fixture(raw);
-    enter(&mut app);
-    let shown = draw(&mut app, 100, 36);
+fn refresh_keeps_the_selected_literal_quote_without_request_identity_checks() {
+    let mut app = fixture("literal passage");
+    let (x, y) = select_words(&mut app, "literal passage");
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 15, y);
+    app.view.as_mut().unwrap().replies =
+        vec![json!({"recipientId":MEMBER,"requestId":"replacement","response":"different reply"})];
+    app.conversation.borrow_mut().invalidate_source_geometry();
+    draw(&mut app, 100, 36);
+    let effect = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(effect, Effect::None);
+    let input = app
+        .input
+        .as_ref()
+        .expect("quote opens the admitted member draft");
+    assert_eq!(input.chat_quotes[0].text, "literal passage");
+    assert!(input.text.is_empty(), "a chip does not become editor text");
     assert!(
-        shown
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>()
-            .contains("Exact response source")
+        input.response_quotes.is_empty(),
+        "literal chips grant no exact-source authority"
     );
-    assert!(button(&app).is_none());
-    select(&mut app, 6);
-    let quote = quote(&app);
-    assert_eq!(quote.text, "漢字 e\u{301}");
-    assert_eq!(raw.get(quote.range.clone()), Some(quote.text.as_str()));
-    assert_eq!(quote.key.request, "r1");
-    assert_eq!(quote.key.lead, MEMBER);
-    draw(&mut app, 160, 36);
-    let hit = button(&app).unwrap();
+}
+
+#[test]
+fn resize_stops_a_stale_drag_without_clearing_the_frozen_quote() {
+    let mut app = fixture("literal passage");
+    let (x, y) = select_words(&mut app, "literal");
+    draw(&mut app, 60, 24);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 14, y);
     assert_eq!(
-        mouse(
-            &mut app,
-            MouseEventKind::Down(MouseButton::Left),
-            hit.x,
-            hit.y
-        ),
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 14, y),
         Effect::None
     );
-    assert_eq!(
-        app.input.as_ref().unwrap().response_quotes.as_slice(),
-        std::slice::from_ref(&quote)
-    );
-    assert_eq!(
-        app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
-        MEMBER
-    );
-    let Effect::Act(crate::board::app::Request::Annotate { text, to, .. }) =
-        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
-    else {
-        panic!("explicit annotation effect");
-    };
-    assert_eq!(to, "worker");
-    assert_eq!(text, "[product · worker]\n> 漢字 e\u{301}");
+    let state = app.conversation.borrow();
+    let source = state.selection.as_ref().unwrap();
+    assert_eq!(source.selected().as_deref(), Some("literal"));
+    assert!(!source.dragging);
 }
 
 #[test]
-fn resize_scroll_and_changed_source_refuse_old_pointer_authority() {
-    for change in ["resize", "scroll", "request", "body", "removed"] {
-        let mut app = fixture(&format!("{}\n", "source line ".repeat(30)).repeat(30));
-        enter(&mut app);
-        draw(&mut app, 100, 36);
-        select(&mut app, 6);
-        let selected = quote(&app);
-        draw(&mut app, 100, 36);
-        let old_area = area(&app);
-        let old_button = button(&app).unwrap();
-        match change {
-            "resize" => app.invalidate_frame_geometry(),
-            "scroll" => app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(3)),
-            "request" => app.view.as_mut().unwrap().replies[0]["requestId"] = json!("r2"),
-            "body" => app.view.as_mut().unwrap().replies[0]["response"] = json!("changed"),
-            _ => app
-                .view
-                .as_mut()
-                .unwrap()
-                .home
-                .as_mut()
-                .unwrap()
-                .workspace
-                .roster
-                .squads[0]
-                .members
-                .clear(),
-        }
-        assert_eq!(
-            mouse(
-                &mut app,
-                MouseEventKind::Drag(MouseButton::Left),
-                old_area.x + 12,
-                old_area.y
-            ),
-            Effect::None
-        );
-        assert_eq!(
-            mouse(
-                &mut app,
-                MouseEventKind::Down(MouseButton::Left),
-                old_button.x,
-                old_button.y
-            ),
-            Effect::None
-        );
-        assert!(app.input.is_none(), "{change}: stale control cannot attach");
-        if matches!(change, "resize" | "scroll") {
-            assert_eq!(
-                quote(&app),
-                selected,
-                "{change}: stale position cannot change bytes"
-            );
-            draw(&mut app, 60, 36);
-        } else if change != "removed" {
-            draw(&mut app, 100, 36);
-            assert!(
-                button(&app).is_none(),
-                "{change}: changed source hides Annotate"
-            );
-        }
-    }
-}
-
-#[test]
-fn inline_quote_tracks_renamed_uuid_and_escape_dismisses_one_owner_per_press() {
-    let mut app = fixture("same identity source");
-    enter(&mut app);
-    draw(&mut app, 100, 36);
-    select(&mut app, 4);
-    let quote = quote(&app);
-    let selected = app.workspace.selected.clone().unwrap();
-    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
-    home.workspace.roster.members.get_mut(MEMBER).unwrap().name = "renamed".into();
-    home.workspace.rows.get_mut(&selected).unwrap()["name"] = json!("renamed");
-    draw(&mut app, 100, 36);
-    let hit = button(&app).unwrap();
-    mouse(
-        &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        hit.x,
-        hit.y,
-    );
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, [quote]);
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Annotate { to, .. } if to == "renamed")
-    );
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+fn escape_and_outside_press_clear_only_the_selection() {
+    let mut app = fixture("literal passage");
+    select_words(&mut app, "literal");
+    assert!(app.conversation_source_escape());
+    assert!(app.conversation.borrow().selection.is_none());
+    select_words(&mut app, "literal");
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), 0, 0);
+    assert!(app.conversation.borrow().selection.is_none());
     assert!(app.input.is_none());
-    assert_eq!(app.focused(), Pane::Rows);
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.input.as_ref().unwrap().response_quotes.len(), 1);
-
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    enter(&mut app);
-    draw(&mut app, 100, 36);
-    app.overview_details();
-    assert!(app.monitor_details.is_some());
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(app.monitor_details.is_none());
-    assert!(
-        app.conversation
-            .borrow()
-            .sessions
-            .values()
-            .any(|session| session.exact_source.is_some())
-    );
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert!(
-        app.conversation
-            .borrow()
-            .sessions
-            .values()
-            .all(|session| session.exact_source.is_none())
-    );
-    assert_eq!(
-        app.focused(),
-        Pane::Replies,
-        "source Esc stays at conversation level"
-    );
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    assert_eq!(app.focused(), Pane::Rows);
 }
 
 #[test]
-fn wrapped_scrolled_control_source_keeps_exact_combining_bytes_after_resize() {
-    let prefix = format!("{}\r\n", "0123456789".repeat(12)).repeat(30);
-    let raw = format!("{prefix}漢字 e\u{301} \x1b[31m literal");
-    let mut app = fixture(&raw);
-    enter(&mut app);
+fn read_focus_shift_arrows_and_y_copy_plain_text() {
+    let mut app = fixture("literal passage");
     draw(&mut app, 100, 36);
-    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Bottom);
-    let shown = draw(&mut app, 60, 36);
-    let area = area(&app);
-    let row = (area.y..area.bottom())
-        .find(|row| shown[(area.x, *row)].symbol() == "漢")
+    app.focus = 1;
+    app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
+    let selected = app
+        .conversation
+        .borrow()
+        .selection
+        .as_ref()
+        .unwrap()
+        .selected()
         .unwrap();
-    assert!(app.scrolls.offset(Pane::Replies) > 30);
-    mouse(
-        &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        area.x,
-        row,
-    );
-    mouse(
-        &mut app,
-        MouseEventKind::Drag(MouseButton::Left),
-        area.x + 6,
-        row,
-    );
-    let selected = quote(&app);
-    assert_eq!(
-        selected.range,
-        prefix.len()..prefix.len() + "漢字 e\u{301}".len()
-    );
-    assert_eq!(selected.text, "漢字 e\u{301}");
-    draw(&mut app, 160, 36);
-    assert_eq!(quote(&app), selected);
-    let hit = button(&app).unwrap();
-    mouse(
-        &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        hit.x,
-        hit.y,
-    );
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, [selected]);
-}
-
-#[test]
-fn paused_byte_anchor_and_selection_survive_reflow_without_stale_pointer_authority() {
-    let raw = format!(
-        "{}TAIL_END",
-        format!("{}\r\n", "漢 e\u{301} 0123456789 ".repeat(15)).repeat(80)
-    );
-    let mut app = fixture(&raw);
-    enter(&mut app);
-    draw(&mut app, 100, 36);
-    let anchor = |app: &App| {
-        let state = app.conversation.borrow();
-        state.sessions[state.active.as_ref().unwrap()]
-            .exact_source
-            .as_ref()
-            .unwrap()
-            .anchor
-    };
-    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(7));
-    let first = anchor(&app);
-    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(5));
-    let kept = anchor(&app);
-    assert!(matches!((first, kept), (Anchor::Byte(a), Anchor::Byte(b)) if b > a));
-    draw(&mut app, 100, 36);
-    select(&mut app, 6);
-    let selected = quote(&app);
-    assert_eq!(
-        raw.get(selected.range.clone()),
-        Some(selected.text.as_str())
-    );
-    for width in [60, 160, 100] {
-        let stale = area(&app);
-        app.invalidate_frame_geometry();
-        mouse(
-            &mut app,
-            MouseEventKind::Down(MouseButton::Left),
-            stale.x,
-            stale.y,
-        );
-        app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(0));
-        app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(3));
-        assert_eq!(anchor(&app), kept);
-        assert_eq!(quote(&app), selected);
-        draw(&mut app, width, 36);
-        assert_eq!(anchor(&app), kept, "paint cannot replace the source anchor");
-        assert_eq!(quote(&app), selected);
-        let painted = area(&app);
-        let state = app.conversation.borrow();
-        let source = state.sessions[state.active.as_ref().unwrap()]
-            .exact_source
-            .as_ref()
-            .unwrap();
-        let layout = source.selection.source.layout(painted.width);
-        let first = &layout.lines[app.scrolls.offset(Pane::Replies)];
-        let Anchor::Byte(byte) = kept else {
-            panic!("relative scrolling must retain a byte anchor")
-        };
-        assert!(first.start <= byte && byte <= first.end);
-        assert!(raw.is_char_boundary(byte));
-    }
-    app.scroll_pane(Pane::Replies, crate::board::scroll::Step::Bottom);
-    for width in [60, 160, 100] {
-        app.invalidate_frame_geometry();
-        let shown = draw(&mut app, width, 36);
-        assert_eq!(anchor(&app), Anchor::Bottom);
-        assert_eq!(quote(&app), selected);
-        let text = shown
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>();
-        assert!(text.contains("TAIL_END"), "Bottom remains the visible tail");
-    }
-}
-
-#[test]
-fn common_pool_inline_quote_opens_pinned_talk_and_never_a_squad_note() {
-    use crate::board::workspace::OpsTarget;
-    let mut app = fixture("literal Common pool response");
-    let target = OpsTarget::Member {
-        room_id: None,
-        identity_id: MEMBER.into(),
-    };
-    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
-    home.workspace.roster.squads[0].members.clear();
-    home.workspace.rows.insert(
-        target.clone(),
-        json!({"id":MEMBER,"name":"worker","state":"working"}),
-    );
-    app.workspace.pool_expanded = true;
-    app.workspace.selected = Some(target);
-    app.workspace_reconcile();
-    enter(&mut app);
-    draw(&mut app, 100, 36);
-    select(&mut app, 7);
-    assert_eq!(quote(&app).text, "literal");
-    draw(&mut app, 100, 36);
-    let hit = button(&app).unwrap();
-    mouse(
-        &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        hit.x,
-        hit.y,
-    );
+    assert_eq!(selected.chars().count(), 1);
     assert!(
-        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Talk { to } if to == "worker")
-    );
-    assert!(app.input.as_ref().unwrap().squad.is_empty());
-    assert!(
-        matches!(app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)), Effect::Act(crate::board::app::Request::DirectTalk { recipient, text, .. }) if recipient == MEMBER && text == "[Common pool · worker]\n> literal")
+        matches!(app.key(KeyEvent::new(KeyCode::Char('y'),KeyModifiers::NONE)),
+        Effect::Act(Request::Copy {text, feedback: CopyFeedback::Selection, ..}) if text == selected)
     );
 }
 
 #[test]
-fn inline_selection_and_drafts_never_move_between_recipient_uuids() {
-    use crate::board::workspace::OpsTarget;
-    const OTHER: &str = "44444444-4444-4444-8444-444444444444";
-    let mut app = fixture("alpha exact source");
-    let target_a = app.workspace.selected.clone().unwrap();
-    let target_b = OpsTarget::Member {
-        room_id: Some(crate::board::app::workspace::tests::ROOM.into()),
-        identity_id: OTHER.into(),
-    };
-    let home = app.view.as_mut().unwrap().home.as_mut().unwrap();
-    let mut member = home.workspace.roster.members[MEMBER].clone();
-    member.id = OTHER.into();
-    member.name = "other".into();
-    home.workspace.roster.members.insert(OTHER.into(), member);
-    home.workspace.roster.squads[0].members.push(OTHER.into());
-    home.workspace.rows.insert(
-        target_b.clone(),
-        json!({"id":OTHER,"name":"other","state":"working"}),
-    );
+#[ignore = "writes task-owned selection/chip evidence, never frozen fixtures"]
+fn capture_rendered_quote_chip_packet() {
+    let output = std::env::var_os("TMT_RENDERED_QUOTES_PACKET").expect("task-owned packet path");
+    let _no_commands = crate::runner::forbid_commands();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut frames = Vec::new();
+        for (base_name, base, depth) in [
+            (
+                "tmt",
+                tmt_cli_style::Base::Tmt,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (
+                "tmt-light",
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (
+                "NO_COLOR",
+                tmt_cli_style::Base::Tmt,
+                tmt_cli_style::Depth::None,
+            ),
+        ] {
+            for width in [160, 100, 60] {
+                let mut app = fixture("first **styled** passage\nnext line");
+                let look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                app.view.as_mut().unwrap().look = look;
+                app.view
+                    .as_mut()
+                    .unwrap()
+                    .home
+                    .as_mut()
+                    .unwrap()
+                    .workspace
+                    .squad_looks
+                    .clear();
+                if width < 140 {
+                    app.focus = 1;
+                }
+                let (x, y) = select_at_width(&mut app, "first styled", width);
+                for scene in [
+                    "selected-in-place",
+                    "one-chip",
+                    "three-chips",
+                    "chip-focused",
+                    "sent",
+                ] {
+                    match scene {
+                        "one-chip" => {
+                            mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 12, y);
+                            app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                            app.paste("my retained comment");
+                        }
+                        "three-chips" => {
+                            app.add_chat_quote("Ben".into(), "Earlier request".into());
+                            app.add_chat_quote("worker".into(), "One more reply".into());
+                        }
+                        "chip-focused" => {
+                            app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+                            app.key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+                        }
+                        "sent" => {
+                            app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+                            let effect = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                            assert!(
+                                matches!(effect, Effect::Act(_)),
+                                "send is an effect, not a quote activation"
+                            );
+                        }
+                        _ => (),
+                    }
+                    let buffer = draw(&mut app, width, 36);
+                    frames.push(json!({"scene":scene,"base":base_name,"depth":format!("{depth:?}"),"width":width,"height":36,
+                        "lines":buffer.content.chunks(usize::from(width)).map(|row|row.iter().map(|cell|cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
+                        "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
+                        "inputBand":format!("{:?}",app.input_band.get())}));
+                }
+            }
+        }
+        std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
+    });
+}
+
+#[test]
+fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
+    let mut app = fixture("separate reply");
+    let selected = app.workspace.selected.clone().unwrap();
     app.view
         .as_mut()
         .unwrap()
-        .replies
-        .push(json!({"recipientId":OTHER,"requestId":"r2","response":"beta source"}));
-    app.workspace_reconcile();
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    app.paste("alpha draft");
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    enter(&mut app);
-    draw(&mut app, 100, 36);
-    select(&mut app, 5);
-    let selected = quote(&app);
-    app.workspace.selected = Some(target_b);
-    app.workspace_reconcile();
-    draw(&mut app, 100, 36);
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    app.paste("beta draft");
-    assert!(app.input.as_ref().unwrap().response_quotes.is_empty());
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.workspace.selected = Some(target_a);
-    app.workspace_reconcile();
-    draw(&mut app, 100, 36);
-    assert_eq!(quote(&app), selected);
-    let hit = button(&app).unwrap();
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&selected)
+        .unwrap()["fields"] = json!({"task":"task proof"});
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
+    app.choose(crate::board::app::Choice::WorkspaceTarget(
+        crate::board::workspace::OpsTarget::Squad(crate::board::app::workspace::tests::ROOM.into()),
+    ));
+    app.focus = 1;
+    let buffer = draw(&mut app, 100, 36);
+    let area = app
+        .conversation
+        .borrow()
+        .source_surfaces
+        .iter()
+        .find(|surface| surface.text().contains("task proof"))
+        .expect("the actual task painter publishes its displayed cells")
+        .area;
+    let line: String = (area.x..area.right())
+        .map(|x| buffer[(x, area.y)].symbol())
+        .collect();
+    let x = area.x + line.find("task proof").unwrap() as u16;
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, area.y);
     mouse(
         &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        hit.x,
-        hit.y,
+        MouseEventKind::Drag(MouseButton::Left),
+        x + 10,
+        area.y,
     );
-    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "alpha draft");
-    assert_eq!(app.input.as_ref().unwrap().response_quotes, [selected]);
-    assert_eq!(
-        app.input.as_ref().unwrap().draft_key.as_ref().unwrap().1,
-        MEMBER
+    assert!(
+        matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+10,area.y),
+        Effect::Act(Request::Copy{text,..}) if text=="task proof")
     );
 }
 
 #[test]
-fn outgoing_text_and_status_have_no_response_selection_authority() {
-    let mut app = fixture("baseline exact response");
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    app.paste("outgoing is not response source");
-    let Effect::Act(request) = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)) else {
-        panic!("explicit send");
-    };
-    let ticket = app.outgoing_ticket(&request).unwrap();
-    app.finished_send(crate::board::conversation::outgoing::Completed {
-        ticket: Some(ticket),
-        outcome: Ok(crate::send::Accepted {
-            request: "sent-request".into(),
-            disposition: crate::send::Disposition::Sent,
-        }),
-        what: "Message".into(),
-        to: "worker".into(),
-    });
-    app.view.as_mut().unwrap().replies.insert(
-        0,
-        json!({"recipientId":MEMBER,"requestId":"sent-request","response":"actual exact reply"}),
-    );
-    let shown = draw(&mut app, 160, 44);
-    let state = app.conversation.borrow();
-    let hits = state.reply_hits.clone();
-    for hit in &hits {
-        let text: String = (hit.area.x..hit.area.right())
-            .map(|x| shown[(x, hit.area.y)].symbol())
-            .collect();
-        assert!(
-            text.contains("baseline exact response") || text.contains("actual exact reply"),
-            "{text}"
-        );
-    }
-    let hit = hits
-        .iter()
-        .find(|hit| hit.key.request == "sent-request")
-        .cloned()
+fn literal_selection_keeps_wide_and_combining_glyphs_whole() {
+    let mut app = fixture("漢字 e\u{301} end");
+    let buffer = draw(&mut app, 100, 36);
+    let (x, y) = (0..buffer.area.height)
+        .find_map(|y| {
+            (0..buffer.area.width)
+                .find(|x| buffer[(*x, y)].symbol() == "漢")
+                .map(|x| (x, y))
+        })
         .unwrap();
-    drop(state);
-    mouse(
-        &mut app,
-        MouseEventKind::Down(MouseButton::Left),
-        hit.area.x,
-        hit.area.y,
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 6, y);
+    assert!(
+        matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+6,y),
+        Effect::Act(Request::Copy{text,..}) if text=="漢字 e\u{301}")
     );
-    mouse(
-        &mut app,
-        MouseEventKind::Drag(MouseButton::Left),
-        hit.area.x + 4,
-        hit.area.y,
-    );
-    draw(&mut app, 160, 44);
-    select(&mut app, 6);
-    assert_eq!(quote(&app).text, "actual");
-    assert_eq!(quote(&app).key.request, "sent-request");
 }

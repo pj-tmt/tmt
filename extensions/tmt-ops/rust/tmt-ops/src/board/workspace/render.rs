@@ -465,6 +465,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 },
                 look,
             );
+            if let Some(area) = painted.task {
+                crate::board::conversation::source::publish(
+                    app,
+                    crate::board::app::RowTarget::Workspace(row.target.clone()),
+                    area,
+                );
+            }
             app.workspace_state_cells
                 .borrow_mut()
                 .extend(painted.state.into_iter().chain(painted.task));
@@ -874,6 +881,13 @@ fn roster_preview(
                         )
                     });
                     strip::paint_left(frame.buffer_mut(), cell, line);
+                    if *field == RosterField::Task {
+                        crate::board::conversation::source::publish(
+                            app,
+                            crate::board::app::RowTarget::Workspace(row.target.clone()),
+                            cell,
+                        );
+                    }
                 }
                 if interactive {
                     app.workspace_action_hits.borrow_mut().push((

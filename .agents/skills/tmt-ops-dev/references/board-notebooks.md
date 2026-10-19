@@ -144,24 +144,25 @@ Submission rechecks the current roster membership, sender and recipient before
 producing an effect; a matching name cannot authorize a replacement UUID.
 Retained row text alone grants no authority after its membership disappears.
 
-`board::response` keeps exact raw source and request identity separate from the
-sanitized Markdown display. Dragging a rendered response opens a labelled exact
-source view without guessing a byte range; selection on its freshly painted raw
-editor provides the exact range. The full response Reader remains a keyboard
-fallback. Source selection/copy and annotations preserve raw byte ranges. Pending
-questions use the same source view only after their full body is acquired;
-previews and failed reads are never selectable sources.
-Attachment and submission revalidation refuse changed requests, changed passages
-or vanished recipients. Row messages carry `[squad · row]`; selected raw lines
-follow it as Markdown blockquotes before the exact comment. Without a selection,
-the inline tag precedes the comment; task previews are not quoted automatically.
-One body projection supplies delivery and outgoing matching; attaching a source
-keeps an already admitted composer's recipient. The composer shows
-a bounded author/excerpt caption with a whole
-remove control. Alt-Backspace deletes the previous word in the draft. Details freezes bounded
-quote provenance from the draft only when both recipient and source UUID match,
-including the full request/identity and exact byte range. Common pool quotations
-open a Talk follow-up to the same UUID rather than inventing squad membership.
+`board::conversation::source` selects the already rendered conversation and task
+text in place. Mouse-up copies the selected plain text through the configured
+clipboard worker; a failed copy does not prevent quoting. Read-focus Shift+arrows
+extend the selection, `y` copies, and Esc or an outside press clears it. The
+`+ Quote` control or Enter adds a literal author/excerpt chip above the input,
+without replacing the draft text or granting request authority. Up from the first
+input line enters that chip row; Left/Right move between chips, `x` or Delete
+removes one, and Down/Esc returns to the input. Sending projects each chip as one
+compact Markdown quote above the comment. Quotes retain the UUID-keyed draft's
+success/failure lifecycle and need no source-identity revalidation.
+
+`board::response` separately owns exact raw source, the full-response Reader and
+request-bound row-note attachments. The configured note action may attach an
+admitted response selection as exact multiline Markdown blockquotes following
+`[squad · row]`; without one it keeps the existing inline tag. Task selections do
+not attach automatically to notes. These exact attachments retain request,
+passage and recipient revalidation; literal chat chips do not replace that owner.
+Details freezes exact-note provenance only when recipient and source UUID match.
+Alt-Backspace deletes the previous word in the draft.
 Native terminal selection remains available with the
 terminal's mouse-reporting override. Colab URLs use existing link effects;
 native Colab page/thread writes are not implemented.

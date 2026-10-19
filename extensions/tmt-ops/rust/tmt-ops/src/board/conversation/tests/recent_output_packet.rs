@@ -102,17 +102,13 @@ fn native_recent_output_observation_and_display() {
     app.scroll_pane(Pane::Replies, Step::Top);
     let top = draw(&app, 100, 36);
     assert!(top.contains("pane output"), "{top}");
-    assert_eq!(
-        app.conversation.borrow().reply_hits.len(),
-        1,
-        "only the real exchange has a source hit"
-    );
     assert!(
         app.conversation
             .borrow()
-            .reply_hits
+            .source_surfaces
             .iter()
-            .all(|hit| hit.key.request == "req_44444444-4444-4444-8444-444444444444")
+            .any(|surface| { surface.text().contains("pane output") }),
+        "visible pane output participates in literal selection, not request-source authority"
     );
 }
 
@@ -167,7 +163,7 @@ fn capture_recent_pane_output_packet() {
                     frames.push(json!({"scene":scene,"width":width,"height":36,"base":base,"depth":format!("{depth:?}"),
                         "lines":buffer.content.chunks(usize::from(width)).map(|row|row.iter().map(|cell|cell.symbol()).collect::<String>()).collect::<Vec<_>>(),
                         "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
-                        "inputBand":format!("{:?}",app.input_band.get()),"requestHits":app.conversation.borrow().reply_hits.len()}));
+                        "inputBand":format!("{:?}",app.input_band.get()),"selectionSurfaces":app.conversation.borrow().source_surfaces.len()}));
                 }
             }
         }

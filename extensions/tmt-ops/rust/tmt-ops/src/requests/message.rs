@@ -1,5 +1,6 @@
 //! Shared row-message framing. Callers own admission,
-//! source identity and byte ranges; this projection neither reads nor clips them.
+//! source identity and byte ranges. Exact row framing preserves every source
+//! byte; compact chat insertion has an explicit character bound and no authority.
 
 /// The retained row-annotation prefix, including its comment separator.
 pub fn tag(squad: &str, row: &str) -> String {
@@ -20,6 +21,37 @@ pub fn blockquote(passage: &str) -> String {
         }
     }
     quote
+}
+
+/// The compact selection gesture: one quoted line, at most 200 source
+/// characters including a final ellipsis. Ordinary row notes keep `blockquote`.
+pub fn inline_quote(passage: &str) -> String {
+    let flattened = passage.replace("\r\n", " ").replace(['\r', '\n'], " ");
+    let mut chars = flattened.chars();
+    let mut text: String = chars.by_ref().take(200).collect();
+    if chars.next().is_some() {
+        text.pop();
+        text.push('…');
+    }
+    format!("> \"{text}\"")
+}
+
+/// Compact chat chips precede the existing message body. Exact row-note
+/// framing remains independent and is already projected by its own owner.
+pub fn chat_body(passages: &[&str], message: &str) -> String {
+    if passages.is_empty() {
+        return message.to_owned();
+    }
+    let mut text = passages
+        .iter()
+        .map(|text| inline_quote(text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !message.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(message);
+    }
+    text
 }
 
 /// Freeze one delivered body. An unselected row keeps the historical inline
@@ -66,6 +98,24 @@ mod tests {
             "[Common pool · worker]\n> one\n\n> two"
         );
         assert_eq!(blockquote("a\n\n"), "> a\n>\n>");
+    }
+
+    #[test]
+    fn compact_chat_quotes_flatten_lines_and_bound_unicode_without_an_author() {
+        assert_eq!(
+            inline_quote("first \"line\"\r\n漢字\nlast\r"),
+            "> \"first \"line\" 漢字 last \""
+        );
+        assert_eq!(inline_quote(""), "> \"\"");
+        assert_eq!(
+            inline_quote(&"漢".repeat(200)),
+            format!("> \"{}\"", "漢".repeat(200))
+        );
+        assert_eq!(
+            inline_quote(&"漢".repeat(201)),
+            format!("> \"{}…\"", "漢".repeat(199))
+        );
+        assert_eq!(blockquote("first\nsecond"), "> first\n> second");
     }
 
     #[test]

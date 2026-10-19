@@ -136,7 +136,7 @@ fn a_pending_body_refresh_keeps_acquired_finals_and_each_header_ages_at_paint() 
 }
 
 #[test]
-fn pending_final_text_does_not_publish_an_exact_source_hit() {
+fn pending_final_text_cannot_supply_an_exact_note_attachment() {
     let mut app = workspace_fixture();
     let agent = crate::board::app::workspace::tests::MEMBER;
     app.view.as_mut().unwrap().replies = vec![json!({
@@ -149,11 +149,15 @@ fn pending_final_text_does_not_publish_an_exact_source_hit() {
     assert_eq!(session.finals.len(), 1);
     assert!(!session.finals[0].acquired);
     assert!(!rendered.final_spans.is_empty());
-    for (range, _) in &rendered.final_spans {
-        for row in range.clone() {
-            assert!(session.response_key_at(row).is_none());
-        }
-    }
+    let reply = session.finals[0].clone();
+    drop(state);
+    let quote = crate::board::response::Quote {
+        key: reply.key.unwrap(),
+        range: 0..reply.body.len(),
+        text: reply.body,
+    };
+    let target = crate::board::row_detail::Target::Row(app.conversation_target().unwrap());
+    assert!(!app.response_quote_current(&target, &quote));
 }
 
 #[test]
