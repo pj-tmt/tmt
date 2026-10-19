@@ -156,6 +156,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "effective bindings above collapse/expand the selected squad; no squad-tab switching",
                 ),
                 (
+                    "@",
+                    "selected row names: one opens its menu; several focus the first, Left/Right chooses, Enter opens, Esc or row movement leaves; authored @ keeps priority",
+                ),
+                (
                     "Shift-Left/Right",
                     "old tab reorder is removed; use squad pins/sort instead",
                 ),

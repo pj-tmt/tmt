@@ -186,6 +186,7 @@ impl Session {
         &self,
         mapped: Mapped,
         width: usize,
+        gutter: usize,
         look: Look,
         inventory: &super::super::inventory::Inventory,
     ) -> RenderedTranscript {
@@ -395,6 +396,8 @@ impl Session {
                             .unwrap_or(0);
                         for link in body.mentions.iter_mut().flatten() {
                             link.occurrence += next_mention;
+                            // The grouped painter indents a final's lines by the gutter.
+                            link.column += gutter;
                         }
                         next_mention += count;
                         let mut end = header + 1;
@@ -438,15 +441,18 @@ impl Session {
                         vec![],
                         None,
                     );
-                    // Pane text is untrusted display data; no request source or member-action hits.
+                    // Display-only member links never give pane text request-source authority.
                     let body = markdown::render_conversation_with_members(
                         &sanitize(&item.text),
                         width.saturating_sub(3).max(1),
                         look,
-                        None,
+                        Some(inventory),
                     );
-                    for line in body.lines {
-                        append(super::super::exchange_view::body(line, look), vec![], None);
+                    for (line, mut links) in body.lines.into_iter().zip(body.mentions) {
+                        for link in &mut links {
+                            link.column += 3;
+                        }
+                        append(super::super::exchange_view::body(line, look), links, None);
                     }
                     if item.truncated {
                         append(

@@ -306,10 +306,7 @@ impl Session {
         look: Look,
         inventory: &super::inventory::Inventory,
     ) -> bool {
-        let identities = self
-            .text
-            .contains("#tmt:")
-            .then(|| std::sync::Arc::clone(&inventory.generation));
+        let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.rendered.as_ref().is_none_or(|rendered| {
             rendered.width != width
                 || rendered.gutter != gutter
@@ -362,6 +359,9 @@ impl Session {
                     }
                     links.clear();
                 }
+                for link in &mut links {
+                    link.column += gutter;
+                }
                 lines.push(line);
                 sources.push(source);
                 mentions.push(links);
@@ -371,7 +371,7 @@ impl Session {
                 sources,
                 mentions,
             };
-            let transcript = self.merge_pane_output(mapped, width, look, inventory);
+            let transcript = self.merge_pane_output(mapped, width, gutter, look, inventory);
             let anchor_text = transcript.anchor_text;
             // Visual rows keep the transcript's source rows for anchors and, through
             // the transcript's own map, for the retained response lines.

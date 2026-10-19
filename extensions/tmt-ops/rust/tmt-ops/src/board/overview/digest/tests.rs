@@ -4,6 +4,8 @@ use crate::board::{
     digest_dashboard::tests::{savings_board, valued_board},
     shell::OpsTab,
 };
+use crate::look::Look;
+use ratatui::{Terminal, backend::TestBackend};
 fn summary(app: &App) -> super::super::summary::Summary {
     super::super::monitor::scene(app, app.workspace_snapshot().unwrap())
         .summary
@@ -69,6 +71,11 @@ fn narrow_cost_rows_keep_the_full_window_before_the_price_basis_note() {
                 theme: Theme::new(base),
                 depth,
             };
+            let mut app = valued_board();
+            let view = app.view.as_mut().unwrap();
+            view.look = look;
+            // A squad's saved look would win over the one under test.
+            view.home.as_mut().unwrap().workspace.squad_looks.clear();
             for (amount, coverage, expected) in [
                 (Some("≈ $37.20 at list price"), "", "≈ $37.20"),
                 (Some("~≈ $37.20 at list price"), " · 1/2", "~≈ $37.20"),
@@ -82,8 +89,14 @@ fn narrow_cost_rows_keep_the_full_window_before_the_price_basis_note() {
                     note: None,
                 };
                 for width in [32, 38, 60] {
-                    let mut buffer = Buffer::empty(Rect::new(0, 0, width, 1));
-                    metric.paint(&mut buffer, Rect::new(0, 0, width, 1), look);
+                    let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+                    terminal
+                        .draw(|frame| {
+                            let area = frame.area();
+                            metric.paint(frame, &app, area);
+                        })
+                        .unwrap();
+                    let buffer = terminal.backend().buffer();
                     let line = buffer
                         .content
                         .iter()

@@ -148,6 +148,7 @@ impl Band {
             );
             self.digest(
                 frame,
+                app,
                 area,
                 row,
                 app.focused() == crate::config::Pane::Rows,
@@ -160,6 +161,7 @@ impl Band {
             } else if row > timer_height {
                 self.digest(
                     frame,
+                    app,
                     slot,
                     row - timer_height - 1,
                     app.focused() == crate::config::Pane::Rows,
@@ -237,7 +239,15 @@ impl Band {
             }
         }
     }
-    fn digest(&self, frame: &mut Frame, slot: Rect, row: usize, focused: bool, look: Look) {
+    fn digest(
+        &self,
+        frame: &mut Frame,
+        app: &App,
+        slot: Rect,
+        row: usize,
+        focused: bool,
+        look: Look,
+    ) {
         let Some(metrics) = &self.digest else {
             return;
         };
@@ -251,7 +261,7 @@ impl Band {
                 look,
             );
         } else if let Some(metric) = metrics.get(row - 1) {
-            metric.paint(frame.buffer_mut(), slot, look);
+            metric.paint(frame, app, slot);
         }
     }
 }

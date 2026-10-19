@@ -145,11 +145,28 @@ fn hint_text(hints: &[Hint]) -> String {
         .collect::<Vec<_>>()
         .join("  ")
 }
+fn names_hint(app: &App, mut hints: Vec<Hint>, width: usize) -> Vec<Hint> {
+    if app.row_names_hint() {
+        let at = hints
+            .iter()
+            .position(|(_, label)| matches!(label.as_str(), "help" | "quit"))
+            .unwrap_or(hints.len());
+        hints.insert(at, ("@".into(), "names".into()));
+        if hint_text(&hints).width() > width {
+            hints.remove(at);
+        }
+    }
+    hints
+}
 fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Overview)?;
-    Some(fit_hints(
-        hints.first.into_iter().chain(hints.second).collect(),
-        hints.tail,
+    Some(names_hint(
+        app,
+        fit_hints(
+            hints.first.into_iter().chain(hints.second).collect(),
+            hints.tail,
+            width,
+        ),
         width,
     ))
 }
@@ -161,7 +178,7 @@ fn agents_pairs(app: &App, width: usize) -> Option<[Vec<Hint>; 2]> {
     let hints = workspace_legend(app, crate::board::shell::OpsTab::Agents)?;
     Some([
         fit_hints(hints.first, vec![], width),
-        fit_hints(hints.second, hints.tail, width),
+        names_hint(app, fit_hints(hints.second, hints.tail, width), width),
     ])
 }
 fn paint_hints(hints: &[Hint], look: crate::look::Look, role: Role) -> Line<'static> {
@@ -574,13 +591,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         .as_deref()
         .filter(|_| app.migration_notice.is_none() && app.error.is_none())
         .map_or(last_row, |text| {
-            crate::board::notice::paint(
-                frame.buffer_mut(),
-                last_row,
-                text,
-                app.notice_clock.failed,
-                look,
-            )
+            crate::board::notice::paint_links(frame, app, last_row, text, app.notice_clock.failed)
         });
     let legend = if footer.height >= 2 && app.error.is_none() && app.migration_notice.is_none() {
         agents_pairs(

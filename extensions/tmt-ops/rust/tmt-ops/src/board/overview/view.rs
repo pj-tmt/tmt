@@ -317,6 +317,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     ),
                 )
             };
+            let task_text = line
+                .spans
+                .last()
+                .map_or_else(String::new, |span| span.content.to_string());
+            let task_start = line
+                .width()
+                .saturating_sub(line.spans.last().map_or(0, Span::width));
             line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
             line.spans.push(Span::raw(" ".repeat(remaining)));
@@ -340,6 +347,15 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 }
             }
             strip::paint_left(frame.buffer_mut(), slot, line);
+            // The agents list carries no free text (its columns are names, state,
+            // tokens and model); only a squad's "now" line can name a member.
+            if !agents {
+                let task_start = task_start.min(usize::from(slot.width)) as u16;
+                let task_area = Rect::new(slot.x + task_start, slot.y, slot.width - task_start, 1);
+                crate::board::member_links::paint_plain_hits(
+                    frame, app, task_area, &task_text, &task_text, false,
+                );
+            }
             app.workspace_state_cells.borrow_mut().push(
                 Rect::new(
                     slot.x

@@ -73,7 +73,7 @@ impl MenuSurface {
             Some(format!("Enter {action} · Esc cancel"))
         });
         let room_picker_footer = if anchored {
-            Some("j host · Enter Agents · Esc closes".into())
+            Some(FOOTER.into())
         } else {
             room_picker_footer
         };
@@ -92,14 +92,15 @@ impl MenuSurface {
         } else {
             &title
         };
+        let key_role = if anchored { "text" } else { "accent" };
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="{placement}" class="w-48 h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="accent"/><tmt-cell bind="row.cursor" class="w-{cursor_width} shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="{placement}" class="w-48 h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="{key_role}"/><tmt-cell bind="row.cursor" class="w-{cursor_width} shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             entries.len() + CHROME
         );
         let rows: Vec<ListRow> = (0..entries.len())
             .map(|index| ListRow {
                 id: row_id(index),
-                disabled: matches!(entries[index].choice, Choice::Unavailable(_)),
+                disabled: false,
             })
             .collect();
         Self {
@@ -152,7 +153,7 @@ impl MenuSurface {
             .iter()
             .zip(&self.rows)
             .map(|(entry, row)| {
-                serde_json::json!({"id": row.id, "disabled": matches!(entry.choice, Choice::Unavailable(_)), "key": entry.key, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
+                serde_json::json!({"id": row.id, "disabled": false, "key": entry.key, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
             })
             .collect();
         let footer = self.room_picker_footer.as_deref().unwrap_or(FOOTER);
