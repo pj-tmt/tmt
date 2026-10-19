@@ -1153,7 +1153,24 @@ mod through_the_driver {
         second: bool,
         ids: &mut impl HostServerIds,
     ) -> Result<crate::host::Host<R>, HostError> {
-        use crate::host::{CallerEnvironment, Host};
+        with_caller(pane, env, process_id, second, |environment, records| {
+            crate::host::Host::for_verified_caller(environment, runner, records, ids)
+        })
+    }
+
+    /// `use_caller` given the caller `choose` describes and the approved
+    /// drivers, while their executables are installed.
+    fn with_caller<T>(
+        pane: Pane,
+        env: TmuxEnv,
+        process_id: u64,
+        second: bool,
+        use_caller: impl FnOnce(
+            &crate::host::CallerEnvironment,
+            Vec<crate::driver_protocol::registry::DriverRecord>,
+        ) -> T,
+    ) -> T {
+        use crate::host::CallerEnvironment;
         use std::os::unix::ffi::OsStringExt;
         let (pid, start) = live();
         let mut answers = answers("fake", "fake-", Some("f{n}"));
@@ -1201,7 +1218,7 @@ mod through_the_driver {
             process_id,
             driver_env,
         };
-        let chosen = Host::for_verified_caller(&environment, runner, records, ids);
+        let chosen = use_caller(&environment, records);
         drop(other);
         chosen
     }

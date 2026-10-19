@@ -134,7 +134,13 @@ channels and the driver protocol. The owner map is in
   same process plus the driver's snapshot is Live, else Unknown. The optional `probe` is not
   called. A removed or changed driver answers `Unavailable`, never proof of loss.
 - A driver's `caller` pane counts only when that pane's shell is an ancestor of the caller
-  (`process::ancestry`); the nearest verified pane wins, otherwise the host is tmux.
+  (`process::ancestry`); for an ordinary command the nearest verified pane wins, otherwise
+  the host is tmux. With tmux variables too (nested), an ordinary command orders both panes
+  on one pinned ancestry, as hooks do below (`Host::nearest_nested_external`), and re-checks
+  the entries up to an external pane before it wins. Unlike a hook it keeps its fallback:
+  driver doubt, an ancestry that can't be pinned (a reused pid), both hosts naming one pane
+  process, a changed entry, or the shared 1 s budget running out keep tmux, and tmux doubt
+  (a stale or partial tmux environment) counts as no tmux pane.
   Hooks and the caller-session worker use `Host::for_verified_caller` instead, which uses a
   host only when the caller's locators name exactly that host or prove a nested caller's
   owner. No locator keeps tmux (outside any host), and tmux variables alone keep the tmux
@@ -158,12 +164,13 @@ channels and the driver protocol. The owner map is in
   resolution is not caught (microseconds natively, whole seconds from `ps`; on Linux a
   native start is boot time plus clock ticks, so a clock step between two reads can shift
   one entry by a second, which refuses or misses a reuse within that second). Herdr started
-  in a tmux that has since closed keeps a stale `TMUX` and refuses: clear `TMUX` and
-  `TMUX_PANE` before you start the agent. Caller-session discovery after an ordinary
-  command runs its worker for a nested caller when its tmux pane or that external host has
-  a binding; the worker's nested proof alone chooses the owner
-  ([identity bindings](identity-bindings.md)). An external caller's server must already
-  have a `host_servers` row (`RecordedHostServers` reads it and never records one).
+  in a tmux that has since closed keeps a stale `TMUX`: an ordinary command gets Herdr, but
+  a hook refuses, so clear `TMUX` and `TMUX_PANE` before you start the agent.
+  Caller-session discovery after an ordinary command runs its worker for a nested caller
+  when its tmux pane or that external host has a binding; the worker's nested proof alone
+  chooses the owner ([identity bindings](identity-bindings.md)). An external caller's server
+  must already have a `host_servers` row (`RecordedHostServers` reads it and never records
+  one).
   `Host::for_target` picks the host whose grammar reads the text. Only a definite answer is
   "not found"; a failing or late driver is `RECONCILIATION_FAILED`.
 - Prompt-first `send` maps `no_agent`/`unsupported` to raw input, `blocked` to

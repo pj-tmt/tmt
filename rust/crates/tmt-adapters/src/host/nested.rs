@@ -1,12 +1,26 @@
-//! A nested caller's host (#3583): tmux and exactly one approved external
-//! host name the caller, in either order. One pinned ancestry orders both
-//! hosts' panes, and the nearest located pane owns the caller. Doubt on
-//! either side refuses; it never falls back to the other host.
+//! A nested caller's host (#3583): tmux and an approved external host name
+//! the caller, in either order. One pinned ancestry orders both hosts'
+//! panes, and the nearest located pane owns the caller. A hook refuses on
+//! doubt and never falls back to the other host (#3583); an ordinary
+//! command keeps its fallback to tmux (#3920).
 
-use super::{CallerEnvironment, Host, HostError};
+use super::{CallerEnvironment, ExternalCaller, Host, HostError, external::Callers};
 use crate::process::{CommandError, CommandRunner, ancestry, runtime::observe_starts};
 use std::time::Instant;
 use tmt_core::host::HostServerIds;
+
+fn unverified(reason: &str) -> HostError {
+    HostError::Unavailable(format!("caller host unverified: {reason}"))
+}
+
+/// Only a failed cleanup is an error of its own; anything else is doubt.
+fn cleanup(error: CommandError, reason: &str) -> HostError {
+    if error.cleanup_failed() {
+        HostError::Process(error)
+    } else {
+        unverified(reason)
+    }
+}
 
 impl<R: CommandRunner> Host<R> {
     /// The caller's pane shell pid on the pinned ancestry that chose this
@@ -14,6 +28,73 @@ impl<R: CommandRunner> Host<R> {
     /// a later snapshot reports must equal it.
     pub fn pinned_caller_pane(&self) -> Option<u64> {
         self.pinned_pane
+    }
+
+    /// An ordinary command's nested caller: the nearest external pane that
+    /// one pinned ancestry locates, unless the caller's tmux pane is nearer
+    /// or both name one pane process. tmux doubt counts as tmux absent, as a
+    /// tmux environment left from a closed tmux does. Any other doubt, and a
+    /// change from the caller up to the external pane before the answer,
+    /// keep tmux.
+    pub(super) fn nearest_nested_external(
+        &self,
+        environment: &CallerEnvironment,
+        deadline: Instant,
+    ) -> Option<ExternalCaller> {
+        let (chain, callers) = self.pinned_callers(environment, deadline).ok()?;
+        let external = callers.found.into_iter().next()?;
+        let tmux = self
+            .tmux
+            .proven_caller_pane(environment, deadline)
+            .ok()
+            .and_then(|pid| chain.position(pid));
+        if tmux.is_some_and(|tmux| tmux <= external.depth) {
+            return None;
+        }
+        Self::unchanged(self.external.runner(), &chain, external.depth, deadline).ok()?;
+        Some(external)
+    }
+
+    /// The caller's ancestry, pinned once, and the external panes the
+    /// approved drivers locate on it.
+    fn pinned_callers(
+        &self,
+        environment: &CallerEnvironment,
+        deadline: Instant,
+    ) -> Result<(ancestry::PinnedChain, Callers), HostError> {
+        let pinning = "the caller's ancestry could not be pinned";
+        let chain =
+            ancestry::pinned_chain(self.external.runner(), environment.process_id, deadline)
+                .map_err(|error| match error {
+                    ancestry::AncestryError::Command(error) => cleanup(error, pinning),
+                    ancestry::AncestryError::Unavailable => unverified(pinning),
+                })?;
+        let callers = self.external.callers(environment, Some(&chain), deadline)?;
+        Ok((chain, callers))
+    }
+
+    /// The owner pane's shell pid, when every entry from the caller up to
+    /// `owner` is still the process that was pinned, within the deadline.
+    fn unchanged(
+        runner: &R,
+        chain: &ancestry::PinnedChain,
+        owner: usize,
+        deadline: Instant,
+    ) -> Result<u64, HostError> {
+        let segment = &chain.links()[..=owner];
+        let pids: Vec<u64> = segment.iter().map(|link| link.process.pid()).collect();
+        let now = observe_starts(runner, &pids, deadline)
+            .map_err(|error| cleanup(error, "the caller's ancestry could not be observed again"))?;
+        if Instant::now() >= deadline
+            || !segment
+                .iter()
+                .all(|link| now.get(&link.process.pid()) == Some(&link.process))
+        {
+            return Err(unverified(
+                "a process between the caller and its pane changed",
+            ));
+        }
+        Ok(pids[owner])
     }
 }
 
@@ -35,32 +116,12 @@ impl<R: CommandRunner + Clone> Host<R> {
         ids: &mut I,
         deadline: Instant,
     ) -> Result<Self, HostError> {
-        let unverified =
-            |reason: &str| HostError::Unavailable(format!("caller host unverified: {reason}"));
-        // Only a failed cleanup is an error of its own; anything else is doubt.
-        let cleanup = |error: CommandError, reason: &str| {
-            if error.cleanup_failed() {
-                HostError::Process(error)
-            } else {
-                unverified(reason)
-            }
-        };
         let set =
             |value: &Option<std::ffi::OsString>| value.as_ref().is_some_and(|v| !v.is_empty());
         if !(set(&environment.tmux) && set(&environment.pane)) {
             return Err(unverified("the caller's tmux variables are partial"));
         }
-        let pinning = "the caller's ancestry could not be pinned";
-        let chain =
-            ancestry::pinned_chain(&runner, environment.process_id, deadline).map_err(|error| {
-                match error {
-                    ancestry::AncestryError::Command(error) => cleanup(error, pinning),
-                    ancestry::AncestryError::Unavailable => unverified(pinning),
-                }
-            })?;
-        let callers = builtin
-            .external
-            .callers(environment, Some(&chain), deadline)?;
+        let (chain, callers) = builtin.pinned_callers(environment, deadline)?;
         if !callers.conclusive {
             return Err(unverified("an approved driver did not answer"));
         }
@@ -90,25 +151,13 @@ impl<R: CommandRunner + Clone> Host<R> {
             (None, Some(tmux)) => tmux,
             (None, None) => return Err(unverified("no host's pane is an ancestor of the caller")),
         };
-        let segment = &chain.links()[..=owner];
-        let pids: Vec<u64> = segment.iter().map(|link| link.process.pid()).collect();
-        let now = observe_starts(&runner, &pids, deadline)
-            .map_err(|error| cleanup(error, "the caller's ancestry could not be observed again"))?;
-        if Instant::now() >= deadline
-            || !segment
-                .iter()
-                .all(|link| now.get(&link.process.pid()) == Some(&link.process))
-        {
-            return Err(unverified(
-                "a process between the caller and its pane changed",
-            ));
-        }
+        let pane = Self::unchanged(&runner, &chain, owner, deadline)?;
         let host = match external {
             Some(external) => Self::for_external_caller(external, runner, records, ids)?,
             None => builtin,
         };
         Ok(Self {
-            pinned_pane: Some(pids[owner]),
+            pinned_pane: Some(pane),
             ..host
         })
     }
