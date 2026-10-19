@@ -34,15 +34,13 @@ import {
   versionOfTag,
 } from '../../scripts/release-versions.mjs';
 
-const { extensionUpgradeOptions, assertOpsReplacement } = (await import(
+const { extensionUpgradeOptions } = (await import(
   new URL('../../scripts/verify-native-extension-upgrade.mjs', import.meta.url).href
 )) as {
   extensionUpgradeOptions: (args: string[]) => Record<string, string>;
-  assertOpsReplacement: (report: Record<string, unknown>, prefix: string, version: string) => void;
 };
 
-// Literal consumer-contract controls; these never run a native CLI or claim a replacement happened.
-describe('extension verifier replacement contract', () => {
+describe('extension verifier options', () => {
   const base = [
     'product',
     'archive',
@@ -53,66 +51,28 @@ describe('extension verifier replacement contract', () => {
     'driver-manifest',
     'target',
   ].flatMap((name) => [`--${name}`, name === 'product' ? 'ops' : name]);
-  const pair = [
-    '--previous-product',
-    'squad',
-    '--previous-driver-archive',
-    'old-cli.tar.gz',
-    '--previous-driver-manifest',
-    'old.json',
-  ];
-  it('keeps same-product options and admits only a complete squad -> ops pair', () => {
-    expect(extensionUpgradeOptions(base)).not.toHaveProperty('previous-product');
-    expect(extensionUpgradeOptions([...base, ...pair])).toHaveProperty('previous-product', 'squad');
-    for (let index = 0; index < pair.length; index += 2) {
-      expect(() =>
-        extensionUpgradeOptions([...base, ...pair.slice(0, index), ...pair.slice(index + 2)])
-      ).toThrow('is required for replacement');
-    }
-    for (const product of ['remote', 'colab', 'digest']) {
-      const args = [...base];
-      args[1] = product;
-      expect(() => extensionUpgradeOptions([...args, ...pair])).toThrow('Only squad -> ops');
-    }
-    for (const previous of ['ops', 'remote', 'cli', 'driver-herdr']) {
-      const args = [...pair];
-      args[1] = previous;
-      expect(() => extensionUpgradeOptions([...base, ...args])).toThrow('Only squad -> ops');
-    }
+  it.each(['ops', 'remote', 'colab', 'digest'])('keeps same-product %s options', (product) => {
+    const args = [...base];
+    args[1] = product;
+    expect(extensionUpgradeOptions(args)).toEqual({
+      product,
+      archive: 'archive',
+      manifest: 'manifest',
+      'previous-archive': 'previous-archive',
+      'previous-manifest': 'previous-manifest',
+      'driver-archive': 'driver-archive',
+      'driver-manifest': 'driver-manifest',
+      target: 'target',
+    });
   });
-  const prefix = '/private/fixture prefix';
-  const literal = () => ({
-    extension: 'ops',
-    installed: true,
-    changed: true,
-    version: '0.1.0-alpha.51',
-    executable: `${prefix}/bin/tmt-ops`,
-    replaced: 'squad',
-    removed: [`${prefix}/bin/tmt-squad`, `${prefix}/bin/tmt-sq`, `${prefix}/lib/tmt-squad`],
-    kept: [],
-  });
-  it('pins replacement output, exact removed order and no kept entries', () => {
-    expect(() => assertOpsReplacement(literal(), prefix, '0.1.0-alpha.51')).not.toThrow();
-    for (const field of Object.keys(literal())) {
-      const report: Record<string, unknown> = literal();
-      delete report[field];
-      expect(() => assertOpsReplacement(report, prefix, '0.1.0-alpha.51'), field).toThrow();
+  it.each(['previous-product', 'previous-driver-archive', 'previous-driver-manifest'])(
+    'refuses the retired --%s replacement option',
+    (option) => {
+      expect(() => extensionUpgradeOptions([...base, `--${option}`, 'former'])).toThrow(
+        `Unknown option '--${option}'`
+      );
     }
-    for (const change of [
-      { replaced: 'ops' },
-      { changed: false },
-      { installed: false },
-      { extension: 'squad' },
-      { version: '0.1.0-alpha.50' },
-      { executable: '/wrong/tmt-ops' },
-      { removed: [...literal().removed].reverse() },
-      { removed: literal().removed.slice(0, 2) },
-      { kept: [literal().removed[0]] },
-    ])
-      expect(() =>
-        assertOpsReplacement({ ...literal(), ...change }, prefix, '0.1.0-alpha.51')
-      ).toThrow();
-  });
+  );
 });
 
 const script = fileURLToPath(new URL('../../scripts/release-upgrade.mjs', import.meta.url));
