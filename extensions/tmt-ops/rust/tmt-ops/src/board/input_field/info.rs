@@ -6,6 +6,8 @@ use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) struct Info<'a> {
     pub name: &'a str,
+    /// The new-line key the board names, the same source as the footer caption.
+    pub newline: crate::board::app::NewlineKey,
     pub unread: Count,
     pub open: Option<usize>,
     pub context: Option<ContextUsage>,
@@ -64,8 +66,10 @@ impl Info<'_> {
             return None;
         }
         let line = Rect::new(area.x, area.bottom() - 1, area.width, 1);
-        let full = "⏎ send  Alt+⏎ new line  @ mention";
-        let keys = "⏎  Alt+⏎  @";
+        let newline = self.newline.glyph();
+        let full = format!("⏎ send  {newline} new line  @ mention");
+        let keys = format!("⏎  {newline}  @");
+        let (full, keys) = (full.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
         let (left, right) = if full_left.width() + full.width() + 2 <= usize::from(line.width) {
             (full_left, full)
@@ -112,6 +116,7 @@ mod tests {
         let look = Look::default();
         let mut info = Info {
             name: "worker",
+            newline: crate::board::app::NewlineKey::Alt,
             unread: Count::default(),
             open: Some(0),
             context: None,
@@ -142,5 +147,45 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(row.contains("Alt+⏎") && row.contains('@'));
+    }
+
+    #[test]
+    fn the_new_line_key_follows_the_one_capability_source_at_every_width() {
+        use crate::board::app::NewlineKey;
+        let look = Look::default();
+        for (key, named) in [(NewlineKey::Alt, "Alt+⏎"), (NewlineKey::Shift, "Shift+⏎")] {
+            let info = Info {
+                name: "worker",
+                newline: key,
+                unread: Count::default(),
+                open: Some(0),
+                context: None,
+            };
+            assert_eq!(key.glyph(), named);
+            assert!(key.hint().starts_with(&named.replace('⏎', "Enter")));
+            for width in [160, 100, 60, 40, 20] {
+                let mut buffer = Buffer::empty(Rect::new(0, 0, width, 2));
+                let area = buffer.area;
+                let hit = info.paint(&mut buffer, area, look).unwrap();
+                let row: String = buffer
+                    .content
+                    .chunks(usize::from(width))
+                    .nth(1)
+                    .unwrap()
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect();
+                assert!(hit.width >= 1, "{width}: the send hit survives");
+                if width >= 100 {
+                    assert!(row.contains(&format!("{named} new line")), "{width}: {row}");
+                }
+                let other = if key == NewlineKey::Alt {
+                    "Shift+⏎"
+                } else {
+                    "Alt+⏎"
+                };
+                assert!(!row.contains(other), "{width}: {row}");
+            }
+        }
     }
 }

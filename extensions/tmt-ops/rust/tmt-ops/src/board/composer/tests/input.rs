@@ -156,3 +156,27 @@ fn info_line_uses_the_acquired_open_request_count_without_showing_a_target_picke
         "painting counts does not start or send a message"
     );
 }
+
+#[test]
+fn the_info_line_and_footer_name_the_same_new_line_key() {
+    let _no_io = crate::runner::forbid_commands();
+    for (enhanced, named) in [(false, "Alt+⏎"), (true, "Shift+⏎")] {
+        for width in [160, 100] {
+            let mut app = crate::board::app::workspace::tests::board();
+            app.keyboard_enhanced = enhanced;
+            let idle = draw(&mut app, width, 36);
+            let band = app.input_band.get().expect("an admitted idle composer");
+            let info = Rect::new(band.x, band.bottom() - 1, band.width, 1);
+            let line = band_text(&idle, info);
+            assert!(
+                line.contains(&format!("{named} new line")),
+                "{enhanced} {width}: {line}"
+            );
+            assert_eq!(
+                app.newline_hint().replace("Enter", "⏎"),
+                format!("{named} new line"),
+                "the footer caption is the same key"
+            );
+        }
+    }
+}

@@ -329,8 +329,9 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   Ops reads `extended-keys` and `extended-keys-format` once at start and requests
   `CSI > 4;1 m` only when extended-keys is on/always and the format is csi-u (popped with
   `CSI > 4;0 m` on every exit path); Shift+Tab then arrives as Tab with SHIFT and still
-  names `backtab`. The hint is `Shift+Enter new line` only with confirmed keyboard
-  enhancement or that request, otherwise `Alt+Enter new line`. Terminals own IME preedit; committed Unicode enters the same
+  names `backtab`. `App::newline_key` is the one source of the new-line key: the footer
+  caption and the info line under the input say `Shift+Enter`/`Shift+⏎` only with confirmed
+  keyboard enhancement or that request, otherwise `Alt+Enter`/`Alt+⏎`. Terminals own IME preedit; committed Unicode enters the same
   editor. Large paste folds retain exact text and can be previewed or removed.
   `mentions` supplies the shared completion component with acquired agent UUIDs
   and squad IDs. Inserting a reference never changes recipients or broadcasts;

@@ -128,6 +128,7 @@ impl App {
         });
         super::input_field::Info {
             name: projection.recipient,
+            newline: self.newline_key(),
             unread: identity.map_or_else(Default::default, |id| self.unread_count(id)),
             open: row
                 .and_then(|row| row["waitingOnYou"].as_array())

@@ -821,13 +821,43 @@ pub fn event_name(key: KeyEvent) -> Option<String> {
     Some(format!("{prefixes}{name}"))
 }
 
-impl App {
-    pub(in crate::board) fn newline_hint(&self) -> &'static str {
-        if self.keyboard_enhanced {
-            "Shift+Enter new line"
-        } else {
-            "Alt+Enter new line"
+/// The key the board names for a new line: Shift+Enter when the terminal
+/// reports it distinctly (kitty enhancement or the tmux csi-u request), else
+/// Alt+Enter, which every terminal sends. Every caption derives from this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::board) enum NewlineKey {
+    Shift,
+    Alt,
+}
+
+impl NewlineKey {
+    /// The footer caption, in words.
+    pub(in crate::board) fn hint(self) -> &'static str {
+        match self {
+            Self::Shift => "Shift+Enter new line",
+            Self::Alt => "Alt+Enter new line",
         }
+    }
+    /// The key as the line under the input spells it.
+    pub(in crate::board) fn glyph(self) -> &'static str {
+        match self {
+            Self::Shift => "Shift+⏎",
+            Self::Alt => "Alt+⏎",
+        }
+    }
+}
+
+impl App {
+    pub(in crate::board) fn newline_key(&self) -> NewlineKey {
+        if self.keyboard_enhanced {
+            NewlineKey::Shift
+        } else {
+            NewlineKey::Alt
+        }
+    }
+
+    pub(in crate::board) fn newline_hint(&self) -> &'static str {
+        self.newline_key().hint()
     }
 
     pub fn new(squad: Option<String>) -> Self {
