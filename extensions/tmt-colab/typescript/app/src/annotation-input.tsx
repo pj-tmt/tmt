@@ -41,6 +41,7 @@ import { text } from './strings.js';
 import { CommentSendFailures } from './comment-send-failures.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
+import { MessageEchoContext, messageEcho, type MessageEcho } from './message-echo.js';
 import { captureConversation } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
@@ -98,6 +99,9 @@ export function AnnotationInput({
   committed(ref: DiscussionRef): void;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
+  // With an echo host, the composer clears as the echo appears; a send that fails before it
+  // is recorded leaves a failed row that holds the draft until Retry or Edit.
+  const echoHost = useContext(MessageEchoContext);
   const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
   const value = edit.value;
   const [prependMention, setPrependMention] = useState<ComposerMentionRequest>();
@@ -111,6 +115,15 @@ export function AnnotationInput({
   }
   const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
+  // While an echo shows the send, the composer stays as it is: no grey, no busy mark.
+  const [echoing, setEchoing] = useState(false);
+  const latestEdit = useRef(edit);
+  latestEdit.current = edit;
+  // The draft a failed row holds. While it exists the composer is inert; only Retry and Edit act.
+  const [unsent, setUnsent] = useState<{ edit: ComposerEdit; echo: MessageEcho }>();
+  const unsentRef = useRef(unsent);
+  unsentRef.current = unsent;
+  const focusAfterEdit = useRef(false);
   const sending = useRef(false);
   const [error, setError] = useState<{
     reference: MessageSendReference;
@@ -154,8 +167,10 @@ export function AnnotationInput({
     )?.focus();
   }, [directory.state, retrying]);
   useEffect(() => {
-    onDraft?.(value, edit);
-  }, [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
+    // A failed row's draft is this composer's draft, so closing or reloading keeps it.
+    const kept = unsent?.edit ?? edit;
+    onDraft?.(kept.value, kept);
+  }, [value, edit, unsent]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const creatorMatches =
     creationRecipient && agents
@@ -266,6 +281,23 @@ export function AnnotationInput({
     setEdit(nextDraft.current());
     setResetKey((key) => key + 1);
   }
+  /** Edit: the failed row's full draft moves back into this composer and the row goes. */
+  function editUnsent() {
+    const held = unsentRef.current;
+    if (!held) return;
+    echoHost?.remove(held.echo.local);
+    unsentRef.current = undefined;
+    setUnsent(undefined);
+    initialized.current = true;
+    setEdit(held.edit);
+    setResetKey((key) => key + 1);
+    focusAfterEdit.current = true;
+  }
+  useEffect(() => {
+    if (unsent || !focusAfterEdit.current) return;
+    focusAfterEdit.current = false;
+    section.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus();
+  }, [unsent]);
   const sendGate = (current: ComposerEdit, allowed: boolean, needsBinding: boolean) => ({
     sending: sending.current,
     recorded: !!recorded,
@@ -277,12 +309,21 @@ export function AnnotationInput({
     binding: !!binding,
     value: current.value,
   });
-  async function send(current: ComposerEdit = edit) {
+  async function send(current: ComposerEdit = edit, fromUnsentRow = false) {
+    // While a failed row holds a draft, only its Retry sends; the composer hint says so.
+    if (unsentRef.current && !fromUnsentRow) return;
     // Only this explicit retry or a deliberate text edit clears a previous refusal.
     setError(undefined);
     let stage: MessageSendStage = 'admission';
     let ownsSend = false;
     let origin: Awaited<ReturnType<ThreadBinding['create']>> | undefined;
+    let echoed: MessageEcho | undefined;
+    let failedReference: MessageSendReference | undefined;
+    // With an echo, a failure before the record is reported once, on the failed row.
+    const fail = (reference: MessageSendReference) => {
+      if (echoed && !origin) failedReference = reference;
+      else refuse(reference);
+    };
     try {
       const admitted = decide(current);
       const refusal = messageSendRefusal(
@@ -307,10 +348,23 @@ export function AnnotationInput({
       ownsSend = true;
       setFailures([]);
       setBusy(true);
+      if (echoHost && (captured.thread || chat)) {
+        const retried = unsentRef.current;
+        if (retried) {
+          echoHost.remove(retried.echo.local);
+          unsentRef.current = undefined;
+          setUnsent(undefined);
+        }
+        // The echo and the cleared composer appear in the same frame.
+        echoed = messageEcho(captured.value);
+        echoHost.show(echoed);
+        setEchoing(true);
+        if (current.value === latestEdit.current.value) clearDraft();
+      }
       stage = 'attachments';
       const prepared = await files.prepare();
       if (!prepared.ok) {
-        refuse('S10');
+        fail('S10');
         return;
       }
       const attach = prepared.attach;
@@ -321,6 +375,7 @@ export function AnnotationInput({
           ? await discussion!.createChat(captured.value, attach)
           : await discussion!.create(captured.value, captured.anchor, attach);
       stage = 'dispatch';
+      if (echoed) echoHost?.show((echoed = { ...echoed, message: origin.message }));
       files.committed();
       const failures = await sendCommentAsks(binding, origin, captured.destinations, {
         quote,
@@ -330,18 +385,18 @@ export function AnnotationInput({
         conversation: captured.conversation,
       });
       failures.forEach(recordFailure);
-      clearDraft();
+      if (!echoed) clearDraft();
       setError(undefined);
       committed(origin.thread);
     } catch (failure) {
       if (!origin && failure instanceof AttachmentStaleError) {
         files.stale(failure.attachmentIds);
-        refuse('S14');
+        fail('S14');
         return;
       }
-      refuse(origin ? 'S13' : messageSendFailureReference(stage, failure));
+      fail(origin ? 'S13' : messageSendFailureReference(stage, failure));
       if (origin) {
-        clearDraft();
+        if (!echoed) clearDraft();
         setRecorded(origin.thread);
       }
     } finally {
@@ -349,10 +404,28 @@ export function AnnotationInput({
       if (ownsSend) {
         sending.current = false;
         setBusy(false);
+        setEchoing(false);
+      }
+      if (echoed && !origin) {
+        // Not recorded: the echo becomes the failed row, which holds this exact draft.
+        const failed: MessageEcho = {
+          ...echoed,
+          failure: {
+            reference: failedReference ?? messageSendFailureReference(stage, undefined),
+            retry: () => void send(current, true),
+            edit: editUnsent,
+          },
+        };
+        echoHost?.show(failed);
+        unsentRef.current = { edit: current, echo: failed };
+        setUnsent(unsentRef.current);
+        // Reported directly: a composer closed mid-send never runs the draft effect again.
+        onDraft?.(current.value, current);
       }
     }
   }
-  const attachable = !archived && !!discussion?.attachments && !busy && !blocked && !recorded;
+  const attachable =
+    !archived && !!discussion?.attachments && !busy && !blocked && !recorded && !unsent;
   const drop = useAttachmentDropTarget(files, attachable);
   const takeFiles = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
     // Adding only makes an inert local chip; the trusted Send is the first effect.
@@ -370,8 +443,8 @@ export function AnnotationInput({
     >
       {connectionPresentation
         ? connectionPresentation.body
-        : busy
-          ? text.messageSending
+        : unsent
+          ? text.messageUnsentFirst
           : recoveryRequired
             ? text.sendOnHold
             : binding && directory.state === 'loading'
@@ -431,12 +504,14 @@ export function AnnotationInput({
         ? text.askSend
         : `Send · to ${decision.agents.map((agent) => agent.agentName).join(', ')}`,
     variant: 'primary',
-    busy,
+    busy: busy && !echoing,
     disabled:
       !!messageSendRefusal({
         ...sendGate(edit, decision.allowed, !!decision.agents.length),
         sending: busy,
-      }) || staged.chips.some((chip) => chip.state.kind === 'uploading'),
+      }) ||
+      !!unsent ||
+      staged.chips.some((chip) => chip.state.kind === 'uploading'),
     onActivate: (event) => {
       if (event.isTrusted) void send();
     },
@@ -445,6 +520,7 @@ export function AnnotationInput({
     <section
       className="annotation-compose"
       data-chat={chat || undefined}
+      data-unsent={unsent ? '' : undefined}
       data-connection={connectionPresentation?.phase}
       data-testid="annotation-compose"
       ref={section}
@@ -494,10 +570,11 @@ export function AnnotationInput({
             : undefined
         }
         accessory={
-          sendFailureNotice || discussion?.attachments ? (
+          sendFailureNotice || (discussion?.attachments && !echoing && !unsent) ? (
             <>
               {sendFailureNotice}
-              {discussion?.attachments && (
+              {/* Sent files leave with the echo; a failed row holds them until Edit. */}
+              {discussion?.attachments && !echoing && !unsent && (
                 <PendingAttachments
                   draft={files}
                   disabled={!attachable}
@@ -514,7 +591,13 @@ export function AnnotationInput({
         describedBy={statusId}
         resetKey={resetKey}
         autoFocus
-        disabled={busy || (blocked && !recoveryRequired) || !!recorded || !discussion}
+        disabled={
+          (busy && !echoing) ||
+          !!unsent ||
+          (blocked && !recoveryRequired) ||
+          !!recorded ||
+          !discussion
+        }
         onSubmit={(event, current) => {
           if (event.isTrusted && !event.isComposing && event.keyCode !== 229) void send(current);
         }}

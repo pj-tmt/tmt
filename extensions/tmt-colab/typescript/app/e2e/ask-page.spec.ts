@@ -83,7 +83,14 @@ test('closing a pending explicit send retains it and never dispatches again on r
   const input = await compose(page);
   await run(page, 'pausePrepare');
   await input.press('Enter');
-  await expect(input).toHaveAttribute('contenteditable', 'false');
+  // The pending send shows as the sent message; the composer is cleared and stays editable.
+  await expect(
+    page
+      .getByTestId('chat-panel')
+      .locator('[data-testid="comment-echo"], [data-testid="comment-entry"]'),
+  ).toContainText('Explain exactly');
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(input).toHaveAttribute('contenteditable', 'true');
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);

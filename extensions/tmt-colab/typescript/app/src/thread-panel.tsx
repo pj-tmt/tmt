@@ -2,7 +2,14 @@ import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
-import { BrowserAction, BrowserIconAction, BrowserToggle } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserIconAction,
+  BrowserToggle,
+  busyMarkDelayMs,
+  busyMarkHoldMs,
+  useBusyMark,
+} from '@tmt/browser-ui/react';
 import { AgentChip, AgentList } from './components/agent-chip.js';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
@@ -20,6 +27,12 @@ import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
 import { text } from './strings.js';
+import {
+  echoLanded,
+  MessageEchoContext,
+  type MessageEcho,
+  type MessageEchoHost,
+} from './message-echo.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
 import {
@@ -27,6 +40,109 @@ import {
   type ThreadPresentation,
   type ThreadStatusOutcome,
 } from './thread-status-presentation.js';
+
+/**
+ * Host-owned echoes, in send order. A landed echo stays, and its verified record stays hidden,
+ * until a mark that has shown has had its hold (`busyMarkHoldMs`); then the record takes its place.
+ */
+export function useMessageEcho(comments: readonly CommentView[]) {
+  const [echoes, setEchoes] = useState<readonly MessageEcho[]>([]);
+  const [released, setReleased] = useState<ReadonlySet<string>>(() => new Set());
+  const [host] = useState<MessageEchoHost>(() => ({
+    show: (echo) =>
+      setEchoes((previous) =>
+        previous.some((value) => value.local === echo.local)
+          ? previous.map((value) => (value.local === echo.local ? echo : value))
+          : [...previous, echo],
+      ),
+    remove: (local) => setEchoes((previous) => previous.filter((value) => value.local !== local)),
+  }));
+  const landed = echoes.filter((echo) => echoLanded(echo, comments));
+  const landedKey = landed.map((echo) => echo.local).join(' ');
+  useEffect(() => {
+    const timers = landed.map((echo) => {
+      const now = Date.now();
+      // A mark shows from busyMarkDelayMs after the echo; once shown it keeps its hold.
+      const markShown = now - echo.at >= busyMarkDelayMs;
+      const wait = markShown ? Math.max(0, echo.at + busyMarkDelayMs + busyMarkHoldMs - now) : 0;
+      return setTimeout(() => {
+        setEchoes((previous) => previous.filter((value) => value.local !== echo.local));
+        setReleased((previous) => new Set(previous).add(echo.local));
+      }, wait);
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [landedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** A verified record whose echo still holds its place is hidden until the swap. */
+  const held = (comment: CommentView) =>
+    echoes.some(
+      (echo) =>
+        !released.has(echo.local) &&
+        echo.message?.writer === comment.ref.writer &&
+        echo.message.id === comment.messageId,
+    );
+  return [echoes, host, held] as const;
+}
+
+export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: string }) {
+  const marked = useBusyMark(!echo.failure);
+  return (
+    <ConversationTurn
+      role="user"
+      author={text.askYou}
+      at={echo.at}
+      authorTitle={writer}
+      className="comment"
+      data-testid="comment-echo"
+      data-echo={echo.failure ? 'failed' : 'pending'}
+      // The verified record's message actions take this slot; holding it keeps the row's height.
+      actions={<span className="comment-echo-actions" aria-hidden="true" />}
+      meta={
+        !echo.failure && (
+          // The mark has no words and follows the shared busy-mark delay.
+          <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
+            {' '}
+            <LoaderCircle />
+          </span>
+        )
+      }
+      delivery={
+        echo.failure && (
+          // The row is the draft and the one place this failure is reported.
+          <>
+            <p role="alert" className="comment-echo-failure">
+              <span className="annotation-send-mark" aria-hidden="true">
+                ✗{' '}
+              </span>
+              {text.messageUnsent} {text.messageSendReference(echo.failure.reference)}
+            </p>
+            <div className="comment-actions">
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.chatRetry}
+                onActivate={(event) => {
+                  if (event.isTrusted) echo.failure?.retry();
+                }}
+              />
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.commentEdit}
+                onActivate={(event) => {
+                  if (event.isTrusted) echo.failure?.edit();
+                }}
+              />
+            </div>
+          </>
+        )
+      }
+    >
+      <p className="comment-body">
+        <MessageText value={echo.body} names={[]} />
+      </p>
+    </ConversationTurn>
+  );
+}
 
 /** Actor names are admitted display metadata, never inferred from a device ID. */
 export function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
@@ -399,6 +515,7 @@ export function ThreadWindow({
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  const [echoes, echoHost, held] = useMessageEcho(thread?.comments ?? []);
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
   const collapsed = !!thread?.resolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
@@ -579,48 +696,56 @@ export function ThreadWindow({
         ownWriter={binding?.deviceId}
         historyClassName="thread-messages"
         composer={
-          composer !== undefined
-            ? composer
-            : thread &&
-              !thread.deleted &&
-              binding && (
-                <AnnotationInput
-                  connectionPresentation={connectionPresentation}
-                  recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
-                  archived={archived}
-                  creationRecipient={creationRecipient}
-                  binding={ask}
-                  discussion={binding}
-                  anchor={thread.anchor}
-                  thread={thread}
-                  asks={asks}
-                  title={title}
-                  blocked={blocked || busy}
-                  initialEdit={initialEdit}
-                  onDraft={(_value, edit) => onDraft?.(edit)}
-                  onBusy={onBusy}
-                  cancel={close}
-                  committed={() => {}}
-                />
-              )
+          // One echo seam for the built-in composer and a parent's (the anchored dialog).
+          <MessageEchoContext value={echoHost}>
+            {composer !== undefined
+              ? composer
+              : thread &&
+                !thread.deleted &&
+                binding && (
+                  <AnnotationInput
+                    connectionPresentation={connectionPresentation}
+                    recoveryRequired={connectionPresentation?.phase === 'reconnecting'}
+                    archived={archived}
+                    creationRecipient={creationRecipient}
+                    binding={ask}
+                    discussion={binding}
+                    anchor={thread.anchor}
+                    thread={thread}
+                    asks={asks}
+                    title={title}
+                    blocked={blocked || busy}
+                    initialEdit={initialEdit}
+                    onDraft={(_value, edit) => onDraft?.(edit)}
+                    onBusy={onBusy}
+                    cancel={close}
+                    committed={() => {}}
+                  />
+                )}
+          </MessageEchoContext>
         }
       >
         {tracked && anchorsChecked && !attached && (
           <p className="annotation-hint">{text.commentQuoteChanged}</p>
         )}
-        {thread?.comments.map((comment) => (
-          <CommentExchange
-            key={`${comment.ref.writer}:${comment.messageId}`}
-            readOnly={archived}
-            allowEdit={!archived}
-            comment={comment}
-            thread={thread}
-            binding={binding}
-            ask={ask}
-            asks={asks}
-            blocked={blocked || busy}
-            title={title}
-          />
+        {thread?.comments
+          .filter((comment) => !held(comment))
+          .map((comment) => (
+            <CommentExchange
+              key={`${comment.ref.writer}:${comment.messageId}`}
+              readOnly={archived}
+              allowEdit={!archived}
+              comment={comment}
+              thread={thread}
+              binding={binding}
+              ask={ask}
+              asks={asks}
+              blocked={blocked || busy}
+              title={title}
+            />
+          ))}
+        {echoes.map((echo) => (
+          <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />
         ))}
         {!archived &&
           binding &&

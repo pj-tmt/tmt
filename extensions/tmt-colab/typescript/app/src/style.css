@@ -516,6 +516,19 @@ body:has(.needs-you-header-menu) {
   font: 12px/1.65 var(--f-body);
   overflow-wrap: anywhere;
 }
+/* A sent message's pending mark follows the shared busy-mark delay (useBusyMark). */
+.comment-echo-mark:not([data-shown]) {
+  visibility: hidden;
+}
+.comment-echo-mark svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+}
+.comment-echo-actions {
+  width: var(--tmt-ui-host-icon-action-size, 34px);
+  height: var(--tmt-ui-host-icon-action-size, 34px);
+}
 .comment-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1932,4 +1945,7 @@ body:has(.needs-you-header-menu) {
 }
 .agent-activity[data-activity='finished'] > .agent-activity-mark {
   color: var(--tmt-ui-color-working);
+}
+.comment-echo-failure {
+  margin: 0;
 }

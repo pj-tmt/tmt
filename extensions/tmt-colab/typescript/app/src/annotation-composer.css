@@ -66,3 +66,10 @@
 .annotation-send-mark {
   color: var(--c-blocked);
 }
+
+/* A failed row holds the draft: the empty composer is inert and looks exactly as when empty (R2). */
+.annotation-compose[data-unsent] .rich-input-surface[data-disabled],
+.annotation-compose[data-unsent] .rich-input-field {
+  color: var(--tmt-ui-color-text);
+  background: transparent;
+}

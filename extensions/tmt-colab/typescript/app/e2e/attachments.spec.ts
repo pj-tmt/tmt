@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { text } from '../src/strings.js';
 import {
   fixture,
@@ -204,6 +204,18 @@ test('empty, oversized and surplus files are refused as notices; chips can be re
   expect(await actions(page)).toEqual([]);
 });
 
+/** A failed Chat send leaves one row that holds the draft; Edit moves it, files included, back. */
+async function unsentThenEdit(panel: Locator, reference?: string) {
+  const row = panel.getByTestId('comment-echo');
+  await expect(row.getByRole('alert')).toHaveText(
+    reference
+      ? `✗ ${text.messageUnsent} ${text.messageSendReference(reference)}`
+      : new RegExp(`^✗ ${text.messageUnsent} `),
+  );
+  await row.getByRole('button', { name: text.commentEdit, exact: true }).click();
+  await expect(row).toHaveCount(0);
+}
+
 test('a refused upload sends nothing, keeps the draft and never retries by itself', async ({
   page,
 }) => {
@@ -212,13 +224,13 @@ test('a refused upload sends nothing, keeps the draft and never retries by itsel
   await input.fill('Please keep this text');
   await attach(page, [note('refuse.bin')]);
   await send(page).click();
-  await expect(panel.getByRole('alert')).toHaveText(`✗ ${text.messageNotSentAttachment} (ref S10)`);
+  await unsentThenEdit(panel, 'S10');
   const chip = panel.getByTestId('attachment-chip');
   await expect(chip).toHaveAttribute('data-state', 'refused');
   await expect(chip).toContainText(text.attachRefused.capacity);
   await expect(input).toHaveText('Please keep this text', { useInnerText: true });
   await send(page).click();
-  await expect(panel.getByRole('alert')).toHaveText(`✗ ${text.messageNotSentAttachment} (ref S10)`);
+  await unsentThenEdit(panel, 'S10');
   // Two Sends, one upload attempt: the refused file was not retried by either.
   expect(await actions(page)).toEqual(['attach:upload:refuse.bin']);
   await chip.getByRole('button', { name: text.attachRemove }).click();
@@ -233,11 +245,12 @@ test('an unconfirmed upload blocks Send until its own status is checked', async 
   await input.fill('Maybe stored');
   await attach(page, [note('unknown.bin')]);
   await send(page).click();
+  await unsentThenEdit(panel);
   const chip = panel.getByTestId('attachment-chip');
   await expect(chip).toHaveAttribute('data-state', 'unknown');
   await expect(chip).toContainText(text.attachUnknown);
   await send(page).click();
-  await expect(panel.getByRole('alert')).toHaveText(`✗ ${text.messageNotSentAttachment} (ref S10)`);
+  await unsentThenEdit(panel, 'S10');
   expect((await actions(page)).filter((a) => a.startsWith('attach:upload'))).toHaveLength(1);
   await chip.getByRole('button', { name: text.attachCheck }).click();
   await expect(chip).toHaveAttribute('data-state', 'stored');
@@ -255,7 +268,7 @@ test('a page that changed mid-attach asks the user to send again and reuses the 
   await input.fill('Racing the page');
   await attach(page, [note('stale.txt')]);
   await send(page).click();
-  await expect(panel.getByRole('alert')).toHaveText(`✗ ${text.messageNotSentAttachment} (ref S14)`);
+  await unsentThenEdit(panel, 'S14');
   const chip = panel.getByTestId('attachment-chip');
   await expect(chip).toHaveAttribute('data-state', 'again');
   await expect(chip).toContainText(text.attachAgainPageChanged);

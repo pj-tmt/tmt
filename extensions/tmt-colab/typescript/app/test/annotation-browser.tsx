@@ -2,6 +2,7 @@ import { ConversationPresentation } from '../src/components/conversation-present
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
 import { ThreadPanel, ThreadWindow } from '../src/thread-panel.js';
+import { ChatPanel } from '../src/chat-panel.js';
 import { MessageComposer } from '../src/components/message-composer.js';
 import type { ThreadView } from '../src/thread-records.js';
 import { useEffect, useState } from 'react';
@@ -68,6 +69,16 @@ export function setCreator(value: boolean) {
 }
 export function setAgents(value: AgentDestination[]) {
   customAgents = value;
+}
+/** Mount the reply or Chat composer inside its real host, which shows sent messages at once. */
+let echoHost = false;
+export function setEchoHost(value: boolean) {
+  echoHost = value;
+}
+let publishVerified: (() => void) | undefined;
+/** The verified view republishes with the last recorded message, as the live projection would. */
+export function publishRecorded() {
+  publishVerified?.();
 }
 let surface: 'annotation' | 'reply' | 'chat' | 'linked' = 'annotation';
 export function setSurface(next: 'annotation' | 'reply' | 'chat' | 'linked') {
@@ -154,6 +165,7 @@ export function mount(
   location.hash = `space=${selection().space}&path=${encodeURIComponent(`/pages/${id(1)}`)}`;
   const target = destination();
   const ref = { writer: id(4), id: id(2) };
+  const chatRef = { writer: id(4), id: id(4) };
   const discussion: ThreadBinding = {
     deviceId: id(4),
     async setStatus() {
@@ -314,6 +326,73 @@ export function mount(
     useEffect(() => {
       reconnect = () => setBinding(makeBinding());
     });
+    const [view, setView] = useState<ThreadView>(() =>
+      surface === 'chat'
+        ? { ...replyThread, threadId: id(4), ref: chatRef, anchor: null }
+        : replyThread,
+    );
+    useEffect(() => {
+      publishVerified = () =>
+        setView((previous) => ({
+          ...previous,
+          comments: [
+            ...previous.comments,
+            {
+              ...previous,
+              kind: 'comment',
+              deleted: false,
+              messageId: id(3),
+              ref: { writer: id(4), id: id(3) },
+              thread: previous.ref,
+              body: (captured.at(-1) as { body: string }).body,
+              at: String(Date.now()),
+              sequence: String(previous.comments.length + 1),
+            },
+          ],
+        }));
+      return () => {
+        publishVerified = undefined;
+      };
+    }, []);
+    if (echoHost && surface === 'chat')
+      return (
+        <ChatPanel
+          threads={[view]}
+          asks={records}
+          binding={talk ? binding : undefined}
+          discussion={discussion}
+          title="Annotated page"
+          blocked={phase !== 'connected'}
+          onDraft={(edit) => {
+            draft = edit.value;
+            draftEdit = edit;
+          }}
+          close={() => {
+            closes++;
+          }}
+        />
+      );
+    if (echoHost && surface === 'reply')
+      return (
+        <ThreadWindow
+          thread={view}
+          attached
+          anchorsChecked
+          selection={null}
+          asks={records}
+          title="Annotated page"
+          blocked={phase !== 'connected'}
+          close={() => {
+            closes++;
+          }}
+          binding={discussion}
+          ask={talk ? binding : undefined}
+          onDraft={(edit) => {
+            draft = edit.value;
+            draftEdit = edit;
+          }}
+        />
+      );
     const composer = !cancelled && (
       <AnnotationInput
         {...connectionProps}
