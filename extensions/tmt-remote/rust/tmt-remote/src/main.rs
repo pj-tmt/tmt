@@ -58,7 +58,7 @@ const LINK: CommandSpec = CommandSpec {
     summary: "Print a link to this remote's join guide",
     examples: &[Example {
         command: "tmt remote link --json",
-        note: "Read the public configuration link",
+        note: "Read the public link without opening a browser",
     }],
     outputs: OutputModes::HumanAndJson,
     details: "Share this link so someone can connect to this remote. It holds public connection details only and gives no access to shared pages or the project. Printing it opens no browser and changes nothing. The same link can be shared again.",
@@ -252,7 +252,7 @@ fn grammar() -> Command {
             outputs: OutputModes::Human, details: "Only Firestore sharing is supported. Deployment requires explicit exact-plan authorization.",
         }).subcommand_required(true).subcommand(tmt_remote::deploy_cli::command()))
         .subcommand(tmt_cli_style::command(&CommandSpec { name: "ls", summary: "List remotes", examples: &[Example { command: "tmt remote ls --json", note: "List names, projects and regions" }], outputs: OutputModes::HumanAndJson, details: "The default column marks only the configured default. This is not live provider status." }))
-        .subcommand(tmt_cli_style::command(&CommandSpec { name: "add", summary: "Remember a remote on this machine", examples: &[Example { command: "tmt remote add test <remote-link> --json", note: "Register public configuration without granting access" }], outputs: OutputModes::HumanAndJson, details: "Save the remote's public connection details under a name you choose. This does not sign in, grant page access or change the project." }).arg(Arg::new("name").required(true)).arg(Arg::new("url").required(true)))
+        .subcommand(tmt_cli_style::command(&CommandSpec { name: "add", summary: "Remember a remote on this machine", examples: &[Example { command: "tmt remote add team '<remote-link>' --json", note: "Remember the remote as team" }], outputs: OutputModes::HumanAndJson, details: "Save the remote's public connection details under a name you choose. This does not sign in, grant page access or change the project." }).arg(Arg::new("name").required(true)).arg(Arg::new("url").required(true)))
         .subcommand(tmt_cli_style::command(&CommandSpec { name: "rm", summary: "Remove only a remote reference", examples: &[Example { command: "tmt remote rm test --json", note: "Keep deploy history and cloud resources" }], outputs: OutputModes::HumanAndJson, details: "Removing the default leaves it pointing to a removed remote until you change default-remote." }).arg(Arg::new("name").required(true)))
         .subcommand(tmt_cli_style::command(&LINK).arg(Arg::new("project").long("project").help("Project deployed from this machine")))
         .subcommand(tmt_cli_style::command(&STOP))
@@ -1579,6 +1579,7 @@ mod tests {
                 vec!["link"],
                 vec![
                     "Print a link to this remote's join guide",
+                    "Read the public link without opening a browser",
                     "Share this link so someone can connect to this remote. It holds public connection details only and gives no access to shared pages or the project. Printing it opens no browser and changes nothing. The same link can be shared again.",
                 ],
             ),
@@ -1586,6 +1587,8 @@ mod tests {
                 vec!["add"],
                 vec![
                     "Remember a remote on this machine",
+                    "tmt remote add team '<remote-link>' --json",
+                    "Remember the remote as team",
                     "Save the remote's public connection details under a name you choose. This does not sign in, grant page access or change the project.",
                 ],
             ),
@@ -1600,6 +1603,7 @@ mod tests {
                 vec!["sync", "sign-in"],
                 vec![
                     "Sign this machine in to a remote",
+                    "Sign this machine in to the saved remote",
                     "Use the selected remote's anonymous sign-in. No personal account is needed. An active sign-in is reused. After it ends, signing in creates a new identity. Page access for this machine is not available yet. To open a shared page in your browser, use the page link from its owner. If a sign-in is not confirmed, it is not retried automatically; run the command again.",
                 ],
             ),
