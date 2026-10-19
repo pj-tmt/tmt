@@ -32,7 +32,7 @@
   white-space: nowrap;
 }
 .tmt-ui-menu-field-label {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
 }
 .tmt-ui-menu-surface {
   position: fixed;
@@ -79,13 +79,13 @@
   outline-offset: -2px;
 }
 .tmt-ui-menu-item:disabled {
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   cursor: default;
 }
 .tmt-ui-menu-description {
   padding: 12px;
   border-bottom: 1px solid var(--tmt-ui-surface-rule);
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 .tmt-ui-menu-description p {
@@ -94,7 +94,7 @@
 .tmt-ui-menu-reason {
   display: block;
   padding: 0 12px 8px;
-  color: var(--tmt-ui-color-muted);
+  color: var(--tmt-ui-color-secondary);
   font-size: 12px;
 }
 
