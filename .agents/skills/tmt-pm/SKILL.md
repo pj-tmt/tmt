@@ -81,13 +81,13 @@ Status meanings, epic approval/start rules and cadence; this skill owns procedur
      to a model (Codex seats often), so print them as `model not attributed`, never
      as unknown usage, and leave per-model cost for them empty. Core has no compaction data: print the compaction
      table as `unavailable (no Core source)`.
-   - _Sessions outside the seats._ A Codex seat's totals include the sessions its session
-     started (subagents and `codex-auto-review`), from the first scan after Core shipped
-     that rule (#3828): usage before it excludes them, so a window that spans the first
-     scan is a lower bound for those seats. A session
-     whose root is no seat's session is not read: print `usage.otherSessions`
-     (`no_source`) as `other sessions: unavailable (no Core source)` beside the seat
-     ranking, never as zero, and do not reconcile with provider files or a second store.
+   - _Sessions outside the seats._ A Codex seat's totals include the sessions it started
+     (subagents and `codex-auto-review`), counted from Core's first scan after #3832
+     shipped. Usage before that scan leaves them out, so a window that spans it is a
+     lower bound for those seats. Sessions that no seat started are not read: print
+     `usage.otherSessions` (`no_source`) as `other sessions: unavailable (no Core source)`
+     beside the seat ranking, never as zero, and do not reconcile with provider files or
+     a second store.
    - _Credits._ `credits.points[]` is the Codex credit balance at the series resolution
      (hourly for 24h): `balance` is the provider's decimal text in its credit unit,
      the newest point is the current balance, and seats on one account give one series

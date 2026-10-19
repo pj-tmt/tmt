@@ -57,10 +57,10 @@ with Core's usual 15 seconds and 1 MiB per call:
   why nothing is being sampled right now. A value this build does not know is passed
   through, and a reader must tolerate one. The other reasons carry no cause.
 - `usage.otherSessions`: `{name:"other sessions",reason:"no_source"}`, always present.
-  Core counts a Codex seat's started sessions (subagents and auto-review) with the seat that owns
+  Core counts a Codex seat's started sessions (subagents and auto-review) with the seat at
   the root of their parent chain
   ([the rule](../../../contracts/extension-api.md#consumption-history)), so every figure above
-  is the seat's. A session whose root is no seat's session is not read, so its usage is
+  is the seat's. A session that no seat started is not read, so its usage is
   unavailable, never a zero and never folded into a seat; the report's totals are the sum of
   its seat rows.
 - `usage.lines[]`: totals grouped by model family, from the model id: `claude`
