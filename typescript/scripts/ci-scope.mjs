@@ -501,7 +501,7 @@ export function selectColabHarness(paths, map = componentMap()) {
 
 // The app component suite renders the app in Chromium against its own dev server, so it
 // reads the app, the client and design system it imports, and the lockfile; it needs no
-// Rust. Native-fixture specs skip there and stay in the weekly/manual acceptance.
+// Rust. Native-fixture specs skip there; the PR-selected hosted job owns the served proof.
 const COLAB_APP_OWNERS = new Set(['colab-app', 'colab-client', 'browser-ui']);
 
 const COLAB_APP_ROOTS = [
@@ -526,7 +526,7 @@ export function selectColabApp(paths, map = componentMap()) {
 }
 
 // The hosted bundle embeds Remote's pinned Firebase client next to Colab's hosted app. Only the
-// pin manifest and the inputs that decide the bundle select its one-spec job: a Remote source
+// pin manifest and bundle inputs select its job, alongside the narrow native served surface. A Remote source
 // change that alters the Firebase build must already move the pin in Remote's own CI, so the
 // pin is the drift signal and `remote-client/src/**` stays out.
 const COLAB_HOSTED_INPUTS = new Set([
@@ -537,11 +537,40 @@ const COLAB_HOSTED_INPUTS = new Set([
   'extensions/tmt-colab/typescript/app/package.json',
   'extensions/tmt-colab/typescript/app/vite.config.ts',
   'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
+  // Exact serve-surface inputs approved in #3126; adjacent Rust helpers/tests stay out.
+  'extensions/tmt-colab/rust/tmt-colab/src/serve.rs',
+  'extensions/tmt-colab/rust/tmt-colab/src/socket.rs',
+  'extensions/tmt-colab/rust/tmt-colab/src/door.rs',
+  'extensions/tmt-colab/rust/tmt-colab/src/assets.rs',
+  'extensions/tmt-colab/rust/tmt-colab/src/readers.rs',
+  'extensions/tmt-colab/rust/tmt-colab/build.rs',
+  'extensions/tmt-colab/typescript/app/public/reader.html',
+  'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+  'extensions/tmt-colab/typescript/app/src/reader-main.tsx',
+  'extensions/tmt-colab/typescript/app/src/reader.ts',
+  'extensions/tmt-colab/typescript/app/e2e/served.spec.ts',
 ]);
 
 /** Empty/unknown diffs do not select advisory work; weekly/manual runs cover shared drift. */
 export function selectColabHosted(paths) {
   return paths.some((path) => COLAB_HOSTED_INPUTS.has(path));
+}
+
+// The cross-screen chrome spec mounts the real router and pages (its fixture imports most of the
+// app) and compares them with the native fallback chrome, so it follows the app suite's inputs
+// plus the Rust files that render that fallback chrome and the producer test that captures it.
+// Unlike the advisory browser jobs it gates: ci.yml's `colab-chrome` job feeds `Native package matrix`.
+const COLAB_CHROME_NATIVE_INPUTS = new Set([
+  '.github/workflows/ci.yml',
+  'extensions/tmt-colab/rust/tmt-colab/src/chrome.rs',
+  'extensions/tmt-colab/rust/tmt-colab/src/socket.rs',
+  'extensions/tmt-colab/rust/tmt-colab/src/assets.rs',
+  'extensions/tmt-colab/rust/tmt-colab/tests/socket.rs',
+]);
+
+/** Empty/unknown diffs select nothing; main-full verification selects it unconditionally. */
+export function selectColabChrome(paths, map = componentMap()) {
+  return selectColabApp(paths, map) || paths.some((path) => COLAB_CHROME_NATIVE_INPUTS.has(path));
 }
 
 // The Remote Firestore Rules emulator suite (Java 21 plus firebase-tools, no Docker) runs as
@@ -732,6 +761,7 @@ export const MAIN_FULL_JOBS = [
   'changes',
   'code-quality',
   'native-notices',
+  'colab-chrome',
   'native-clippy',
   'native-workspace-tests',
   'native-process-tests',
@@ -783,6 +813,7 @@ export function mainFullGatePasses(context, needs) {
       'native_notices',
       'remote_firestore',
       'colab_firestore',
+      'colab_chrome',
       'native_sync_emulator',
     ].some((key) => outputs[key] !== 'true')
   )
@@ -1097,6 +1128,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const remoteFirestore = mainFull || (!seed && !full && selectRemoteFirestore(selection.paths));
   const colabFirestore = mainFull || (!seed && !full && selectColabFirestore(selection.paths));
+  const colabChrome = mainFull || (!seed && !full && selectColabChrome(selection.paths));
   const nativeSyncEmulator =
     mainFull || (!seed && !full && selectNativeSyncEmulator(selection.paths));
   const evidence =
@@ -1105,7 +1137,8 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nColab app component suite PR selection (app, client, browser UI, workflow or lockfile): ${colabApp}.\n` +
-    `\nColab hosted bundle spec PR selection (Firebase pin or build config, hosting generator, hosted build or spec): ${colabHosted}.\n` +
+    `\nColab served/hosted PR selection (serve surface, Firebase pin/build config, hosting generator, hosted build or spec): ${colabHosted}.\n` +
+    `\nColab cross-screen chrome spec selection (app suite inputs or native fallback chrome; required through Native package matrix): ${colabChrome}.\n` +
     `\nHosted reader emulator PR selection (hosted reader, native producer or qualifier inputs): ${colabHostedEmulator}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n` +
     `\nRemote Firestore Rules emulator selection (Unit tests job): ${remoteFirestore}.\n` +
@@ -1121,6 +1154,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile, env = proce
       `colab_harness=${colabHarness}\n` +
       `colab_app=${colabApp}\n` +
       `colab_hosted=${colabHosted}\n` +
+      `colab_chrome=${colabChrome}\n` +
       `colab_hosted_emulator=${colabHostedEmulator}\n` +
       `native_notices=${nativeNotices}\n` +
       `remote_firestore=${remoteFirestore}\n` +

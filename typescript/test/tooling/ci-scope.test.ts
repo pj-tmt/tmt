@@ -44,6 +44,7 @@ import {
   selectHostedReaderEmulator,
   selectColabFirestore,
   selectColabHarness,
+  selectColabChrome,
   selectColabHosted,
   selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
@@ -173,6 +174,7 @@ describe('complete trusted-main verification', () => {
       'native_notices',
       'remote_firestore',
       'colab_firestore',
+      'colab_chrome',
       'native_sync_emulator',
     ]) {
       const needs = completeNeeds();
@@ -498,6 +500,96 @@ describe('native dependency notices selection', () => {
       expect(ciGatePasses('true', [result])).toBe(false);
     expect(ciGatePasses('false', ['skipped'])).toBe(true);
     expect(ciGatePasses('', ['skipped'])).toBe(false);
+  });
+
+  it('gates the Colab chrome spec through the native gate with a required fixture', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = (name: string) => {
+      const block = ci.split(`\n  ${name}:\n`)[1];
+      expect(block).toBeDefined();
+      return block.split(/\n {2}[a-z0-9-]+:\n/)[0];
+    };
+    const chrome = job('colab-chrome');
+    const native = job('native-install-gate');
+    expect(chrome).toContain('needs: changes');
+    expect(chrome).toContain(
+      "needs.changes.outputs.verify == 'true' && needs.changes.outputs.colab_chrome == 'true'"
+    );
+    expect(chrome).toContain('permissions:\n      contents: read');
+    expect(chrome).toContain('persist-credentials: false');
+    expect(chrome).toContain('shared-key: native-rust\n          save-if: false');
+    expect(chrome).toContain('-p tmt-colab --test socket --no-run --message-format=json');
+    expect(chrome).toContain(
+      'key: colab-chrome-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}'
+    );
+    expect(chrome).toContain('uses: actions/cache/restore@v4');
+    expect(chrome).toContain(
+      "if: github.ref == 'refs/heads/main' && steps.browsers.outputs.cache-hit != 'true'"
+    );
+    expect(chrome).toContain('retention-days: 7');
+    // Chromium's system packages go through the bounded apt action, never `--with-deps`' own
+    // unbounded apt-get update. The list is Playwright's `ubuntu24.04-x64` tools + chromium set for
+    // the pinned version; a version bump must refresh the list here and in the job together.
+    const playwright = JSON.parse(
+      readFileSync(
+        new URL('../../../extensions/tmt-colab/typescript/app/package.json', import.meta.url),
+        'utf8'
+      )
+    ).devDependencies['@playwright/test'];
+    expect(playwright).toBe('1.63.0');
+    expect(chrome).not.toContain('--with-deps');
+    expect(chrome).toContain('runs-on: ubuntu-24.04');
+    expect(chrome).toContain('timeout-minutes: 10');
+    const packages = [
+      ...(
+        chrome.match(
+          /uses: \.\/\.github\/actions\/apt-install\n {8}with:\n {10}packages: >-\n((?: {12}.+\n)+)/
+        )?.[1] ?? ''
+      )
+        .split(/\s+/)
+        .filter(Boolean),
+    ];
+    expect(packages).toEqual([
+      ...['xvfb', 'fonts-noto-color-emoji', 'fonts-unifont', 'libfontconfig1', 'libfreetype6'],
+      ...['xfonts-cyrillic', 'xfonts-scalable', 'fonts-liberation', 'fonts-ipafont-gothic'],
+      ...['fonts-wqy-zenhei', 'fonts-tlwg-loma-otf', 'fonts-freefont-ttf'],
+      ...['libasound2t64', 'libatk-bridge2.0-0t64', 'libatk1.0-0t64', 'libatspi2.0-0t64'],
+      ...['libcairo2', 'libcups2t64', 'libdbus-1-3', 'libdrm2', 'libgbm1', 'libglib2.0-0t64'],
+      ...['libnspr4', 'libnss3', 'libpango-1.0-0', 'libx11-6', 'libxcb1', 'libxcomposite1'],
+      ...['libxdamage1', 'libxext6', 'libxfixes3', 'libxkbcommon0', 'libxrandr2'],
+    ]);
+    expect(chrome).toContain(
+      'run: pnpm --filter @tmt/colab-app exec playwright install chromium\n'
+    );
+    expect(chrome.indexOf('actions/apt-install')).toBeLessThan(
+      chrome.indexOf('playwright install chromium')
+    );
+    expect(chrome).toContain("COLAB_CHROME_REQUIRED: '1'");
+    expect(chrome).toContain(
+      'COLAB_CHROME_FIXTURE_EXECUTABLE: ${{ steps.fixture.outputs.executable }}'
+    );
+    expect(chrome).toContain('e2e/chrome.spec.ts --list --reporter=json');
+    expect(chrome).toContain('e2e/chrome.spec.ts --workers=1 --reporter=list,json');
+    expect(chrome.trim()).not.toContain('continue-on-error');
+    expect(chrome).not.toMatch(/--retries|sleep /);
+    expect(chrome.indexOf('sh scripts/install-ci-rust.sh ')).toBeLessThan(
+      chrome.indexOf('uses: Swatinem/rust-cache@')
+    );
+    expect(ci).toContain(
+      "      colab_chrome: ${{ steps.mainfull.outputs.colab_chrome || steps.scope.outputs.colab_chrome || steps.queue.outputs.colab_chrome || 'false' }}"
+    );
+    expect(native).toMatch(/needs:[\s\S]*colab-chrome,/);
+    expect(native).toContain('CHROME_SELECTED: ${{ needs.changes.outputs.colab_chrome }}');
+    expect(native).toContain('CHROME_RESULT: ${{ needs.colab-chrome.result }}');
+    expect(native).toContain('gate "$CHROME_SELECTED" "$CHROME_RESULT"');
+    expect(job('code-quality')).not.toContain('colab-chrome');
+    expect(job('complete-main')).toContain('      - colab-chrome\n');
+    expect(MAIN_FULL_JOBS).toContain('colab-chrome');
+    const spec = readFileSync(
+      new URL('../../../extensions/tmt-colab/typescript/app/e2e/chrome.spec.ts', import.meta.url),
+      'utf8'
+    );
+    expect(spec).toContain("process.env.COLAB_CHROME_REQUIRED === '1'");
   });
 });
 
@@ -1346,7 +1438,13 @@ describe('Colab browser-only native scope', () => {
     });
     const files = inventory.split('\0').filter((file) => file && selectColabHosted([file]));
     expect(files).toContain(app + 'acceptance/hosted-bundle.spec.ts');
-    for (const file of files) expect(selectNativeScope([file]), file).toBe('full');
+    const browserOnly = new Set([
+      app + 'src/reader-link.ts',
+      app + 'src/reader.ts',
+      app + 'e2e/served.spec.ts',
+    ]);
+    for (const file of files)
+      expect(selectNativeScope([file]), file).toBe(browserOnly.has(file) ? 'none' : 'full');
   });
 });
 
@@ -1823,6 +1921,7 @@ describe('CI diff and command integration', () => {
         colab_app: 'false',
         colab_hosted: 'false',
         colab_hosted_emulator: 'false',
+        colab_chrome: 'false',
         native_scope: 'ops',
         native_notices: 'false',
         remote_firestore: 'false',
@@ -2000,7 +2099,18 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-colab/typescript/app/package.json',
     'extensions/tmt-colab/typescript/app/vite.config.ts',
     'extensions/tmt-colab/typescript/app/acceptance/hosted-bundle.spec.ts',
-  ])('selects the hosted bundle spec for %s', (file) => {
+    'extensions/tmt-colab/rust/tmt-colab/src/serve.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/socket.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/door.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/assets.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/readers.rs',
+    'extensions/tmt-colab/rust/tmt-colab/build.rs',
+    'extensions/tmt-colab/typescript/app/public/reader.html',
+    'extensions/tmt-colab/typescript/app/src/reader-link.ts',
+    'extensions/tmt-colab/typescript/app/src/reader-main.tsx',
+    'extensions/tmt-colab/typescript/app/src/reader.ts',
+    'extensions/tmt-colab/typescript/app/e2e/served.spec.ts',
+  ])('selects the served and hosted job for %s', (file) => {
     expect(selectColabHosted([file])).toBe(true);
     expect(selectColabHosted(['DEVELOPMENT.md', file])).toBe(true);
   });
@@ -2010,7 +2120,11 @@ describe('CI diff and command integration', () => {
     'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
     'extensions/tmt-remote/typescript/remote-client/package.json',
     'extensions/tmt-remote/typescript/remote-client/firebase-build-pin.json.bak',
-    'extensions/tmt-colab/rust/tmt-colab/build.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/serve_release.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/socket_tests.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/readers/tests.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/object_channel/cloud_sync/reader.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/sync.rs',
     'extensions/tmt-colab/rust/tmt-colab/src/deploy_declaration.rs',
     'extensions/tmt-colab/typescript/app/src/index.tsx',
     'extensions/tmt-colab/typescript/app/acceptance/page-save.spec.ts',
@@ -2022,6 +2136,41 @@ describe('CI diff and command integration', () => {
 
   it('does not select the hosted bundle spec for an empty diff', () => {
     expect(selectColabHosted([])).toBe(false);
+  });
+
+  // The chrome fixture mounts the real router and pages, so any app input selects the gating job,
+  // alongside the four native files that render or capture the fallback chrome.
+  it.each([
+    'extensions/tmt-colab/rust/tmt-colab/src/chrome.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/socket.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/assets.rs',
+    'extensions/tmt-colab/rust/tmt-colab/tests/socket.rs',
+    'extensions/tmt-colab/typescript/app/e2e/chrome.spec.ts',
+    'extensions/tmt-colab/typescript/app/src/colab-header.tsx',
+    'extensions/tmt-colab/typescript/app/src/home.tsx',
+    'design/browser-ui/src/list.tsx',
+    'typescript/pnpm-lock.yaml',
+    '.github/workflows/ci.yml',
+    '.github/workflows/colab-browser.yml',
+  ])('selects the gating Colab chrome spec for %s', (file) => {
+    expect(selectColabChrome([file])).toBe(true);
+    expect(selectColabChrome(['DEVELOPMENT.md', file])).toBe(true);
+  });
+
+  it.each([
+    'extensions/tmt-colab/rust/tmt-colab/src/sync.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/serve_release.rs',
+    'extensions/tmt-colab/rust/tmt-colab/src/deploy_declaration.rs',
+    'extensions/tmt-colab/rust/tmt-colab/tests/state.rs',
+    'extensions/tmt-remote/typescript/remote-client/src/firebase-client.ts',
+    'DEVELOPMENT.md',
+    'unknown/input',
+  ])('does not select the Colab chrome spec for %s', (file) => {
+    expect(selectColabChrome([file])).toBe(false);
+  });
+
+  it('does not select the Colab chrome spec for an empty diff', () => {
+    expect(selectColabChrome([])).toBe(false);
   });
 
   it('requires mapped ownership and does not expand empty Colab app scope', () => {
@@ -2363,6 +2512,13 @@ esac
       expect(colabQueue.outputs).toEqual(select([base, colabRules]).outputs);
       expect(select(['full']).outputs.colab_firestore).toBe('false');
       expect(select(['seed']).outputs.colab_firestore).toBe('false');
+      const chromeHead = commit('extensions/tmt-colab/rust/tmt-colab/src/chrome.rs', '// chrome');
+      const chromeQueue = select(['merge-group', chromeHead]);
+      expect(chromeQueue.outputs.colab_chrome).toBe('true');
+      expect(chromeQueue.outputs).toEqual(select([base, chromeHead]).outputs);
+      expect(chromeQueue.evidence).toContain('Colab cross-screen chrome spec selection');
+      expect(select(['full']).outputs.colab_chrome).toBe('false');
+      expect(select(['seed']).outputs.colab_chrome).toBe('false');
       git(['checkout', '--quiet', '--detach', base]);
       commit('extensions/tmt-colab/typescript/app/src/style.css', 'browser');
       const browserTip = commit(
@@ -2967,7 +3123,7 @@ describe('required CI gate', () => {
     );
     const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
-    expect(cachePolicies).toHaveLength(5);
+    expect(cachePolicies).toHaveLength(6);
     expect(writers).toHaveLength(3);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
@@ -2986,6 +3142,7 @@ describe('required CI gate', () => {
     );
     const sites = [
       'native-notices',
+      'colab-chrome',
       'native-clippy',
       'native-process-tests',
       'native-msrv',
@@ -3543,6 +3700,30 @@ describe('required CI gate', () => {
     expect(hosted).toContain('-p tmt-remote --example compose_hosting');
     expect(hosted).not.toMatch(/-p tmt-cli[^\n]*--example/);
     expect(hosted).toContain('acceptance/hosted-bundle.spec.ts');
+    expect(hosted).toContain('name: Colab hosted and native served specs (Chromium)');
+    expect(hosted).toContain("COLAB_SERVE_REQUIRED: '1'");
+    expect(hosted).toContain("COLAB_SERVE_EMBEDDED: '1'");
+    expect(hosted).toContain("TMT_AGENT: '1'");
+    expect(hosted).toContain('BROWSER: /usr/bin/true');
+    expect(hosted).toContain('COLAB_SERVE_APP_DIR: ${{ runner.temp }}/colab-served-app');
+    expect(hosted).toContain(
+      'cp -R ../extensions/tmt-colab/typescript/app/dist "$COLAB_SERVE_APP_DIR"'
+    );
+    expect(hosted).toContain(
+      'trap \'mv "$RUNNER_TEMP/colab-served-checkout" ../extensions/tmt-colab/typescript/app/dist\' EXIT'
+    );
+    expect(hosted).toContain('e2e/served.spec.ts --workers=1 --reporter=list,json');
+    expect(hosted.indexOf('name: Run native served specs without skips')).toBeGreaterThan(
+      hosted.indexOf('uses: ./.github/actions/hosted-reader-emulator')
+    );
+    expect(
+      hosted
+        .trim()
+        .endsWith(
+          'node scripts/colab-native-spec-report.mjs "$RUNNER_TEMP/colab-served-results/list.json" "$PLAYWRIGHT_JSON_OUTPUT_FILE"'
+        )
+    ).toBe(true);
+
     expect(hosted).not.toContain('colab-acceptance-shards');
     expect(hosted).not.toContain('continue-on-error');
   });

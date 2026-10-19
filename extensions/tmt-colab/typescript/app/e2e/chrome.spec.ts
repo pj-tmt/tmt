@@ -31,6 +31,9 @@ let nativeDirectory: string;
 
 test.beforeAll(async () => {
   const executable = process.env.COLAB_CHROME_FIXTURE_EXECUTABLE;
+  // The gating CI job sets this flag: there a missing fixture is a failure, never a skip.
+  if (process.env.COLAB_CHROME_REQUIRED === '1')
+    expect(executable, 'COLAB_CHROME_REQUIRED needs the native chrome fixture').toBeTruthy();
   test.skip(
     !executable,
     'Needs the native chrome fixture: build the socket test and set COLAB_CHROME_FIXTURE_EXECUTABLE',
@@ -152,9 +155,15 @@ for (const width of [1440, 390, 320])
             }
             if (screen === 'page' || screen === 'reader') {
               await expect(page.locator('iframe')).toHaveAttribute('data-scroll-mode', 'window');
+              // The frame reports its content height asynchronously; under a loaded hosted runner
+              // that took longer than the default 5 s once, so bound the wait explicitly.
               await expect
-                .poll(() =>
-                  page.locator('iframe').evaluate((frame) => frame.getBoundingClientRect().height),
+                .poll(
+                  () =>
+                    page
+                      .locator('iframe')
+                      .evaluate((frame) => frame.getBoundingClientRect().height),
+                  { timeout: 15_000 },
                 )
                 .toBeGreaterThan(1500);
             }

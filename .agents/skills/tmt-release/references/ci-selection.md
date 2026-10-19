@@ -30,8 +30,8 @@ excluding fences, inline code and HTML comments; it does not fetch URLs or valid
   Cargo checks, architecture guard, native tests and E2E under existing names;
   skip unchanged CLI builds, packed installs and tooling unit tests. Shared,
   CLI-owned or unknown native inputs require full scope.
-- Colab browser source/test/spec trees select Code quality and browser lanes
-  without the full native gate.
+- Colab browser source/test/spec trees select Code quality, browser lanes and the gating
+  `colab-chrome` job without the full native gate.
   Native chrome CSS, hosted-build inputs, entry/build/config, public assets,
   vectors, native skills and unknown inputs retain full verification. Unconditional
   app quality/build checks the renderer-style generator; browser selectors are independent.
@@ -86,12 +86,22 @@ entry. The component rule keeps full native scope; this is not product adoption
 or broader advisory browser coverage. E2E/artifacts prepare checked CSS; all three native
 stages retain the actual Rust embedded-input guard.
 
+`colab-chrome` runs `e2e/chrome.spec.ts` against the native fallback chrome. `colab_chrome`
+selects app-suite inputs, `ci.yml`, or `chrome.rs`, `socket.rs`, `assets.rs` and
+`tests/socket.rs`, in PR, merge-group and main-full runs. The job builds the `tmt-colab`
+`socket` test fixture, sets `COLAB_CHROME_REQUIRED=1` (a missing fixture fails, never skips)
+and applies the complete-listed-case guard (`colab-native-spec-report.mjs`) with one worker
+and no retries. `Native package matrix` requires it: selected means success, unselected
+means skipped; no required name changes. It restores caches without saving, except
+Chromium on main, and installs Chromium's system packages through the bounded apt action
+rather than Playwright's own unbounded `apt-get`.
+
 ## Trusted main verification
 
 Each main push selects full CI only after a bounded read admits its SHA as current
 main. An admitted run finishes without cancellation; newer pushes replace one
 pending run, while superseded events skip verification/seeding. All workers use
-the admitted SHA, including both Rules suites, native sync, notices, both Docker
+the admitted SHA, including both Rules suites, native sync, notices, the Colab chrome spec, both Docker
 shards and all runtime/packed targets. PR/MG selection/required names are unchanged;
 main runs code/frontend checks while PR title/Agent steps apply only to PR/MG.
 
@@ -132,7 +142,7 @@ feature-branch dispatches restore only.
 ## Advisory browser selection
 
 [Colab browser verification](../../../../.github/workflows/colab-browser.yml) is
-advisory, outside required aggregates, with no main-push or merge-group trigger.
+advisory (the gating chrome spec lives in `ci.yml`), outside required aggregates, with no main-push or merge-group trigger.
 No lane authorizes publication.
 `colab_harness` selects client/model/contract vectors, its workflow, shared Cargo
 manifest/lockfile and pnpm lockfile; empty/unknown PR diffs select nothing. PRs run
@@ -152,7 +162,14 @@ and no retries. Dot/JSON reporters share the results artifact (`results.json`
 per-test durations); refits record source runs/method/variance and verify full
 test-ID equality before changing the split.
 
-`colab-hosted` PRs run the bundle spec for `colab_hosted` or `colab_hosted_emulator`.
+`colab-hosted` PRs run the bundle spec for `colab_hosted` or `colab_hosted_emulator`. The
+same job's final step runs `e2e/served.spec.ts` against the embedded binary and a private
+expected-byte copy of `dist` (checkout `dist` is hidden and restored by an exit trap) when
+`selectColabHosted` selects the exact serve/door/assets/reader-entry inputs. There
+`COLAB_SERVE_REQUIRED=1` fails a missing binary, and the JSON report guard requires every
+listed case to pass exactly once with zero skips; component-only runs keep the named
+missing-native skip. Record the first three real timings on #3126; stop and report if the
+served step exceeds 90 seconds or the job 15 minutes.
 `selectHostedReaderEmulator` in `ci-scope.mjs` selects hosted-reader inputs (Objects,
 Catchup/reader keys), signed-proof client, native producer/composer and Remote
 production Rust/assets/SDK; it excludes client tests, Remote tests/docs and the
