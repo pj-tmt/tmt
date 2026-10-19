@@ -367,6 +367,8 @@ test('an echo is replaced in place by the verified answer, with nothing inserted
   await rows.first().click();
   const card = activeCard(page);
   await card.getByLabel('Keep it', { exact: true }).check();
+  // An idle card has no status line: only a failure takes one.
+  await expect(card.locator('.question-status')).toHaveCount(0);
   await group.getByRole('button', { name: /^Send (?:answer|\d+ answers?)/ }).click();
   const answer = card.locator('.question-answer');
   await expect(answer).toHaveAttribute('data-echo', 'true');
@@ -385,12 +387,11 @@ test('an echo is replaced in place by the verified answer, with nothing inserted
       };
       return {
         answer: box('.question-answer'),
-        status: box('.question-status'),
         controls: box('.question-controls'),
       };
     });
   const echoed = await measure();
-  expect(echoed.status.height).toBeGreaterThan(0);
+  await expect(card.locator('.question-status')).toHaveCount(0);
   await run(page, 'releaseQuestionView');
   await expect(rows.first()).toContainText('Answered: Keep it');
   await rows.first().click();
@@ -399,7 +400,7 @@ test('an echo is replaced in place by the verified answer, with nothing inserted
   await expect(answer.locator('> p')).toHaveText('Keep it');
   const verified = await measure();
   expect(verified.answer).toEqual(echoed.answer);
-  expect(verified.status).toEqual(echoed.status);
+  await expect(card.locator('.question-status')).toHaveCount(0);
 });
 
 test('an answer verified within 0.4 s never shows the pending mark', async ({ page }) => {

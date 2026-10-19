@@ -297,8 +297,15 @@ for (const recordBeforeFail of [false, true]) {
       'Could not confirm this answer. Your draft is kept for the next Send.',
     );
     await expect(card(page).getByLabel('Keep it', { exact: true })).toBeChecked();
-    // The echo became the error row: its alert and a Retry stand in the one status line.
-    await expect(card(page).locator('.question-status')).toContainText('Retry');
+    // The echo became the failure line: its alert and a Retry stand on one row.
+    const status = card(page).locator('.question-status');
+    await expect(status).toContainText('Retry');
+    const alertBox = (await status.getByRole('alert').boundingBox())!;
+    const retryBox = (await status
+      .getByRole('button', { name: 'Retry', exact: true })
+      .boundingBox())!;
+    expect(retryBox.y).toBeLessThan(alertBox.y + alertBox.height);
+    expect(retryBox.y + retryBox.height).toBeGreaterThan(alertBox.y);
     if (recordBeforeFail)
       await expect(card(page).locator('.question-answer > p')).toHaveText('Keep it');
     else {

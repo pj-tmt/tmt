@@ -238,23 +238,20 @@ export function QuestionCard({
             )}
           </>
         )}
-        {!readOnly && (
+        {!readOnly && error && (!connectionPresentation || recorded) && (
+          // Only a failure takes a line: the alert and its Retry stand on one row.
           <div className="question-status">
-            {error && (!connectionPresentation || recorded) && (
-              <>
-                <p role="alert">{error}</p>
-                {onRetry && (
-                  <BrowserAction
-                    label="Retry"
-                    type="button"
-                    variant="text"
-                    disabled={disabled}
-                    onActivate={(event) => {
-                      if (event.isTrusted) onRetry();
-                    }}
-                  />
-                )}
-              </>
+            <p role="alert">{error}</p>
+            {onRetry && (
+              <BrowserAction
+                label="Retry"
+                type="button"
+                variant="text"
+                disabled={disabled}
+                onActivate={(event) => {
+                  if (event.isTrusted) onRetry();
+                }}
+              />
             )}
           </div>
         )}
