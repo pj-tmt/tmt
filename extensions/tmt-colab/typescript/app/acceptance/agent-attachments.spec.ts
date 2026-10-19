@@ -120,6 +120,20 @@ test('an agent sees the files of a Chat message in its request and reads them by
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('files-agent', { gated: true });
+    // This plain recipient has no managed provider activity hooks. Pin the actual
+    // Core telemetry rather than assuming Remote omits the optional field.
+    const inventory = await world.tmt(['ls', '--json']);
+    expect(inventory.code).toBe(0);
+    expect(inventory.json?.identities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: agent.id,
+          session: expect.objectContaining({
+            activity: expect.objectContaining({ state: 'unknown', sinceMs: null }),
+          }),
+        }),
+      ]),
+    );
     const author = await pairBrowser(world, 'files-author', { talk: true });
     const created = createPage(world, 'Agent files', '<h1>Agent files</h1>');
     const page = await openPage(door, author, created);
@@ -178,7 +192,10 @@ test('an agent sees the files of a Chat message in its request and reads them by
       // snapshot so a late reply cannot make the two conversation exports disagree.
       const requestId = agent.received()[0].requestId as string;
       const exchange = panel.getByTestId('ask-entry');
-      await expect(exchange.getByTestId('ask-state')).toContainText('Sent');
+      await expect(exchange).toHaveAttribute('data-ledger-state', 'accepted');
+      await expect(exchange.getByTestId('ask-state')).toHaveText(
+        `✓ sent · ${agent.name}'s activity is not reported`,
+      );
       fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
       const reply = `ask-reply:${sha(Buffer.from(request)).slice(0, 16)}`;
       await expect(exchange.getByTestId('ask-reply')).toHaveText(reply);

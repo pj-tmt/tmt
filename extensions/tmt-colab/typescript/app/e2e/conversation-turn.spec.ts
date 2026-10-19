@@ -496,7 +496,7 @@ test('a long agent label wraps below the message without clipping or hiding Chec
   const user = page.locator('.conversation-turn[data-turn-role="user"]');
   await run(page, 'conversationActivity', { kind: 'unknown' });
   await expect(user.getByTestId('ask-state')).toHaveText(
-    `✓sent · ${name}'s activity is not reported`,
+    `✓ sent · ${name}'s activity is not reported`,
   );
   const geometry = await user.locator('.conversation-status').evaluate((node) => {
     const style = getComputedStyle(node);
