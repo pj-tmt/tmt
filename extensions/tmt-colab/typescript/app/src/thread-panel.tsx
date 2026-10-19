@@ -20,6 +20,7 @@ import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { isOwnDiscussionWriter, threadNumbers } from './thread-records.js';
 import { text } from './strings.js';
+import { echoLanded, type MessageEcho } from './message-echo.js';
 import { relativeTime } from './display-time.js';
 import { AnnotationInput, ArchivedDraft } from './annotation-input.js';
 import {
@@ -27,6 +28,61 @@ import {
   type ThreadPresentation,
   type ThreadStatusOutcome,
 } from './thread-status-presentation.js';
+
+/** One host-owned echo slot; it clears itself once the verified record is in view. */
+export function useMessageEcho(comments: readonly CommentView[]) {
+  const [echo, setEcho] = useState<MessageEcho>();
+  const landed = !!echo && echoLanded(echo, comments);
+  useEffect(() => {
+    if (landed) setEcho(undefined);
+  }, [landed]);
+  return [landed ? undefined : echo, setEcho] as const;
+}
+
+export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: string }) {
+  return (
+    <ConversationTurn
+      role="user"
+      author={text.askYou}
+      at={echo.at}
+      authorTitle={writer}
+      className="comment"
+      data-testid="comment-echo"
+      data-echo={echo.retry ? 'failed' : 'pending'}
+      // The verified record's message actions take this slot; holding it keeps the row's height.
+      actions={<span className="comment-echo-actions" aria-hidden="true" />}
+      meta={
+        !echo.retry && (
+          // The mark has no words and shows only once a send has taken 400 ms.
+          <span className="comment-echo-mark" aria-hidden="true">
+            {' '}
+            <LoaderCircle />
+          </span>
+        )
+      }
+      delivery={
+        echo.retry && (
+          <>
+            {/* The composer's send notice is the one announced alert for this failure. */}
+            <p className="comment-status">{text.commentFailed}</p>
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.chatRetry}
+              onActivate={(event) => {
+                if (event.isTrusted) echo.retry?.();
+              }}
+            />
+          </>
+        )
+      }
+    >
+      <p className="comment-body">
+        <MessageText value={echo.body} names={[]} />
+      </p>
+    </ConversationTurn>
+  );
+}
 
 /** Actor names are admitted display metadata, never inferred from a device ID. */
 export function resolvedLabel(status: ThreadPresentation['status'] | undefined) {
@@ -399,6 +455,7 @@ export function ThreadWindow({
     [error, setError] = useState(false),
     [notNotified, setNotNotified] = useState<string[]>([]);
   const [showResolved, setShowResolved] = useState(false);
+  const [echo, setEcho] = useMessageEcho(thread?.comments ?? []);
   useEffect(() => setShowResolved(false), [thread?.ref.writer, thread?.threadId, thread?.resolved]);
   const collapsed = !!thread?.resolved && !showResolved;
   const owned = !!thread && isOwnDiscussionWriter(thread.ref.writer, binding?.deviceId);
@@ -599,6 +656,7 @@ export function ThreadWindow({
                   initialEdit={initialEdit}
                   onDraft={(_value, edit) => onDraft?.(edit)}
                   onBusy={onBusy}
+                  onEcho={setEcho}
                   cancel={close}
                   committed={() => {}}
                 />
@@ -622,6 +680,7 @@ export function ThreadWindow({
             title={title}
           />
         ))}
+        {echo && <MessageEchoTurn key={echo.local} echo={echo} writer={binding?.deviceId} />}
         {!archived &&
           binding &&
           thread &&

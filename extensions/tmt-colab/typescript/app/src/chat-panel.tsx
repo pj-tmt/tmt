@@ -8,7 +8,7 @@ import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import type { ComposerActivation, ComposerEdit } from './components/message-composer-edit.js';
 import type { CreationRecipient } from './fold-protocol.js';
-import { CommentExchange } from './thread-panel.js';
+import { CommentExchange, MessageEchoTurn, useMessageEcho } from './thread-panel.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
 import { conversationAsks, type ThreadBinding } from './thread-store.js';
 
@@ -57,6 +57,15 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
+  const [echo, setEcho] = useMessageEcho(own?.comments ?? []);
+  // Called where the verified record will render, so it takes the same day heading.
+  const echoTurn = () =>
+    echo && (
+      <Fragment key={echo.local}>
+        {dayHeading(echo.at)}
+        <MessageEchoTurn echo={echo} writer={discussion?.deviceId} />
+      </Fragment>
+    );
   const messageIds = [
     ...chats.flatMap((thread) => [
       ...thread.comments.map((comment) =>
@@ -117,6 +126,7 @@ export function ChatPanel({
           />
         </Fragment>
       ))}
+      {thread === own && echoTurn()}
     </section>
   ));
   const legacyDays = legacy.map((record) => dayHeading(record.issuedAt));
@@ -153,6 +163,7 @@ export function ChatPanel({
             connectionPresentation={connectionPresentation}
             archived={archived}
             onBusy={onBusy}
+            onEcho={setEcho}
             binding={binding}
             discussion={discussion}
             anchor={null}
@@ -170,7 +181,7 @@ export function ChatPanel({
           />
         }
       >
-        {!chats.length && !legacy.length && (
+        {!chats.length && !legacy.length && !echo && (
           <div className="chat-empty">
             <span aria-hidden="true">○</span>
             <h3>{text.chatEmpty}</h3>
@@ -180,6 +191,7 @@ export function ChatPanel({
           </div>
         )}
         {history}
+        {!own && echo && <section data-testid="chat-thread">{echoTurn()}</section>}
         {legacy.length > 0 && (
           <AskPanel
             readOnly={archived}

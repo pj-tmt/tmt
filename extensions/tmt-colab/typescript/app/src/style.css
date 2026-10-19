@@ -516,6 +516,25 @@ body:has(.needs-you-header-menu) {
   font: 12px/1.65 var(--f-body);
   overflow-wrap: anywhere;
 }
+/* A sent message's pending mark appears only once the send has taken 400 ms. */
+.comment-echo-mark {
+  visibility: hidden;
+  animation: comment-echo-reveal 0s linear 400ms forwards;
+}
+.comment-echo-mark svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
+}
+.comment-echo-actions {
+  width: var(--tmt-ui-host-icon-action-size, 34px);
+  height: var(--tmt-ui-host-icon-action-size, 34px);
+}
+@keyframes comment-echo-reveal {
+  to {
+    visibility: visible;
+  }
+}
 .comment-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
