@@ -349,11 +349,19 @@ searches have no created filter, tracking older reruns; other active states stay
 within the window. Unobserved older reruns starting/finishing between ticks and
 workflow `startup_failure` are outside detail coverage, explicitly stated in reports.
 Only unseen failed attempts incur job/log reads; observed tokens remain for 24-hour recurrence.
-Reviews cover open PRs updated since `since` plus PRs merged in the interval; both
-updated-desc walks stop at the first older row.
+Reviews cover open PRs updated since `since` plus PRs merged in the interval.
+Exhaust open PR pages; discover closed candidates through `issues?state=closed&since=`
+with a one-second overlap before the rounded-down boundary, filtered locally to inclusive
+`since`, then hydrate each PR for its head and merge time. Neither walk stops on an old row.
+Two fresh passes must agree on page count and identity membership, allowing reordered
+members; duplicates, additions, drops or shrinking pages refuse. This checks observed
+membership, not a transactional snapshot. Reserve all hydration calls plus the review
+batch before reading any candidate; insufficient budget refuses without a partial set.
 
-Quiet one-page acquisition costs `17 + P` calls (`P` catalogue pages), plus tracked/
-new failure details, extra list pages, one nonempty review query and per-PR REST fallbacks.
+Quiet one-page acquisition costs `19 + P + H` calls (`P` catalogue pages, `H` recently
+updated closed PR candidates, including unmerged closures), plus tracked/new failure
+details, extra list pages, one nonempty review query and per-PR REST fallbacks.
+`H` grows with merges/closed-PR updates; split a long window with `--until`.
 Bootstrap has no historical detail reads. Explicit `--since` without a cursor opts
 into <=24-hour historical collection; terminal job/log cache can survive refusal,
 but unbounded/heavily paginated windows may not converge. Bootstrap starts a new

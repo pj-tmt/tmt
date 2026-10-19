@@ -752,35 +752,58 @@ export function collectInfraTick(
       anomaly('published release post-publication check failed', published);
   }
   api.stage?.('PR cohort');
-  const recentPulls = (state) => {
-    const collected = [],
-      seen = new Set();
-    let lastUpdated = Infinity;
-    for (let page = 1; ; page++) {
-      const rows = api.get(
-        `${root}/pulls?state=${state}&sort=updated&direction=desc&per_page=100&page=${page}`
-      );
-      assert.ok(Array.isArray(rows) && rows.length <= 100, 'Invalid recent PR page.');
-      for (const pr of rows) {
-        const updated = time(pr.updated_at);
-        assert.ok(
-          updated <= lastUpdated && !seen.has(identity(pr, 'PR')),
-          'Changing recent PR listing.'
-        );
-        lastUpdated = updated;
-        seen.add(pr.id);
-        if (updated < start) return collected;
-        if (
-          state === 'open' ||
-          (pr.merged_at && time(pr.merged_at) >= start && time(pr.merged_at) <= end)
-        )
-          collected.push(pr);
-      }
-      if (rows.length < 100) return collected;
-    }
+  const stableListing = (endpoint) => {
+    const first = pages(api, endpoint),
+      verified = pages(api, endpoint);
+    for (const row of [...first.rows, ...verified.rows]) time(row.updated_at);
+    assert.equal(first.paths.length, verified.paths.length, 'Changing recent PR listing.');
+    // A touch can reorder members across pages; only membership must remain stable.
+    // pages() rejects repeated identities before this comparison, never dedupes them.
+    assert.deepEqual(
+      new Set(first.rows.map((row) => row.id)),
+      new Set(verified.rows.map((row) => row.id)),
+      'Changing recent PR listing.'
+    );
+    return first.rows;
   };
-  const open = recentPulls('open'),
-    closed = recentPulls('closed');
+  const open = stableListing(`${root}/pulls?state=open&sort=updated&direction=desc`).filter(
+    (pr) => time(pr.updated_at) >= start
+  );
+  // The server filter, not listing order, bounds closed history. Overlap one second
+  // before the rounded-down boundary so local filtering retains inclusive `since`.
+  const overlap = new Date(Math.floor(start / 1000) * 1000 - 1000).toISOString();
+  const candidates = stableListing(
+    `${root}/issues?state=closed&since=${encodeURIComponent(overlap)}&sort=updated&direction=desc`
+  ).filter((row) => time(row.updated_at) >= start && row.pull_request != null);
+  for (const row of candidates)
+    assert.ok(
+      Number.isSafeInteger(row.number) &&
+        row.number > 0 &&
+        typeof row.node_id === 'string' &&
+        row.node_id.length > 0 &&
+        row.pull_request?.url === `https://api.github.com/${root}/pulls/${row.number}`,
+      'Incomplete closed PR candidate identity.'
+    );
+  api.stage?.('PR hydration', open.length + candidates.length);
+  const used = api.evidence?.().requests;
+  assert.ok(Number.isSafeInteger(used) && used >= 0 && used <= 80, 'Missing API budget evidence.');
+  const required = candidates.length + (open.length || candidates.length ? 1 : 0);
+  assert.ok(
+    required <= 80 - used,
+    `Infra tick API call budget exhausted (80 calls / 120 seconds; stage=PR hydration; PRs=${open.length + candidates.length}; H=${candidates.length}; required=${required}; remaining=${80 - used}).`
+  );
+  const closed = [];
+  for (const candidate of candidates) {
+    const pr = api.get(`${root}/pulls/${candidate.number}`);
+    identity(pr, 'PR');
+    assert.ok(
+      pr.number === candidate.number && pr.node_id === candidate.node_id && pr.state === 'closed',
+      'Changing closed PR candidate identity or state.'
+    );
+    time(pr.updated_at);
+    assert.ok(pr.merged_at === null || typeof pr.merged_at === 'string', 'Missing merge evidence.');
+    if (pr.merged_at && time(pr.merged_at) >= start && time(pr.merged_at) <= end) closed.push(pr);
+  }
   const cohort = [...open, ...closed];
   api.stage?.('PR review', cohort.length);
   assert.ok(cohort.length <= 100, `PR review stage: ${cohort.length} PRs exceeds 100-node bound.`);
