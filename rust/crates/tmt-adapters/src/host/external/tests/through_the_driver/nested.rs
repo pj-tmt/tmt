@@ -1,7 +1,8 @@
 //! Nested callers (#3583): tmux and one approved external host, ordered on
-//! one pinned ancestry. The processes and tmux are scripted; no tmux server
-//! runs and no real pane is read. Every refusal sits beside the same world
-//! with only that fault removed, which admits.
+//! one pinned ancestry, for hooks and for ordinary commands (#3920). The
+//! processes and tmux are scripted; no tmux server runs and no real pane is
+//! read. Every refusal or fallback sits beside the same world with only that
+//! fault removed, which admits the other host.
 
 use super::*;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
@@ -24,6 +25,8 @@ struct State {
     rows: BTreeMap<u64, String>,
     /// What the re-check sees instead: a new start, or `None` (ended).
     later: BTreeMap<u64, Option<u64>>,
+    /// A pid and its new parent, from the end of the first chain read on.
+    reparent: Option<(u64, u64)>,
     tmux: Option<Answer>,
     /// Every `ps` and `tmux` call, and the native link reads asked for.
     calls: Vec<String>,
@@ -117,6 +120,11 @@ impl World {
         self
     }
 
+    fn reparent(self, pid: u64, parent: u64) -> Self {
+        self.edit(|state| state.reparent = Some((pid, parent)));
+        self
+    }
+
     fn unclean(self, read: &'static str) -> Self {
         self.edit(|state| state.unclean = Some(read));
         self
@@ -142,10 +150,14 @@ impl World {
         }
         if link {
             let pid = pids[0];
-            let row = state.rows.get(&pid).cloned().unwrap_or_else(|| {
-                let (parent, start) = state.processes[&pid];
-                format!("{pid} {parent} {} Ss\n", lstart(start))
-            });
+            let (parent, start) = state.processes[&pid];
+            let row = state
+                .rows
+                .get(&pid)
+                .cloned()
+                .unwrap_or_else(|| format!("{pid} {parent} {} Ss\n", lstart(start)));
+            drop(state);
+            self.read_up_to(parent);
             return Some(output(row));
         }
         let rows = pids
@@ -159,6 +171,28 @@ impl World {
             })
             .collect();
         Some(output(rows))
+    }
+
+    /// A PID-only `ps -o pid=,ppid= -p <pid>` row, as an ordinary command
+    /// caller's single-host read asks for.
+    fn pid_only(&self, args: &[String]) -> Result<CommandOutput, CommandError> {
+        let pid: u64 = args.last().and_then(|pid| pid.parse().ok()).unwrap();
+        let parent = self.0.borrow().processes.get(&pid).map(|link| link.0);
+        let parent = parent.ok_or_else(|| exit(1))?;
+        self.read_up_to(parent);
+        output(format!("{pid} {parent}\n"))
+    }
+
+    /// A chain read has reached `parent`: past the root, a scripted
+    /// reparent applies to every later read.
+    fn read_up_to(&self, parent: u64) {
+        if parent == 0 {
+            self.edit(|state| {
+                if let Some((pid, parent)) = state.reparent.take() {
+                    state.processes.get_mut(&pid).unwrap().0 = parent;
+                }
+            });
+        }
     }
 
     fn answer_tmux(&self) -> Result<CommandOutput, CommandError> {
@@ -198,8 +232,7 @@ impl CommandRunner for World {
             return self.answer_tmux();
         }
         if program == "ps" {
-            // A PID-only read: never part of a nested proof.
-            return Err(exit(1));
+            return self.pid_only(&args);
         }
         if ps && let Some(result) = self.ps(&args) {
             return result;
@@ -285,6 +318,14 @@ fn a_driver_in_doubt_refuses_and_never_falls_back_to_tmux() {
     doubt(nested(&tmux_in_herdr(), Pane::Fails));
     doubt(nested(&tmux_in_herdr(), Pane::Changed(500)));
     doubt(nested(&tmux_in_herdr(), Pane::NotText(500)));
+    // Refused before tmux is asked.
+    let world = tmux_in_herdr();
+    doubt(nested(&world, Pane::Fails));
+    assert!(
+        !world.calls().iter().any(|call| call.starts_with("tmux")),
+        "{:?}",
+        world.calls()
+    );
     // A driver that names the tmux pane's own shell: one pane process has
     // one host, so neither owns it.
     doubt(nested(&tmux_in_herdr(), Pane::Shell(30)));
@@ -553,4 +594,226 @@ fn a_failed_cleanup_is_an_error_of_its_own() {
             "{read}: {result:?}"
         );
     }
+}
+
+/// The host an ordinary command picks for the caller in `world`: the fake
+/// host's variable, whose driver answers `pane`, and the tmux variables `env`.
+fn ordinary(world: &World, pane: Pane, env: TmuxEnv) -> HostKind {
+    with_caller(pane, env, CALLER, false, |environment, records| {
+        crate::host::Host::for_caller_with_drivers(environment, world.clone(), records).primary
+    })
+}
+
+fn herdr() -> HostKind {
+    HostKind::External(fake())
+}
+
+/// tmux pane shell 30 nearer than the located Herdr pane shell 60 (A5).
+fn herdr_around_tmux() -> World {
+    World::chain(&[CALLER, 20, 30, 40, 50, 60, 70, 1]).tmux(Answer::Pane(30))
+}
+
+#[test]
+fn an_ordinary_command_orders_both_panes_on_one_pinned_ancestry() {
+    let full = TmuxEnv::Full;
+    assert_eq!(
+        ordinary(&tmux_in_herdr(), Pane::Shell(500), full),
+        HostKind::Tmux
+    );
+    assert_eq!(ordinary(&herdr_in_tmux(), Pane::Shell(30), full), herdr());
+    assert_eq!(ordinary(&detached(), Pane::Shell(30), full), herdr());
+    assert_eq!(
+        ordinary(&herdr_around_tmux(), Pane::Shell(60), full),
+        HostKind::Tmux
+    );
+    let world = herdr_in_tmux();
+    assert_eq!(ordinary(&world, Pane::Shell(30), full), herdr());
+    // One pinned read of the whole chain, one tmux call, then one re-check
+    // of the caller up to the Herdr pane; no PID-only read.
+    let calls = world.calls();
+    let links = calls
+        .iter()
+        .filter(|call| call.contains("ppid=") && call.contains("lstart="))
+        .count();
+    assert_eq!(links, 8, "{calls:?}");
+    assert!(
+        !calls.iter().any(|call| call.starts_with("ps ")),
+        "{calls:?}"
+    );
+    let tmux = calls.iter().filter(|call| call.starts_with("tmux")).count();
+    assert_eq!(tmux, 1, "{calls:?}");
+    let observe: Vec<_> = calls
+        .iter()
+        .filter(|call| call.contains("lstart=") && !call.contains("ppid="))
+        .collect();
+    assert_eq!(observe.len(), 1, "{calls:?}");
+    assert!(
+        observe[0].contains(&format!("-p {CALLER},20,30 ")),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_reparent_between_reads_cannot_change_the_order() {
+    // The tmux pane is nearer on the one read. A later read would see the
+    // provider reparented to launchd and the tmux pane off the chain.
+    let world = herdr_around_tmux().reparent(20, 1);
+    assert_eq!(
+        ordinary(&world, Pane::Shell(60), TmuxEnv::Full),
+        HostKind::Tmux
+    );
+}
+
+#[test]
+fn a_changed_process_up_to_the_external_pane_keeps_tmux() {
+    let full = TmuxEnv::Full;
+    // Entries above the Herdr pane may change: they don't own the caller.
+    assert_eq!(
+        ordinary(
+            &herdr_in_tmux().later(60, Some(9000)).later(70, None),
+            Pane::Shell(30),
+            full
+        ),
+        herdr()
+    );
+    for (case, world) in [
+        // The Herdr server's pid names a process younger than its child: the
+        // real parent ended and its pid was reused.
+        ("a reused pid", herdr_in_tmux().started(40, 5000)),
+        ("the pane shell", herdr_in_tmux().later(30, Some(9000))),
+        ("the provider", herdr_in_tmux().later(20, None)),
+        ("the caller", herdr_in_tmux().later(CALLER, Some(9000))),
+    ] {
+        assert_eq!(
+            ordinary(&world, Pane::Shell(30), full),
+            HostKind::Tmux,
+            "{case}"
+        );
+    }
+    // Out of time before the answer. A deadline already passed fails at the
+    // pin; the re-check's own deadline arm is shared with hooks and tested
+    // by their 1 s budget case.
+    with_caller(
+        Pane::Shell(30),
+        full,
+        CALLER,
+        false,
+        |environment, records| {
+            let host = crate::host::Host::of(HostKind::Tmux, herdr_in_tmux()).with_drivers(records);
+            assert!(
+                host.nearest_nested_external(environment, Instant::now() + Duration::from_secs(1))
+                    .is_some()
+            );
+            assert_eq!(
+                host.nearest_nested_external(environment, Instant::now()),
+                None
+            );
+        },
+    );
+}
+
+#[test]
+fn a_driver_in_doubt_keeps_tmux() {
+    let full = TmuxEnv::Full;
+    assert_eq!(ordinary(&detached(), Pane::Shell(30), full), herdr());
+    for (case, world, pane) in [
+        ("no pane", detached(), Pane::Missing),
+        ("an error", detached(), Pane::Fails),
+        ("a changed executable", detached(), Pane::Changed(30)),
+        ("a variable that is not text", detached(), Pane::NotText(30)),
+        ("a pane off the chain", detached(), Pane::Shell(500)),
+        (
+            "an ancestry that can't be pinned",
+            detached().gone(40),
+            Pane::Shell(30),
+        ),
+        (
+            "a failed cleanup",
+            detached().unclean("link"),
+            Pane::Shell(30),
+        ),
+        // One pane process has one host, so the fallback keeps tmux.
+        ("both hosts name one pane", tmux_in_herdr(), Pane::Shell(30)),
+    ] {
+        assert_eq!(ordinary(&world, pane, full), HostKind::Tmux, "{case}");
+    }
+}
+
+#[test]
+fn tmux_in_doubt_counts_as_absent() {
+    // Proven, the tmux pane is nearer than the Herdr pane and owns the caller.
+    assert_eq!(
+        ordinary(&herdr_around_tmux(), Pane::Shell(60), TmuxEnv::Full),
+        HostKind::Tmux
+    );
+    let pane = |id: &str, socket: &str, server: &str, dead: &str| {
+        Answer::Text(fields(id, socket, server, "30", dead))
+    };
+    for (case, answer, env) in [
+        (
+            "no server",
+            Answer::Fails(CommandFailure::Exit {
+                code: Some(1),
+                signal: None,
+            }),
+            TmuxEnv::Full,
+        ),
+        (
+            "timeout",
+            Answer::Fails(CommandFailure::Timeout),
+            TmuxEnv::Full,
+        ),
+        (
+            "another pane",
+            pane("%2", "/tmp/nest.sock", "1", "0"),
+            TmuxEnv::Full,
+        ),
+        (
+            "a stale socket",
+            pane("%1", "/tmp/other.sock", "1", "0"),
+            TmuxEnv::Full,
+        ),
+        (
+            "a restarted server",
+            pane("%1", "/tmp/nest.sock", "2", "0"),
+            TmuxEnv::Full,
+        ),
+        (
+            "a dead pane",
+            pane("%1", "/tmp/nest.sock", "1", "1"),
+            TmuxEnv::Full,
+        ),
+        ("only TMUX_PANE", Answer::Pane(30), TmuxEnv::PaneOnly),
+        ("only TMUX", Answer::Pane(30), TmuxEnv::TmuxOnly),
+    ] {
+        let world = herdr_around_tmux().tmux(answer);
+        assert_eq!(ordinary(&world, Pane::Shell(60), env), herdr(), "{case}");
+    }
+}
+
+#[test]
+fn an_ordinary_command_named_by_one_host_or_none_reads_no_pinned_chain() {
+    let world = herdr_in_tmux();
+    assert_eq!(ordinary(&world, Pane::Shell(30), TmuxEnv::Absent), herdr());
+    let calls = world.calls();
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.contains("lstart=") || call.starts_with("tmux")),
+        "{calls:?}"
+    );
+    assert!(
+        calls.iter().any(|call| call.starts_with("ps ")),
+        "{calls:?}"
+    );
+    let world = herdr_in_tmux();
+    let caller = crate::host::CallerEnvironment {
+        tmux: Some("/tmp/nest.sock,1,0".into()),
+        pane: Some("%1".into()),
+        process_id: CALLER,
+        driver_env: Default::default(),
+    };
+    let host = crate::host::Host::for_caller_with_drivers(&caller, world.clone(), Vec::new());
+    assert_eq!(host.primary, HostKind::Tmux);
+    assert_eq!(world.calls(), Vec::<String>::new());
 }

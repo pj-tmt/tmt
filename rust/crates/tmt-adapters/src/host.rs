@@ -546,24 +546,21 @@ impl<R: CommandRunner> Host<R> {
         self.primary == HostKind::Tmux
     }
 
-    /// The nearest verified external pane of the caller, unless the caller's
-    /// tmux pane is nearer (tmux in a Herdr pane, or the reverse). Failures
-    /// prove nothing and keep tmux.
+    /// The nearest verified external pane of the caller. With tmux variables
+    /// too (tmux in a Herdr pane, or the reverse), one pinned ancestry orders
+    /// both panes ([`Host::nearest_nested_external`]). Failures prove
+    /// nothing and keep tmux.
     fn nearest_external(&self, environment: &CallerEnvironment) -> Option<ExternalCaller> {
         let deadline = Instant::now() + Duration::from_secs(1);
-        let external = self
-            .external
+        if environment.names_tmux() {
+            return self.nearest_nested_external(environment, deadline);
+        }
+        self.external
             .callers(environment, None, deadline)
             .ok()?
             .found
             .into_iter()
-            .next()?;
-        let tmux = environment
-            .names_tmux()
-            .then(|| self.tmux.caller_depth(environment).ok().flatten())
-            .flatten();
-        tmux.is_none_or(|depth| external.depth < depth)
-            .then_some(external)
+            .next()
     }
 
     /// The server a caller's environment selects on this handle's host, for

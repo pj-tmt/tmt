@@ -241,38 +241,3 @@ fn ancestry<R: CommandRunner>(
         Err(AncestryError::Unavailable) => Err(unavailable()),
     }
 }
-
-/// The caller's pane shell's position in the caller's ancestry.
-pub(super) fn depth<R: CommandRunner>(
-    tmux: &Tmux<R>,
-    environment: &CallerEnvironment,
-) -> Result<Option<usize>, TmuxError> {
-    let pane = resolve(tmux, environment)?;
-    let deadline = Instant::now() + OPERATION_TIMEOUT;
-    let socket = environment.selected_server_socket()?;
-    let mut args = socket.map_or_else(Vec::new, |socket| vec!["-S".into(), socket.into()]);
-    args.extend([
-        "display-message".into(),
-        "-p".into(),
-        "-t".into(),
-        pane,
-        "#{pane_pid}".into(),
-    ]);
-    let output = tmux.run(
-        "tmux",
-        args,
-        deadline,
-        VERIFY_MAX_OUTPUT,
-        TmuxFailure::Command,
-    )?;
-    let pane_pid = number(output.trim()).ok_or_else(unavailable)?;
-    let chain =
-        match crate::process::ancestry::chain(&tmux.runner, environment.process_id, deadline) {
-            Ok(chain) => chain,
-            Err(AncestryError::Command(cause)) => {
-                return Err(TmuxError::command(TmuxFailure::Command, cause));
-            }
-            Err(AncestryError::Unavailable) => return Err(unavailable()),
-        };
-    Ok(chain.iter().position(|pid| *pid == pane_pid))
-}

@@ -278,15 +278,6 @@ impl<R: CommandRunner> Tmux<R> {
         optional_observation(caller::resolve(self, environment))
     }
 
-    /// How far the caller's tmux pane shell is from the caller in its process
-    /// ancestry (0 is the caller), for choosing between nested hosts.
-    pub(crate) fn caller_depth(
-        &self,
-        environment: &CallerEnvironment,
-    ) -> Result<Option<usize>, TmuxError> {
-        optional_observation(caller::depth(self, environment)).map(Option::flatten)
-    }
-
     /// The caller's tmux pane shell pid for a nested caller that locates it
     /// on its own pinned ancestry. A tmux environment that can't be observed
     /// (a partial or stale one, another server, a failed command) is an
