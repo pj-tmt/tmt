@@ -59,8 +59,9 @@ scope, missing/extra results, failure or unexpected skips fail closed; names sta
 
 The [apt action](../../../../.github/actions/apt-install/action.yml) allows three
 attempts per phase (60 s update, 120 s install), 10 s termination grace and 5/10 s
-backoff for small packages. Its first install timeout removes only Azure from a
-verified runner-image mirror list; unexpected layouts are logged and unchanged.
+backoff for small packages. After the first install timeout, only Azure is removed
+from the verified runner-image mirror list for remaining attempts; unexpected
+layouts are logged and unchanged.
 Native-process contracts retain a 20-minute job limit and unchanged test deadlines.
 
 `Docker E2E` gates shards from `typescript/scripts/e2e-shards.mjs` and committed
@@ -118,7 +119,7 @@ to retain the requested host toolchain before restore, preserving components,
 targets and manifest MSRV; runner-image extras are removed only on disposable Actions VMs.
 `native-intel.yml` retains Intel `runtime-${TARGET}` setup; the upgrade proof keeps
 its `RUSTUP_TOOLCHAIN` and source-scoped `CARGO_TARGET_DIR`. Pairing/project-release,
-bundle/prepare metadata and cut workflows keep their own environment families,
+bundle/prepare metadata and `release.yml` keep their own environment families,
 without CI dev-debug settings; release prepare/version injection use separate
 product/target keys. [Workflow definitions](../../../../.github/workflows) own these
 settings. Keys bind compiler/platform/environment/manifests; exact hits do not prove
@@ -142,8 +143,8 @@ successful main-ref runs save. Reports prove primitives, not product acceptance.
 
 `colab-app` uses `colab_app` for app/colab-client/browser-ui paths, workflow and pnpm lockfile,
 plus weekly/manual events. `@tmt/colab-app test:browser` runs Chromium with one
-worker/no retries/no Rust; native-executable specs skip with a named reason.
-Bounded logs/failure traces last seven days. Whole-file weights in
+worker/no retries/no Rust; native-executable specs skip with a named reason, so
+the run proves the browser components only. Bounded logs/failure traces last seven days. Whole-file weights in
 `e2e/shard-weights.json` use `typescript/scripts/colab-acceptance-shards.mjs`;
 helper/matrix share a guarded count, assigning each spec exactly once, including
 new default-weight files. Keep the 20-minute job/30-second test limits, one worker
@@ -234,10 +235,10 @@ owns figures/provenance: gate median/p90 and job p90. Exceeding a figure is over
 budget; increases need Infra's written note on #3283.
 
 Monday hygiene compares budgets: two consecutive over-budget weeks require an
-issue to the dominating suite's squad for sharding/consumers/trimming. Expected
-
-> 20-second job growth must be stated in the PR and update weights/assignment there
-> (`typescript/test/e2e/shard-weights.json` or Colab `acceptance/shard-weights.json`).
+issue to the dominating suite's squad for sharding/consumers/trimming. A PR expected
+to add more than about 20 s to a required job must say so in its body and update
+weights or assignment (`typescript/test/e2e/shard-weights.json` or Colab
+`acceptance/shard-weights.json`) there.
 
 ## Verification
 
@@ -299,10 +300,11 @@ node typescript/scripts/infra-tick-summary.mjs --output /tmp/tmt-infra-tick --re
 existing cursor or `--since`. It omits earlier failure/review history; changed old
 runs remain eligible, observed active runs stay tracked, and recurrence begins at
 observed post-boundary evidence. Older active runs completed before first observation
-are outside coverage. The reviewed map includes every applicable shared path/lead
-and its #606 source line, for example
+are outside coverage. The caller supplies a reviewed path-to-lead map with every
+applicable shared path/lead and its #606 source line, for example
 `{"rules":[{"prefix":".github/","leads":["tmt-lead","tmt-infra-lead"],"source":"#606 shared paths, lines 17-19"}]}`.
-Unmapped shared paths/missing exact-head statements are anomalies. JSON retains
+This is an example, not a complete ownership map. Unmapped shared paths/missing
+exact-head statements are anomalies. JSON retains
 exact comment/head/stated lead; statements (including NO-GO) never imply acceptance.
 Guide-index changes are conservatively flagged at file level for lead inspection.
 
