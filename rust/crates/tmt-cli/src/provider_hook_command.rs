@@ -17,7 +17,7 @@ use tmt_adapters::{
         lifecycle::{HostEvidence, RuntimeLifecycle, TurnEnd},
     },
     skill_installation::ProviderEnvironment,
-    storage::{IdentityContextSnapshot, Storage, StorageError},
+    storage::{IdentityContextSnapshot, Storage, StorageError, StorageErrorCode},
 };
 use tmt_core::{
     binding::{
@@ -602,7 +602,8 @@ fn observe(
             mode: &mode,
             fence_preferences: owned_resume,
         },
-    )?;
+    )
+    .map_err(|_| ())?;
     if changed
         && event.starting()
         && let Some(owner) = next.launch_owner.as_ref()
@@ -750,8 +751,13 @@ pub(super) struct SessionCommit<'a> {
 pub(super) fn commit_session(
     storage: &mut Storage,
     proposed: SessionCommit<'_>,
-) -> Result<bool, ()> {
-    let binding = proposed.stored.entry.binding.as_ref().ok_or(())?;
+) -> Result<bool, StorageError> {
+    let binding = proposed.stored.entry.binding.as_ref().ok_or_else(|| {
+        StorageError::new(
+            StorageErrorCode::Unknown,
+            "The stored context has no binding",
+        )
+    })?;
     storage
         .with_binding_transaction::<_, StorageError>(|records| {
             let current = records
@@ -786,7 +792,7 @@ pub(super) fn commit_session(
                 Ok(true)
             }
         })
-        .map_err(|_| ())
+        .map_err(|error| storage.hook_allowance(error))
 }
 
 /// Activity-only callbacks share main-event admission; path discovery is lazy.

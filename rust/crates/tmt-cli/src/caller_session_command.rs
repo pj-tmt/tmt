@@ -18,7 +18,7 @@ use tmt_adapters::{
         lifecycle::{CallerSession, HostEvidence},
     },
     skill_installation::ProviderEnvironment,
-    storage::Storage,
+    storage::{Storage, StorageError},
 };
 use tmt_core::{
     binding::{
@@ -296,7 +296,7 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
     if Instant::now() >= deadline {
         return Err("budget");
     }
-    let mut storage = Storage::open_hook(&bound.paths.database, deadline).map_err(|_| "storage")?;
+    let mut storage = Storage::open_hook(&bound.paths.database, deadline).map_err(storage_layer)?;
     let changed = commit_session(
         &mut storage,
         SessionCommit {
@@ -308,11 +308,21 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
             fence_preferences: true,
         },
     );
-    let closed = storage.close().map_err(|_| "storage");
-    if !changed.map_err(|_| "storage")? {
+    let closed = storage.close().map_err(storage_layer);
+    if !changed.map_err(storage_layer)? {
         return Err("stale-commit");
     }
     closed
+}
+
+/// Only a hook connection's spent writer allowance is the budget; any other
+/// busy, locked or close fault is a storage refusal.
+fn storage_layer(error: StorageError) -> &'static str {
+    if error.is_hook_allowance_spent() {
+        "budget"
+    } else {
+        "storage"
+    }
 }
 
 fn debug_refusal(layer: &str) {

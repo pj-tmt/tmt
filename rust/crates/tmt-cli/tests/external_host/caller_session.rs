@@ -49,29 +49,34 @@ fn recorded(fixture: &Fixture, pane: &str) -> Vec<String> {
 #[test]
 fn a_caller_in_an_external_pane_records_its_session_after_a_command() {
     register();
-    let fixture = Fixture::new("caller-session-records");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let expected = fixture.json(&["config", "show", "--json"]);
-    let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
-    let provider = live_provider(&claude);
-    let pid = provider.incarnation.pid();
-    let before = fixture.calls().len();
-    let (status, stdout, stderr) = run_command(&mut claude, SESSION, pid);
-    let calls = fixture.calls()[before..].to_vec();
-    let session = recorded(&fixture, "fake-1");
-    let live = provider.seen();
-    assert_eq!((status, stderr.as_str()), (0, ""));
-    assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);
-    assert_eq!(calls, ["caller", "server", "snapshot"]);
-    assert_eq!(
-        session,
-        [SESSION.to_owned(), pid.to_string(), "running".into()]
-    );
-    assert_eq!(live, Seen::Live);
-    drop(claude);
-    assert_eq!(provider.seen(), Seen::Ended);
-    assert_drivers_ended(&fixture);
+    within_budget("caller-session-records", |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record);
+        let expected = fixture.json(&["config", "show", "--json"]);
+        let mut claude = SteppedProvider::start(fixture, "claude", "claude-steps");
+        let provider = live_provider(&claude);
+        let pid = provider.incarnation.pid();
+        let rows = stored_rows(fixture);
+        let before = Before::of(fixture);
+        let (status, stdout, stderr) = run_command(&mut claude, SESSION, pid);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);
+        let load = own.budget(fixture, &rows);
+        if !load {
+            assert_eq!(own.hints, Vec::<String>::new());
+            assert_eq!(own.calls, ["caller", "server", "snapshot"]);
+            assert_eq!(
+                recorded(fixture, "fake-1"),
+                [SESSION.to_owned(), pid.to_string(), "running".into()]
+            );
+        }
+        assert_eq!(provider.seen(), Seen::Live);
+        drop(claude);
+        assert_eq!(provider.seen(), Seen::Ended);
+        assert_drivers_ended(fixture);
+        load
+    });
 }
 
 /// Every row that `pane`'s identity or binding owns, in every table, so a
@@ -152,6 +157,63 @@ fn hints(fixture: &Fixture) -> Vec<String> {
         .collect()
 }
 
+/// The worker's budget is fixed at 500 ms, so a loaded host can refuse any
+/// command's worker with `budget` (#3860). That is load, not the behaviour
+/// under test. A scenario asserts each command at once. For a command whose
+/// own hint is `budget`, it asserts only what load cannot change and reports
+/// it; then the whole scenario runs again in a fresh fixture, at most five
+/// times, and each such attempt is reported. Cleanup runs in every attempt.
+fn within_budget(name: &str, scenario: impl Fn(&Fixture) -> bool) {
+    for attempt in 1..=5 {
+        let fixture = Fixture::new(&format!("{name}-{attempt}"));
+        if !scenario(&fixture) {
+            return;
+        }
+        eprintln!("{name}: attempt {attempt} had a command refused for its budget");
+    }
+    panic!("{name}: every attempt had a command refused for its budget");
+}
+
+/// The driver calls and refusal hints a fixture had before one command.
+struct Before {
+    calls: usize,
+    hints: usize,
+}
+
+/// What one command added: its own driver calls and its own refusal hint.
+struct Own {
+    calls: Vec<String>,
+    hints: Vec<String>,
+}
+
+impl Before {
+    fn of(fixture: &Fixture) -> Self {
+        Self {
+            calls: fixture.calls().len(),
+            hints: hints(fixture).len(),
+        }
+    }
+
+    fn own(&self, fixture: &Fixture) -> Own {
+        Own {
+            calls: fixture.calls()[self.calls..].to_vec(),
+            hints: hints(fixture)[self.hints..].to_vec(),
+        }
+    }
+}
+
+impl Own {
+    /// Whether load refused this command: its only hint is `budget`. Then
+    /// it still must have changed no stored row.
+    fn budget(&self, fixture: &Fixture, rows: &[String]) -> bool {
+        let load = self.hints == ["budget"];
+        if load {
+            assert_eq!(stored_rows(fixture), rows, "a budget refusal changed a row");
+        }
+        load
+    }
+}
+
 /// A second pane, `fake-2`, with a provider whose pane shell the test owns.
 /// The pane shell's own end is checked when the provider is dropped.
 fn second_pane(fixture: &Fixture) -> (SteppedProvider, Owned) {
@@ -171,34 +233,39 @@ fn second_pane(fixture: &Fixture) -> (SteppedProvider, Owned) {
 #[test]
 fn two_agents_on_one_external_server_never_record_for_each_other() {
     register();
-    let fixture = Fixture::new("caller-session-two-agents");
-    let record = fixture.approve();
-    bind(&fixture, record.clone());
-    let (mut claude, shell) = second_pane(&fixture);
-    bind_pane(&fixture, record, "fake-2", "other");
-    let provider = live_provider(&claude);
-    let first = owned_rows(&fixture, "fake-1");
-    let before = fixture.calls().len();
-    let (status, _, stderr) = run_command(&mut claude, SESSION, provider.incarnation.pid());
-    let calls = fixture.calls()[before..].to_vec();
-    let second = recorded(&fixture, "fake-2");
-    let after = owned_rows(&fixture, "fake-1");
-    let live = provider.seen();
-    assert_eq!((status, stderr.as_str()), (0, ""));
-    assert_eq!(calls, ["caller", "server", "snapshot"]);
-    assert_eq!(
-        second,
-        [
-            SESSION.to_owned(),
-            provider.incarnation.pid().to_string(),
-            "running".into()
-        ]
-    );
-    assert_eq!(after, first, "the agent in f1 is untouched");
-    assert_eq!(live, Seen::Live);
-    drop(claude);
-    assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
-    assert_drivers_ended(&fixture);
+    within_budget("caller-session-two-agents", |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record.clone());
+        let (mut claude, shell) = second_pane(fixture);
+        bind_pane(fixture, record, "fake-2", "other");
+        let provider = live_provider(&claude);
+        let pid = provider.incarnation.pid();
+        let first = owned_rows(fixture, "fake-1");
+        let rows = stored_rows(fixture);
+        let before = Before::of(fixture);
+        let (status, _, stderr) = run_command(&mut claude, SESSION, pid);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        assert_eq!(
+            owned_rows(fixture, "fake-1"),
+            first,
+            "the agent in f1 is untouched"
+        );
+        let load = own.budget(fixture, &rows);
+        if !load {
+            assert_eq!(own.hints, Vec::<String>::new());
+            assert_eq!(own.calls, ["caller", "server", "snapshot"]);
+            assert_eq!(
+                recorded(fixture, "fake-2"),
+                [SESSION.to_owned(), pid.to_string(), "running".into()]
+            );
+        }
+        assert_eq!(provider.seen(), Seen::Live);
+        drop(claude);
+        assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
+        assert_drivers_ended(fixture);
+        load
+    });
 }
 
 /// The behaviour this precheck adds: a caller in an unbound pane, on a host
@@ -207,47 +274,37 @@ fn two_agents_on_one_external_server_never_record_for_each_other() {
 #[test]
 fn an_unbound_external_caller_makes_one_refused_attempt_then_a_hint_suppresses_it() {
     register();
-    let fixture = Fixture::new("caller-session-unbound");
-    let record = fixture.approve();
-    bind(&fixture, record);
-    let (mut claude, shell) = second_pane(&fixture);
-    let provider = live_provider(&claude);
-    let rows = stored_rows(&fixture);
-    let mut attempts = Vec::new();
-    for _ in 0..2 {
-        let before = fixture.calls().len();
-        let (status, _, stderr) = run_command(&mut claude, SESSION, provider.incarnation.pid());
-        attempts.push((
-            status,
-            stderr,
-            fixture.calls()[before..].to_vec(),
-            hints(&fixture),
-            stored_rows(&fixture) == rows,
-        ));
-    }
-    assert_eq!(
-        attempts,
-        [
-            (
-                0,
-                String::new(),
-                vec!["caller".to_owned(), "server".into(), "snapshot".into()],
-                vec!["native-admission".to_owned()],
-                true
-            ),
-            (
-                0,
-                String::new(),
-                vec![],
-                vec!["native-admission".to_owned()],
-                true
-            ),
-        ]
-    );
-    assert_eq!(provider.seen(), Seen::Live);
-    drop(claude);
-    assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
-    assert_drivers_ended(&fixture);
+    within_budget("caller-session-unbound", |fixture| {
+        let record = fixture.approve();
+        bind(fixture, record);
+        let (mut claude, shell) = second_pane(fixture);
+        let provider = live_provider(&claude);
+        let pid = provider.incarnation.pid();
+        let rows = stored_rows(fixture);
+        let before = Before::of(fixture);
+        let (status, _, stderr) = run_command(&mut claude, SESSION, pid);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        assert_eq!(stored_rows(fixture), rows);
+        let load = own.budget(fixture, &rows);
+        if !load {
+            assert_eq!(own.hints, ["native-admission"]);
+            assert_eq!(own.calls, ["caller", "server", "snapshot"]);
+        }
+        // Whatever the first attempt's layer, its kept hint suppresses the
+        // second: no driver call, no new hint, nothing changed.
+        let before = Before::of(fixture);
+        let (status, _, stderr) = run_command(&mut claude, SESSION, pid);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""));
+        assert_eq!((own.calls, own.hints), (Vec::new(), Vec::new()));
+        assert_eq!(stored_rows(fixture), rows);
+        assert_eq!(provider.seen(), Seen::Live);
+        drop(claude);
+        assert_eq!((provider.seen(), shell.seen()), (Seen::Ended, Seen::Ended));
+        assert_drivers_ended(fixture);
+        load
+    });
 }
 
 /// How a refusal scenario breaks the fixture, and restores it.
@@ -273,29 +330,58 @@ fn external_caller_refusals_change_nothing_and_an_admitted_control_follows() {
         (
             0,
             Break::MissingServer,
-            Some("native-admission"),
+            &["native-admission"][..],
             &["caller", "server"][..],
         ),
         (
             1,
             Break::StaleMarker,
-            Some("binding"),
+            &["binding"],
             &["caller", "server", "snapshot"],
         ),
         (
             2,
             Break::WrongProvider,
-            Some("native-admission"),
+            &["native-admission"],
             &["caller", "server", "snapshot"],
         ),
-        (3, Break::Unapproved, None, &[]),
+        (3, Break::Unapproved, &[], &[]),
     ] {
-        let fixture = Fixture::new(&format!("caller-session-refused-{index}"));
-        let record = fixture.approve();
-        bind(&fixture, record);
-        let mut claude = SteppedProvider::start(&fixture, "claude", "claude-steps");
-        let provider = live_provider(&claude);
-        let pid = provider.incarnation.pid();
+        within_budget(&format!("caller-session-refused-{index}"), |fixture| {
+            refusal_then_control(fixture, broken, Refusal::Expected { layer, calls }, true)
+        });
+    }
+}
+
+/// What the refused command must show when load does not refuse it.
+#[derive(Clone, Copy)]
+enum Refusal<'a> {
+    Expected {
+        layer: &'a [&'a str],
+        calls: &'a [&'a str],
+    },
+    /// Its worker is held past its budget, so its own hint is `budget`.
+    Held,
+}
+
+/// One refusal scenario in `fixture`: break it, run the refused command,
+/// restore it (or not), then run the control with a new session. Each
+/// command is asserted at once; returns whether load refused one of them.
+fn refusal_then_control(
+    fixture: &Fixture,
+    broken: Break,
+    refusal: Refusal<'_>,
+    restore: bool,
+) -> bool {
+    let record = fixture.approve();
+    bind(fixture, record);
+    let mut claude = SteppedProvider::start(fixture, "claude", "claude-steps");
+    let provider = live_provider(&claude);
+    let pid = provider.incarnation.pid();
+    // The commands' assertions are caught, so that cleanup and its checks
+    // below run outside any unwinding, and a cleanup failure fails on its
+    // own; then a caught failure is raised again.
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let server = fs::read_to_string(fixture.root.join("driver/server")).unwrap();
         let marker = fs::read_to_string(fixture.root.join("driver/marker")).unwrap();
         let mut claimed = pid;
@@ -319,42 +405,142 @@ fn external_caller_refusals_change_nothing_and_an_admitted_control_follows() {
                 assert!(removed.status.success(), "{removed:?}");
             }
         }
-        let rows = stored_rows(&fixture);
-        let before = fixture.calls().len();
+        let gate = matches!(refusal, Refusal::Held).then(|| Gate::hold(fixture));
+        let rows = stored_rows(fixture);
+        let before = Before::of(fixture);
         let (status, _, stderr) = run_command(&mut claude, SESSION, claimed);
-        let refused = (
-            status,
-            stderr,
-            fixture.calls()[before..].to_vec(),
-            hints(&fixture),
-            stored_rows(&fixture) == rows,
-            recorded(&fixture, "fake-1")[0].clone(),
-        );
-        assert_eq!(
-            refused,
-            (
-                0,
-                String::new(),
-                calls.iter().map(|call| (*call).to_owned()).collect(),
-                layer.iter().map(|layer| (*layer).to_owned()).collect(),
-                true,
-                String::new()
-            ),
-            "{broken:?}"
-        );
-        // Restored, the same setup admits a new session.
-        fs::write(fixture.root.join("driver/server"), &server).unwrap();
-        fs::write(fixture.root.join("driver/marker"), &marker).unwrap();
-        if let Break::Unapproved = broken {
-            fixture.approve();
+        let own = before.own(fixture);
+        if let Some(gate) = gate {
+            gate.release_after_its_worker_ended();
         }
-        let (status, _, stderr) = run_command(&mut claude, CONTROL, pid);
         assert_eq!((status, stderr.as_str()), (0, ""), "{broken:?}");
-        assert_eq!(recorded(&fixture, "fake-1")[0], CONTROL, "{broken:?}");
-        assert_eq!(provider.seen(), Seen::Live);
-        drop(claude);
-        assert_eq!(provider.seen(), Seen::Ended);
-        assert_drivers_ended(&fixture);
+        assert_eq!(recorded(fixture, "fake-1")[0], "", "{broken:?}");
+        assert_eq!(
+            stored_rows(fixture),
+            rows,
+            "{broken:?}: the refusal changed a row"
+        );
+        let mut load = own.budget(fixture, &rows);
+        match refusal {
+            Refusal::Held => assert!(
+                load,
+                "{broken:?}: the held worker was not refused for its budget"
+            ),
+            Refusal::Expected { layer, calls } if !load => {
+                assert_eq!(
+                    (own.hints, own.calls),
+                    (
+                        layer
+                            .iter()
+                            .map(|layer| (*layer).to_owned())
+                            .collect::<Vec<_>>(),
+                        calls
+                            .iter()
+                            .map(|call| (*call).to_owned())
+                            .collect::<Vec<_>>()
+                    ),
+                    "{broken:?}"
+                );
+            }
+            Refusal::Expected { .. } => {}
+        }
+        if restore {
+            fs::write(fixture.root.join("driver/server"), &server).unwrap();
+            fs::write(fixture.root.join("driver/marker"), &marker).unwrap();
+            if let Break::Unapproved = broken {
+                fixture.approve();
+            }
+        }
+        let rows = stored_rows(fixture);
+        let before = Before::of(fixture);
+        let (status, _, stderr) = run_command(&mut claude, CONTROL, pid);
+        let own = before.own(fixture);
+        assert_eq!((status, stderr.as_str()), (0, ""), "{broken:?}");
+        if !own.budget(fixture, &rows) {
+            assert_eq!(
+                (own.hints, recorded(fixture, "fake-1")[0].clone()),
+                (Vec::new(), CONTROL.to_owned()),
+                "{broken:?}: the control"
+            );
+        } else {
+            load = true;
+        }
+        load
+    }));
+    assert_eq!(provider.seen(), Seen::Live, "{broken:?}");
+    drop(claude);
+    assert_eq!(provider.seen(), Seen::Ended, "{broken:?}");
+    assert_drivers_ended(fixture);
+    checked.unwrap_or_else(|failure| std::panic::resume_unwind(failure))
+}
+
+/// A command refused for its budget never hides another failure in the same
+/// attempt: the first command's worker is held past its budget, and the
+/// control then runs in a fixture left broken. That attempt fails at once.
+#[test]
+fn a_semantic_failure_beside_a_budget_refusal_fails_at_once() {
+    register();
+    let attempts = std::cell::Cell::new(0);
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        within_budget("caller-session-mixed", |fixture| {
+            attempts.set(attempts.get() + 1);
+            refusal_then_control(fixture, Break::MissingServer, Refusal::Held, false)
+        });
+    }))
+    .unwrap_err();
+    let message = failed.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert_eq!(attempts.get(), 1, "{message}");
+    assert!(message.contains("the control"), "{message}");
+}
+
+/// The fake driver's `hold-caller` gate: a worker's `caller` call blocks
+/// until it is removed. It is removed on every path.
+struct Gate(PathBuf);
+
+impl Gate {
+    fn hold(fixture: &Fixture) -> Self {
+        let gate = fixture.root.join("driver/hold-caller");
+        fs::write(&gate, "").unwrap();
+        Self(gate)
+    }
+
+    /// Waits until the held driver, its worker and their group have ended
+    /// (the precheck stops them at the worker's deadline), then opens.
+    fn release_after_its_worker_ended(self) {
+        let held = fs::read_to_string(self.0.with_file_name("held")).unwrap();
+        held_ended(&held);
+    }
+}
+
+impl Drop for Gate {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+/// Waits, within a generous bound, until the processes a held driver call
+/// names (`driver worker group`) are gone: the worker is stopped at its
+/// deadline, and the process owner then has its own cleanup budget.
+fn held_ended(held: &str) {
+    let [driver_pid, worker_pid, group]: [i32; 3] = held
+        .split_whitespace()
+        .map(|field| field.parse().unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    let watchdog = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !(gone(driver_pid)
+        && gone(worker_pid)
+        && matches!(
+            nix::sys::signal::killpg(nix::unistd::Pid::from_raw(group), None),
+            Err(nix::errno::Errno::ESRCH)
+        ))
+    {
+        assert!(
+            std::time::Instant::now() < watchdog,
+            "driver {driver_pid}, worker {worker_pid} or group {group} still runs"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -405,28 +591,7 @@ fn an_external_worker_over_its_budget_is_stopped_and_changes_nothing() {
     let held = fs::read_to_string(driver.join("held")).unwrap();
     let watched = fs::read_to_string(driver.join("watched")).unwrap();
     let after = (hints(&fixture), stored_rows(&fixture) == rows);
-    let [driver_pid, worker_pid, group]: [i32; 3] = held
-        .split_whitespace()
-        .map(|field| field.parse().unwrap())
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
-    // A generous bound: the worker is stopped at its deadline, and the
-    // process owner then has its own cleanup budget.
-    let watchdog = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !(gone(driver_pid)
-        && gone(worker_pid)
-        && matches!(
-            nix::sys::signal::killpg(nix::unistd::Pid::from_raw(group), None),
-            Err(nix::errno::Errno::ESRCH)
-        ))
-    {
-        assert!(
-            std::time::Instant::now() < watchdog,
-            "driver {driver_pid}, worker {worker_pid} or group {group} still runs"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+    held_ended(&held);
     drop(release);
     assert_eq!((status, stderr.as_str()), (0, ""));
     assert_eq!(serde_json::from_str::<Value>(&stdout).unwrap(), expected);

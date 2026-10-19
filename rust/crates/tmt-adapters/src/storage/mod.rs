@@ -81,6 +81,14 @@ const WAL_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(50);
 const HOOK_WRITER_WAIT: Duration = Duration::from_millis(500);
 const HOOK_COMPLETION_RESERVE: Duration = Duration::from_millis(100);
 
+fn spent_allowance(error: StorageError, allowance: Instant) -> StorageError {
+    if Instant::now() >= allowance && error.is_plain_busy() {
+        error.hook_allowance_spent()
+    } else {
+        error
+    }
+}
+
 fn hook_writer_wait(deadline: Instant, now: Instant) -> Duration {
     deadline
         .saturating_duration_since(now)
@@ -97,6 +105,8 @@ pub struct Storage {
     /// Whether this connection records lifecycle evidence for enabled
     /// extension hooks (see `extension_hooks`).
     capturing: bool,
+    /// When a hook connection's bounded writer wait ends.
+    hook_allowance: Option<Instant>,
 }
 
 impl Storage {
@@ -138,29 +148,50 @@ impl Storage {
     /// The supervising hook process supplies the overall deadline, including any
     /// pathological filesystem wait. Writer admission uses only the remaining
     /// budget, reserving time for commit and context publication.
+    /// A hook connection waits for a writer only for its allowance: the time
+    /// left before `deadline`, less a completion reserve. An error that shows
+    /// that this allowance ran out says so (`is_hook_allowance_spent`).
     pub fn open_hook(path: &Path, deadline: Instant) -> Result<Self, StorageError> {
-        let wait = hook_writer_wait(deadline, Instant::now());
+        let now = Instant::now();
+        let wait = hook_writer_wait(deadline, now);
         if wait.is_zero() {
             return Err(StorageError::new(
                 StorageErrorCode::Busy,
                 "Hook storage budget is exhausted",
-            ));
+            )
+            .hook_allowance_spent());
         }
-        let connection =
-            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-                .map_err(|error| classify_open(error, "Open existing hook storage", path))?;
-        connection
-            .busy_timeout(wait)
-            .map_err(|error| classify(error, "Bound hook storage wait"))?;
-        migrations::require_current(&connection)?;
-        connection
-            .pragma_update(None, "foreign_keys", "ON")
-            .map_err(|error| classify(error, "Configure hook foreign keys"))?;
+        let allowance = now + wait;
+        let opened = (|| {
+            let connection =
+                Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+                    .map_err(|error| classify_open(error, "Open existing hook storage", path))?;
+            connection
+                .busy_timeout(wait)
+                .map_err(|error| classify(error, "Bound hook storage wait"))?;
+            migrations::require_current(&connection)?;
+            connection
+                .pragma_update(None, "foreign_keys", "ON")
+                .map_err(|error| classify(error, "Configure hook foreign keys"))?;
+            Ok(connection)
+        })()
+        .map_err(|error| spent_allowance(error, allowance))?;
         Ok(Self {
             path: path.to_path_buf(),
-            connection: Some(connection),
+            connection: Some(opened),
             capturing: false,
+            hook_allowance: Some(allowance),
         })
+    }
+
+    /// Marks `error` when it shows that this hook connection's writer wait
+    /// ran out: SQLite's plain BUSY once the whole allowance has passed.
+    /// Errors from other connections, LOCKED and close faults stay unmarked.
+    pub fn hook_allowance(&self, error: StorageError) -> StorageError {
+        match self.hook_allowance {
+            Some(allowance) => spent_allowance(error, allowance),
+            None => error,
+        }
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
@@ -200,6 +231,7 @@ impl Storage {
             path,
             connection: Some(connection),
             capturing,
+            hook_allowance: None,
         })
     }
 
