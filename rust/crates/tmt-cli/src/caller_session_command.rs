@@ -171,6 +171,21 @@ fn observe_candidate(
     });
     let result = match result {
         Ok(_) => Ok(()),
+        // The stored session is the outcome, not the worker's exit: it can end
+        // badly after its commit (a fault closing the database, or the deadline
+        // passing before its exit is reaped). A recorded session is admitted
+        // and leaves no hint to suppress the next attempt. An unreadable store
+        // proves nothing, so the refusal below stands.
+        Err(_)
+            if Storage::observes_provider_session(
+                database,
+                harness.as_str(),
+                coordinates.session.as_str(),
+            )
+            .is_ok_and(|recorded| recorded) =>
+        {
+            return Ok(());
+        }
         Err(error) => {
             // Worker output contains only a fixed diagnostic generated below;
             // never display a provider's stderr, argv, paths or session IDs.
@@ -316,7 +331,8 @@ fn verified_observation(provider: &str, deadline: Instant) -> Result<(), &'stati
 }
 
 /// Only a hook connection's spent writer allowance is the budget; any other
-/// busy, locked or close fault is a storage refusal.
+/// busy, locked or close fault is a storage refusal, unless the commit landed
+/// (see `observe_candidate`).
 fn storage_layer(error: StorageError) -> &'static str {
     if error.is_hook_allowance_spent() {
         "budget"
