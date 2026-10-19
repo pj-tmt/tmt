@@ -525,13 +525,8 @@ export class AskController {
                       machineName: machine.name,
                       agent: agent.id,
                       name: agent.name,
-                      state:
-                        agent.activity?.sinceMs !== null &&
-                        agent.activity?.sinceMs !== undefined &&
-                        agent.observedAtMs !== undefined &&
-                        agent.activity.sinceMs <= agent.observedAtMs
-                          ? agent.activity.state
-                          : ('unknown' as const),
+                      // The validated state needs no phase/owner clock; only elapsed copy does.
+                      state: agent.activity?.state ?? 'unknown',
                     })),
                   ) ?? [],
                 entries: current.map((view) => {

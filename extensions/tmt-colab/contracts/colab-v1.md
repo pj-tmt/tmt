@@ -2053,7 +2053,9 @@ matching agent with fresh, valid working telemetry; idle, ended, unknown, stale,
 hidden and stopped observations keep the robot. This is agent-wide activity,
 not a claim that the agent is working on this particular Ask: a queued Ask may
 still name an agent working on an earlier turn. Name-only chips with ambiguous
-matches keep the robot. The chip never changes recipients or Send admission.
+matches keep the robot. Valid working state needs no phase timestamp or owner-clock
+anchor; those clocks govern the separate elapsed-time copy. The chip never changes
+recipients or Send admission.
 Only that spinner and the finished check use the working/success colour; all text,
 queued and unknown marks stay neutral. Reduced motion keeps working text static;
 words carry every state, and text and marks remain visible under forced colours.
