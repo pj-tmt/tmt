@@ -171,7 +171,7 @@ it('suppresses a late identity after close and joins the in-flight sign-in', asy
   expect(f.calls.close).toBe(1);
 });
 
-it('does not automatically retry an unconfirmed sign-in', async () => {
+it('retries an unconfirmed sign-in only after another explicit press', async () => {
   const f = fixture();
   f.auth.signInAnonymous = async () => {
     f.calls.signIn++;
@@ -180,9 +180,11 @@ it('does not automatically retry an unconfirmed sign-in', async () => {
   const guide = createConnectGuide(link, f.options);
   await guide.ready;
   await guide.signIn();
-  await guide.signIn();
+  await Promise.resolve();
   expect(f.calls.signIn).toBe(1);
   expect(f.states.at(-1)).toEqual({ phase: 'failed', remoteLink: link });
+  await guide.signIn();
+  expect(f.calls.signIn).toBe(2);
   await guide.close();
 });
 
@@ -199,9 +201,10 @@ it.each([
   const html = markup({ phase, ...(phase === 'checking' ? {} : { remoteLink: link }) });
   expect(html).toContain('Connect to this remote');
   expect(html).toContain(copy);
-  expect(html).toContain(
-    'Signing in does not give access to every page. Open a page link from its owner.',
-  );
+  if (phase === 'failed') expect(html).toContain('Continue without an account');
+  expect(html).not.toContain('--json');
+  expect(html).not.toContain('Signing in does not give access to every page. Open a page link');
+  expect(html).toContain('Signing in does not give access to every page.');
   expect(html).toContain(
     'Open the page link its owner sent you. You join with the role that link gives.',
   );
@@ -212,5 +215,62 @@ it.each([
   expect(html).not.toMatch(
     /Not checked|>Done<|>Ready<|>Joined<|owner must admit|tmt remote join|status --layers/,
   );
-  expect(html).toContain('tmt remote --remote team sync sign-in --json');
+  expect(html).toContain('tmt remote --remote team sync sign-in');
+});
+
+it('rechecks a failed connection before an explicit retry signs in', async () => {
+  const f = fixture();
+  const sdk = await f.options.load!();
+  const connect = sdk.firebaseRemote.connect;
+  let attempts = 0;
+  sdk.firebaseRemote.connect = async (input: string, value: { bytes: string; digest: string }) => {
+    if (++attempts === 1) throw new Error('private bootstrap failure');
+    return connect(input, value);
+  };
+  f.options.load = async () => sdk;
+  const guide = createConnectGuide(link, f.options);
+  await guide.ready;
+  expect(f.states.at(-1)).toEqual({ phase: 'failed' });
+  expect(attempts).toBe(1);
+  expect(f.calls.signIn).toBe(0);
+  await guide.signIn();
+  expect(attempts).toBe(2);
+  expect(f.calls.signIn).toBe(1);
+  expect(f.states.at(-1)).toEqual({ phase: 'signed-in', remoteLink: link });
+  await guide.close();
+});
+
+it('joins a retried connection that resolves after close without signing in', async () => {
+  const f = fixture();
+  f.options.load = async () => {
+    throw new Error('private bootstrap failure');
+  };
+  const guide = createConnectGuide(link, f.options);
+  await guide.ready;
+  const started = deferred<void>();
+  const connected = deferred<HostedAuth>();
+  f.options.load = async () => ({
+    firebaseRemote: {
+      originLink: async () => link,
+      connect: () => {
+        started.resolve();
+        return connected.promise;
+      },
+    },
+  });
+  const retry = guide.signIn();
+  // This is a gate, not an elapsed-time guess: the retry must own a fresh connection.
+  await Promise.race([
+    started.promise,
+    retry.then(() => {
+      throw new Error('retry completed without attempting a connection');
+    }),
+  ]);
+  const closing = guide.close();
+  connected.resolve(f.auth);
+  await closing;
+  await retry;
+  expect(f.calls.close).toBe(1);
+  expect(f.calls.signIn).toBe(0);
+  expect(f.states.at(-1)?.phase).not.toBe('signed-in');
 });

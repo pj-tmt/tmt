@@ -34,8 +34,8 @@ export function createConnectGuide(link: string, options: Options) {
       options.state(next);
     }
   };
-  publish({ phase });
-  const ready = (async () => {
+  const initialize = async () => {
+    publish({ phase: 'checking' });
     try {
       const response = await (options.fetch ?? globalThis.fetch.bind(globalThis))(
         '/tmt/declarations/colab.json',
@@ -70,15 +70,18 @@ export function createConnectGuide(link: string, options: Options) {
     } catch {
       publish({ phase: 'failed' });
     }
-  })();
+  };
+  const ready = initialize();
   return {
     ready,
     signIn(): Promise<void> {
       if (pending) return pending;
-      if (closed || !auth || phase !== 'sign-in') return Promise.resolve();
-      const owner = auth;
-      publish({ phase: 'signing-in', remoteLink: link });
+      if (closed || (phase !== 'sign-in' && phase !== 'failed')) return Promise.resolve();
       pending = (async () => {
+        if (!auth) await initialize();
+        if (closed || !auth) return;
+        const owner = auth;
+        publish({ phase: 'signing-in', remoteLink: link });
         try {
           await owner.signInAnonymous();
           publish({ phase: 'signed-in', remoteLink: link });
@@ -162,7 +165,7 @@ export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; sign
               {label}
             </p>
           )}
-          {state.phase === 'sign-in' && (
+          {(state.phase === 'sign-in' || state.phase === 'failed') && (
             <BrowserAction
               type="button"
               variant="text"
@@ -172,7 +175,7 @@ export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; sign
               }}
             />
           )}
-          <p>Signing in does not give access to every page. Open a page link from its owner.</p>
+          <p>Signing in does not give access to every page.</p>
           <p>Open the page link its owner sent you. You join with the role that link gives.</p>
         </section>
         <section aria-labelledby="connect-machine">
@@ -184,8 +187,8 @@ export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; sign
               <GuideCommand
                 command={
                   state.remoteLink
-                    ? `tmt remote add team '${state.remoteLink}' --json`
-                    : 'tmt remote add team <remote-link> --json'
+                    ? `tmt remote add team '${state.remoteLink}'`
+                    : 'tmt remote add team <remote-link>'
                 }
                 enabled={state.remoteLink !== undefined}
               />
@@ -194,7 +197,7 @@ export function ConnectGuide({ state, signIn }: { state: ConnectGuideState; sign
               <h3>Sign in</h3>
               <p>Copy this command to sign this machine in. No account is needed.</p>
               <GuideCommand
-                command="tmt remote --remote team sync sign-in --json"
+                command="tmt remote --remote team sync sign-in"
                 enabled={state.remoteLink !== undefined}
               />
             </li>
