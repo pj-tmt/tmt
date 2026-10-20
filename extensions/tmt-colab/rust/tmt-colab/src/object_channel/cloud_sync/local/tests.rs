@@ -250,9 +250,10 @@ fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail()
         .ok()
         .unwrap()
         .expect("fold publication");
-    assert_eq!(data.documents[0].target.resource, "log");
-    assert_eq!(decode_envelope(&data.documents[0]).as_bytes(), anchor);
-    let groups: Vec<_> = data.documents[1..]
+    assert_eq!(data.documents[0].target.resource, "authority");
+    assert_eq!(data.documents[1].target.resource, "log");
+    assert_eq!(decode_envelope(&data.documents[1]).as_bytes(), anchor);
+    let groups: Vec<_> = data.documents[2..]
         .chunks(1)
         .map(|group| originals::checkpoint(group).unwrap())
         .collect();
@@ -289,7 +290,7 @@ fn a_fold_after_tracking_replaces_the_pending_prefix_without_a_new_cursor() {
     fixture.fold_pair(DEVICE, 2);
     let data = fixture.local.next(&page).ok().unwrap().unwrap();
     assert!(matches!(data.confirm, Confirm::Checkpoint { seq: 2, .. }));
-    assert_eq!(decode_envelope(&data.documents[0]).as_bytes(), anchor);
+    assert_eq!(decode_envelope(&data.documents[1]).as_bytes(), anchor);
 }
 
 #[test]
@@ -760,7 +761,7 @@ fn a_link_that_ends_is_retired_once_and_forgotten() {
 }
 
 #[test]
-fn the_preamble_includes_a_fold_signer_without_publishing_its_stream() {
+fn a_fold_batch_includes_the_signer_chain_without_publishing_its_stream() {
     let mut fixture = Fixture::new();
     fixture.append(DEVICE);
     fixture.append(DEVICE);
@@ -774,9 +775,32 @@ fn the_preamble_includes_a_fold_signer_without_publishing_its_stream() {
         })
         .collect();
     assert!(chains.contains(&fixture.chain(DEVICE)));
-    assert!(chains.contains(&fixture.chain(FOREIGN)));
+    let batch = fixture.local.next(&fixture.page(1)).unwrap().unwrap();
+    let (_, signer) = originals::authority(&batch.documents[..1]).unwrap();
+    assert_eq!(signer, fixture.chain(FOREIGN));
     assert_eq!(
         fixture.local.local_streams(&fixture.page(1)).unwrap(),
         [DEVICE]
+    );
+}
+
+#[test]
+fn a_pending_fold_carries_its_signer_proof_independently_of_a_newer_preamble() {
+    let mut fixture = Fixture::new();
+    fixture.append(DEVICE);
+    fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    let batch = fixture.local.next(&fixture.page(1)).unwrap().unwrap();
+    let mut proofs = Vec::new();
+    for document in &batch.documents {
+        if document.target.resource == "authority" {
+            let (kind, bytes) = originals::authority(std::slice::from_ref(document)).unwrap();
+            assert_eq!(kind, originals::Authority::Chain);
+            proofs.push(bytes);
+        }
+    }
+    assert!(
+        proofs.contains(&fixture.chain(FOREIGN)),
+        "the selected batch must carry its exact signer dependency, not infer it again from latest local state"
     );
 }

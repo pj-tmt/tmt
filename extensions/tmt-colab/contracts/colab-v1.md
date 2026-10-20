@@ -1846,6 +1846,7 @@ anything is pruned.
   check identity, shape and continuity (the space owner can bootstrap the anchor without its
   predecessor); readers independently verify authority and signatures. The signer and covered
   device's chains precede the objects, even when the signer has no data stream to publish.
+  The chosen fold batch carries its signer proofs, so a concurrent newer fold cannot substitute them.
   Publication advances only after the anchor and both complete namespace originals are confirmed;
   an uncertain result is reconciled by exact ID, never by resealing or choosing different bytes.
   The hosted reader validates complete chunks and their object IDs, admits the anchor-only frame,

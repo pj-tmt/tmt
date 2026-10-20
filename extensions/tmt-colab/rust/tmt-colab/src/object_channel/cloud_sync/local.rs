@@ -149,6 +149,7 @@ impl StoreLocal {
         let routing = self.routing(page, self.entry_expiry()?);
         let (mut documents, mut digests) = (Vec::new(), Vec::new());
         let mut anchored = false;
+        let mut signers = std::collections::BTreeSet::new();
         for namespace in [Namespace::Content, Namespace::Own] {
             let object = self
                 .store
@@ -163,6 +164,7 @@ impl StoreLocal {
             let header =
                 mapping(object::Header::decode(envelope.header()).map_err(|_| documents::Invalid))?;
             if let Some(covered) = &header.covered_device {
+                signers.insert(header.context.author_device.clone());
                 if covered != stream {
                     return Err(Fault::Retry);
                 }
@@ -186,8 +188,24 @@ impl StoreLocal {
             ))?);
             digests.push(crypto::digest(&object.bytes));
         }
+        // Freeze the chosen folds' proof dependencies with this batch. A newer compaction
+        // between next() and preamble() must not substitute another signer's chain.
+        let mut dependencies = Vec::new();
+        for signer in signers {
+            let chain = self
+                .store
+                .owner_read(&self.space, &self.owner, |tx| tx.author_chain(&signer))
+                .map_err(|error| read_fault(error.as_ref()))?;
+            dependencies.extend(mapping(originals::authority_documents(
+                &routing,
+                Authority::Chain,
+                "",
+                &chain,
+            ))?);
+        }
+        dependencies.extend(documents);
         Ok(Data {
-            documents,
+            documents: dependencies,
             confirm: Confirm::Checkpoint {
                 stream: stream.to_owned(),
                 seq,
@@ -201,31 +219,6 @@ impl Local for StoreLocal {
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<Row>, Fault> {
         let now = (self.now)();
         let local = self.local_streams(page)?;
-        // A fold signer may have no local data stream. Publish its chain, not its data.
-        let mut authors: std::collections::BTreeSet<String> = local.iter().cloned().collect();
-        for stream in &local {
-            let scope = StreamScope {
-                page: &page.page,
-                epoch: page.epoch,
-                stream,
-            };
-            for namespace in [Namespace::Content, Namespace::Own] {
-                if let Some(stored) = self
-                    .store
-                    .namespace_next(scope, namespace, NamespaceCursor::default())
-                    .map_err(store_fault)?
-                    && stored.checkpoint
-                {
-                    let envelope =
-                        object::Envelope::from_json(&stored.bytes).map_err(|_| Fault::Retry)?;
-                    let header =
-                        object::Header::decode(envelope.header()).map_err(|_| Fault::Retry)?;
-                    if header.covered_device.is_some() {
-                        authors.insert(header.context.author_device);
-                    }
-                }
-            }
-        }
         struct Snapshot {
             retention_days: Option<u64>,
             archived: bool,
@@ -249,8 +242,8 @@ impl Local for StoreLocal {
                     return Ok(None);
                 }
                 let mut chains = Vec::new();
-                for author in &authors {
-                    chains.push(tx.author_chain(author)?);
+                for stream in &local {
+                    chains.push(tx.author_chain(stream)?);
                 }
                 let mut links = Vec::new();
                 for (id, token) in tx.link_admissions()? {
