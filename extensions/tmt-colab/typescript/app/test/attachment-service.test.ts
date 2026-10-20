@@ -24,55 +24,60 @@ async function fixture(
   options: { script?: Script; revision?: () => string; payloadBytes?: number } = {},
 ) {
   const calls: AttachmentObjectRequest[] = [];
+  /** The deadline each request carried, in order. */
+  const deadlines: [AttachmentObjectRequest['method'], number][] = [];
   const signer = (await crypto.subtle.generateKey('Ed25519', false, [
     'sign',
     'verify',
   ])) as CryptoKeyPair;
   let received = 0;
-  const channel = new AttachmentObjectChannel(async (request): Promise<AttachmentObjectOutcome> => {
-    calls.push(structuredClone(request));
-    const scripted = options.script?.(request, calls);
-    if (scripted !== undefined) {
-      if (scripted instanceof Error) throw scripted;
-      return scripted as AttachmentObjectOutcome;
-    }
-    switch (request.method) {
-      case 'config':
-        return {
-          ok: {
-            result: 'config',
-            projection: 'browser',
-            backend: { id: 'local', source: 'x', editable: false },
-            capabilities: { immutableCreate: true, chunkedRead: true, recoverByOriginalId: true },
-            limits: { payloadBytes: options.payloadBytes ?? 12 * 1024 * 1024, chunkBytes: 32768 },
-          },
-        };
-      case 'begin':
-        received = 0;
-        return { ok: { result: 'pending', nextIndex: 0, received: 0 } };
-      case 'part':
-        received = request.index + 1;
-        return { ok: { result: 'progress', nextIndex: request.index + 1, received } };
-      case 'commit': {
-        const begin = calls.find((c) => c.method === 'begin' || c.method === 'status') as {
-          descriptor: attachment.AttachmentDescriptor;
-        };
-        return {
-          ok: {
-            result: 'committed',
-            opaqueKey: Array.from({ length: 32 }, () => 1).reduce(
-              (s, v) => s + String.fromCharCode(v),
-              '',
-            ),
-            payloadSha256: begin.descriptor.payloadSha256,
-            payloadBytes: Number(begin.descriptor.payloadBytes),
-          },
-        };
+  const channel = new AttachmentObjectChannel(
+    async (request, deadline): Promise<AttachmentObjectOutcome> => {
+      calls.push(structuredClone(request));
+      deadlines.push([request.method, deadline]);
+      const scripted = options.script?.(request, calls);
+      if (scripted !== undefined) {
+        if (scripted instanceof Error) throw scripted;
+        return scripted as AttachmentObjectOutcome;
       }
-      default:
-        throw new Error(`unscripted ${request.method}`);
-    }
-  });
+      switch (request.method) {
+        case 'config':
+          return {
+            ok: {
+              result: 'config',
+              projection: 'browser',
+              backend: { id: 'local', source: 'x', editable: false },
+              capabilities: { immutableCreate: true, chunkedRead: true, recoverByOriginalId: true },
+              limits: { payloadBytes: options.payloadBytes ?? 12 * 1024 * 1024, chunkBytes: 32768 },
+            },
+          };
+        case 'begin':
+          received = 0;
+          return { ok: { result: 'pending', nextIndex: 0, received: 0 } };
+        case 'part':
+          received = request.index + 1;
+          return { ok: { result: 'progress', nextIndex: request.index + 1, received } };
+        case 'commit': {
+          const begin = calls.find((c) => c.method === 'begin' || c.method === 'status') as {
+            descriptor: attachment.AttachmentDescriptor;
+          };
+          return {
+            ok: {
+              result: 'committed',
+              opaqueKey: Array.from({ length: 32 }, () => 1).reduce(
+                (s, v) => s + String.fromCharCode(v),
+                '',
+              ),
+              payloadSha256: begin.descriptor.payloadSha256,
+              payloadBytes: Number(begin.descriptor.payloadBytes),
+            },
+          };
+        }
+        default:
+          throw new Error(`unscripted ${request.method}`);
+      }
+    },
+  );
   const admission = {
     reader: undefined,
     head: { revision: 1n, hash: new Uint8Array(32) },
@@ -99,12 +104,23 @@ async function fixture(
     available: () => true,
     sharing: 'private',
   });
-  return { service, calls, admission };
+  return { service, calls, admission, deadlines };
 }
 const input = (size = 100 * 1024) => ({
   filename: 'notes.bin',
   mediaType: 'application/octet-stream',
   bytes: Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff),
+});
+
+it('a read of the page has no deadline, while an upload request keeps its own bound', async () => {
+  const { service, deadlines } = await fixture();
+  await service.limits();
+  expect(deadlines).toEqual([['config', Number.POSITIVE_INFINITY]]);
+  deadlines.length = 0;
+  await service.upload(input(), { kind: 'message', messageId }, () => {});
+  expect(deadlines.map(([method]) => method)).toContain('commit');
+  for (const [method, deadline] of deadlines.filter(([method]) => method !== 'config'))
+    expect(Number.isFinite(deadline), method).toBe(true);
 });
 
 it('uploads one frozen original in order and binds it to the preallocated message', async () => {

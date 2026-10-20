@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
-import { Fold } from '../src/fold.js';
+import { Fold, decodeBudgetMs } from '../src/fold.js';
 import {
   WRITE_TAIL_BYTES,
   validateProjection,
@@ -56,6 +56,26 @@ it('terminates a stalled decoder and rejects further use without publishing outp
   await rejection;
   expect(worker.terminate).toHaveBeenCalledOnce();
   await expect(fold.run({ type: 'apply', updates: [] })).rejects.toThrow('unavailable');
+  vi.useRealTimers();
+});
+it('gives a command 1 s more per MiB of input before terminating a stalled decoder', async () => {
+  vi.useFakeTimers();
+  const MiB = 1024 * 1024;
+  const worker = { postMessage: vi.fn(), terminate: vi.fn(), onerror: null, onmessage: null };
+  const fold = new Fold(worker as unknown as Worker);
+  expect(decodeBudgetMs({ type: 'apply', updates: [] })).toBe(2000);
+  expect(decodeBudgetMs({ type: 'checkpoint', update: new Uint8Array(1) })).toBe(2000);
+  expect(decodeBudgetMs({ type: 'checkpoint', update: new Uint8Array(MiB) })).toBe(3000);
+  // 3 MiB of input: a 5 s budget. The old fixed 2 s would already have cut it off.
+  const updates = [new Uint8Array(MiB), new Uint8Array(MiB), new Uint8Array(MiB)];
+  expect(decodeBudgetMs({ type: 'apply', updates })).toBe(5000);
+  const pending = fold.run({ type: 'apply', updates });
+  const rejection = expect(pending).rejects.toThrow('time budget');
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(worker.terminate).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await rejection;
+  expect(worker.terminate).toHaveBeenCalledOnce();
   vi.useRealTimers();
 });
 it('permits only one in-flight decoder and clears it on route cleanup', async () => {

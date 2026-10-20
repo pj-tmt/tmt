@@ -19,7 +19,7 @@ export interface AttachmentHistorySource {
   frames(epoch: string, deadline: number): AsyncIterable<string>;
 }
 function remaining(deadline: number) {
-  requireValue(Number.isFinite(deadline) && performance.now() < deadline);
+  requireValue(!Number.isNaN(deadline) && performance.now() < deadline);
 }
 /** Detached historical fold. No update or old baseline can enter the live
  * Worker, and a changed live head/cut/key/caller prevents returning its result. */

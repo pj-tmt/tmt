@@ -16,7 +16,7 @@ import type { OwnRecord } from './fold-protocol.js';
 
 const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 function remaining(deadline: number) {
-  requireValue(Number.isFinite(deadline) && performance.now() < deadline);
+  requireValue(!Number.isNaN(deadline) && performance.now() < deadline);
 }
 export async function attachmentNamespace(space: string, page: string): Promise<Uint8Array> {
   spaceId(space);

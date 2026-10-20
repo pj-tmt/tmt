@@ -235,6 +235,23 @@ test('self-navigation can leak one request, then tears down the frame and never 
   await expect(homeList(page)).toBeVisible();
 });
 
+test('a page whose document takes over five seconds to load still binds, and is not failed', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await page.goto('/');
+  // The author's script holds the frame's `load` for 6.5 s, as a very large page does while it
+  // parses. The bind acknowledgement follows it, so it arrives after the old 5 s deadline.
+  const started = Date.now();
+  await mount(
+    page,
+    '<p id="slow">Heavy page</p><script>for (const t = Date.now(); Date.now() - t < 6500; );</script>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  expect(Date.now() - started).toBeGreaterThan(5000);
+  await expect(page.frameLocator('#probe iframe').locator('#slow')).toBeVisible();
+});
+
 test('handshake binds window source and renderId; captured digest and cleanup survive replacement', async ({
   page,
 }) => {

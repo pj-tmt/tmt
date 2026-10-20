@@ -557,6 +557,57 @@ it('an unanswered object request settles as storage unavailable within its origi
   expect(sent(socket).filter((frame) => frame.type === 'object')).toHaveLength(1);
 });
 
+it('an object request that its caller allows longer than 15 s is answered after 15 s, and a close still fails it', async () => {
+  vi.useFakeTimers();
+  const { connection, socket, failed } = await open();
+  const slow = connection.attachmentObjects.config(performance.now() + 60_000);
+  await awaitSent(socket, 1);
+  const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(connection.active).toBe(true);
+  socket.receive({
+    ...scope,
+    type: 'object-result',
+    requestId: request.requestId,
+    result: { error: { code: 'unavailable' } },
+  });
+  await expect(slow).resolves.toBeDefined();
+  expect(failed).not.toHaveBeenCalled();
+  // No cap outlives the connection: closing while a long request waits rejects it.
+  const pending = connection.attachmentObjects.config(performance.now() + 60_000);
+  const rejected = expect(pending).rejects.toThrow('Page closed');
+  await awaitSent(socket, 2);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(connection.active).toBe(true);
+  connection.close();
+  await rejected;
+});
+
+it('a read with no deadline waits through any silence, is answered late, and a close still fails it', async () => {
+  vi.useFakeTimers();
+  const { connection, socket, failed } = await open();
+  const slow = connection.attachmentObjects.config(Number.POSITIVE_INFINITY);
+  await awaitSent(socket, 1);
+  const request = JSON.parse(socket.send.mock.calls.at(-1)![0]);
+  await vi.advanceTimersByTimeAsync(10 * 60_000);
+  expect(connection.active).toBe(true);
+  socket.receive({
+    ...scope,
+    type: 'object-result',
+    requestId: request.requestId,
+    result: { error: { code: 'unavailable' } },
+  });
+  await expect(slow).resolves.toBeDefined();
+  expect(failed).not.toHaveBeenCalled();
+  const pending = connection.attachmentObjects.config(Number.POSITIVE_INFINITY);
+  const rejected = expect(pending).rejects.toThrow('Page closed');
+  await awaitSent(socket, 2);
+  await vi.advanceTimersByTimeAsync(60 * 60_000);
+  expect(connection.active).toBe(true);
+  connection.close();
+  await rejected;
+});
+
 const fullUsage = {
   updates: 124,
   updateLimit: 200,

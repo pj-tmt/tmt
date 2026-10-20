@@ -332,7 +332,7 @@ test('a theme change between source init and acknowledgement reaches the same re
   await palette(page, 'dark');
 });
 
-test('render release, abort, destroy, navigation and timeout remove theme subscriptions', async ({
+test('render release, abort, destroy and navigation remove theme subscriptions, and a renderer that never answers stays loading until it is left', async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: 'light' });
@@ -454,13 +454,24 @@ test('render release, abort, destroy, navigation and timeout remove theme subscr
     .click();
   await expect(page.locator('#theme-probe')).toHaveAttribute('data-state', 'navigation');
   expect(await subscriptions()).toEqual({ observers: 0, media: 0 });
+  // No deadline fails a renderer that never answers: a long wait on the page's clock leaves it
+  // loading, still subscribed, until leaving the page (the abort) removes it.
+  await page.clock.install();
+  await page.evaluate(() => delete document.getElementById('theme-probe')!.dataset.state);
   await page.route('**/renderer.html', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<p>No bootstrap</p>' }),
   );
   await mountProbe(sample);
-  await expect(page.locator('#theme-probe')).toHaveAttribute('data-state', 'failed', {
-    timeout: 7000,
-  });
+  await expect(page.locator('#theme-probe iframe')).toHaveCount(1);
+  await page.clock.fastForward(60_000);
+  await expect(page.locator('#theme-probe')).not.toHaveAttribute('data-state', /.+/);
+  await expect(page.locator('#theme-probe iframe')).toHaveCount(1);
+  expect(await subscriptions()).toEqual({ observers: 1, media: 1 });
+  await page.evaluate(() =>
+    (
+      window as unknown as { themeProbe: { controller: AbortController } }
+    ).themeProbe.controller.abort(),
+  );
   await expect(page.locator('#theme-probe iframe')).toHaveCount(0);
   expect(await subscriptions()).toEqual({ observers: 0, media: 0 });
 });
