@@ -394,6 +394,13 @@ paints the filled editor surface, and `digest_matrix` paints observed metrics
 across identity columns. The host retains data projection, recipient authority,
 editor/session state, effective keys and clipped hits; these painters acquire no
 data and perform no effects.
+Core's idle alert reaches the board through the same acquisition: `tab_view::roster_documents_with`
+runs `idle_alert::overs`/`annotate` on the squad document and its projected rows (Home passes the
+identities list as `idle_source`, so no presence is read), `OpsMembershipState::idle_over` and
+`OpsSquad::idle_alert` carry the result, and `activity::Label::idle_over` (only while the label
+reads idle) makes `columns::activity_spans`, `team_strip::line` and the Overview team strip paint
+`state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
+The squad row's MODEL cell names `idle alert 30m` while enabled; nothing is derived in the board.
 
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
 and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle

@@ -150,6 +150,9 @@ pub(super) struct Overlay {
     pub picks: Vec<Pick>,
     overrides: BTreeSet<String>,
     host_action: Option<host_action::HostAction>,
+    /// Opened for one squad from the Workspace settings menu: Esc returns there, and a
+    /// refresh does not close it for showing another tab.
+    pub(in crate::board) from_menu: bool,
 }
 impl Overlay {
     pub fn new(mut settings: BoardSettings) -> Self {
@@ -182,6 +185,7 @@ impl Overlay {
             picks: Vec::new(),
             overrides: BTreeSet::new(),
             host_action: None,
+            from_menu: false,
         }
     }
     pub fn open(

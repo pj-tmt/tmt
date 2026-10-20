@@ -944,6 +944,14 @@ Nothing about delivery is stored; the notice is in the lead's inbox.
 
 The scan is a second duty of the cron clock. A clock must run, with a board open or
 `tmt ops sq cron run` in a pane (`cron clock` shows it); with no clock there is no alert.
+
+The board shows the same facts without a new call. In Settings, Space on `idle_alert.enabled`
+flips it through the same writer as `config set`, and `idle_alert.after` edits with Enter. A
+squad row shows `idle alert 30m` (`alert 30m` in a narrow cell) only while the alert is on, and
+`◷ N idle` after its team marks while members are over. An over member shows `◷ idle 32m` in its
+state cell; an excepted member keeps the plain `◌ idle 32m`. `tmt ops sq ls` appends
+`idle alert 30m` to the squad header and `◷ idle 32m` to the over row. A UUID in the notice that
+names a known member opens that member's menu. With the alert off, none of these appear.
 It reads one roster and one `ls` per enabled squad, at least 60 seconds apart; a squad with
 the alert off costs nothing. A clock's first look, and its first look after a pause of more
 than five minutes (a sleeping machine), only record the time: members are judged a minute

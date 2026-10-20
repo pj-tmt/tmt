@@ -1374,6 +1374,19 @@ impl App {
                 choice: Choice::Panels,
             });
         }
+        if let Some(squad) = self.workspace_squad().map(|squad| squad.name.clone()) {
+            // The menu is 48 cells wide and truncates labels, so a long rule fills any width.
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: "─".repeat(48),
+                choice: Choice::Rule,
+            });
+            entries.push(MenuEntry {
+                key: String::new(),
+                label: format!("Squad settings: {}", crate::board::workspace::render::safe(&squad)),
+                choice: Choice::SquadSettings(squad),
+            });
+        }
         self.menu = Some(Menu {
             row_send: None,
             link: None,

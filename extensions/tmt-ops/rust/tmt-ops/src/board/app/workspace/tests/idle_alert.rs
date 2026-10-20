@@ -81,3 +81,84 @@ fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on
         assert!(!screen.contains("◷ idle") && !screen.contains("1 idle"), "{screen}");
     }
 }
+
+fn menu_labels(app: &App) -> Vec<String> {
+    app.menu
+        .as_ref()
+        .unwrap()
+        .entries
+        .iter()
+        .map(|entry| entry.label.clone())
+        .collect()
+}
+
+fn settings_config(name: &str, text: &str) -> (std::path::PathBuf, Config) {
+    let path = std::env::temp_dir().join(format!(
+        "ops-idle-settings-{name}-{}.toml",
+        std::process::id()
+    ));
+    std::fs::write(&path, text).unwrap();
+    let config = Config::read(path.clone()).unwrap();
+    (path, config)
+}
+
+#[test]
+fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_when_one_is_selected() {
+    let mut app = board();
+    app.workspace_settings();
+    let labels = menu_labels(&app);
+    assert_eq!(labels.last().unwrap(), "Squad settings: product");
+    assert!(labels[labels.len() - 2].chars().all(|ch| ch == '─'));
+    assert!(matches!(
+        app.menu.as_ref().unwrap().entries.last().unwrap().choice,
+        Choice::SquadSettings(ref squad) if squad == "product"
+    ));
+    app.menu = None;
+    app.workspace.selected = Some(OpsTarget::Pool);
+    app.workspace_settings();
+    let labels = menu_labels(&app);
+    assert!(
+        labels
+            .iter()
+            .all(|label| !label.starts_with("Squad settings") && !label.starts_with('─')),
+        "{labels:?}"
+    );
+}
+
+#[test]
+fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_to_the_menu() {
+    let mut app = board();
+    app.workspace_settings();
+    let last = app.menu.as_ref().unwrap().entries.len() - 1;
+    app.menu.as_mut().unwrap().selected = last;
+    assert_eq!(
+        key(&mut app, KeyCode::Enter),
+        Effect::SquadSettings("product".into())
+    );
+    let (path, config) = settings_config("open", "[squad.product.idle_alert]\nenabled = true\n");
+    app.open_settings_in(config, Some("product")).unwrap();
+    let overlay = app.settings.as_ref().unwrap();
+    assert!(overlay.from_menu);
+    assert_eq!(overlay.settings.context.as_deref(), Some("product"));
+    app.settings.as_ref().unwrap().surface.borrow_mut().select("idle_alert.enabled");
+    let screen = paint(&app, 120, 40).join("\n");
+    assert!(
+        screen.contains("idle_alert")
+            && screen.contains("Tells the lead once")
+            && screen.contains("after"),
+        "{screen}"
+    );
+    // A data refresh while it is open does not close it for the workspace's own tab.
+    let mut refreshed = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
+    refreshed.tabs.push(crate::board::ALL.into());
+    refreshed.view = app.view.take().map(Ok).unwrap_or(refreshed.view);
+    app.apply(refreshed);
+    assert!(app.settings.is_some());
+    assert_eq!(key(&mut app, KeyCode::Esc), Effect::CancelSettings);
+    assert!(app.settings.is_none());
+    assert_eq!(
+        menu_labels(&app).last().unwrap(),
+        "Squad settings: product"
+    );
+    std::fs::remove_file(path).unwrap();
+}
