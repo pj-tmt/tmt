@@ -37,42 +37,6 @@ export interface ReaderSeat {
 }
 
 /** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */
-/** The most membership statements an append may have missed and still be admitted at the head. */
-export const MAX_UNRELATED_WINDOW = 256n;
-/**
- * Whether an append sealed at membership revision `cited` is still admitted at `head`: every verified
- * statement after it is scoped to a page other than `page` (a page created or shared elsewhere), so
- * none can change this page or any writer's authority for it. This is the serve's rule (colab-v1,
- * "Append at an earlier membership revision"), so a kept append that fails it is dropped without being
- * sent: the serve would answer `RESYNC_REQUIRED` and no retry of its signed bytes could change that.
- * Member, link, device and bridge statements are never unrelated, and neither is a window of more than
- * `MAX_UNRELATED_WINDOW` statements.
- */
-export function unrelatedWindow(
-  log: readonly Pick<statement.Verified, 'payload'>[],
-  head: bigint | undefined,
-  cited: bigint,
-  page: string,
-): boolean {
-  if (head === undefined || cited > head || head - cited > MAX_UNRELATED_WINDOW) return false;
-  const missed = log.slice(Number(cited), Number(head));
-  return (
-    missed.length === Number(head - cited) &&
-    missed.every(({ payload: p }) => {
-      switch (p.operation) {
-        case 'epoch.advance':
-        case 'page.share':
-        case 'page.history':
-        case 'retention.set':
-        case 'page.archive':
-        case 'page.delete':
-          return p.value.pageId !== page;
-        default:
-          return false;
-      }
-    })
-  );
-}
 export class Admission {
   head: statement.Head | null = null;
   #log: statement.Verified[] = [];
@@ -552,10 +516,6 @@ export class Admission {
         ),
     );
     return c.signingKey.slice();
-  }
-  /** Whether an append sealed at `cited` is still admitted at the head (see `unrelatedWindow`). */
-  unrelatedSince(cited: bigint): boolean {
-    return unrelatedWindow(this.#log, this.head?.revision, cited, this.page);
   }
   /** The signing key of a link-issued device that writes its own stream now: the fresh-write
    * counterpart of `author()` for a chain a link issued. It stands only while the chain is

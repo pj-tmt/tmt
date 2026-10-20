@@ -3448,11 +3448,11 @@ names this page or is not page-scoped, leaves the append stale, and it answers `
 never `DENIED` (#4088): the session's view is out of date, which says nothing about the device. A
 window of more than 256 statements also answers `RESYNC_REQUIRED`. A revision the head has not
 reached is `DENIED`, and so is one before the device certificate's own `membershipRevision`
-(#4103). The refusal stores nothing. The owner browser retries the exact bytes of an interrupted own
-append when every statement after its sealed revision is of that kind, sends nothing again when its
-catch-up shows those bytes already at the stream's head (the receipt was lost), and drops one the
-serve would refuse, whose signed header no retry can change; it seals the next write under the head
-it caught up to.
+(#4103). The refusal stores nothing. The owner browser keeps no copy of this rule: it retries the exact
+bytes of an interrupted own append, sends nothing again when its catch-up shows those bytes already
+at the stream's head (the receipt was lost), and drops one only when the serve answers
+`RESYNC_REQUIRED` after the session has caught up past the revision the entry cites, because the
+signed header cannot change; it then seals the next write under the head it caught up to.
 
 `append.seq` is positive canonical decimal text. `streamId` equals the principal
 and signed author. `envelopeHash` is canonical base64url hash32. `envelope` is either

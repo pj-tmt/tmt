@@ -124,9 +124,6 @@ async function world(kind: Kind, reader?: object) {
     author: kind === 'member' ? own : foreign,
     linkAuthor: kind === 'link' ? own : foreign,
     ownAuthor: Admission.prototype.ownAuthor,
-    /** Whether the log, as far as the sealed revision, changed only other pages (default: it did not). */
-    unrelated: false,
-    unrelatedSince: () => admission.unrelated,
     ...(reader ? { reader } : {}),
   };
   return { device, admission, own, foreign };
@@ -450,19 +447,35 @@ it('keeps an append whose outcome is unknown and retries exactly those bytes fir
   }
 });
 
-it('drops a kept append sealed before the membership head moved, and seals the next write under the new one (#4088)', async () => {
-  // Creating or sharing another page moves the membership head under an open session; the write that
-  // met the change fails, and a retry of its exact bytes would cite the old revision for ever.
-  const w = await writerOver([new Error('RESYNC_REQUIRED'), undefined]);
+it('offers a kept append sealed before the membership head moved first, and drops it only when the serve refuses it (#4088, #4103)', async () => {
+  // A change that touches the page or its writers moves the head under an open session; the write that
+  // met it fails, and the serve will refuse its exact bytes for ever (the revision is in the signed
+  // header). The reopened session offers them once and drops them on the serve's own answer.
+  const w = await writerOver([
+    new Error('RESYNC_REQUIRED'),
+    new Error('RESYNC_REQUIRED'),
+    new Error('RESYNC_REQUIRED'),
+    undefined,
+  ]);
   try {
     await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
     expect((await w.saved())?.pending?.entry.seq).toBe('5');
-    // The reopened session has caught up to the new head.
+    // Refused again while the session still knows the head it sealed at: kept, not yet stale.
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
+    expect((await w.saved())?.pending?.entry.seq).toBe('5');
+    // The reopened session has caught up to the new head: the serve refuses the bytes a third time
+    // and they are dropped.
     w.admission.head = { revision: REVISION + 1n };
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
+    expect((await w.saved())?.pending).toBeNull();
     await w.save();
-    expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5']);
-    const [stale, fresh] = w.appended.map((entry) => sealedRevision(entry));
-    expect([stale, fresh]).toEqual([REVISION, REVISION + 1n]);
+    expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5', '5', '5']);
+    expect(w.appended.map((entry) => sealedRevision(entry))).toEqual([
+      REVISION,
+      REVISION,
+      REVISION,
+      REVISION + 1n,
+    ]);
     expect((await w.saved())?.pending).toBeNull();
   } finally {
     w.writer.close();
@@ -470,16 +483,18 @@ it('drops a kept append sealed before the membership head moved, and seals the n
 });
 
 it('tells whoever still waits on a dropped stale append that it was refused, and seals the next write anew (#4088)', async () => {
-  const w = await writerOver([undefined]);
+  const w = await writerOver([new Error('RESYNC_REQUIRED'), undefined]);
   try {
     const id = crypto.randomUUID();
     await w.leave(id);
     w.admission.head = { revision: REVISION + 1n };
     Channel.posted.length = 0;
-    await w.save();
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
     expect(Channel.posted).toContainEqual({ type: 'append-refused', id });
     expect(Channel.posted).toContainEqual({ type: 'result', id, ok: false });
-    expect(w.appended.map((entry) => sealedRevision(entry))).toEqual([REVISION + 1n]);
+    expect((await w.saved())?.pending).toBeNull();
+    await w.save();
+    expect(w.appended.map((entry) => sealedRevision(entry))).toEqual([REVISION, REVISION + 1n]);
     expect((await w.saved())?.pending).toBeNull();
   } finally {
     w.writer.close();
@@ -504,14 +519,14 @@ it('drops an older kept append that the serve refuses when it is retried', async
   }
 });
 
-it('retries a kept append sealed before a change that only concerns other pages, and seals the next write under the head (#4103)', async () => {
+it('retries a kept append sealed under an earlier revision, and keeps the write when the serve admits it (#4103)', async () => {
+  // The serve admits an older revision when the statements it missed only concern other pages, so
+  // the retry of the exact bytes is stored and the next write seals under the head.
   const w = await writerOver([new Error('Sync disconnected'), undefined, undefined]);
   try {
     await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
     expect((await w.saved())?.pending?.entry.seq).toBe('5');
-    // The reopened session has caught up to a head that only another page moved.
     w.admission.head = { revision: REVISION + 1n };
-    w.admission.unrelated = true;
     await w.save();
     expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5', '6']);
     expect(w.appended.map((entry) => sealedRevision(entry))).toEqual([
@@ -535,7 +550,6 @@ it('does not send a kept append again when the serve already holds it, even past
     const kept = (await w.saved())!.pending!;
     w.land(kept.entry);
     w.admission.head = { revision: REVISION + 1n };
-    w.admission.unrelated = false;
     await w.save();
     // Only the new write was sent, after the one that was already there.
     expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '6']);
