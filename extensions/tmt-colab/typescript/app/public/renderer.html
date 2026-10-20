@@ -159,6 +159,8 @@
           }
           let heightTimer,
             height = 0,
+            // What the body alone read when the height was last measured.
+            content = 0,
             innerScroll = false;
           function measureHeight() {
             heightTimer = undefined;
@@ -169,16 +171,19 @@
               margin = parseFloat(getComputedStyle(body).marginBottom) || 0;
             // Root scrollHeight is at least the frame viewport. Ignore that floor
             // so content can shrink; retain root overflow and body/absolute content.
-            const next = Math.max(
-              1,
-              Math.ceil(
-                Math.max(
-                  rect.bottom + scrollY + margin,
-                  rect.top + scrollY + body.scrollHeight + margin,
-                  root.scrollHeight > innerHeight + 1 ? root.scrollHeight : 0,
-                ),
-              ),
+            const reading = Math.max(
+              rect.bottom + scrollY + margin,
+              rect.top + scrollY + body.scrollHeight + margin,
             );
+            const overflow = root.scrollHeight > innerHeight + 1 ? root.scrollHeight : 0;
+            // A last block whose bottom margin collapses through the body's puts the root a few
+            // pixels past what the body reads. At the frame height that includes them the root shows
+            // only the floor, so shrinking to the body's reading would show them again and the height
+            // would alternate for as long as the page is open: the height already holds the content
+            // when the body still reads what it read then.
+            if (!overflow && reading === content && height) return;
+            content = reading;
+            const next = Math.max(1, Math.ceil(Math.max(reading, overflow)));
             if (next === height) return;
             height = next;
             parent.postMessage({ type: 'colab.render.height', renderId, height }, '*');
