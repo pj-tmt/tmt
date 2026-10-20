@@ -7,6 +7,11 @@ use std::{
     fmt,
 };
 
+/// Reserved: an identity whose `user` entry is `true` is a person. Its messages and
+/// replies are never held by Digest.
+pub const USER_KEY: &str = "user";
+pub const USER_VALUE: &str = "true";
+
 pub const MAX_METADATA_ENTRIES: usize = 64;
 pub const MAX_METADATA_KEY_BYTES: usize = 64;
 pub const MAX_METADATA_VALUE_BYTES: usize = 1024;

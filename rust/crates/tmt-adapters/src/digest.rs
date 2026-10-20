@@ -84,6 +84,12 @@ pub fn read(
                 .flatten();
             value["sender"] =
                 json!({"identityId":sender_id,"name":sender.as_ref().map(|i|preview(&i.name))});
+            // Only an item held before its sender was marked a person can still be listed.
+            value["fromUser"] = json!(match sender_id {
+                Some(id) =>
+                    RequestService::new(&mut *storage, wall_time_ms).identity_is_user(id)?,
+                None => false,
+            });
             value["urgent"] = json!(
                 RequestService::new(&mut *storage, wall_time_ms)
                     .request_delivery_policy(&item.request_id)?
@@ -144,6 +150,11 @@ pub fn digest(page: &Value, batch: &DigestChecklist) -> String {
     let mut after = 0u64;
     for item in page["items"].as_array().into_iter().flatten() {
         let sender = item["sender"]["name"].as_str().unwrap_or("unknown");
+        let sender = if item["fromUser"].as_bool() == Some(true) {
+            format!("{sender} (user)")
+        } else {
+            sender.to_owned()
+        };
         let line = format!(
             "- [{}] {} / {}: {}\n  {}\n",
             item["kind"].as_str().unwrap_or("fyi"),

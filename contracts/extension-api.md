@@ -184,7 +184,10 @@ API rename needs no host process or endpoint observation.
 
 `identity.meta.apply` updates descriptive, untrusted metadata for one exact active
 identity UUID. It grants no ownership, availability or prompt authority and does
-not promote temporary identities. An unknown or retired UUID is `NAME_NOT_FOUND`;
+not promote temporary identities. One key is reserved: `user` with the value `true`
+marks an identity as a person, and Digest never holds that identity's messages or
+replies ([policy and checklist](#digest-policy-and-checklist)). Any other value, or
+a retired identity, marks no one. An unknown or retired UUID is `NAME_NOT_FOUND`;
 it never falls back to a display name or a same-name successor. No originator
 fields are accepted for this operation.
 
@@ -1041,7 +1044,8 @@ Policy conflicts return `DIGEST_REVISION_CONFLICT`; refresh before another write
 A read without a checklist ID shows unclaimed references. A sealed read includes
 its retained membership regardless of settlement; later arrivals stay outside it.
 Each item includes `sequence`, `requestId`, `kind`, `source`, `createdAtMs`, sender
-UUID/name, `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
+UUID/name, `fromUser` (true when that sender is marked a person, which only an item
+held before the mark can show), `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
 and a bounded `resultPreview` for finals. Optional `contextTokensAtArrival` and
 `contextObservedAtMs` preserve the receiver's latest recorded, readable driver
 usage when the reference first entered hold. They are absent when evidence is

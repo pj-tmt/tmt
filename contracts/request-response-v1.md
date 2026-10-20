@@ -795,9 +795,14 @@ behavior and acquires no automatic wake or checklist membership.
 
 `talk --urgent` bypasses Digest only; `urgent` remains visible in X and request
 history. A resolved sender UUID equal to the policy's owner bypasses automatically;
-name reuse, anonymous sends and metadata do not establish owner authority.
-Result notices use the responding recipient UUID for this comparison, not the
-originator. `talk --kind decision|review|fyi` records purpose without text guessing
+name reuse, anonymous sends and metadata do not establish owner authority. The one
+exception is the reserved `user` metadata entry ([identity metadata](extension-api.md#conditional-identity-metadata)):
+a message or reply whose resolved sender is marked a person is never held, in any
+mode and whatever the policy's owner, and is delivered by the ordinary route, so a
+person's reply notice also skips the fixed reply window. Readiness, approval and
+transport guards still apply; an item held before the mark stays in its checklist,
+shown as `(user)`. Result notices use the responding recipient UUID for this
+comparison, not the originator. `talk --kind decision|review|fyi` records purpose without text guessing
 (default `fyi`); finals use `result`, timeout notices use `fyi`. Classification is
 separate from request/announcement kind. Existing delivery, approval, enrollment,
 receipt and response-acceptance guards remain mandatory. An already claimed

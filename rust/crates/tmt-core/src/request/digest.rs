@@ -263,13 +263,22 @@ pub fn hold_originator_notice<E>(
         super::notification::HintKind::Timeout => (DigestSource::Timeout, DigestKind::Fyi),
     };
     let held = records.has_digest_item(identity, &attempt.request_id, source)?;
-    if !held
-        && (!records.identity_is_active(identity)?
+    if !held {
+        // The replier is the sender of a result notice. A person's reply is never held.
+        let from_user = match (kind, attempt.recipient_identity_id.as_deref()) {
+            (super::notification::HintKind::Reply, Some(replier)) => {
+                records.identity_is_user(replier)?
+            }
+            _ => false,
+        };
+        if from_user
+            || !records.identity_is_active(identity)?
             || !records
                 .digest_policy(identity)?
-                .is_some_and(|p| p.holds(attempt.recipient_identity_id.as_deref(), false, now)))
-    {
-        return Ok(false);
+                .is_some_and(|p| p.holds(attempt.recipient_identity_id.as_deref(), false, now))
+        {
+            return Ok(false);
+        }
     }
     records.hold_digest_item(identity, &attempt.request_id, label, source, now)?;
     if let Some(mut value) = records.notification(&attempt.request_id)? {

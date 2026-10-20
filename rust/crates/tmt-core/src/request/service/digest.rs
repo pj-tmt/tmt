@@ -384,6 +384,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         })
     }
 
+    /// Whether this identity is a person (the reserved `user` metadata entry).
+    pub fn identity_is_user(&mut self, id: &str) -> Result<bool, RequestError<R::Error>> {
+        self.repository
+            .with_request_observation(|records| records.identity_is_user(id).map_err(Into::into))
+    }
+
     pub fn request_delivery_policy(
         &mut self,
         id: &str,
@@ -404,6 +410,12 @@ pub(super) fn held_until<E>(
         return Ok(None);
     };
     if !records.identity_is_active(id)? {
+        return Ok(None);
+    }
+    // A person is never held, in any mode, before any policy owner is consulted.
+    if let Some(sender) = sender
+        && records.identity_is_user(sender)?
+    {
         return Ok(None);
     }
     Ok(records

@@ -536,6 +536,24 @@ impl RequestRecords for RequestRows<'_> {
             .map_err(|error| classify(error, "Check active request recipient"))
     }
 
+    fn identity_is_user(&self, identity_id: &str) -> Result<bool, Self::Error> {
+        self.0
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM identity_metadata m JOIN identities i ON i.id = m.identity_id
+                   WHERE m.identity_id = ?1 AND m.key = ?2 AND m.value = ?3
+                     AND i.retired_at_ms IS NULL
+                 )",
+                [
+                    identity_id,
+                    tmt_core::identity_metadata::USER_KEY,
+                    tmt_core::identity_metadata::USER_VALUE,
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|error| classify(error, "Check user identity"))
+    }
+
     fn acknowledge_revision(
         &mut self,
         identity_id: &str,
