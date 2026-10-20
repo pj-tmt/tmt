@@ -100,7 +100,7 @@ async function selectHostWorker(fixture: E2EFixture, board: string) {
   await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter']);
   await fixture.waitForCapture(
-    (screen) => screen.includes('/ worker') && screen.includes('1 of 2 agents'),
+    (screen) => /\/[ \t]+worker/.test(screen) && screen.includes('1 of 2 agents'),
     board
   );
   fixture.tmux(['send-keys', '-t', board, 'End']);
