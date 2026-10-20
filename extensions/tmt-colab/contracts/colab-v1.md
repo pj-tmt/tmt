@@ -4851,7 +4851,7 @@ Subscribes, touches the active page, stores a record or sends a notification.
 
 The JSON result is exactly one of:
 
-- `{pageId, state:"ready", fingerprint, summary, readings}`. `fingerprint` is the
+- `{pageId, state:"ready", fingerprint, summary, readings, needs, latest?}`. `fingerprint` is the
   lowercase SHA-256 of the existing cache fingerprint's UTF-8 bytes, not a signature
   or admission token. `summary` has the discovery summary shape. `readings` is the
   complete ordered list of admitted, uniquely anchored reading descriptors from
@@ -4862,6 +4862,16 @@ The JSON result is exactly one of:
   page; labels or agent prose never count as a read. Pending reading IDs must
   agree with the shared pending-target projection, including cross-kind ID
   deduplication. These descriptor links only open unread readings; they never mark read.
+  `needs` names the pending items the count includes, ordered review, question, reading,
+  proposal and by page order within a kind, at most 20 (the count stays `summary.needsYou`):
+  `{kind:"review"|"question"|"reading"|"proposal", id, title, agent?, why?}`. `id` is the
+  pending-target ID (a question's is its group's); `title` is 1–200 code points and `agent` at
+  most 64; `why` appears on a reading only. A pending item the page no longer lists is left out.
+  `latest`, absent when the page has no live comment, is `{who?, atMs, text}`: the newest
+  non-deleted comment by its device clock, excluding the records the page controls write
+  (answers, confirmations, reads), with whitespace folded to single spaces and at most 160 code
+  points; `who` is the device label it was written under, display-only and never proof of
+  authorship, and is absent when that label is empty once made inert. `needs` and `latest` come from the same fold and fingerprint as the rest.
 - `{pageId, state:"pending"}` when no fresh cached fold is available and it has
   not failed at the current fingerprint. The existing bounded summary refresher
   may schedule it; the request itself never waits for a decoder or starts another
@@ -4879,9 +4889,9 @@ or deleted page is denied. Malformed requests use existing `INVALID`; owner-cont
 refusals retain `DENIED`/`EXPIRED`, and failed store admission retains the existing
 error mapping. There is no partial success or truncated descriptor list.
 
-Each UTF-8 JSON reply is at most 128 KiB, with at most 50 descriptors and no
-pagination. Replies contain only these allowlisted descriptors, never passage HTML,
-discussion bodies or certificate bytes. The browser validates exact keys, byte/count/text bounds, UUID
+Each UTF-8 JSON reply is at most 192 KiB, with at most 50 descriptors, 20 named passages and no
+pagination. Replies contain only these allowlisted descriptors and the one bounded `latest`
+excerpt, never passage HTML, other discussion bodies or certificate bytes. The browser validates exact keys, byte/count/text bounds, UUID
 uniqueness and states before rendering any descriptor as inert text. A malformed,
 failed or stale result remains unknown, never an empty complete list. Discovery
 keeps its unchanged 1 MiB and 1,000-page bounds.

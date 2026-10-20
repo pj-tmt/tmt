@@ -39,6 +39,7 @@ pub mod socket;
 pub mod store;
 pub mod summary;
 pub mod summary_lines;
+pub mod summary_passages;
 mod summary_pending;
 pub mod summary_readings;
 pub mod sync;

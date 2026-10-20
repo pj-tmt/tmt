@@ -5901,6 +5901,15 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     let first = settled();
     assert_eq!(first["summary"]["needsYou"], 2);
     assert_eq!(
+        first["needs"],
+        json!([
+            {"kind":"reading","id":"20000000-0000-4000-8000-000000000001","title":"First passage","agent":"Agent 1","why":"Before deciding"},
+            {"kind":"reading","id":"20000000-0000-4000-8000-000000000002","title":"Second passage","agent":"Agent 2","why":"For context"}
+        ]),
+        "the pending passages, in page order, from the same fold as the count"
+    );
+    assert!(first.get("latest").is_none(), "no comment, no excerpt");
+    assert_eq!(
         first["readings"],
         json!([
             {"id":"20000000-0000-4000-8000-000000000001","title":"First passage","agent":"Agent 1","why":"Before deciding","state":"unread"},
@@ -5953,6 +5962,11 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     assert_ne!(first["fingerprint"], second["fingerprint"]);
     assert_eq!(second["summary"]["needsYou"], 1);
     assert_eq!(second["readings"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        second["needs"].as_array().unwrap().len(),
+        1,
+        "the passages follow the new fingerprint with the count"
+    );
     let catalog: Value =
         serde_json::from_slice(&registration.pages(Some(&context)).unwrap()).unwrap();
     assert_eq!(catalog["pages"][0]["summary"], second["summary"]);
@@ -5965,6 +5979,11 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     let largest = settled();
     assert_eq!(largest["summary"]["needsYou"], 50);
     assert_eq!(largest["readings"].as_array().unwrap().len(), 50);
+    assert_eq!(
+        largest["needs"].as_array().unwrap().len(),
+        tmt_colab::limits::NEEDS_PASSAGES,
+        "the first twenty by rank; the count stays whole"
+    );
     assert!(
         serde_json::to_vec(&largest).unwrap().len() <= tmt_colab::limits::SUMMARY_DETAILS_BYTES
     );
