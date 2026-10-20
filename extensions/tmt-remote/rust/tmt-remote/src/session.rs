@@ -257,7 +257,7 @@ impl DoorSessions {
                         &control.message,
                         &json!({"error":{"code":"REMOTE_SESSION_LIMIT",
                             "message":"Device session limit reached; close another page or change the session limit.",
-                            "limit":limit,"settingsUrl":format!("{}/settings", self.door_origin)}}),
+                            "limit":limit,"settingsUrl":format!("{}/remote/settings", self.door_origin)}}),
                         now,
                     ).ok();
                 };

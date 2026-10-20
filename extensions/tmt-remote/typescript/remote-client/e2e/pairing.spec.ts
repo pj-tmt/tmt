@@ -855,7 +855,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   const code = link.split('#')[1]!;
   expect(new URL(link).pathname).toBe('/remote/pair');
   expect(code).toMatch(/^[A-Z2-7]{26}$/);
-  expect(link.length).toBeLessThanOrEqual(59);
+  expect(link).toBe(`${origin}/remote/pair#${code}`);
   const context = await browser.newContext();
   const requested: string[] = [];
   context.on('request', (request) => requested.push(request.url()));
