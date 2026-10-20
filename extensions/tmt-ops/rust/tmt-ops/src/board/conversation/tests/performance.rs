@@ -467,3 +467,310 @@ fn workspace_ansi_phase_timing() {
         "scope":"event/paint/diff+encoding walltime; process CPU requires external resource measurement; no PTY or terminal emulator latency", "reports":reports});
     std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }
+
+/// 100 wheel steps up over the conversation pane: event and draw time, and the
+/// cells that changed outside the scrolled region or in the input and footer
+/// rows (Investigation of #3986).
+fn scroll_samples(label: &str, app: &mut App) {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+    for _ in 0..5 {
+        measure(app, &mut terminal, |_, _| {});
+    }
+    let area = app
+        .conversation
+        .borrow()
+        .response_area
+        .expect("a painted response area");
+    let input = app.input_band.get();
+    app.scroll_pane(Pane::Replies, Step::Bottom);
+    measure(app, &mut terminal, |_, _| {});
+    let mut steady: Vec<f64> = (0..100)
+        .map(|_| {
+            let start = Instant::now();
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(app, frame.area());
+                    crate::board::view::render(frame, app);
+                })
+                .unwrap();
+            start.elapsed().as_secs_f64() * 1e6
+        })
+        .collect();
+    steady.sort_by(f64::total_cmp);
+    eprintln!("steady {label} draw_us p50={:.0}", steady[50]);
+    let (mut event_us, mut draw_us, mut outside, mut chrome) = (vec![], vec![], vec![], vec![]);
+    for _ in 0..100 {
+        let previous = terminal.backend().buffer().clone();
+        let wheel = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: area.x + area.width / 2,
+            row: area.y + area.height / 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        let start = Instant::now();
+        app.mouse(wheel, Instant::now());
+        event_us.push(start.elapsed().as_secs_f64() * 1e6);
+        let start = Instant::now();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(app, frame.area());
+                crate::board::view::render(frame, app);
+            })
+            .unwrap();
+        draw_us.push(start.elapsed().as_secs_f64() * 1e6);
+        let diff = previous.diff(terminal.backend().buffer());
+        outside.push(
+            diff.iter()
+                .filter(|(x, y, _)| !area.contains((*x, *y).into()))
+                .count(),
+        );
+        chrome.push(
+            diff.iter()
+                .filter(|(x, y, _)| {
+                    input.is_some_and(|band| band.contains((*x, *y).into())) || *y == 49
+                })
+                .count(),
+        );
+    }
+    let pf = |mut v: Vec<f64>, q: f64| {
+        v.sort_by(f64::total_cmp);
+        v[((v.len() - 1) as f64 * q).round() as usize]
+    };
+    let pu = |mut v: Vec<usize>, q: f64| {
+        v.sort_unstable();
+        v[((v.len() - 1) as f64 * q).round() as usize]
+    };
+    eprintln!(
+        "scroll {label} area={}x{} event_us p50={:.0} p95={:.0} draw_us p50={:.0} p95={:.0} cells_outside_area max={} input_or_footer_cells max={} offset={}",
+        area.width,
+        area.height,
+        pf(event_us.clone(), 0.5),
+        pf(event_us, 0.95),
+        pf(draw_us.clone(), 0.5),
+        pf(draw_us, 0.95),
+        pu(outside, 1.0),
+        pu(chrome, 1.0),
+        app.scrolls.offset(Pane::Replies)
+    );
+}
+
+#[test]
+#[ignore = "local release-mode timing evidence; no CI threshold"]
+fn conversation_scroll_cost() {
+    if cfg!(debug_assertions) {
+        panic!("run this probe with --release");
+    }
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for lines in [200usize, 2_000, 20_000] {
+            let (mut app, ..) = populated_conversation(150);
+            app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", lines));
+            scroll_samples(&format!("response-lines={lines}"), &mut app);
+        }
+        for turns in [200usize, 2_000] {
+            let (mut app, member, _) = populated_conversation(150);
+            for index in 3..turns {
+                let text = format!("Outgoing turn {index}: retained exact message");
+                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                app.paste(&text);
+                let app::Effect::Act(request) =
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                else {
+                    panic!("probe must submit a real composer turn");
+                };
+                let ticket = app.outgoing_ticket(&request).unwrap();
+                app.finished_send(crate::board::conversation::outgoing::Completed {
+                    ticket: Some(ticket),
+                    outcome: Ok(crate::send::Accepted {
+                        request: format!("req_88888888-8888-4888-8888-{index:012}"),
+                        disposition: crate::send::Disposition::Queued,
+                    }),
+                    what: "Message".into(),
+                    to: member.clone(),
+                });
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            }
+            app.notice = None;
+            scroll_samples(&format!("outgoing-turns={turns}"), &mut app);
+        }
+    });
+}
+
+/// The exact bytes one wheel step sends, with the composer open (Investigation of #3986).
+#[test]
+#[ignore = "local evidence; prints decoded ANSI"]
+fn conversation_scroll_bytes() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let (mut app, _member, _target) = populated_conversation(150);
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", 2_000));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.input.is_some(), "composer open");
+        let sink = AnsiSink::default();
+        let mut terminal = Terminal::with_options(
+            ratatui::backend::CrosstermBackend::new(sink.clone()),
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(Rect::new(0, 0, 160, 50)),
+            },
+        )
+        .unwrap();
+        let draw = |app: &mut App, terminal: &mut Terminal<_>| {
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(app, frame.area());
+                    crate::board::view::render(frame, app);
+                })
+                .unwrap();
+        };
+        for _ in 0..3 {
+            draw(&mut app, &mut terminal);
+        }
+        let area = app.conversation.borrow().response_area.expect("area");
+        for step in 0..3 {
+            sink.0.borrow_mut().clear();
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::ScrollUp,
+                    column: area.x + area.width / 2,
+                    row: area.y + area.height / 2,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now(),
+            );
+            draw(&mut app, &mut terminal);
+            let bytes = sink.0.borrow().clone();
+            let text = String::from_utf8_lossy(&bytes);
+            let cursor: Vec<_> = text
+                .match_indices("\u{1b}[?25")
+                .map(|(i, _)| text[i..i + 6].replace('\u{1b}', "ESC"))
+                .collect();
+            let moves = text.matches("\u{1b}[").filter(|_| true).count();
+            // Rows touched by the cursor-position sequences ESC[<row>;<col>H.
+            let mut rows = std::collections::BTreeSet::new();
+            let mut rest = &text[..];
+            while let Some(at) = rest.find("\u{1b}[") {
+                rest = &rest[at + 2..];
+                if let Some(end) = rest.find('H') {
+                    if let Some((row, _)) = rest[..end].split_once(';') {
+                        if let Ok(row) = row.parse::<u16>() {
+                            rows.insert(row);
+                        }
+                    }
+                }
+            }
+            eprintln!(
+                "area={area:?} step {step}: bytes={} csi={moves} cursor_toggles={cursor:?} rows_addressed={}..{} count={} input_band={:?}",
+                bytes.len(),
+                rows.first().unwrap_or(&0),
+                rows.last().unwrap_or(&0),
+                rows.len(),
+                app.input_band.get()
+            );
+        }
+    });
+}
+
+/// Where a steady frame's history-dependent time goes (Investigation of #3986).
+#[test]
+#[ignore = "local release-mode timing evidence; no CI threshold"]
+fn conversation_frame_phases() {
+    if cfg!(debug_assertions) {
+        panic!("run this probe with --release");
+    }
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for lines in [200usize, 2_000, 20_000] {
+            let (mut app, ..) = populated_conversation(150);
+            app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", lines));
+            let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+            for _ in 0..5 {
+                measure(&mut app, &mut terminal, |_, _| {});
+            }
+            let target = app.conversation_target().expect("a conversation target");
+            let time = |what: &str, mut run: Box<dyn FnMut() + '_>| {
+                let mut us: Vec<f64> = (0..200)
+                    .map(|_| {
+                        let start = Instant::now();
+                        run();
+                        start.elapsed().as_secs_f64() * 1e6
+                    })
+                    .collect();
+                us.sort_by(f64::total_cmp);
+                eprintln!("phase lines={lines} {what} p50_us={:.0}", us[100]);
+            };
+            time(
+                "app.detail (reply+finals+sent per frame)",
+                Box::new(|| {
+                    std::hint::black_box(app.detail(&Target::Row(target.clone())));
+                }),
+            );
+            let identity = app.conversation.borrow().active.clone().unwrap();
+            let row = app.target_row(&target).unwrap();
+            time(
+                "Session::observe_context",
+                Box::new(|| {
+                    let mut state = app.conversation.borrow_mut();
+                    let session = state.sessions.get_mut(&identity).unwrap();
+                    std::hint::black_box(session.observe_context(&app, &target, &row));
+                }),
+            );
+            time(
+                "Session::prepare (cache hit)",
+                Box::new(|| {
+                    let mut state = app.conversation.borrow_mut();
+                    let session = state.sessions.get_mut(&identity).unwrap();
+                    std::hint::black_box(session.prepare(80, app.look(), &app.references));
+                }),
+            );
+            time(
+                "scroll_pane Step::Lines(-3) (anchor reselect)",
+                Box::new(|| app.scroll_pane(Pane::Replies, Step::Lines(-3))),
+            );
+            let _ = identity;
+        }
+    });
+}
+
+/// Keeps drawing steady and scrolling frames for an external sampler (Investigation of #3986).
+#[test]
+#[ignore = "local profiling aid"]
+fn conversation_profile_loop() {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let (mut app, ..) = populated_conversation(150);
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", 20_000));
+        let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        for _ in 0..5 {
+            measure(&mut app, &mut terminal, |_, _| {});
+        }
+        let area = app.conversation.borrow().response_area.unwrap();
+        let scroll = std::env::var_os("TMT_PROFILE_SCROLL").is_some();
+        let end = Instant::now() + Duration::from_secs(12);
+        let mut frames = 0u64;
+        while Instant::now() < end {
+            if scroll {
+                let kind = if frames / 500 % 2 == 0 {
+                    MouseEventKind::ScrollUp
+                } else {
+                    MouseEventKind::ScrollDown
+                };
+                app.mouse(
+                    MouseEvent {
+                        kind,
+                        column: area.x + 3,
+                        row: area.y + 3,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    Instant::now(),
+                );
+            }
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(&mut app, frame.area());
+                    crate::board::view::render(frame, &app);
+                })
+                .unwrap();
+            frames += 1;
+        }
+        eprintln!("profile frames={frames} scroll={scroll}");
+    });
+}

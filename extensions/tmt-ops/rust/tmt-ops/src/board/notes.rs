@@ -134,6 +134,38 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+/// Notebook text with the byte start of each `\n`-separated line, built once
+/// where the text is built so a cursor never rescans it (a scroll step costs
+/// the length of one line, not of the history).
+#[derive(Default)]
+pub(super) struct IndexedText {
+    text: String,
+    starts: Vec<usize>,
+}
+
+impl IndexedText {
+    pub fn new(text: String) -> Self {
+        let starts = std::iter::once(0)
+            .chain(text.match_indices('\n').map(|(at, _)| at + 1))
+            .collect();
+        Self { text, starts }
+    }
+
+    /// `split('\n').count()`: an empty text has one empty line.
+    pub fn line_count(&self) -> usize {
+        self.starts.len()
+    }
+
+    pub fn line(&self, index: usize) -> Option<&str> {
+        let start = *self.starts.get(index)?;
+        let end = self
+            .starts
+            .get(index + 1)
+            .map_or(self.text.len(), |next| next - 1);
+        Some(&self.text[start..end])
+    }
+}
+
 /// A response source anchor survives wrapping and refreshed content; Scrolls owns the viewport.
 #[derive(Default)]
 pub(super) struct NotesCursor {
@@ -143,25 +175,22 @@ pub(super) struct NotesCursor {
 }
 
 impl NotesCursor {
-    pub fn reconcile(&mut self, text: &str) {
-        let lines: Vec<_> = text.split('\n').collect();
+    pub fn reconcile(&mut self, text: &IndexedText) {
         if let Some(anchor) = &self.anchor {
-            self.source = lines
-                .iter()
-                .enumerate()
-                .filter(|(_, line)| **line == anchor)
-                .min_by_key(|(index, _)| (index.abs_diff(self.source), std::cmp::Reverse(*index)))
+            self.source = (0..text.line_count())
+                .filter(|index| text.line(*index) == Some(anchor.as_str()))
+                .min_by_key(|index| (index.abs_diff(self.source), std::cmp::Reverse(*index)))
                 .map_or(
-                    self.source.min(lines.len().saturating_sub(1)),
-                    |(index, _)| index,
+                    self.source.min(text.line_count().saturating_sub(1)),
+                    |index| index,
                 );
         }
         self.select(text, self.source);
     }
 
-    pub fn select(&mut self, text: &str, source: usize) {
-        self.source = source.min(text.split('\n').count().saturating_sub(1));
-        self.anchor = text.split('\n').nth(self.source).map(str::to_owned);
+    pub fn select(&mut self, text: &IndexedText, source: usize) {
+        self.source = source.min(text.line_count().saturating_sub(1));
+        self.anchor = text.line(self.source).map(str::to_owned);
     }
 
     /// A continuation offset keeps click placement and paging within long lines.
@@ -174,15 +203,21 @@ impl NotesCursor {
         Some(first + self.part.min(count.saturating_sub(1)))
     }
 
-    pub fn select_visual(&mut self, text: &str, sources: &[usize], visual: usize) {
-        if let Some(source) = sources.get(visual) {
-            self.select(text, *source);
-            self.part = visual
-                - sources
-                    .iter()
-                    .position(|line| line == source)
-                    .unwrap_or(visual);
+    /// Cost is the wrapped continuation of one source line: the rows of a source
+    /// are contiguous (`visual` relies on it), so its first row is found by
+    /// walking back from `visual`, and an unchanged source keeps its anchor.
+    pub fn select_visual(&mut self, text: &IndexedText, sources: &[usize], visual: usize) {
+        let Some(&source) = sources.get(visual) else {
+            return;
+        };
+        let first = sources[..visual]
+            .iter()
+            .rposition(|line| *line != source)
+            .map_or(0, |before| before + 1);
+        if source != self.source || self.anchor.is_none() {
+            self.select(text, source);
         }
+        self.part = visual - first;
     }
 }
 
@@ -200,7 +235,7 @@ mod tests {
 
     #[test]
     fn wrapped_continuation_survives_resize_and_content_insertion() {
-        let text = "long notebook line\nnext";
+        let text = &IndexedText::new("long notebook line\nnext".into());
         let sources = [0, 0, 0, 0, 0, 1];
         let mut cursor = NotesCursor::default();
         cursor.select_visual(text, &sources, 2);
@@ -213,7 +248,9 @@ mod tests {
             Some(1),
             "resize clamps the continuation"
         );
-        cursor.reconcile("inserted\nlong notebook line\nnext");
+        cursor.reconcile(&IndexedText::new(
+            "inserted\nlong notebook line\nnext".into(),
+        ));
         assert_eq!(cursor.source, 1);
         assert_eq!(cursor.visual(&[0, 1, 1, 1, 1, 1, 2]), Some(5));
     }
@@ -221,18 +258,50 @@ mod tests {
     #[test]
     fn cursor_follows_content_and_clamps_deleted_lines() {
         let mut cursor = NotesCursor::default();
-        cursor.select("first\nselected\nlast", 1);
-        cursor.reconcile("new\nfirst\nselected\nlast");
+        cursor.select(&IndexedText::new("first\nselected\nlast".into()), 1);
+        cursor.reconcile(&IndexedText::new("new\nfirst\nselected\nlast".into()));
         assert_eq!(cursor.source, 2);
-        cursor.reconcile("only");
+        cursor.reconcile(&IndexedText::new("only".into()));
         assert_eq!(cursor.source, 0);
+    }
+
+    /// The index and the walk-back must answer exactly what a rescan answered.
+    #[test]
+    fn the_index_and_the_walked_back_part_equal_a_full_rescan() {
+        for text in ["", "a", "a\n", "\n\n", "one\ntwo\n\nthree", "x\ny\n"] {
+            let indexed = IndexedText::new(text.into());
+            let lines: Vec<_> = text.split('\n').collect();
+            assert_eq!(indexed.line_count(), lines.len(), "{text:?}");
+            for (index, line) in lines.iter().enumerate() {
+                assert_eq!(indexed.line(index), Some(*line), "{text:?} line {index}");
+            }
+            assert_eq!(indexed.line(lines.len()), None);
+        }
+        // Wrapped rows: every source repeated 1..=3 times, in order.
+        let sources: Vec<usize> = (0..40)
+            .flat_map(|source| vec![source; source % 3 + 1])
+            .collect();
+        let text = IndexedText::new(
+            (0..40)
+                .map(|n| format!("line {n}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let mut cursor = NotesCursor::default();
+        for visual in (0..sources.len()).chain((0..sources.len()).rev()) {
+            cursor.select_visual(&text, &sources, visual);
+            let first = sources.iter().position(|s| *s == sources[visual]).unwrap();
+            assert_eq!(cursor.source, sources[visual]);
+            assert_eq!(cursor.visual(&sources), Some(visual), "visual {visual}");
+            assert_eq!(cursor.part, visual - first);
+        }
     }
 
     #[test]
     fn duplicate_lines_keep_the_nearest_anchor() {
         let mut cursor = NotesCursor::default();
-        cursor.select("repeat\nother\nrepeat", 2);
-        cursor.reconcile("new\nrepeat\nother\nrepeat");
+        cursor.select(&IndexedText::new("repeat\nother\nrepeat".into()), 2);
+        cursor.reconcile(&IndexedText::new("new\nrepeat\nother\nrepeat".into()));
         assert_eq!(cursor.source, 3);
     }
 

@@ -243,6 +243,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         return;
     }
     let mapped = &session.rendered.as_ref().unwrap().mapped;
+    let previous = app.scrolls.offset(Pane::Replies);
     if session.follow {
         app.scrolls.restore([(Pane::Replies, mapped.lines.len())]);
     } else if switched || rebuilt {
@@ -332,10 +333,14 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     for index in offset..offset.saturating_add(shown).min(mapped.lines.len()) {
         session.admit_feedback_clock(app, mapped.sources[index], &mapped.lines[index]);
     }
-    let rendered = session.rendered.as_ref().unwrap();
-    session
-        .anchor
-        .select_visual(&rendered.anchor_text, &rendered.anchor_sources, offset);
+    // The anchor follows the viewport only when something moved it, as in the
+    // legacy reader: a steady frame never touches the cursor.
+    if switched || rebuilt || previous != offset {
+        let rendered = session.rendered.as_ref().unwrap();
+        session
+            .anchor
+            .select_visual(&rendered.anchor_text, &rendered.anchor_sources, offset);
+    }
     let mut y = body.bottom();
     if question && (session.outgoing.is_empty() || session.tail.is_some()) && footer_rows > 0 {
         strip::paint_left(
