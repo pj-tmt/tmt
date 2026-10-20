@@ -231,13 +231,10 @@ fn save_default(value: &str) -> Result<String, core::Error> {
     let setter = core.setter()?;
     let path = core.settings_path()?;
     settings::set_default(&path, &mode, setter.as_deref(), write_time()?)?;
-    let mut message = format!(
-        "Saved the default digest: {} (global default)",
-        shown(&mode)
-    );
+    let mut message = format!("Saved the global digest default: {}", shown(&mode));
     if setter.is_none() {
         message.push_str(
-            ". No caller identity was found, so no setter is recorded; run it from the pane of the person who should reach members directly",
+            ". No caller identity was found, so no one is recorded as the setter and only --urgent passes the hold. Run it from the pane of the person who should reach members directly.",
         );
     }
     Ok(message)

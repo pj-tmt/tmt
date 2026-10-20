@@ -250,7 +250,10 @@ fn the_global_default_records_who_set_it_and_a_missing_caller_is_said_not_hidden
     let result = run(&named, &["global", "auto"]);
     assert!(result.status.success(), "{:?}", result.stderr);
     let message = String::from_utf8(result.stdout).unwrap();
-    assert!(message.contains("global default"), "{message}");
+    assert!(
+        message.contains("Saved the global digest default: auto"),
+        "{message}"
+    );
     assert!(!message.contains("No caller identity"), "{message}");
     let document = fs::read_to_string(&path)
         .unwrap()
