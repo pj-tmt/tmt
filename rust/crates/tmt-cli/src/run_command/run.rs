@@ -718,9 +718,18 @@ pub(super) fn run_bound(
             ),
             Ok(Finished::AlreadyEnded) => {}
             Ok(Finished::Disconnected) => {}
-            Ok(Finished::Replaced) | Err(_) => diagnostic(
-                "command exited, but its final state could not be stored; no command was retried.",
+            Ok(Finished::Replaced) => diagnostic(
+                "command exited, but its final state was not stored because this launch no longer owns the identity's binding; no command was retried.",
             ),
+            // A newer tmt migrated the database while this older binary ran,
+            // so this binary must not write it; the binding is unchanged.
+            Err(error) if error.is_newer_schema() => super::warn(
+                "command exited, but a newer tmt upgraded identity storage while it ran, so this exit was not recorded; no command was retried.",
+                Some("to continue this pane's remembered session, use the current tmt: tmt resume"),
+            ),
+            Err(error) => diagnostic(&format!(
+                "command exited, but its final state could not be stored: {error}; no command was retried."
+            )),
         }
         crate::pane_badge::refresh(
             paths,
@@ -831,6 +840,15 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core("tmt run {}", &[""], &[]),
+    crate::cli_style_tests::HintSpec::core(
+        "to continue this pane's remembered session, use the current tmt: tmt resume",
+        &[""],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::skipped(
+        "command exited, but a newer tmt upgraded identity storage while it ran, so this exit was not recorded; no command was retried.",
+        "Executable reference in prose, not a command suggestion.",
+    ),
     crate::cli_style_tests::HintSpec::core(
         "tmt: {} name: {name}; name this agent with tmt this <name>",
         &[""],
