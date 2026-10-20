@@ -59,7 +59,11 @@ headers; keyboard navigation skips disabled entries, Escape returns focus, and s
 returns focus before opening a portal. Open header menus sit above the update row and
 selection controls. Local choice/action menus, native actions, Ask previews, reader
 information panels and management dialogs use the shared one-pixel edge roles
-without shadows; keyboard focus keeps its visible outline.
+without shadows; keyboard focus keeps its visible outline. Every panel that floats over
+page content has that one-pixel `--tmt-ui-surface-rule` edge on all four sides, once: the
+shared drawers and dialogs from the leaf, and the annotation window and thread popover
+(`.annotation-popover`) from `style.css`. It knowingly sits below the 3:1 boundary floor of #3959
+(about 1.5:1 on `#fafafa`): a deliberate exception for floating panels (Ben, 2026-10-20), not to be reopened.
 Explicit theme choices are radio menu items.
 Owner page and space-home headers use one shared-height row that starts as Remote's does: the TMT
 mark and the `Colab` wordmark, then `/`, the crumbs and title, then muted original author. The
