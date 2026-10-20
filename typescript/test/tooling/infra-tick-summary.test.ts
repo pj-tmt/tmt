@@ -692,6 +692,92 @@ function timedFailureFixture(workers: number, attempts = 10, logCosts = [15_000,
 }
 
 describe('bounded failed-worker diagnostics', () => {
+  it('ranks busy-window actions before grouped PR statements without changing JSON evidence', () => {
+    const api = fixture({
+      open: Array.from({ length: 29 }, (_, i) => ({ id: 2000 + i, number: 2000 + i })),
+      files: [{ filename: '.github/ci.yml' }],
+      runs: [run(1, { conclusion: 'failure' }), run(2, { conclusion: 'failure' })],
+      jobs: [worker(11)],
+      log: 'test busy_window_failure ... FAILED\n',
+      releases: [
+        {
+          id: 1,
+          tag_name: 'v5.0.0-alpha.1',
+          draft: true,
+          assets: [{ name: 'verification-failed.json' }],
+        },
+      ],
+      queue: {
+        totalCount: 1,
+        pageInfo: { hasNextPage: false },
+        nodes: [
+          {
+            position: 1,
+            state: 'AWAITING_CHECKS',
+            enqueuedAt: options.since,
+            pullRequest: {
+              number: 2000,
+              headRefOid: SHA,
+              url: 'https://github.com/pj-tmt/tmt/pull/2000',
+            },
+          },
+        ],
+      },
+    });
+    const report = collectInfraTick(api, {
+      ...options,
+      local: {
+        ...options.local,
+        guides: {
+          'ARCHITECTURE.md': 'line\n'.repeat(630),
+          'DEVELOPMENT.md': 'line\n'.repeat(337),
+        },
+      },
+    });
+    const json = JSON.stringify(report);
+    const printed = renderInfraTick(report)
+      .split('\n')
+      .filter((line) => line.startsWith('- '));
+    expect(printed).toHaveLength(8);
+    expect(printed[0]).toContain('failed draft at initial baseline');
+    expect(printed.slice(1, 4).join('\n')).toContain('failed run at initial baseline');
+    expect(printed[3]).toContain('test failed across distinct PR/merge-group contexts');
+    expect(printed[4]).toContain('guide near or over budget');
+    expect(printed[4]).toContain('ARCHITECTURE.md');
+    expect(printed[5]).toContain('DEVELOPMENT.md');
+    expect(printed[6]).toContain('merge queue entry older than 30 minutes');
+    expect(printed[7]).toContain('"count":29');
+    for (const pr of [2000, 2001, 2002]) expect(printed[7]).toContain(`"pr":${pr}`);
+    expect(printed[7]).not.toContain('"pr":2003');
+    expect(printed[7]).toContain('"remainingPrs":26');
+    expect(JSON.stringify(report)).toBe(json);
+    const retained = JSON.parse(json).anomalies.filter((item: { kind: string }) =>
+      item.kind.startsWith('missing head-named')
+    );
+    expect(retained).toHaveLength(29);
+    expect(retained.at(-1)).toMatchObject({ pr: 2028, head: SHA, lead: 'tmt-lead' });
+  });
+  it('keeps the printed cap and counts all statements when their group is omitted', () => {
+    const report = collectInfraTick(fixture(), options);
+    report.anomalies = [
+      ...Array.from({ length: 29 }, (_, pr) => ({
+        kind: 'missing head-named lead statement; judgement required',
+        pr,
+        head: SHA,
+        lead: 'tmt-lead',
+      })),
+      ...Array.from({ length: 21 }, (_, run) => ({ kind: 'newly observed failed run', run })),
+      { kind: 'published release post-publication check failed', tag: 'tmt-digest-v0.1.0-alpha.1' },
+    ];
+    const lines = renderInfraTick(report)
+      .split('\n')
+      .filter((line) => line.startsWith('- '));
+    expect(lines).toHaveLength(21);
+    expect(lines[0]).toContain('published release post-publication check failed');
+    expect(lines[19]).toContain('"run":18');
+    expect(lines[20]).toContain('31 more anomalies');
+    expect(report.anomalies).toHaveLength(51);
+  });
   it('keeps recurrence and guide warnings in the first twenty anomaly lines without omission anomalies', () => {
     const f = timedFailureFixture(30);
     try {
