@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { entryMount, entryTarget, publicEntry } from '../src/entry.js';
+import { entryHash, entryMount, entryOpenTarget, entryTarget, publicEntry } from '../src/entry.js';
 import { deriveSpaceId, encodeBinary } from '@tmt/colab-client';
 import { readerUrl, parseReaderFragment } from '../src/reader-link.js';
 afterEach(() => vi.unstubAllGlobals());
@@ -66,4 +66,50 @@ it('allows one canonical display target at startup and during history navigation
     `#read=${reading}&read=${reading}`,
   ])
     expect(() => entryTarget(hash)).toThrow();
+});
+
+it('opening a public link ignores a fragment that names no display target and never an owner key', () => {
+  const thread = '11111111-1111-4111-8111-111111111111';
+  const reading = '22222222-2222-4222-8222-222222222222';
+  expect(entryOpenTarget('')).toBeNull();
+  expect(entryOpenTarget(`#t=${thread}`)).toEqual({ thread });
+  expect(entryOpenTarget(`#read=${reading}`)).toEqual({ read: reading });
+  expect(entryOpenTarget('#anchor=decisions')).toEqual({ anchor: 'decisions' });
+  // A plain #id is the web's own form; the strict parser still takes only the canonical ones.
+  expect(entryOpenTarget('#decisions')).toEqual({ anchor: 'decisions' });
+  expect(entryOpenTarget('#section_1.2:a')).toEqual({ anchor: 'section_1.2:a' });
+  expect(entryOpenTarget('#seed')).toEqual({ anchor: 'seed' });
+  expect(() => entryTarget('#decisions')).toThrow();
+  for (const hash of [
+    '#%%%garbage',
+    '#a=1&b=2',
+    '#-leading',
+    `#${'a'.repeat(129)}`,
+    '#t=',
+    '#t=bad',
+    '#read=bad',
+    '#anchor=',
+    `#t=${thread}&t=${thread}`,
+    `#t=${thread}&read=${reading}`,
+    `#read=${reading}&read=${reading}`,
+  ])
+    expect(entryOpenTarget(hash)).toBeNull();
+  // The owner's own location and a reader's capability are never taken from a public link.
+  for (const hash of [
+    '#space=foreign',
+    '#seed=secret',
+    '#path=%2Fshort%2F12345678',
+    `#t=${thread}&path=other`,
+    '#v=1&space=a&seed=b',
+  ])
+    expect(() => entryOpenTarget(hash)).toThrow();
+});
+
+it('the location keeps the canonical fragment of its display target only', () => {
+  const thread = '11111111-1111-4111-8111-111111111111';
+  expect(entryHash(null)).toBe('');
+  expect(entryHash({ thread })).toBe(`#t=${thread}`);
+  expect(entryHash({ read: thread })).toBe(`#read=${thread}`);
+  expect(entryHash(entryOpenTarget('#decisions'))).toBe('#anchor=decisions');
+  expect(entryHash(entryOpenTarget('#a=1&b=2'))).toBe('');
 });

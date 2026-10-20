@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
+import { text } from '../src/strings.js';
 const fixture = '/test/short-links-browser.tsx';
 async function capture(page: Page, state: 'chooser' | 'deleted') {
   const directory = process.env.COLAB_SHORT_LINK_CAPTURE_DIR;
@@ -177,4 +178,46 @@ for (const collision of [false, true])
     await expect
       .poll(() => frame.locator('body').evaluate(() => CSS.highlights.has('colab-reading')))
       .toBe(true);
+  });
+/** A public link that names a page by a plain #id (the web's own form) scrolls to that element,
+ * says so when it is not there, and a fragment that names nothing never blocks the page (#4014). */
+for (const [name, fragment, element] of [
+  ['a plain #id', '#digest-matrix', true],
+  ['an #anchor= fragment', '#anchor=digest-matrix', true],
+  ['a plain #id that is not on the page', '#missing-id', false],
+] as const)
+  test(`${name} opens the page${element ? ' at that element' : ' with a note'}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.evaluate(
+      async ({ fixture, fragment }) =>
+        (await import(fixture)).mount('12345678', false, false, true, undefined, fragment),
+      { fixture, fragment },
+    );
+    const frame = page.frameLocator('#short-fixture iframe');
+    await expect(frame.getByRole('heading', { name: 'Original content' })).toBeVisible();
+    if (element) {
+      await expect(frame.locator('#digest-matrix')).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
+      await expect(page.getByText(text.anchorMissing, { exact: true })).toHaveCount(0);
+    } else {
+      await expect(page.getByText(text.anchorMissing, { exact: true })).toBeVisible();
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    }
+  });
+for (const fragment of ['#%%%garbage', '#a=1&b=2', '#t=bad', '#read=bad'])
+  test(`the fragment ${fragment} names nothing: the page opens at the top`, async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(
+      async ({ fixture, fragment }) =>
+        (await import(fixture)).mount('12345678', false, false, true, undefined, fragment),
+      { fixture, fragment },
+    );
+    await expect(
+      page.frameLocator('#short-fixture iframe').getByRole('heading', { name: 'Original content' }),
+    ).toBeVisible();
+    await expect(page.getByText(text.anchorMissing, { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });

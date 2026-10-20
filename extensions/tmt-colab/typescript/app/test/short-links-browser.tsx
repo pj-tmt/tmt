@@ -10,6 +10,8 @@ export function mount(
   deleted = false,
   publicPath = false,
   read?: string,
+  /** A raw public fragment, with a page that has an element named `digest-matrix` far down. */
+  fragment?: string,
 ) {
   root?.unmount();
   document.getElementById('short-fixture')?.remove();
@@ -29,7 +31,7 @@ export function mount(
     null,
     '',
     publicPath
-      ? `/p/${prefix}${read ? `#read=${read}` : ''}`
+      ? `/p/${prefix}${fragment ?? (read ? `#read=${read}` : '')}`
       : read
         ? `/#space=${space}&path=${encodeURIComponent(`/short/${prefix}`)}&read=${read}`
         : `/#/short/${prefix}`,
@@ -41,6 +43,9 @@ export function mount(
       sharing: 'private' as const,
       source:
         '<h1>Original content</h1>' +
+        (fragment === undefined
+          ? ''
+          : '<div style="height:3000px"></div><h2 id="digest-matrix">Digest matrix</h2><p>The matrix.</p><div style="height:1500px"></div>') +
         (read
           ? '<tmt-read data-id="10000000-0000-4000-8000-000000000401" data-agent="Agent 1" data-why="Read before deciding"><h2 data-title>Recommended passage</h2><p>The passage.</p></tmt-read>'
           : ''),
@@ -64,8 +69,15 @@ export function mount(
   const spaceHome = transport.spaceHome;
   transport.spaceHome = async () => ({ ...(await spaceHome()), pageIds });
   root = createRoot(host);
-  // The router starts with no catalog, so a public path resolves against the freshly loaded one.
+  // The router starts with no catalog, so a public path resolves against the freshly loaded one;
+  // a fragment case starts from the catalog the real boot hands it, so an anchor can ride.
   root.render(
-    <RouterProvider router={createAppRouter(transport, publicPath || read ? space : undefined)} />,
+    <RouterProvider
+      router={createAppRouter(
+        transport,
+        publicPath || read ? space : undefined,
+        fragment === undefined ? [] : pageIds,
+      )}
+    />,
   );
 }

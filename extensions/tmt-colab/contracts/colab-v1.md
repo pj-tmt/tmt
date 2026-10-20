@@ -3645,7 +3645,10 @@ in place, retaining the visible short URL. Mounted legacy entry canonicalizes on
 after verified discovery and carries its owner reading or anchor hint over. Internal mount and
 space pins remain separate from visible location; reload and history use short paths, with at
 most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or, on a full page
-route only, `#anchor=<shellAnchor>`.
+route only, `#anchor=<shellAnchor>`. A plain `#<shellAnchor>` names the same element, and the location then
+keeps it as `#anchor=<shellAnchor>`. A fragment that names no display target is ignored: the page
+opens at the top and the location drops the fragment. Only a fragment that carries `space`, `path`
+or `seed` refuses.
 Reader entry uses only existing public reader assets and never obtains owner authority.
 Public responses for active, absent, revoked and archived/deleted-associated IDs are
 identical apart from any echoed display ID; they disclose no title, page, space or author.

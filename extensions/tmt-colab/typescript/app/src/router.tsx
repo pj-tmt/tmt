@@ -4,7 +4,7 @@ import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryTarget, publicEntry } from './entry.js';
+import { entryOpenTarget, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -2317,7 +2317,7 @@ export function createAppRouter(
           let hint: PageHint | undefined;
           if (publicEntry()) {
             try {
-              const target = entryTarget();
+              const target = entryOpenTarget();
               const matches = knownPages.filter((row) => row.pageId.startsWith(prefix));
               path = !prefix
                 ? '/'

@@ -336,8 +336,8 @@ it('public entry refuses unexpected fragments and a mismatched existing pin with
   for (const hash of [
     '#seed=secret',
     '#space=wrong',
-    '#t=bad',
-    `#t=${metadata.pageId}&t=${metadata.pageId}`,
+    '#path=%2Fshort%2F12345678',
+    `#t=${metadata.pageId}&path=other`,
   ]) {
     await response([metadata]);
     vi.stubGlobal('location', { pathname: '/p/10000000', hash });
@@ -349,6 +349,33 @@ it('public entry refuses unexpected fragments and a mismatched existing pin with
   await expect(discover(mount)).rejects.toThrow();
   expect(vi.mocked(record).mock.calls.every((call) => Array.from(call).length === 1)).toBe(true);
   expect(replaceState).not.toHaveBeenCalled();
+});
+it('public entry opens on a plain #id or a fragment naming no display target, and keeps only the canonical fragment', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  const replaceState = vi.fn();
+  vi.stubGlobal('history', { state: null, replaceState });
+  for (const hash of ['#anchor=digest-matrix', `#t=${metadata.pageId}`, '']) {
+    await response([metadata]);
+    vi.stubGlobal('location', { pathname: '/p/10000000', search: '', hash });
+    await expect(discover(mount)).resolves.toBeDefined();
+  }
+  expect(replaceState).not.toHaveBeenCalled();
+  for (const [hash, kept] of [
+    ['#digest-matrix', '#anchor=digest-matrix'],
+    ['#%%%garbage', ''],
+    ['#a=1&b=2', ''],
+    ['#t=bad', ''],
+    ['#read=bad', ''],
+    [`#t=${metadata.pageId}&t=${metadata.pageId}`, ''],
+  ]) {
+    replaceState.mockClear();
+    await response([metadata]);
+    vi.stubGlobal('location', { pathname: '/p/10000000', search: '?x=1', hash });
+    await expect(discover(mount)).resolves.toBeDefined();
+    expect(replaceState).toHaveBeenCalledExactlyOnceWith(null, '', `/p/10000000?x=1${kept}`);
+  }
 });
 it('an authenticated legacy page entry canonicalizes to a catalog-derived short target', async () => {
   await response([metadata]);
