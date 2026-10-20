@@ -437,12 +437,18 @@ for (const width of [1440, 390])
         const block = group.locator('.question-compact-block');
         const rows = group.locator('.question-line');
         const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
-        // The block is Colab's layer over the author's page: the needs-you band surface in the
-        // active theme, whatever the page paints; what it holds adds no surface of its own.
+        // The block is Colab's layer over the author's page: the sheet in the active theme with a
+        // light rule, whatever the page paints; what it holds adds no surface of its own.
         await expect(block).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
+          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
+        await expect(block).toHaveCSS('outline-width', '1px');
+        await expect(block).toHaveCSS(
+          'outline-color',
+          theme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)',
+        );
+        await expect(block).toHaveCSS('border-top-width', '0px');
         for (const surface of [
           activeCard(page).locator('.question-controls'),
           group.locator('.question-group-footer'),

@@ -635,9 +635,6 @@ export function QuestionGroupCard({
               id,
               <div
                 className="question-compact-block"
-                data-expanded={
-                  (expanded && blockRows.some((row) => row.question.id === selected)) || undefined
-                }
                 role="group"
                 aria-label={group.title ?? blockRows[0].question.title}
               >
