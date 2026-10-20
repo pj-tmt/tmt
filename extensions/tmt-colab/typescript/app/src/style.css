@@ -725,7 +725,10 @@ body:has(.needs-you-header-menu) {
   width: min(440px, calc(100vw - 24px));
   overflow: visible;
   padding: 0;
-  border: 0;
+  /* A panel that floats over page content has the one-pixel rule edge every shared drawer and
+     dialog already has. Ben chose --tmt-ui-surface-rule over the darker edge role knowingly
+     (about 1.5:1, below the 3:1 floor of #3959): a deliberate exception for floating panels. */
+  border: 1px solid var(--tmt-ui-surface-rule);
   background: var(--tmt-ui-surface-annotation-panel);
   box-shadow: none;
 }

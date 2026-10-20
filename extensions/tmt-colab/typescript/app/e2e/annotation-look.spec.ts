@@ -13,6 +13,23 @@ async function run(page: Page, method: string, argument?: unknown) {
   );
 }
 const captures = captureDirectory();
+const rule = { light: 'rgb(208, 208, 208)', dark: 'rgb(48, 48, 48)' };
+/** The panel's own edge: 1px solid --tmt-ui-surface-rule on all four sides, once (no child repeats it). */
+async function expectRuleEdge(panel: Locator, theme: 'light' | 'dark') {
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    await expect(panel).toHaveCSS(`border-${side}-width`, '1px');
+    await expect(panel).toHaveCSS(`border-${side}-style`, 'solid');
+    await expect(panel).toHaveCSS(`border-${side}-color`, rule[theme]);
+  }
+  // Inner dividers are fine; a child must not repeat the edge on a side that touches the panel's own.
+  const children = panel.locator(':scope > *');
+  const count = await children.count();
+  for (const side of ['left', 'right'])
+    for (const child of await children.all())
+      await expect(child).toHaveCSS(`border-${side}-width`, '0px');
+  await expect(children.first()).toHaveCSS('border-top-width', '0px');
+  await expect(children.nth(count - 1)).toHaveCSS('border-bottom-width', '0px');
+}
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
     test(`annotation design matrix ${width} ${theme}`, async ({ page }) => {
@@ -62,6 +79,7 @@ for (const width of [1440, 390])
       await annotate.click();
       const window = page.getByTestId('annotation-window');
       await expect(window).toBeVisible();
+      await expectRuleEdge(page.locator('.annotation-popover'), theme);
       const editor = window.getByRole('combobox', { name: 'Message', exact: true });
       await editor.fill('Could @Atlas check this at 390px?');
       const creator = window.getByRole('button', { name: 'Send to @Atlas', exact: true });
@@ -84,6 +102,7 @@ for (const width of [1440, 390])
       await markers.filter({ hasText: /^1$/ }).click();
       const thread = page.getByTestId('comment-thread');
       await expect(thread).toBeVisible();
+      await expectRuleEdge(page.locator('.annotation-popover'), theme);
       await expect(thread.locator('.annotation-number')).toHaveText('1');
       const human = thread.locator('.conversation-turn[data-turn-role="user"]');
       const agent = thread.locator('.conversation-turn[data-turn-role="agent"]');
@@ -98,6 +117,8 @@ for (const width of [1440, 390])
       const comments = await pageAction(app, 'Comments');
       await comments.click();
       const panel = page.getByTestId('comments-panel');
+      // The Comments drawer floats too; the shared drawer already draws the same edge.
+      await expectRuleEdge(page.locator('.tmt-ui-drawer[open]'), theme);
       await expect(panel.locator('.annotation-row .annotation-number')).toHaveText([
         '1',
         '2',
