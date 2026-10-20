@@ -999,7 +999,7 @@ function Page() {
     request: requestPageLink,
     bar: pageLinkBar,
   } = usePageLinks({
-    base: publicEntry() ? entryMount().href : location.href,
+    base: () => (publicEntry() ? entryMount().href : location.href),
     space,
     inset: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
     navigate: (route, anchor) => {

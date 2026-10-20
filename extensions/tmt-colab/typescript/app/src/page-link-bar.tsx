@@ -13,7 +13,7 @@ interface PendingLink {
   target: PageLinkTarget;
 }
 interface LinkContext {
-  base: string;
+  base(): string;
   space?: string;
   navigate?(route: string, anchor?: string): void;
   inset(): number;
@@ -48,7 +48,7 @@ export function usePageLinks(context: LinkContext) {
       reset,
       request(request: PageLinkRequest, active: boolean) {
         if (held.current || used.current === request.renderId) return;
-        const target = classifyPageLink(request.href, latest.current.base, latest.current.space);
+        const target = classifyPageLink(request.href, latest.current.base(), latest.current.space);
         const value = { request, target };
         if (target.kind === 'internal' && active && latest.current.navigate) open(value);
         else {

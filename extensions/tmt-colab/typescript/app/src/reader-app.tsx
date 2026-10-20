@@ -58,7 +58,7 @@ export function ReaderApp({
     request: requestPageLink,
     bar: pageLinkBar,
   } = usePageLinks({
-    base: location.href,
+    base: () => location.href,
     inset: () => bar.current?.getBoundingClientRect().bottom ?? 0,
   });
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
