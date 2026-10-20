@@ -123,6 +123,16 @@ fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_whe
         app.menu.as_ref().unwrap().entries.last().unwrap().choice,
         Choice::SquadSettings(ref squad) if squad == "product"
     ));
+    // Down saturates on the link; Up steps over the rule to the entry before it.
+    paint(&app, 160, 36);
+    for _ in 0..40 {
+        key(&mut app, KeyCode::Down);
+    }
+    let menu = app.menu.as_ref().unwrap();
+    assert_eq!(menu.entries[menu.selected].label, "Squad settings: product");
+    key(&mut app, KeyCode::Up);
+    let menu = app.menu.as_ref().unwrap();
+    assert_eq!(menu.entries[menu.selected].label, "Actions");
     app.menu = None;
     app.workspace.selected = Some(OpsTarget::Pool);
     app.workspace_settings();

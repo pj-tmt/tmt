@@ -342,6 +342,31 @@ pub struct Menu {
     pub(super) surface: RefCell<Option<super::menu_surface::MenuSurface>>,
 }
 
+impl Menu {
+    /// Moves the highlight by `delta` entries, stepping over a rule and stopping at either end.
+    pub(super) fn step(&mut self, delta: isize) {
+        let direction = delta.signum();
+        let mut at = self.selected;
+        for _ in 0..delta.unsigned_abs() {
+            let mut next = at;
+            loop {
+                let Some(moved) = next.checked_add_signed(direction) else {
+                    break;
+                };
+                if moved >= self.entries.len() {
+                    break;
+                }
+                next = moved;
+                if !matches!(self.entries[next].choice, Choice::Rule) {
+                    at = next;
+                    break;
+                }
+            }
+        }
+        self.selected = at;
+    }
+}
+
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
@@ -3287,10 +3312,7 @@ impl App {
                 self.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
             }
             Some(Pointer::Wheel(step)) => {
-                menu.selected = menu
-                    .selected
-                    .saturating_add_signed(step)
-                    .min(menu.entries.len().saturating_sub(1));
+                menu.step(step);
                 Effect::None
             }
             _ => {
@@ -3334,11 +3356,11 @@ impl App {
                 .map(|entry| entry.choice.clone()),
             KeyCode::Esc | KeyCode::Char('q') => None,
             KeyCode::Up | KeyCode::Char('k') => {
-                menu.selected = menu.selected.saturating_sub(1);
+                menu.step(-1);
                 return Effect::None;
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                menu.selected = (menu.selected + 1).min(menu.entries.len().saturating_sub(1));
+                menu.step(1);
                 return Effect::None;
             }
             KeyCode::Enter => menu

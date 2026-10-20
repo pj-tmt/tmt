@@ -308,30 +308,19 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['select-window', '-t', shell.pane]);
       fixture.tmux(['send-keys', '-t', shell.pane, 'tmt ops ui; echo IDLE_BOARD_EXIT=$?', 'Enter']);
       await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
-      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'product', 'Enter']);
-      await fixture.waitForCapture((screen) => /\/[ \t]+product/.test(screen), shell.pane);
+      // Agents tab, first row (Common pool), then the squad row below it.
+      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Home', 'Down']);
+      await fixture.waitForCapture((screen) => screen.includes('SQUAD / AGENT'), shell.pane);
       fixture.tmux(['send-keys', '-t', shell.pane, ',']);
       await fixture.waitForCapture(
         (screen) => screen.includes('Squad settings: product'),
         shell.pane
       );
-      // The entry is last; the rule above it is never selectable.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
-      await fixture.waitForCapture(
-        (screen) => screen.includes('settings · Enter edit'),
-        shell.pane
-      );
-      const config = path.join(fixture.globalDir, 'ops.toml');
-      // Select the idle row by typing nothing: walk the list until its hint shows.
-      for (let step = 0; step < 80; step += 1) {
-        const screen = fixture.capture(40, shell.pane);
-        if (/›[\s≠]*enabled\s+false/.test(screen) && screen.includes('Tells the lead')) {
-          break;
-        }
-        fixture.tmux(['send-keys', '-t', shell.pane, 'Down']);
-      }
+      // The entry is last; Down saturates there and never lands on the rule above it.
+      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
+      // The overlay opens with the idle alert switch selected, so Space is offered at once.
       await fixture.waitForCapture((screen) => screen.includes('Space on/off'), shell.pane);
+      const config = path.join(fixture.globalDir, 'ops.toml');
       fixture.tmux(['send-keys', '-t', shell.pane, 'Space']);
       await fixture.waitFor(
         () =>
@@ -981,8 +970,9 @@ renameSync(output+'.tmp',output);
           (screen) => screen.includes('Workspace settings') && screen.includes('Actions'),
           shell.pane
         );
-        // Actions is the final entry; preceding preference choices may grow.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
+        // Down saturates on the final entry (the selected squad's settings link); Up steps over the
+        // rule to Actions, which precedes it. Preceding preference choices may grow.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Up', 'Enter']);
         await fixture.waitForCapture(
           (screen) =>
             !screen.includes('Workspace settings') && screen.includes('Enter runs · Esc closes'),
