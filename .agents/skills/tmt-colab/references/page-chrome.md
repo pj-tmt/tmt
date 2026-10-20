@@ -55,8 +55,10 @@ one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System an
 The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
 and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
 eight projects, New project… names one and puts this page in it). The chips, the trigger and
-Projects… open the same menu. The owner list is read once when the page opens and after each
-write; a viewer who cannot write projects, or a page the list does not hold, shows none of it.
+Projects… open the same menu. The chips come from the list the space home last loaded, so opening
+a page reads nothing extra (a page opened by a link shows none until the picker is used); the owner
+list is read when the picker opens and after each write. A viewer who cannot write projects shows
+none of it.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The floating Chat icon shares the selection control's corner and opens the same
