@@ -182,14 +182,6 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
                 .iter()
                 .all(|line| !line.contains("Updating usage"))
         );
-        app.view.as_mut().unwrap().history_pending = true;
-        app.shell.tab = crate::board::shell::OpsTab::Agents;
-        assert!(
-            draw(&app, width, 24)
-                .iter()
-                .all(|line| !line.contains("Updating usage")),
-            "hidden Overview status cannot appear in Agents"
-        );
     }
 }
 
@@ -865,8 +857,9 @@ fn only_visible_label_text_invalidates_the_clock() {
             "requestId":"response", "submittedAtMs":1_000, "response":"quiet response"
         })];
         draw(&app, 160, 24);
+        // The Usage band's quota clock has nothing to show here, so its mark stays blank.
         assert!(
-            time_marks(&app, 1_000).is_empty(),
+            time_marks(&app, 1_000).iter().all(String::is_empty),
             "a timestamp without displayed age cannot invalidate"
         );
         workspace_row(&mut app)["digest"] =
@@ -898,7 +891,7 @@ fn only_visible_label_text_invalidates_the_clock() {
         app.select(index);
         draw(&app, 80, 24);
         assert!(
-            time_marks(&app, 61_000).is_empty(),
+            time_marks(&app, 61_000).iter().all(String::is_empty),
             "collapsed members have no visible labels"
         );
     });
@@ -930,7 +923,7 @@ fn clipped_label_suffix_does_not_invalidate_until_the_visible_word_expires() {
 }
 
 #[test]
-fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() {
+fn quota_clock_tracks_its_visible_projection_and_stays_out_of_digest() {
     const NOW: u64 = 1_791_600_000_000;
     crate::status::with_now_ms(NOW, || {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
@@ -942,8 +935,6 @@ fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() 
             initial, later,
             "reset/observation text advances without a new source read"
         );
-        app.shell.tab = crate::board::shell::OpsTab::Agents;
-        draw(&app, 160, 36);
         assert!(
             app.frame_clocks
                 .borrow()
@@ -951,17 +942,19 @@ fn overview_quota_clock_tracks_its_visible_projection_and_stays_out_of_agents() 
                 .any(|surface| matches!(surface, super::ClockSurface::TopBar { .. }))
         );
         assert!(
-            !app.frame_clocks
+            app.frame_clocks
                 .borrow()
                 .iter()
                 .any(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. }))
         );
-        app.frame_clocks
-            .borrow_mut()
-            .retain(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. }));
+        app.shell.tab = crate::board::shell::OpsTab::Digest;
+        draw(&app, 160, 36);
         assert!(
-            time_marks(&app, NOW).is_empty(),
-            "body quota clock belongs to Overview; compact top-bar limits are shared"
+            !app.frame_clocks
+                .borrow()
+                .iter()
+                .any(|surface| matches!(surface, super::ClockSurface::OverviewUsageQuota { .. })),
+            "the body quota clock belongs to the Agents tab; compact top-bar limits are shared"
         );
     });
 }
