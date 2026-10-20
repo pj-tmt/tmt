@@ -334,6 +334,66 @@ impl Core {
             result => result,
         }
     }
+
+    /// An automated dispatch to the one recipient in `input`, proven accepted as `queued`.
+    /// An uncertain outcome (Core or storage unavailable) recovers the same operation with
+    /// `dispatch.show`: nothing is created twice and a replay is never re-woken. `unqueued` is the
+    /// error code and the recipient's role for a receipt that is not the single queued item for
+    /// that recipient. Any other refusal keeps its code and names the operation.
+    pub fn dispatch_queued(
+        &self,
+        input: Value,
+        identity: Option<&str>,
+        unqueued: (&str, &str),
+    ) -> Result<Value, SquadError> {
+        let operation_id = input["operationId"].as_str().unwrap_or_default().to_owned();
+        let recipient = input["recipientIds"][0].clone();
+        let receipt = match self.dispatch_automated(input, identity) {
+            Ok(receipt) => receipt,
+            Err(error)
+                if matches!(
+                    error.code.as_str(),
+                    "SQUAD_CORE_UNAVAILABLE" | "STORAGE_UNAVAILABLE"
+                ) =>
+            {
+                // Recover acceptance only. Missing evidence never causes another create;
+                // neither this path nor a replay re-wakes input.
+                self.api("dispatch.show", json!({"operationId": operation_id}))
+                    .map_err(|_| {
+                        SquadError::new(
+                            &error.code,
+                            format!(
+                                "{} Operation {operation_id}; recover acceptance with dispatch.show before retrying.",
+                                error.message
+                            ),
+                        )
+                    })?
+            }
+            Err(error) => {
+                return Err(SquadError::new(
+                    &error.code,
+                    format!("{} Operation {operation_id}.", error.message),
+                ));
+            }
+        };
+        if receipt["operationId"] != operation_id
+            || receipt["items"].as_array().is_none_or(|items| {
+                items.len() != 1
+                    || items[0]["recipientId"] != recipient
+                    || items[0]["acceptance"] != "queued"
+                    || items[0]["requestId"].as_str().is_none()
+            })
+        {
+            let (code, role) = unqueued;
+            return Err(SquadError::new(
+                code,
+                format!(
+                    "Operation {operation_id} was not accepted for the {role}; inspect its receipt before retrying."
+                ),
+            ));
+        }
+        Ok(receipt)
+    }
 }
 
 /// The JSON document a finished call printed, or the structured error it carried.

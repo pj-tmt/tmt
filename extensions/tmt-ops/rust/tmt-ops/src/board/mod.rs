@@ -1,7 +1,7 @@
 //! `tmt ops ui`: the terminal board. It reads the same status document as
 //! `tmt ops squad ls`, paints from it, and reloads in the background.
 
-mod activity;
+pub(crate) mod activity;
 mod agents_focus;
 mod app;
 mod buttons;

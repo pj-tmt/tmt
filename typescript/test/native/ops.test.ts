@@ -2038,12 +2038,18 @@ o = "run touch ${marker}"
       );
       expect(Object.keys(status.body.squad).sort()).toEqual([
         'attention',
+        'idleAlert',
         'layout',
         'lead',
         'name',
         'notesStaleness',
         'roomId',
       ]);
+      // The idle alert is off until set; no row carries a mark, and none is null.
+      expect(status.body.squad.idleAlert).toEqual({ enabled: false, afterMs: 1_800_000 });
+      expect(JSON.stringify(status.body)).not.toContain('"idleAlert":null');
+      expect(rows[0]).not.toHaveProperty('idleAlert');
+      expect(rows[1]).not.toHaveProperty('idleAlert');
       // Without a terminal, the board is exactly status, in text and JSON.
       const statusText = await runCli(sandbox, ['ops', 'squad', 'status']);
       expect(await runCli(sandbox, ['ops', 'ui'])).toEqual(statusText);

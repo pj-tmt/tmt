@@ -22,19 +22,7 @@ pub fn operation_id(room_id: &str, job_id: &str, slot_ms: i64) -> String {
         hash.update(value);
     }
     hash.update(slot_ms.to_be_bytes());
-    let digest = hash.finalize();
-    let mut bytes: [u8; 16] = digest[..16].try_into().expect("fixed digest length");
-    bytes[6] = (bytes[6] & 0x0f) | 0x80; // RFC 9562 custom version 8 UUID.
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
-    )
+    crate::operation::uuid_v8(&hash.finalize())
 }
 
 #[derive(Debug, Default)]
