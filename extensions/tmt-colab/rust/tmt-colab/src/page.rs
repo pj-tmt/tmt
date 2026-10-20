@@ -616,24 +616,26 @@ pub fn prepare_publication_with_clock<'a>(
     )?;
     Ok(PublicationPreparation::Write(frozen))
 }
-/// One explicit shell action against the revision the caller read. Agent metadata is display
-/// only; the writer and time below come from the authenticated write owner.
-pub struct ShellAction<'a> {
+/// One explicit structured action (a shell's, or the work of an ordinary page) against the
+/// revision the caller read. Agent metadata is display only; the writer and time below come from
+/// the authenticated write owner.
+pub struct StructuredAction<'a> {
+    pub kind: crate::decoder::StructuredKind,
     pub action: &'a str,
     pub body: &'a serde_json::Value,
     pub expected_revision: &'a str,
     pub display_agent: Option<serde_json::Value>,
 }
-pub fn prepare_shell_publication(
+pub fn prepare_structured_publication(
     store: &Store,
     key: &Keyring,
     page: &str,
-    action: ShellAction<'_>,
+    action: StructuredAction<'_>,
     decoder: &mut Decoder,
     clock: &dyn Fn() -> Result<u64>,
 ) -> Result<PublicationPreparation> {
     use crate::{
-        decoder::{ContentBatch, ShellEdit},
+        decoder::{ContentBatch, StructuredEdit},
         publication::PublicationKind,
     };
     values::generated_id(page)?;
@@ -649,13 +651,14 @@ pub fn prepare_shell_publication(
     if let Some(agent) = action.display_agent {
         attribution["displayAgent"] = agent;
     }
-    crate::shell::validate_attribution(&attribution).map_err(|_| Fault::Invalid)?;
-    let edit = ShellEdit {
+    crate::summary_lines::validate_attribution(&attribution).map_err(|_| Fault::Invalid)?;
+    let edit = StructuredEdit {
+        kind: action.kind,
         action: action.action.into(),
         body: action.body.clone(),
         attribution,
     };
-    let prepared = s.prepare_shell_batch(key, page, &edit, decoder)?;
+    let prepared = s.prepare_structured_batch(key, page, &edit, decoder)?;
     let ContentBatch::Updates(updates) = prepared.batch else {
         return Ok(PublicationPreparation::Noop {
             epoch: s.epoch.to_string(),
@@ -673,7 +676,8 @@ pub fn prepare_shell_publication(
             kind: PublicationKind::Content,
             updates: &updates,
             revision,
-            source: "",
+            // The page's own source: an action never changes it (a shell's is empty).
+            source: prepared.projection["html"].as_str().unwrap_or_default(),
             memory_limit: prepared.memory_limit,
             operation_id: None,
         },

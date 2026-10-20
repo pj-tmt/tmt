@@ -5,6 +5,7 @@ pub mod assets;
 pub mod attachments;
 mod browser_policy;
 mod chrome;
+pub mod closed;
 pub mod control;
 pub mod core;
 pub mod decoder;
@@ -37,11 +38,13 @@ pub mod short_links;
 pub mod socket;
 pub mod store;
 pub mod summary;
+pub mod summary_lines;
 mod summary_pending;
 pub mod summary_readings;
 pub mod sync;
 pub mod threads;
 pub mod transitions;
+pub mod work;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

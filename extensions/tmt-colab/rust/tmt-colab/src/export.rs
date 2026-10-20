@@ -262,7 +262,7 @@ impl Bundle {
         let (content_name, content) = if let Some(shell) = view.meta.get("shell") {
             (
                 "shell.json",
-                crate::shell::canonical(shell).map_err(|_| crate::page::Fault::Invalid)?,
+                crate::closed::canonical(shell).map_err(|_| crate::page::Fault::Invalid)?,
             )
         } else {
             ("page.html", std::mem::take(&mut view.source).into_bytes())
