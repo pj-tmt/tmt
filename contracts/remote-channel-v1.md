@@ -1667,7 +1667,8 @@ whole answer. Its fields are:
   group 1–24; count is `{value, kind}` with integer value 0–9999 and kind
   `needs-you` or `plain`.
 - `settings`: up to 16 `{id, label, path}` items, label 1–40 scalars.
-- `needsYou`: integer 0–9999, display-only.
+- Optional `needsYou`: integer 0–9999, equal to the module's own in-app Needs-you
+  number. Absent means unknown and shows no badge; explicit null is refused.
 - Optional `home`: up to eight `{id, title, path}` items, title 1–40 scalars.
 
 IDs match `[a-z0-9-]{1,32}` and are unique within their list. Labels contain no controls
@@ -1677,7 +1678,7 @@ lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Pat
 `^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
 escape. The door resolves every path inside that module's own mount, never another module.
 
-The composed answer is `{version:1, modules:[{extension, rail, menu, settings, needsYou,
+The composed answer is `{version:1, modules:[{extension, rail, menu, settings, needsYou?,
 home?}]}`. Remote adds its own module and sorts by rail order, then extension name.
 After the existing authority checks, every due callback starts in parallel; composition
 waits within one 300 ms deadline, not one wait per extension. This budget covers module

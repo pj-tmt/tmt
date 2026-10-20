@@ -68,7 +68,12 @@ pub(crate) struct Description {
     rail: Rail,
     menu: Vec<Menu>,
     settings: Vec<SettingsLink>,
-    needs_you: u16,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    needs_you: Option<u16>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -107,7 +112,7 @@ impl Description {
             || !label(&d.rail.label, limits::DESCRIBE_RAIL_LABEL)
             || !path(&d.rail.path)
             || d.rail.order > limits::DESCRIBE_ORDER
-            || d.needs_you > limits::DESCRIBE_COUNT
+            || d.needs_you.is_some_and(|n| n > limits::DESCRIBE_COUNT)
             || d.menu.len() > limits::DESCRIBE_MENU
             || d.settings.len() > limits::DESCRIBE_SETTINGS
             || d.home

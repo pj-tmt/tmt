@@ -350,28 +350,34 @@ impl Registration {
     /// Display-only owner-socket callback. Unlike pages(), this never schedules a refresh.
     pub(crate) fn describe(&self) -> std::result::Result<Vec<u8>, Code> {
         let (catalog, fingerprints) = self.owner_catalog_fingerprinted()?;
-        let pages = catalog["pages"].as_array().ok_or(Code::Unavailable)?;
-        let mut needs_you = 0u32;
-        for page in pages {
-            let id = page["pageId"].as_str().ok_or(Code::Unavailable)?;
-            let fingerprint = fingerprints.get(id).ok_or(Code::Unavailable)?;
-            let summary = self
-                .summaries
-                .get(id, fingerprint)
-                .ok_or(Code::Unavailable)?;
-            needs_you = needs_you
-                .checked_add(summary.needs_you)
-                .ok_or(Code::Capacity)?;
-            if needs_you > crate::limits::DESCRIBE_COUNT {
-                return Err(Code::Capacity);
-            }
+        let pages: Vec<_> = catalog["pages"]
+            .as_array()
+            .ok_or(Code::Unavailable)?
+            .iter()
+            .filter(|page| page["archived"] != true)
+            .collect();
+        if pages.len() > crate::limits::DESCRIBE_COUNT {
+            return Err(Code::Capacity);
         }
-        serde_json::to_vec(&serde_json::json!({
+        // Match the page list's waitingCount: one waiting page, regardless of its item count.
+        // Its count cannot exceed the already-bounded active page count.
+        let needs_you = pages.iter().try_fold(0usize, |count, page| {
+            let id = page["pageId"].as_str()?;
+            let fingerprint = fingerprints.get(id)?;
+            let summary = self.summaries.get(id, fingerprint)?;
+            Some(count + usize::from(summary.waiting))
+        });
+        let mut answer = serde_json::json!({
             "version":1,
             "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
-            "menu":[{"id":"pages","label":"Pages","path":"/","count":{"value":pages.len(),"kind":"plain"}}],
-            "settings":[],"needsYou":needs_you
-        })).map_err(|_|Code::Unavailable)
+            "menu":[{"id":"pages","label":"Pages","path":"/"}],
+            "settings":[]
+        });
+        if let Some(needs_you) = needs_you {
+            answer["needsYou"] = serde_json::json!(needs_you);
+            answer["menu"][0]["count"] = serde_json::json!({"value":pages.len(),"kind":"plain"});
+        }
+        serde_json::to_vec(&answer).map_err(|_| Code::Unavailable)
     }
     /// The caller serializes management with sync before taking this mutex.
     pub fn apply_owner(
@@ -1380,7 +1386,7 @@ mod describe_tests {
     use crate::summary::{Summary, SummaryProjection};
 
     #[test]
-    fn describe_uses_only_fresh_complete_counts_and_never_clamps_or_invents_zero() {
+    fn describe_matches_active_waiting_pages_and_omits_unknown_counts() {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "colab-describe-{}-{}",
@@ -1397,14 +1403,41 @@ mod describe_tests {
         let layout = crate::keyring::Layout::open(&root).unwrap();
         let key = Keyring::open(&layout).unwrap();
         let store = Store::open(&layout).unwrap();
-        let page = "00000000-0000-4000-8000-000000000002";
-        store.create_page(page).unwrap();
-        let service =
+        let active = "00000000-0000-4000-8000-000000000002";
+        let archived = "00000000-0000-4000-8000-000000000003";
+        store.create_page(active).unwrap();
+        store.create_page(archived).unwrap();
+        let mut service =
             Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
-        assert_eq!(service.describe(), Err(Code::Unavailable));
-        let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
-        let fingerprint = &fingerprints[page];
-        let put = |fingerprint: &str, count| {
+        service.genesis().unwrap();
+        let key = &service.keyring;
+        let payload = serde_json::to_vec(&serde_json::json!({"pageId":archived})).unwrap();
+        service
+            .store
+            .owner_transaction(
+                &key.space_id,
+                &key.owner_public(),
+                Mutation {
+                    operation_id: "00000000-0000-4000-8000-000000000004",
+                    digest: crypto::digest(&payload),
+                    expected_revision: 1,
+                },
+                |tx| {
+                    let statement = key.sign_statement(tx.head(), "page.archive", &payload)?;
+                    tx.append_statement(&statement)?;
+                    Ok(statement.to_json()?)
+                },
+            )
+            .unwrap();
+        let (catalog, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
+        assert!(
+            catalog["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p["pageId"] == archived && p["archived"] == true)
+        );
+        let put = |page: &str, fingerprint: &str, count| {
             service.summaries.put(
                 page,
                 fingerprint,
@@ -1416,18 +1449,56 @@ mod describe_tests {
                 })),
             )
         };
-        put(fingerprint, 9999);
+        put(active, &fingerprints[active], 2);
+        put(archived, "stale fingerprint", 2);
+        let answer: serde_json::Value = serde_json::from_slice(
+            &service
+                .describe()
+                .expect("archived stale summaries are irrelevant"),
+        )
+        .unwrap();
+        assert_eq!(answer["menu"][0]["count"]["value"], 1);
+        assert_eq!(
+            answer["needsYou"], 1,
+            "two items on one waiting page count once"
+        );
+        put(archived, &fingerprints[archived], 2);
         let answer: serde_json::Value =
             serde_json::from_slice(&service.describe().unwrap()).unwrap();
-        assert_eq!(answer["needsYou"], 9999);
-        put(fingerprint, 10000);
-        assert_eq!(service.describe(), Err(Code::Capacity));
-        put("old fingerprint", 0);
-        assert_eq!(service.describe(), Err(Code::Unavailable));
-        service.summaries.put(page, fingerprint, None);
-        assert_eq!(service.describe(), Err(Code::Unavailable));
-        // No fresh cache is filled by a describe read; the ordinary page path owns that work.
-        assert!(service.summaries.get(page, fingerprint).is_none());
+        assert_eq!(answer["menu"][0]["count"]["value"], 1);
+        assert_eq!(
+            answer["needsYou"], 1,
+            "fresh archived waiting pages are excluded too"
+        );
+        for fingerprint in [fingerprints[active].as_str(), "old fingerprint"] {
+            service.summaries.put(active, fingerprint, None);
+            let answer: serde_json::Value =
+                serde_json::from_slice(&service.describe().unwrap()).unwrap();
+            assert_eq!(answer["rail"]["label"], "Colab");
+            assert!(answer.get("needsYou").is_none());
+            assert!(answer["menu"][0].get("count").is_none());
+            assert!(
+                service
+                    .summaries
+                    .get(active, &fingerprints[active])
+                    .is_none(),
+                "describe cannot refresh the cache"
+            );
+        }
+        put(active, &fingerprints[active], 0);
+        let answer: serde_json::Value =
+            serde_json::from_slice(&service.describe().unwrap()).unwrap();
+        assert_eq!(answer["needsYou"], 0, "known zero remains a number");
+        let oracle = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+        oracle
+            .execute("UPDATE membership_log SET envelope=x'00'", [])
+            .unwrap();
+        assert_eq!(
+            service.describe(),
+            Err(Code::Unavailable),
+            "a broken catalog still refuses"
+        );
+        drop(oracle);
         service.close().unwrap();
     }
 }

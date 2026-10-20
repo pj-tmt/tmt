@@ -6138,7 +6138,7 @@ fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
 }
 
 #[test]
-fn describe_answers_known_empty_navigation_and_refuses_unknown_counts() {
+fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
     let root = PathBuf::from(format!(
         "/tmp/tmt-describe-{}-{}",
         std::process::id(),
@@ -6190,13 +6190,20 @@ fn describe_answers_known_empty_navigation_and_refuses_unknown_counts() {
     assert_eq!(body["rail"]["path"], "/");
     Store::open(&layout).unwrap().create_page(PAGE).unwrap();
     let answer = running.request(&callback);
-    assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
     let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
-    assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
+    assert_eq!(body["rail"]["label"], "Colab");
     assert!(
         body.get("needsYou").is_none(),
         "unknown must never become zero"
     );
+    assert!(body["menu"][0].get("count").is_none());
+    let held = running.registration.lock().unwrap();
+    let answer = running.request(&callback);
+    assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
+    let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
+    drop(held);
     let refused = running.request(&Running::get("/.tmt/remote/describe", ""));
     assert!(refused.starts_with("HTTP/1.1 400"));
 }

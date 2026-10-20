@@ -236,7 +236,7 @@ fn every_collection_has_unique_ids_and_exact_boundaries() {
     }
     v["rail"]["path"] = json!(format!("/{}", "a".repeat(256)));
     assert!(parse(&v).is_none());
-    for key in ["rail", "menu", "settings", "needsYou", "version"] {
+    for key in ["rail", "menu", "settings", "version"] {
         let mut absent = value();
         absent.as_object_mut().unwrap().remove(key);
         assert!(parse(&absent).is_none(), "missing {key}");
@@ -312,4 +312,25 @@ fn replaced_socket_fences_a_late_answer_and_shutdown_joins_the_worker() {
     );
     shell.shutdown();
     assert!(shell.workers.lock().unwrap().is_empty());
+}
+
+#[test]
+fn unknown_count_keeps_the_module_and_null_or_over_bound_counts_refuse() {
+    let known = parse(&value())
+        .unwrap()
+        .module("colab", "http://127.0.0.1:1/r/abc/x/colab/");
+    assert_eq!(known["needsYou"], 2);
+    let mut unknown = value();
+    unknown.as_object_mut().unwrap().remove("needsYou");
+    unknown["menu"][0].as_object_mut().unwrap().remove("count");
+    let module = parse(&unknown)
+        .expect("unknown counts must not remove a module")
+        .module("colab", "http://127.0.0.1:1/r/abc/x/colab/");
+    assert!(module.get("needsYou").is_none());
+    assert!(module["menu"][0].get("count").is_none());
+    assert_eq!(module["rail"]["label"], "Colab");
+    unknown["needsYou"] = Value::Null;
+    assert!(parse(&unknown).is_none(), "null is not omission");
+    unknown["needsYou"] = json!(10000);
+    assert!(parse(&unknown).is_none());
 }
