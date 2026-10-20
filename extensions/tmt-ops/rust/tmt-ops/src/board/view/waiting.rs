@@ -357,6 +357,7 @@ fn final_input(
         return;
     };
     if app.modal_open()
+        && !app.paste_preview_shown()
         && (app.shell.tab != crate::board::shell::OpsTab::Agents || !projection.focused)
     {
         return;

@@ -308,20 +308,19 @@ impl App {
     }
 
     fn current_paste_preview(&self) -> Option<Ref<'_, Preview>> {
-        let projection = self.composer_projection()?;
-        Ref::filter_map(self.composer.paste_preview.borrow(), |preview| {
-            preview.as_ref().filter(|preview| {
-                projection.key.as_ref() == Some(&preview.key)
-                    && projection.text.is_some_and(|text| {
-                        text.folds().iter().any(|fold| {
-                            fold.id == preview.id
-                                && text.as_str().get(fold.source.clone())
-                                    == Some(preview.text.as_str())
-                        })
-                    })
-            })
+        let preview = Ref::filter_map(self.composer.paste_preview.borrow(), |preview| {
+            preview.as_ref()
         })
-        .ok()
+        .ok()?;
+        let projection = self.composer_projection()?;
+        (projection.key.as_ref() == Some(&preview.key)
+            && projection.text.is_some_and(|text| {
+                text.folds().iter().any(|fold| {
+                    fold.id == preview.id
+                        && text.as_str().get(fold.source.clone()) == Some(preview.text.as_str())
+                })
+            }))
+        .then_some(preview)
     }
 
     pub(in crate::board) fn paste_preview_shown(&self) -> bool {

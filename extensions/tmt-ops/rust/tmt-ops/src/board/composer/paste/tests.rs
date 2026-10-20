@@ -28,6 +28,43 @@ fn click(area: Rect) -> MouseEvent {
 }
 
 #[test]
+fn overview_preview_keeps_its_anchor_and_scrolls_without_changing_the_draft() {
+    let mut app = crate::board::app::workspace::tests::board();
+    crate::board::app::workspace::tests::observe_waiting_member(&mut app);
+    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    draw(&mut app, 160, 36);
+    app.perform(&crate::action::Action::parse("talk").unwrap());
+    assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Overview);
+    let raw = (0..100)
+        .map(|line| format!("line {line} 漢字\r\n"))
+        .collect::<String>();
+    app.paste(&raw);
+    draw(&mut app, 160, 36);
+    let hit = app.composer.paste_hits.borrow()[0].clone();
+    app.mouse(click(hit.area), std::time::Instant::now());
+    assert!(app.paste_preview_shown());
+    assert!(!draw(&mut app, 160, 36));
+    assert!(
+        app.paste_preview_shown(),
+        "painting keeps the Overview anchor"
+    );
+    key(&mut app, KeyCode::PageDown);
+    draw(&mut app, 160, 36);
+    assert!(
+        app.current_paste_preview()
+            .unwrap()
+            .scroll
+            .borrow()
+            .offset()
+            > 0
+    );
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.paste_preview_shown());
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), raw);
+    assert!(draw(&mut app, 160, 36));
+}
+
+#[test]
 fn preview_is_read_only_scrollable_and_outside_close_can_remove_the_chip() {
     let mut app = crate::board::app::workspace::tests::board();
     key(&mut app, KeyCode::Enter);
