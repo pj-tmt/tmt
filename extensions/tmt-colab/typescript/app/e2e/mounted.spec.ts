@@ -368,7 +368,7 @@ test('empty owner space names the product page-create command', async ({ page })
   await page.goto(mount);
   await expect(homeList(page)).toBeVisible();
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
-    'tmt colab page create --title "Notes"',
+    'tmt colab page create --title "Notes" --layout column',
   );
   await expect(page.locator('ul.pages')).toHaveCount(0);
   await expect(page.locator('iframe')).toHaveCount(0);

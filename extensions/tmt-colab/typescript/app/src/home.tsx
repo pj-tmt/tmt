@@ -635,7 +635,10 @@ export function Home() {
           ) : (
             <p>
               {text.empty}
-              <code className="tmt-ui-code">tmt colab page create --title "Notes"</code>.
+              <code className="tmt-ui-code">
+                tmt colab page create --title "Notes" --layout column
+              </code>
+              .
             </p>
           )}
         </div>

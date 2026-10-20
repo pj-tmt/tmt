@@ -34,6 +34,7 @@ import {
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
+import { PageLayoutSection } from './page-layout-section.js';
 import { NoticeCard } from './notice-card.js';
 import {
   useEffect,
@@ -956,6 +957,8 @@ function Page() {
     source: snapshot.source,
     title: snapshot.title,
     originalAuthor: snapshot.originalAuthor,
+    layout: snapshot.layout,
+    layoutReason: snapshot.layoutReason,
     publisherAgent: snapshot.publisherAgent,
     ownData: snapshot.ownData ?? false,
     own: snapshot.own,
@@ -1032,6 +1035,8 @@ function Page() {
       source: snapshot.source,
       title: snapshot.title,
       originalAuthor: snapshot.originalAuthor,
+      layout: snapshot.layout,
+      layoutReason: snapshot.layoutReason,
       publisherAgent: snapshot.publisherAgent,
       ownData: snapshot.ownData ?? false,
       own: snapshot.own,
@@ -1533,7 +1538,7 @@ function Page() {
     setAnchorsChecked(false);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
-      layout: snapshot.layout,
+      layout: view.layout,
       onState: setState,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
@@ -1589,7 +1594,7 @@ function Page() {
     };
   }, [
     view.source,
-    snapshot.layout,
+    view.layout,
     view.pageType,
     endedError,
     inlineSlots.onSlots,
@@ -1824,14 +1829,12 @@ function Page() {
           originalAuthor={view.originalAuthor}
           publisherAgent={view.publisherAgent}
         />
+        <PageLayoutSection layout={view.layout} reason={view.layoutReason} />
         <PageSizeSection size={size} exportPage={() => setPanel('export')} />
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
-        <div
-          className="canvas"
-          data-layout={framedLayout(snapshot.layout) ? snapshot.layout : undefined}
-        >
+        <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
               {text.anchorMissing}

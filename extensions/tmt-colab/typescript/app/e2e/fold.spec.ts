@@ -371,7 +371,11 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           one.originalAuthor !== v.originalAuthor ||
           two.originalAuthor !== v.originalAuthor ||
           one.publisherAgent !== v.publisherAgent ||
-          two.publisherAgent !== v.publisherAgent
+          two.publisherAgent !== v.publisherAgent ||
+          one.layout !== v.layout ||
+          one.layoutReason !== v.layoutReason ||
+          two.layout !== v.layout ||
+          two.layoutReason !== v.layoutReason
         )
           throw new Error('Baseline vector projection');
         const edit = await a.prepareContent(v.source + 'later', {
@@ -380,6 +384,8 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           own: one.own,
           ...(one.originalAuthor === undefined ? {} : { originalAuthor: one.originalAuthor }),
           ...(one.publisherAgent === undefined ? {} : { publisherAgent: one.publisherAgent }),
+          ...(one.layout === undefined ? {} : { layout: one.layout }),
+          ...(one.layoutReason === undefined ? {} : { layoutReason: one.layoutReason }),
           ...(one.creationRecipient === undefined
             ? {}
             : { creationRecipient: one.creationRecipient }),
@@ -391,7 +397,11 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           left.originalAuthor !== v.originalAuthor ||
           right.originalAuthor !== v.originalAuthor ||
           left.publisherAgent !== v.publisherAgent ||
-          right.publisherAgent !== v.publisherAgent
+          right.publisherAgent !== v.publisherAgent ||
+          left.layout !== v.layout ||
+          left.layoutReason !== v.layoutReason ||
+          right.layout !== v.layout ||
+          right.layoutReason !== v.layoutReason
         )
           throw new Error('Baseline struct identity or publisher metadata differs');
       } finally {

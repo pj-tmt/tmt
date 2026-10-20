@@ -203,6 +203,7 @@ impl Fixture {
             &self.key,
             PAGE,
             tmt_colab::decoder::ContentEdit {
+                layout: None,
                 source,
                 publisher_agent: None,
                 attachments: None,
@@ -407,6 +408,7 @@ fn a_patch_is_evaluated_on_the_base_it_commits_against_and_merges_a_concurrent_e
             &f.key,
             PAGE,
             tmt_colab::decoder::ContentEdit {
+                layout: None,
                 source,
                 publisher_agent: None,
                 attachments: None,
@@ -1709,6 +1711,7 @@ fn writes_racing_requested_compactions_are_never_lost() {
                             &key,
                             PAGE,
                             tmt_colab::decoder::ContentEdit {
+                                layout: None,
                                 source: &source,
                                 publisher_agent: None,
                                 attachments: None,
@@ -1866,6 +1869,7 @@ fn original_author_survives_native_edits_compaction_reload_epoch_and_export() {
             &f.key,
             PAGE,
             tmt_colab::decoder::ContentEdit {
+                layout: None,
                 source: "updated",
                 publisher_agent: publisher,
                 attachments: None,
@@ -1926,6 +1930,116 @@ fn original_author_survives_native_edits_compaction_reload_epoch_and_export() {
             .unwrap();
     assert_eq!(manifest["originalAuthor"], "original-author");
     assert!(manifest.get("publisherAgent").is_none());
+}
+
+/// The layout `ls` and `show` report for a page, read from its authenticated fold.
+fn layout_in(store: &Store, f: &Fixture) -> Option<tmt_colab::decoder::PageLayout> {
+    let mut page = json!({"pageId": PAGE, "archived": false, "warnings": []});
+    tmt_colab::inspection::title(store, &f.key, &mut page, BINARY.into()).unwrap();
+    let kind = tmt_colab::decoder::LayoutKind::parse(page["layout"].as_str()?)?;
+    Some(tmt_colab::decoder::PageLayout {
+        kind,
+        reason: page["layoutReason"].as_str().map(str::to_owned),
+    })
+}
+fn layout_of(f: &Fixture) -> Option<tmt_colab::decoder::PageLayout> {
+    layout_in(&f.store, f)
+}
+fn write_with_layout(
+    f: &mut Fixture,
+    source: &str,
+    layout: Option<&tmt_colab::decoder::PageLayout>,
+) {
+    let page::PublicationPreparation::Write(frozen) = page::prepare_publication(
+        &f.store,
+        &f.key,
+        PAGE,
+        tmt_colab::decoder::ContentEdit {
+            layout,
+            source,
+            publisher_agent: None,
+            attachments: None,
+        },
+        None,
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap() else {
+        panic!("the source or layout changed, so a write is expected")
+    };
+    f.commit(&frozen, NOW).unwrap();
+}
+
+#[test]
+fn layout_is_page_metadata_that_survives_edits_compaction_reload_and_epoch() {
+    use tmt_colab::decoder::{LayoutKind, PageLayout};
+    let mut f = Fixture::with_author(None);
+    // A page seeded without layout metadata is freeform: an absence, never a stored value.
+    assert_eq!(layout_of(&f), None);
+    let canvas = PageLayout {
+        kind: LayoutKind::Canvas,
+        reason: Some("A status board draws its own cards".into()),
+    };
+    // A metadata-only change publishes: the source is the one the page already has.
+    let source = f.read().source;
+    write_with_layout(&mut f, &source, Some(&canvas));
+    assert_eq!(layout_of(&f), Some(canvas.clone()));
+    // Later source writes without a layout keep it.
+    write_with_layout(&mut f, "updated", None);
+    assert_eq!(f.read().source, "updated");
+    assert_eq!(layout_of(&f), Some(canvas.clone()));
+    assert!(compact_now(&mut f, 1).is_some());
+    let reopened = Store::read(&f.layout).unwrap();
+    assert_eq!(layout_in(&reopened, &f), Some(canvas.clone()));
+    reopened.close().unwrap();
+    let mut engine = Engine::with_decoder_config(support::decoder_config(BINARY.into())).unwrap();
+    let revision = f
+        .store
+        .owner_head(&f.key.space_id, &f.key.owner_public())
+        .unwrap()
+        .unwrap()
+        .revision;
+    engine
+        .advance_epoch(
+            &mut f.store,
+            &f.key,
+            EpochAdvance {
+                operation_id: "40000000-0000-4000-8000-000000000098",
+                expected_revision: revision,
+                page: PAGE,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(layout_of(&f), Some(canvas));
+    // Changing to a column drops the reason; an invalid layout is refused before anything is written.
+    let column = PageLayout {
+        kind: LayoutKind::Column,
+        reason: None,
+    };
+    write_with_layout(&mut f, "updated", Some(&column));
+    assert_eq!(layout_of(&f), Some(column));
+    let invalid = PageLayout {
+        kind: LayoutKind::Canvas,
+        reason: None,
+    };
+    assert!(
+        page::prepare_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            tmt_colab::decoder::ContentEdit {
+                layout: Some(&invalid),
+                source: "updated",
+                publisher_agent: None,
+                attachments: None,
+            },
+            None,
+            &mut f.decoder(),
+            NOW,
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -2128,7 +2242,9 @@ else:
             // Creation opens the new page; opening is not under test here, and no real opener is reachable.
             .env("TMT_AGENT", "1")
             .env("PATH", core_fixture::opener_guard(&f.root))
-            .args(["page", "create", "--title", "Created", "--json"])
+            .args([
+                "page", "create", "--title", "Created", "--layout", "column", "--json",
+            ])
             .output()
             .unwrap();
         assert!(
@@ -3100,6 +3216,7 @@ mod native_preparation {
             &f.key,
             PAGE,
             ContentEdit {
+                layout: None,
                 source,
                 publisher_agent: publisher,
                 attachments: None,
@@ -3250,6 +3367,7 @@ mod native_preparation {
                 &f.key,
                 PAGE,
                 ContentEdit {
+                    layout: None,
                     source: &text,
                     publisher_agent: None,
                     attachments: None,
@@ -4473,6 +4591,7 @@ sys.stdout.write(json.dumps(reply))
             &f.key,
             PAGE,
             ContentEdit {
+                layout: None,
                 source: "new",
                 publisher_agent: None,
                 attachments: None,
@@ -4496,6 +4615,7 @@ sys.stdout.write(json.dumps(reply))
                 &f.key,
                 PAGE,
                 ContentEdit {
+                    layout: None,
                     source: "old 🐈\r\n",
                     publisher_agent: None,
                     attachments: None,
@@ -4520,6 +4640,7 @@ sys.stdout.write(json.dumps(reply))
             &f.key,
             PAGE,
             ContentEdit {
+                layout: None,
                 source: "new",
                 publisher_agent: None,
                 attachments: None,
@@ -4549,6 +4670,7 @@ sys.stdout.write(json.dumps(reply))
                 &f.key,
                 PAGE,
                 ContentEdit {
+                    layout: None,
                     source: "old 🐈\r\n",
                     publisher_agent: None,
                     attachments: None,

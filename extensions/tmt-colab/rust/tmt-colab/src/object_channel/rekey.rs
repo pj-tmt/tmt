@@ -308,6 +308,7 @@ fn repair(
                 crate::decoder::ContentEdit {
                     source: &repaired,
                     publisher_agent: None,
+                    layout: None,
                     attachments: None,
                 },
                 page::PublishOptions {

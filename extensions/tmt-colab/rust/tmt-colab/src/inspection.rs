@@ -2,7 +2,7 @@
 //! decoder materializes titles. No route, mutation or authority signing lives here.
 use crate::{
     Result,
-    decoder::Decoder,
+    decoder::{Decoder, layout_of_meta},
     fold,
     keyring::Keyring,
     store::{Store, owner::OwnerFault},
@@ -59,6 +59,7 @@ pub fn detail(store: &Store, key: &Keyring, page: &Value) -> Result<Value> {
 pub fn title(store: &Store, key: &Keyring, page: &mut Value, program: PathBuf) -> Result<()> {
     if page["archived"] == true {
         page["title"] = Value::Null;
+        page["layout"] = Value::Null;
         page["warnings"]
             .as_array_mut()
             .ok_or(OwnerFault::Invalid)?
@@ -67,7 +68,18 @@ pub fn title(store: &Store, key: &Keyring, page: &mut Value, program: PathBuf) -
         let id = page["pageId"].as_str().ok_or(OwnerFault::Invalid)?;
         let snapshot = fold::Snapshot::capture(store, key, id)?;
         let mut decoder = Decoder::new(program)?;
-        page["title"] = json!(snapshot.materialize(key, id, &mut decoder)?.title);
+        let view = snapshot.materialize(key, id, &mut decoder)?;
+        page["title"] = json!(view.title);
+        // A page that was never given a layout is freeform: an absence in its metadata, named here.
+        match layout_of_meta(&view.meta) {
+            Some(layout) => {
+                page["layout"] = json!(layout.kind.as_str());
+                if let Some(reason) = layout.reason {
+                    page["layoutReason"] = json!(reason);
+                }
+            }
+            None => page["layout"] = json!("freeform"),
+        }
     }
     Ok(())
 }

@@ -304,7 +304,16 @@ fn owner_homes_on_one_key_converge_in_both_directions() {
     share_sign_in(&a, &b, &inputs.project);
     let created = a.run_json(
         "tmt-colab",
-        &["page", "create", "--title", "proof", "--no-open", "--json"],
+        &[
+            "page",
+            "create",
+            "--title",
+            "proof",
+            "--layout",
+            "column",
+            "--no-open",
+            "--json",
+        ],
     );
     let page = created["pageId"].as_str().unwrap().to_owned();
     // The second home starts from the first home's owner state: the same key, membership log,
@@ -513,7 +522,16 @@ fn a_member_converges_inside_its_grant_and_nothing_forged_or_outside_it_does() {
     share_sign_in(&a, &b, &inputs.project);
     let created = a.run_json(
         "tmt-colab",
-        &["page", "create", "--title", "proof", "--no-open", "--json"],
+        &[
+            "page",
+            "create",
+            "--title",
+            "proof",
+            "--layout",
+            "column",
+            "--no-open",
+            "--json",
+        ],
     );
     let page = created["pageId"].as_str().unwrap().to_owned();
     let editor_statement = admit(&a, &page, &MEMBER, "editor");
@@ -785,7 +803,16 @@ fn an_expired_cloud_copy_is_written_again_when_the_page_is_reopened_from_local()
     sign_in(&world, &inputs);
     let created = world.run_json(
         "tmt-colab",
-        &["page", "create", "--title", "proof", "--no-open", "--json"],
+        &[
+            "page",
+            "create",
+            "--title",
+            "proof",
+            "--layout",
+            "column",
+            "--no-open",
+            "--json",
+        ],
     );
     let page = created["pageId"].as_str().unwrap().to_owned();
     let layout = Layout::open(&world.state).unwrap();
@@ -925,7 +952,16 @@ fn a_link_holder_enrolls_by_the_links_token_and_is_removed_with_the_link() {
     sign_in(&world, &inputs);
     let created = world.run_json(
         "tmt-colab",
-        &["page", "create", "--title", "proof", "--no-open", "--json"],
+        &[
+            "page",
+            "create",
+            "--title",
+            "proof",
+            "--layout",
+            "column",
+            "--no-open",
+            "--json",
+        ],
     );
     let page = created["pageId"].as_str().unwrap().to_owned();
     world.run_json(
@@ -1147,7 +1183,16 @@ fn a_new_epochs_baseline_reaches_the_cloud_before_its_wraps_and_a_link_holder_re
     sign_in(&world, &inputs);
     let created = world.run_json(
         "tmt-colab",
-        &["page", "create", "--title", "proof", "--no-open", "--json"],
+        &[
+            "page",
+            "create",
+            "--title",
+            "proof",
+            "--layout",
+            "column",
+            "--no-open",
+            "--json",
+        ],
     );
     let page = created["pageId"].as_str().unwrap().to_owned();
     world.run_json(

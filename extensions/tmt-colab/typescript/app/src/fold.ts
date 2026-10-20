@@ -62,6 +62,8 @@ export class Fold {
             'own',
             ...(Object.hasOwn(value.projection, 'publisherAgent') ? ['publisherAgent'] : []),
             ...(Object.hasOwn(value.projection, 'originalAuthor') ? ['originalAuthor'] : []),
+            ...(Object.hasOwn(value.projection, 'layout') ? ['layout'] : []),
+            ...(Object.hasOwn(value.projection, 'layoutReason') ? ['layoutReason'] : []),
             ...(Object.hasOwn(value.projection, 'creationRecipient') ? ['creationRecipient'] : []),
             ...(Object.hasOwn(value.projection, 'attachments') ? ['attachments'] : []),
           ]);
@@ -92,6 +94,8 @@ export class Fold {
           'update',
           'own',
           ...(Object.hasOwn(event.data as object, 'originalAuthor') ? ['originalAuthor'] : []),
+          ...(Object.hasOwn(event.data as object, 'layout') ? ['layout'] : []),
+          ...(Object.hasOwn(event.data as object, 'layoutReason') ? ['layoutReason'] : []),
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
           ...(Object.hasOwn(event.data as object, 'attachments') ? ['attachments'] : []),
           ...(Object.hasOwn(event.data as object, 'pageType') ? ['pageType'] : []),
@@ -116,6 +120,8 @@ export class Fold {
               title: value.title,
               publisherAgent: value.publisherAgent,
               originalAuthor: value.originalAuthor,
+              layout: value.layout,
+              layoutReason: value.layoutReason,
               creationRecipient: value.creationRecipient,
               attachments: value.attachments,
               pageType: value.pageType,
@@ -135,6 +141,8 @@ export class Fold {
           source: value.source,
           title: value.title,
           ...(value.originalAuthor === undefined ? {} : { originalAuthor: value.originalAuthor }),
+          ...(value.layout === undefined ? {} : { layout: value.layout }),
+          ...(value.layoutReason === undefined ? {} : { layoutReason: value.layoutReason }),
           ...(Object.hasOwn(value, 'attachments') ? { attachments: value.attachments } : {}),
           ...(Object.hasOwn(value, 'pageType')
             ? { pageType: value.pageType, shell: value.shell }
@@ -168,6 +176,8 @@ export class Fold {
       'own',
       ...(Object.hasOwn(base, 'publisherAgent') ? ['publisherAgent'] : []),
       ...(Object.hasOwn(base, 'originalAuthor') ? ['originalAuthor'] : []),
+      ...(Object.hasOwn(base, 'layout') ? ['layout'] : []),
+      ...(Object.hasOwn(base, 'layoutReason') ? ['layoutReason'] : []),
       ...(Object.hasOwn(base, 'creationRecipient') ? ['creationRecipient'] : []),
       ...(Object.hasOwn(base, 'attachments') ? ['attachments'] : []),
     ]);

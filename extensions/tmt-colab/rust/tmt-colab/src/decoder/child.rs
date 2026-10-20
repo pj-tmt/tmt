@@ -416,8 +416,12 @@ fn prepare_content(
     let edit = ContentEdit {
         source: &wire.source,
         publisher_agent: wire.publisher_agent.as_deref(),
+        layout: wire.layout.as_ref(),
         attachments: wire.attachments.as_ref(),
     };
+    if wire.layout.as_ref().is_some_and(|layout| !layout.valid()) {
+        return Err(DecodeFault::InvalidInput);
+    }
     if let Some(change) = edit.attachments {
         // The parent already checked this; the isolated child never trusts its caller's reading.
         change
@@ -425,7 +429,11 @@ fn prepare_content(
             .map_err(|_| DecodeFault::InvalidInput)?;
     }
     let expected = if let Some(shell) = &wire.shell {
-        if !wire.source.is_empty() || wire.publisher_agent.is_some() || wire.attachments.is_some() {
+        if !wire.source.is_empty()
+            || wire.publisher_agent.is_some()
+            || wire.layout.is_some()
+            || wire.attachments.is_some()
+        {
             return Err(DecodeFault::InvalidInput);
         }
         edited_shell_projection(&before, shell)?
@@ -470,6 +478,15 @@ fn prepare_content(
                             meta.insert(&mut tx, "publisherAgent", agent);
                         } else {
                             meta.remove(&mut tx, "publisherAgent");
+                        }
+                    }
+                    for key in ["layout", "layoutReason"] {
+                        if before["meta"].get(key) != expected["meta"].get(key) {
+                            if let Some(value) = expected["meta"].get(key).and_then(Value::as_str) {
+                                meta.insert(&mut tx, key, value);
+                            } else {
+                                meta.remove(&mut tx, key);
+                            }
                         }
                     }
                     if before["meta"]["attachments"] != expected["meta"]["attachments"] {
@@ -698,11 +715,15 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 publisher_agent: wire.publisher_agent.as_deref(),
                 original_author: wire.original_author.as_deref(),
                 creation_recipient: wire.creation_recipient.as_ref(),
+                layout: wire.layout.as_ref(),
                 attachments: wire.attachments.as_ref(),
             };
+            if creation.layout.is_some_and(|layout| !layout.valid()) {
+                return Err(DecodeFault::InvalidInput);
+            }
             let update = if let Some(shell) = shell {
                 crate::shell::validate(&shell).map_err(|_| DecodeFault::InvalidInput)?;
-                if !source.is_empty() || wire.attachments.is_some() {
+                if !source.is_empty() || wire.attachments.is_some() || wire.layout.is_some() {
                     return Err(DecodeFault::InvalidInput);
                 }
                 let doc = Doc::new();
@@ -775,6 +796,13 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             && (projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref()
                 || projection["meta"]["originalAuthor"].as_str()
                     != wire.original_author.as_deref()))
+        || (producing
+            && (projection["meta"].get("layout").and_then(Value::as_str)
+                != wire.layout.as_ref().map(|v| v.kind.as_str())
+                || projection["meta"]
+                    .get("layoutReason")
+                    .and_then(Value::as_str)
+                    != wire.layout.as_ref().and_then(|v| v.reason.as_deref())))
         || (producing
             && projection["meta"].get("creationRecipient")
                 != wire
@@ -867,6 +895,7 @@ struct BaselineMeta<'a> {
     publisher_agent: Option<&'a str>,
     original_author: Option<&'a str>,
     creation_recipient: Option<&'a CreationRecipient>,
+    layout: Option<&'a crate::decoder::PageLayout>,
     attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
 }
 impl BaselineMeta<'_> {
@@ -879,6 +908,12 @@ impl BaselineMeta<'_> {
         }
         if let Some(recipient) = self.creation_recipient {
             meta.insert(txn, "creationRecipient", recipient_any(recipient));
+        }
+        if let Some(layout) = self.layout {
+            meta.insert(txn, "layout", layout.kind.as_str());
+            if let Some(reason) = &layout.reason {
+                meta.insert(txn, "layoutReason", reason.as_str());
+            }
         }
         if let Some(attachments) = self.attachments {
             meta.insert(
@@ -927,6 +962,12 @@ mod baseline_tests {
             let recipient = vector
                 .get("creationRecipient")
                 .map(|v| serde_json::from_value::<CreationRecipient>(v.clone()).unwrap());
+            let layout = vector["layout"]
+                .as_str()
+                .map(|kind| crate::decoder::PageLayout {
+                    kind: crate::decoder::LayoutKind::parse(kind).unwrap(),
+                    reason: vector["layoutReason"].as_str().map(str::to_owned),
+                });
             let update = fresh_baseline(
                 Doc::with_client_id(1159),
                 source,
@@ -935,6 +976,7 @@ mod baseline_tests {
                     publisher_agent: vector["publisherAgent"].as_str(),
                     original_author: vector["originalAuthor"].as_str(),
                     creation_recipient: recipient.as_ref(),
+                    layout: layout.as_ref(),
                     attachments: None,
                 },
             );

@@ -137,6 +137,14 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   which the parent, the sync frame and the child each re-validate before one atomic update. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
   Creation also initializes `meta.originalAuthor` from that same captured label. Source edits preserve the creation snapshot, and unknown creation is never backfilled. Both labels survive fresh epoch baselines and compacted content. The original label is asserted display, never identity proof or an Ask default; grammar and legacy absence are owned by colab-v1. No label selects an identity or grant.
+  Page layout is `meta.layout` (plus `layoutReason` for a canvas), owned by `decoder::PageLayout` and
+  the browser's `Projection` in `fold-protocol.ts`, which validate it the same way. `page create`
+  (`cli_layout.rs` requires the choice before any state is touched) and `page layout` set it through
+  the same owner transitions as source: `ContentEdit.layout`, `Selection.layout` for creation, and
+  `BaselineInput.layout`, which epoch baselines fill from the folded view. `None` keeps the page's
+  layout, so source writes, patches, browser Save, compaction and epochs preserve it; a page without
+  the key is `freeform`, an absence. The browser binds the render frame from the live `PageView`, so a
+  metadata-only change reframes an open page. Frozen export does not carry it.
   Creation reuses that single bounded identity
   snapshot and one optional same-root public machine-status observation to freeze
   `decoder::CreationRecipient`; the browser projection uses the canonical

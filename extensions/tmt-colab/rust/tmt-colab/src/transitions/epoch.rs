@@ -36,8 +36,10 @@ impl Prepared {
             .get("attachments")
             .map(|value| serde_json::from_value(value.clone()))
             .transpose()?;
+        let layout = crate::decoder::layout_of_meta(&view.meta);
         let baseline_input = BaselineInput {
             original_author: view.original_author.as_deref(),
+            layout: layout.as_ref(),
             attachments: attachments.as_ref(),
             source: view.source.as_bytes(),
             title: &view.title,

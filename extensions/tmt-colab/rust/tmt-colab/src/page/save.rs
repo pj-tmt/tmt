@@ -72,6 +72,7 @@ pub fn prepare(
         ContentEdit {
             source: &save.source,
             publisher_agent: None,
+            layout: None,
             attachments: save.attachments.as_ref(),
         },
         PublishOptions {

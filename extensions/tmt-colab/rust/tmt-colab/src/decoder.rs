@@ -66,11 +66,74 @@ impl CreationRecipient {
             && tmt_colab_model::values::core_id(&self.agent_id).is_ok()
     }
 }
+/// How Colab frames a page (#3926), stored as `meta.layout` and, for `canvas` only,
+/// `meta.layoutReason`. A page without the key is `freeform`: that is an absence, never a stored
+/// value, so a new page cannot choose it and an old page needs no migration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutKind {
+    Column,
+    Full,
+    Canvas,
+}
+impl LayoutKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Column => "column",
+            Self::Full => "full",
+            Self::Canvas => "canvas",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "column" => Some(Self::Column),
+            "full" => Some(Self::Full),
+            "canvas" => Some(Self::Canvas),
+            _ => None,
+        }
+    }
+}
+/// A page's chosen layout. A `canvas` carries its reason; the other kinds carry none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageLayout {
+    pub kind: LayoutKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+impl PageLayout {
+    pub fn valid(&self) -> bool {
+        match (self.kind, self.reason.as_deref()) {
+            (LayoutKind::Canvas, Some(reason)) => valid_layout_reason(reason),
+            (LayoutKind::Canvas, None) | (_, Some(_)) => false,
+            (_, None) => true,
+        }
+    }
+}
+/// A canvas reason is one trimmed line of text, so `ls` and `show` can print it as it is.
+pub fn valid_layout_reason(value: &str) -> bool {
+    !value.is_empty()
+        && value.trim() == value
+        && value.len() <= crate::limits::LAYOUT_REASON_BYTES
+        && !value.chars().any(char::is_control)
+}
+/// The layout a validated content projection's metadata records; none is a `freeform` page.
+pub fn layout_of_meta(meta: &Value) -> Option<PageLayout> {
+    Some(PageLayout {
+        kind: LayoutKind::parse(meta.get("layout")?.as_str()?)?,
+        reason: meta
+            .get("layoutReason")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    })
+}
 /// One CLI source replacement, including its optional display-only caller label.
 #[derive(Clone, Copy)]
 pub struct ContentEdit<'a> {
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
+    /// A new layout for the page; `None` keeps the one it has.
+    pub layout: Option<&'a PageLayout>,
     /// A typed change to `meta.attachments`, bound to `source`; `None` keeps the list as it is.
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentChange>,
 }
@@ -127,6 +190,7 @@ pub fn valid_publisher_agent(value: &str) -> bool {
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
     pub original_author: Option<&'a str>,
+    pub layout: Option<&'a PageLayout>,
     pub attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
     pub source: &'a [u8],
     pub title: &'a str,
@@ -475,6 +539,7 @@ impl Decoder {
             ContentEdit {
                 source: "",
                 publisher_agent: None,
+                layout: None,
                 attachments: None,
             },
             Some(shell),
@@ -498,6 +563,7 @@ impl Decoder {
             || edit
                 .publisher_agent
                 .is_some_and(|v| !valid_publisher_agent(v))
+            || edit.layout.is_some_and(|v| !v.valid())
             || batch.updates.len() > UPDATES
             || batch
                 .updates
@@ -530,6 +596,7 @@ impl Decoder {
             expected_base,
             source: edit.source,
             publisher_agent: edit.publisher_agent,
+            layout: edit.layout.cloned(),
             attachments: edit.attachments,
             shell: shell.cloned(),
         };
@@ -668,6 +735,9 @@ impl Decoder {
         if view.creation_recipient.is_some_and(|v| !v.valid()) {
             return Err(DecodeFault::InvalidInput);
         }
+        if view.layout.is_some_and(|v| !v.valid()) {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view
             .original_author
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -708,6 +778,7 @@ impl Decoder {
             publisher_agent: view.publisher_agent.map(str::to_owned),
             original_author: view.original_author.map(str::to_owned),
             creation_recipient: view.creation_recipient.cloned(),
+            layout: view.layout.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -987,6 +1058,8 @@ struct WireContentPreparation<
     source: S,
     publisher_agent: Option<S>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout: Option<PageLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     attachments: Option<C>,
 }
 fn edited_shell_projection(base: &Value, edit: &ShellEdit) -> Result<Value, DecodeFault> {
@@ -1035,6 +1108,13 @@ fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Result<Value, Decod
         meta.insert("publisherAgent".into(), Value::String(agent.into()));
     } else {
         meta.remove("publisherAgent");
+    }
+    if let Some(layout) = edit.layout {
+        meta.insert("layout".into(), Value::String(layout.kind.as_str().into()));
+        match &layout.reason {
+            Some(reason) => meta.insert("layoutReason".into(), Value::String(reason.clone())),
+            None => meta.remove("layoutReason"),
+        };
     }
     if let Some(change) = edit.attachments.filter(|change| !change.is_empty()) {
         let current: Vec<tmt_colab_model::attachment::Descriptor> = match meta.get("attachments") {
@@ -1115,6 +1195,8 @@ struct WireBaseline {
     attachments: Option<tmt_colab_model::attachment::DocumentAttachments>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     creation_recipient: Option<CreationRecipient>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout: Option<PageLayout>,
     version: u8,
     source: String,
     title: String,
@@ -1213,10 +1295,19 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                     )
                     .is_ok()
                 }),
+                "layout" => v.as_str().and_then(LayoutKind::parse).is_none(),
+                "layoutReason" => v.as_str().is_none_or(|v| !valid_layout_reason(v)),
                 "pageType" => v.as_str() != Some("shell"),
                 "shell" => crate::shell::validate(v).is_err(),
                 _ => true,
             }) {
+                return Err(DecodeFault::InvalidOutput);
+            }
+            // The reason belongs to a canvas and to nothing else; a shell page has no layout.
+            if meta.contains_key("layoutReason")
+                != (meta.get("layout").and_then(Value::as_str) == Some("canvas"))
+                || (meta.contains_key("shell") && meta.contains_key("layout"))
+            {
                 return Err(DecodeFault::InvalidOutput);
             }
             if meta.contains_key("pageType") != meta.contains_key("shell")

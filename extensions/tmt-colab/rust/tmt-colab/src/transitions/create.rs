@@ -20,6 +20,8 @@ pub(super) struct Selection<'a> {
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
     pub creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
+    /// The page's chosen layout; a shell page has none.
+    pub layout: Option<&'a crate::decoder::PageLayout>,
 }
 struct Prepared {
     /// The page's first state as ordered updates, each small enough for every reader.
@@ -48,12 +50,15 @@ impl Engine {
             source,
             publisher_agent,
             creation_recipient,
+            layout,
         } = selection;
         values::generated_id(context.id)?;
         values::generated_id(page)?;
         values::time(now)?;
         if context.scope.is_some()
             || creation_recipient.is_some_and(|v| !v.valid())
+            || layout.is_some_and(|v| !v.valid())
+            || (shell && layout.is_some())
             || title.is_empty()
             || publisher_agent.is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
         {
@@ -70,6 +75,9 @@ impl Engine {
         }
         if let Some(recipient) = creation_recipient {
             selection["creationRecipient"] = serde_json::to_value(recipient)?;
+        }
+        if let Some(layout) = layout {
+            selection["layout"] = serde_json::to_value(layout)?;
         }
         if shell {
             if !source.is_empty() {
@@ -98,6 +106,7 @@ impl Engine {
                 })?;
                 let input = BaselineInput {
                     original_author: publisher_agent,
+                    layout,
                     attachments: None,
                     source: source.as_bytes(),
                     title,

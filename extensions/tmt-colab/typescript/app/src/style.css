@@ -314,6 +314,35 @@ body:has(.needs-you-header-menu) {
     animation: none;
   }
 }
+/* About > Layout: the same stacked label-over-value row as the attribution rows above it, at every width. */
+.page-layout-info dl {
+  margin: 0 0 12px;
+  font: 12px/1.4 var(--f-body);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.page-layout-info dt {
+  color: var(--c-muted);
+}
+.page-layout-info dd {
+  margin: 0 0 8px;
+}
+.page-layout-reason {
+  margin: 4px 0 0;
+  color: var(--c-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.page-layout-reason[data-expanded] {
+  display: block;
+  overflow: visible;
+}
+/* Show all / Show less sit flush with the reason text; the block padding keeps the hit area. */
+.page-layout-info .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
+}
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
 .page-size h3 {
   margin: 16px 0 8px;

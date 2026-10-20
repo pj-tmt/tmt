@@ -753,6 +753,16 @@ export const text = {
   more: 'More',
   managePage: 'Manage page',
   aboutPage: 'About this page',
+  /** The About panel's Layout row (#3926): how Colab frames the page, never a prompt or a badge. */
+  pageLayout: {
+    heading: 'Layout',
+    column: 'Column · max 1280 px',
+    full: 'Full width',
+    canvas: 'Canvas · author layout',
+    freeform: 'Freeform · author layout',
+    showAll: 'Show all',
+    showLess: 'Show less',
+  },
   sourceAndExport: 'Source and export',
   home: 'Space home',
   intro: 'A place for pages you share.',

@@ -242,6 +242,7 @@ fn a_tail_past_the_old_caps_reads_back_byte_exact_through_the_library_readers() 
 
 fn edit(source: &str) -> ContentEdit<'_> {
     ContentEdit {
+        layout: None,
         source,
         publisher_agent: None,
         attachments: None,

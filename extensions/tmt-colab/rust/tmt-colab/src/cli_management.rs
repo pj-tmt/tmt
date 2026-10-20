@@ -677,17 +677,19 @@ pub fn create_page(
     root: &Path,
     args: &ArgMatches,
     source: String,
+    page_layout: &tmt_colab::decoder::PageLayout,
     checks: &[page_check::Finding],
 ) -> Result<()> {
-    create_page_kind(root, args, source, checks, false)
+    create_page_kind(root, args, source, Some(page_layout), checks, false)
 }
 pub fn create_shell(root: &Path, args: &ArgMatches) -> Result<()> {
-    create_page_kind(root, args, String::new(), &[], true)
+    create_page_kind(root, args, String::new(), None, &[], true)
 }
 fn create_page_kind(
     root: &Path,
     args: &ArgMatches,
     source: String,
+    page_layout: Option<&tmt_colab::decoder::PageLayout>,
     checks: &[page_check::Finding],
     shell: bool,
 ) -> Result<()> {
@@ -715,6 +717,9 @@ fn create_page_kind(
     let mut payload = json!({"pageId":page_id,"title":title,"source":source});
     if shell {
         payload["pageType"] = json!("shell");
+    }
+    if let Some(layout) = page_layout {
+        payload["layout"] = serde_json::to_value(layout)?;
     }
     if let Some(agent) = publisher_agent {
         payload["publisherAgent"] = json!(agent);
@@ -802,6 +807,15 @@ fn create_page_kind(
             warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
         }
     }
+    if let Some(layout) = page_layout {
+        if let Some(fields) = crate::cli_layout::json_fields(layout).as_object() {
+            result
+                .as_object_mut()
+                .expect("creation result")
+                .extend(fields.clone());
+        }
+        result["read"] = json!(crate::cli_layout::READ_FIRST);
+    }
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
         result["warnings"] = crate::cli_page_check::warnings_json(checks);
@@ -814,6 +828,18 @@ fn create_page_kind(
         ("title", title.to_owned()),
         ("open", shown),
     ];
+    if let Some(layout) = page_layout {
+        rows.push(("layout", crate::cli_layout::describe(layout)));
+        if let Some(reason) = &layout.reason {
+            rows.push(("reason", tmt_cli_style::table::escape(reason)));
+        }
+        rows.push((
+            "read first",
+            crate::cli_layout::READ_FIRST
+                .map(|topic| format!("tmt colab skill {topic}"))
+                .join(" · "),
+        ));
+    }
     rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
     tmt_cli_style::detail::write(&mut out, terminal, "PAGE CREATED", &rows)?;
     for what in &warnings {
@@ -829,6 +855,7 @@ fn create_page_kind(
 fn title_or_error(store: &Store, key: &Keyring, page: &mut Value) -> Result<()> {
     if let Err(error) = inspection::title(store, key, page, std::env::current_exe()?) {
         page["title"] = Value::Null;
+        page["layout"] = Value::Null;
         page["error"] = json!({
             "code": crate::error_code(error.as_ref()),
             "message": error.to_string(),
@@ -1364,6 +1391,12 @@ fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
                     fields.push(("title".to_owned(), title.to_owned()));
                 }
                 fields.push(("page".to_owned(), text(&v["pageId"])));
+                if let Some(layout) = v["layout"].as_str() {
+                    fields.push(("layout".to_owned(), crate::cli_layout::label(layout)));
+                    if let Some(reason) = v["layoutReason"].as_str() {
+                        fields.push(("reason".to_owned(), reason.to_owned()));
+                    }
+                }
                 if let (Some(sharing), Some(history)) =
                     (v["sharing"].as_str(), v["history"].as_str())
                 {
@@ -1491,6 +1524,16 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {
                 writeln!(out, "    {}", escape(text))?;
+            }
+            if let Some(layout) = page["layout"].as_str() {
+                let reason = page["layoutReason"]
+                    .as_str()
+                    .map_or_else(String::new, |reason| format!(" · reason {reason}"));
+                writeln!(
+                    out,
+                    "    {}",
+                    terminal.paint(Token::Dim, &escape(&format!("layout {layout}{reason}")))
+                )?;
             }
             writeln!(
                 out,

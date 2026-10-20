@@ -302,7 +302,7 @@ test('near-cap CLI and browser whole replacements keep taking edits and refuse o
       run(world, world.binaries.tmt, ['colab', ...args], input);
     const created = JSON.parse(
       cli(
-        ['page', 'create', '--title', 'Final cap', '--file', '-', '--json'],
+        ['page', 'create', '--title', 'Final cap', '--layout', 'column', '--file', '-', '--json'],
         '<p>small original</p>',
       ),
     ) as { pageId: string; path: string };

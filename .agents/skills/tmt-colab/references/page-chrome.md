@@ -163,8 +163,10 @@ apply, in a layer declared before author styles. The column (`min(1280px, 100% -
 parent's `.canvas[data-layout] .proposal-inline` rule in `style.css` repeats the column's gutter
 so reading and review bands sit on it. Question
 blocks keep the frame's own measurement of their passage. The frame's chip marker is out of flow,
-so it adds no blank line between blocks. `PageSnapshot.layout` is absent for every page until the
-layout is page metadata (#3926); `freeform`, `canvas` and absent bind nothing. An inline `style`
+so it adds no blank line between blocks. `PageSnapshot.layout` and `PageView.layout` carry the verified
+`meta.layout` (and `layoutReason` for a canvas); `freeform`, `canvas` and absent bind nothing.
+`router.tsx` binds the renderer from the live view, so a metadata-only change remounts the
+frame, and the About drawer's `PageLayoutSection` names the layout and a canvas's reason. An inline `style`
 with `!important` is the one author declaration the frame cannot override.
 
 Source revisions replace only the author renderer, not parent chrome. `router.tsx`

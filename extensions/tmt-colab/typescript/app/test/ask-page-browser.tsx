@@ -19,9 +19,9 @@ import type { DocumentFiles } from '../src/document-files.js';
 import { AttachmentReadError } from '../src/attachments.js';
 import { ExportBundle } from '../src/export.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
+import type { Projection } from '../src/fold-protocol.js';
 import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
-import type { PageLayout } from '../src/page-layout.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
@@ -216,8 +216,9 @@ export async function mount(
     strict?: boolean;
     /** Historical turns are part of the initial load, not a live arrival batch. */
     history?: 'thread' | 'chat';
-    /** The page's layout; absent is `freeform`, as every page is until the metadata exists (#3926). */
-    layout?: PageLayout;
+    /** The page's layout and, for a canvas, its reason; absent is `freeform`. */
+    layout?: Projection['layout'];
+    layoutReason?: string;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -261,6 +262,7 @@ export async function mount(
     threads: [],
     publisherAgent: 'Agent 1',
     ...(options.layout ? { layout: options.layout } : {}),
+    ...(options.layoutReason ? { layoutReason: options.layoutReason } : {}),
     ...(options.creator
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),
@@ -966,6 +968,16 @@ export function notificationSources(
 /** A page of exactly this markup, in the layout `mount` chose. */
 export function authored(source: string) {
   current = { ...current, threads: [], asks: [], source };
+  emit();
+}
+/** A live, metadata-only change: the source stays and the page's layout (and reason) change. */
+export function setLayout(next: { layout?: Projection['layout']; layoutReason?: string }) {
+  const { layout: _layout, layoutReason: _reason, ...rest } = current;
+  current = {
+    ...rest,
+    ...(next.layout ? { layout: next.layout } : {}),
+    ...(next.layoutReason ? { layoutReason: next.layoutReason } : {}),
+  };
   emit();
 }
 export function change(source: string) {

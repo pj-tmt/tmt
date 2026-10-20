@@ -70,6 +70,21 @@ export interface Projection {
   title: string;
   publisherAgent?: string;
   originalAuthor?: string;
+  /** How Colab frames the page (`meta.layout`); absent is `freeform`. Mirrors decoder.rs. */
+  layout?: 'column' | 'full' | 'canvas';
+  /** Why a `canvas` page draws its own frame (`meta.layoutReason`); canvas only. */
+  layoutReason?: string;
+}
+/** One trimmed line, at most 1024 UTF-8 bytes. Mirrors `valid_layout_reason` in decoder.rs. */
+export const LAYOUT_REASON_BYTES = 1024;
+function validLayoutReason(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    value !== '' &&
+    value.trim() === value &&
+    text(value).length <= LAYOUT_REASON_BYTES &&
+    !/[\p{Cc}]/u.test(value)
+  );
 }
 export interface OwnUpdate {
   writer: string;
@@ -188,7 +203,8 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  const { source, title, publisherAgent, originalAuthor, creationRecipient } = value as Projection;
+  const { source, title, publisherAgent, originalAuthor, creationRecipient, layout, layoutReason } =
+    value as Projection;
   if (Object.hasOwn(value, 'pageType') || Object.hasOwn(value, 'shell')) {
     const structured = value as Projection;
     requireValue(
@@ -201,6 +217,13 @@ export function validateProjection(value: unknown): asserts value is Projection 
   }
   if (Object.hasOwn(value, 'attachments'))
     attachment.attachmentList((value as Projection).attachments, attachment.DOCUMENT_ATTACHMENTS);
+  // A reason belongs to a canvas and to nothing else; a shell page has no layout.
+  requireValue(
+    (layout === undefined || layout === 'column' || layout === 'full' || layout === 'canvas') &&
+      (layoutReason === undefined ? layout !== 'canvas' : layout === 'canvas') &&
+      (layoutReason === undefined || validLayoutReason(layoutReason)) &&
+      (layout === undefined || !Object.hasOwn(value, 'pageType')),
+  );
   if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);
   if (
     typeof source !== 'string' ||
@@ -257,6 +280,8 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.title === b.title &&
     a.publisherAgent === b.publisherAgent &&
     a.originalAuthor === b.originalAuthor &&
+    a.layout === b.layout &&
+    a.layoutReason === b.layoutReason &&
     Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
     a.creationRecipient?.machineId === b.creationRecipient?.machineId &&
     a.creationRecipient?.agentId === b.creationRecipient?.agentId &&

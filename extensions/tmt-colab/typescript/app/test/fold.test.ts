@@ -185,6 +185,58 @@ it('rejects malformed original-author labels at the parent projection boundary',
     expect(worker.terminate).toHaveBeenCalledOnce();
   }
 });
+it('admits a layout only as the kind alone, or a canvas with its trimmed one-line reason', () => {
+  const page = { source: '', title: '' };
+  for (const ok of [
+    {},
+    { layout: 'column' },
+    { layout: 'full' },
+    { layout: 'canvas', layoutReason: 'A status board' },
+    { layout: 'canvas', layoutReason: 'x'.repeat(1024) },
+  ])
+    expect(() => validateProjection({ ...page, ...ok })).not.toThrow();
+  for (const bad of [
+    { layout: 'freeform' },
+    { layout: 'wide' },
+    { layout: 1 },
+    { layout: 'canvas' },
+    { layout: 'canvas', layoutReason: '' },
+    { layout: 'canvas', layoutReason: ' padded ' },
+    { layout: 'canvas', layoutReason: 'two\nlines' },
+    { layout: 'canvas', layoutReason: 'x'.repeat(1025) },
+    { layout: 'canvas', layoutReason: '🚀'.repeat(257) },
+    { layout: 'column', layoutReason: 'not for a column' },
+    { layoutReason: 'orphan reason' },
+    { layout: 'column', pageType: 'shell', shell: {} },
+  ])
+    expect(() => validateProjection({ ...page, ...bad }), JSON.stringify(bad)).toThrow();
+});
+it('preserves layout from the strict Worker result and refuses a malformed one', async () => {
+  const run = async (data: Record<string, unknown>) => {
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onerror: null,
+      onmessage: null as unknown as (event: unknown) => void,
+    };
+    const fold = new Fold(worker as unknown as Worker);
+    const pending = fold.run({ type: 'apply', updates: [] });
+    worker.onmessage({
+      data: { id: 1, source: '', title: '', own: {}, update: new Uint8Array(), ...data },
+    });
+    return { pending, worker, fold };
+  };
+  const ok = await run({ layout: 'canvas', layoutReason: 'A board' });
+  const result = await ok.pending;
+  expect(result.layout).toBe('canvas');
+  expect(result.layoutReason).toBe('A board');
+  ok.fold.close();
+  for (const bad of [{ layout: 'wide' }, { layout: 'canvas' }, { layoutReason: 'orphan' }]) {
+    const rejected = await run(bad);
+    await expect(rejected.pending).rejects.toThrow();
+    expect(rejected.worker.terminate).toHaveBeenCalledOnce();
+  }
+});
 const recipient = {
   machineId: '40000000-0000-4000-8000-000000000001',
   agentId: '50000000-0000-1000-8000-000000000001',
@@ -247,6 +299,8 @@ it('the actual Worker preserves both independent baseline encodings through sour
         });
         expect(baseline.error).toBeUndefined();
         expect(baseline.creationRecipient).toEqual(vector.creationRecipient);
+        expect(baseline.layout).toBe(vector.layout);
+        expect(baseline.layoutReason).toBe(vector.layoutReason);
         const edit = await send({
           type: 'prepare-content',
           source: '<p>Later source</p>',
@@ -254,9 +308,13 @@ it('the actual Worker preserves both independent baseline encodings through sour
         });
         expect(edit.error).toBeUndefined();
         expect(edit.projection.creationRecipient).toEqual(vector.creationRecipient);
+        expect(edit.projection.layout).toBe(vector.layout);
+        expect(edit.projection.layoutReason).toBe(vector.layoutReason);
         const applied = await send({ type: 'apply', updates: edit.updates });
         expect(applied.source).toBe('<p>Later source</p>');
         expect(applied.creationRecipient).toEqual(vector.creationRecipient);
+        expect(applied.layout).toBe(vector.layout);
+        expect(applied.layoutReason).toBe(vector.layoutReason);
       } finally {
         vi.unstubAllGlobals();
       }
