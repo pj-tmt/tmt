@@ -5787,7 +5787,7 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
-  it('paints a placeholder before configuration and switches the right pane off the input thread', async () => {
+  it('paints a placeholder before configuration and switches tabs and panes off the input thread', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
@@ -5888,27 +5888,41 @@ describe('large board responsiveness', () => {
           (first.find((r) => r.event === event)!.elapsed_us as number) / 1000;
         expect(milestone('first_frame')).toBeLessThan(budgetMs.firstFrame);
         expect(milestone('fresh_board')).toBeLessThan(budgetMs.freshBoard);
-        // Switching the right pane (Talk to Measure) repaints from the acquired snapshot; no new roster load.
         // The Usage band's readers finish their first loads shortly after the first board;
         // count from the moment the load stage has been quiet for a second.
-        let loads = first.filter((r) => r.stage === 'load').length;
-        for (let quiet = 0; quiet < 1000;) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          const now = records().filter((r) => r.stage === 'load').length;
-          quiet = now === loads ? quiet + 100 : 0;
-          loads = now;
-        }
-        const before = tmux(['capture-pane', '-p', '-t', pane]);
-        const pressed = Date.now();
-        tmux(['send-keys', '-t', pane, 't']);
-        await vi.waitFor(
-          () => {
-            expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
-            expect(records().filter((r) => r.stage === 'load').length).toBe(loads);
-          },
-          { timeout: budgetMs.tabSwitch, interval: 10 }
-        );
-        expect(Date.now() - pressed).toBeLessThan(budgetMs.tabSwitch);
+        const loadCount = () => records().filter((r) => r.stage === 'load').length;
+        const settle = async () => {
+          let loads = loadCount();
+          for (let quiet = 0; quiet < 1000;) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            const now = loadCount();
+            quiet = now === loads ? quiet + 100 : 0;
+            loads = now;
+          }
+          return loads;
+        };
+        // Every switch paints at once from the acquired snapshot. A tab switch (1 Agents, 2 Digest)
+        // may start its own async fill afterwards; the Talk/Measure pane switch (t) loads nothing.
+        const switchTo = async (key: string, loads?: number) => {
+          const before = tmux(['capture-pane', '-p', '-t', pane]);
+          const pressed = Date.now();
+          tmux(['send-keys', '-t', pane, key]);
+          await vi.waitFor(
+            () => {
+              expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
+              if (loads !== undefined) expect(loadCount()).toBe(loads);
+            },
+            { timeout: budgetMs.tabSwitch, interval: 10 }
+          );
+          expect(Date.now() - pressed).toBeLessThan(budgetMs.tabSwitch);
+        };
+        await settle();
+        await switchTo('2');
+        await settle();
+        await switchTo('1');
+        const loads = await settle();
+        await switchTo('t', loads);
+        await switchTo('t', loads);
         // The board ends on q and its pane shell returns; only then does the server go.
         tmux(['send-keys', '-t', pane, 'q']);
         await vi.waitFor(
