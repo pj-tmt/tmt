@@ -1554,7 +1554,7 @@ leaf owns process lifetime, not decoder semantics; missing launch controls must
 be reviewed in the implementation slice, not assumed to exist today.
 
 Browser foreign-update decoding MUST run in a dedicated Web Worker with a time
-budget, terminated on overrun. Give it only needed plaintext update/document
+budget that grows with the input it reads (the limits table), terminated on overrun. Give it only needed plaintext update/document
 inputs, never keys, signing handles or bridge capabilities. A same-origin Worker
 can access IndexedDB/network; this is not key isolation against hostile decoder
 code. Its output is untrusted.
@@ -1680,6 +1680,7 @@ encoding byte order; declare all schema root types before projection.
 | Per-device append rate                       | 10/s sustained, burst 50                      |
 | Per-page decoder concurrency                 | 1                                             |
 | Rust decoder batch deadline                  | 2 seconds                                     |
+| Browser decoder time budget, per command     | 2 seconds, plus 1 second per MiB of input     |
 | Updates after checkpoints a write accepts    | 200 updates, 4 MiB                            |
 | CLI page write, whole source                 | 2 MiB; within the tail above                  |
 | Browser Save, whole source                   | 2 MiB; the same tail and page budget          |
@@ -2141,6 +2142,9 @@ replaces its own document using `document.open/write/close`, retaining the
 response policy and prepending a trusted acknowledgement before author source.
 Bootstrap load and initial source-document load are the only permitted loads;
 further document loads/navigation tear down the frame.
+The parent sets no deadline on the `colab.render.bound` acknowledgement, which follows the author
+document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
+navigation or the page being left ends the frame (#3982).
 
 The parent derives the effective theme from its explicit root `data-theme` choice,
 otherwise the current OS preference. Only user theme activation records a choice;

@@ -264,9 +264,11 @@ export class Connection {
     );
     const requestId = crypto.randomUUID();
     return new Promise((resolve, reject) => {
+      // The caller's own bound is the only deadline: a large read may take longer than any fixed
+      // cap while the connection stays alive, and a close rejects it.
       const timer = setTimeout(
         () => this.close(new Error('Storage unavailable')),
-        Math.min(15_000, deadline - performance.now()),
+        deadline - performance.now(),
       );
       this.#objectReplies.set(requestId, { method: request.method, resolve, reject, timer });
       try {

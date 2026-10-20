@@ -353,7 +353,6 @@ export async function mountRenderer(
     stopped = true;
     stopTheme();
     options.onSlots?.([]);
-    clearTimeout(deadline);
     clearTimeout(heightTimer);
     window.removeEventListener('resize', resize);
     window.removeEventListener('message', bound);
@@ -504,7 +503,6 @@ export async function mountRenderer(
       value.renderId !== snapshot.renderId
     )
       return;
-    clearTimeout(deadline);
     ready = true;
     readyWaiters.splice(0).forEach((resume) => resume());
     // A choice can change between source init and the bound acknowledgement.
@@ -1018,7 +1016,6 @@ export async function mountRenderer(
       slots: innerScroll ? [] : slotHeights,
     });
   };
-  const deadline = setTimeout(() => stop('failed'), 5000);
   window.addEventListener('message', bound);
   window.addEventListener('resize', resize);
   options.signal.addEventListener('abort', destroy, { once: true });

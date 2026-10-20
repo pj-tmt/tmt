@@ -17,6 +17,33 @@ import {
   sameContent,
 } from './fold-protocol.js';
 
+const DECODE_BASE_MS = 2000;
+const DECODE_MS_PER_MIB = 1000;
+/** The bytes one command asks the decoder to read; commands that carry no foreign bytes count zero. */
+function inputBytes(command: DecoderCommand): number {
+  switch (command.type) {
+    case 'apply':
+    case 'check':
+      return (
+        command.updates.reduce((n, v) => n + v.length, 0) +
+        (command.own ?? []).reduce((n, v) => n + v.update.length, 0)
+      );
+    case 'checkpoint':
+    case 'baseline':
+    case 'own-conflict':
+      return command.update.length;
+    case 'prepare-content':
+      return command.source.length + command.base.source.length;
+    default:
+      return 0;
+  }
+}
+/** The time budget of one command: a 2 s floor, growing 1 s per MiB read, so a large legitimate
+ * checkpoint on a slow machine finishes while a stalled decoder is still terminated. Input is
+ * capped by the state limits above, so the budget is too. */
+export const decodeBudgetMs = (command: DecoderCommand) =>
+  DECODE_BASE_MS + Math.floor((inputBytes(command) * DECODE_MS_PER_MIB) / (1024 * 1024));
+
 /** Decoder output is checked again by the authority-holding parent. Failure
  * terminates the Worker and flags the binding; callers must resync from scratch. */
 export class Fold {
@@ -241,7 +268,7 @@ export class Fold {
           command.type !== 'own-conflict' &&
           command.type !== 'prepare-content',
       };
-      this.#timer = setTimeout(() => this.close(), 2000);
+      this.#timer = setTimeout(() => this.close(), decodeBudgetMs(command));
       try {
         this.#worker.postMessage({ id, command });
       } catch {
