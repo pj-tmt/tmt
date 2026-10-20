@@ -1,4 +1,4 @@
-//! The agent whose conversation has focus gets its own row tint and a bold name, on both lists.
+//! The agent whose conversation has focus gets its own row tint and a bold name, on the Squads tree and the flat Agents list.
 use super::*;
 use crate::board::shell::OpsTab;
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Modifier};
@@ -57,7 +57,7 @@ fn conversation_focused(tab: OpsTab) -> (App, App) {
 }
 
 #[test]
-fn the_agents_list_tints_the_row_in_conversation_and_bolds_its_name() {
+fn the_squads_tree_tints_the_row_in_conversation_and_bolds_its_name() {
     let (rows, conversation) = conversation_focused(OpsTab::Agents);
     let look = rows.look();
     let plain = draw(&rows);
@@ -74,10 +74,10 @@ fn the_agents_list_tints_the_row_in_conversation_and_bolds_its_name() {
 }
 
 #[test]
-fn the_overview_agents_list_does_the_same() {
-    let (mut rows, mut conversation) = conversation_focused(OpsTab::Overview);
+fn the_flat_agents_list_does_the_same() {
+    let (mut rows, mut conversation) = conversation_focused(OpsTab::Agents);
     for app in [&mut rows, &mut conversation] {
-        app.overview_view = crate::board::overview::monitor::View::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.overview_rows.borrow_mut().clear();
     }
     let look = rows.look();

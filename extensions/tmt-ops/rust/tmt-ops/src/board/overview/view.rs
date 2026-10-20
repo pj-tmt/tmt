@@ -155,7 +155,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             let chosen = Some(&row.target) == app.workspace.selected.as_ref();
             let selected = chosen && app.focused() == Pane::Rows;
             // Focus in this agent's conversation: its row has its own tint and a bold name.
-            let in_conversation = agents && chosen && app.focused() == Pane::Replies;
+            let in_conversation = chosen && app.focused() == Pane::Replies;
             app.conversation_tinted
                 .set(app.conversation_tinted.get() || in_conversation);
             if selected || in_conversation {
