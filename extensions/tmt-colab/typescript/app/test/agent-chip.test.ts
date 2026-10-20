@@ -13,20 +13,29 @@ it('shows the normal agent icon and the name, inline by default', () => {
   expect(markup).toContain('data-variant="inline"');
   expect(markup).toContain('lucide-bot');
   expect(markup).toContain('<span class="agent-chip-name">Studio agent</span>');
-  expect(markup).not.toContain('agent-chip-spinner');
+  expect(markup).not.toContain('data-working');
   expect(markup).not.toContain('data-activity');
 });
 
-it('replaces the icon with a labelled spinner only while the agent is working', () => {
+it('marks a working agent with a static dot and its words, never a spinner', () => {
   const working = render({ name: 'Studio agent', activity: 'working' });
-  expect(working).toContain('agent-chip-spinner');
-  expect(working).toContain('aria-label="working"');
+  expect(working).toContain('lucide-bot');
+  expect(working).toContain('data-working');
   expect(working).toContain('data-activity="working"');
-  expect(working).not.toContain('lucide-bot');
+  expect(working).toContain('title="Studio agent, working"');
+  expect(working).toContain('<span class="agent-chip-state">, working</span>');
+  expect(working).not.toContain('agent-chip-spinner');
+  expect(working).not.toContain('role="img"');
+  // A chip that already has a description keeps it and gains the state.
+  expect(render({ name: '@Atlas', activity: 'working', title: 'Atlas on Studio' })).toContain(
+    'title="Atlas on Studio, working"',
+  );
   for (const activity of ['idle', 'unknown', 'ended'] as const) {
     const markup = render({ name: 'Studio agent', activity });
     expect(markup, activity).toContain('lucide-bot');
-    expect(markup, activity).not.toContain('agent-chip-spinner');
+    expect(markup, activity).not.toContain('data-working');
+    expect(markup, activity).not.toContain('agent-chip-state');
+    expect(markup, activity).not.toContain('title=');
   }
 });
 
@@ -102,11 +111,12 @@ it('all shared chip forms reuse the page activity observation without another re
       ),
     ),
   );
-  expect(markup.match(/aria-label="working"/g)).toHaveLength(4);
-  expect(markup.match(/lucide-bot/g)).toHaveLength(1);
+  expect(markup.match(/data-working/g)).toHaveLength(4);
+  expect(markup.match(/, working<\/span>/g)).toHaveLength(4);
+  expect(markup.match(/lucide-bot/g)).toHaveLength(5);
 });
 
-it('a page observation never animates stale, stopped, missing or ambiguous agents', () => {
+it('a page observation never marks stale, stopped, missing or ambiguous agents as working', () => {
   const row = {
     machine: 'machine',
     machineName: 'Owner',
@@ -134,7 +144,7 @@ it('a page observation never animates stale, stopped, missing or ambiguous agent
       ),
     );
     expect(markup).toContain('lucide-bot');
-    expect(markup).not.toContain('agent-chip-spinner');
+    expect(markup).not.toContain('data-working');
   }
   const markup = renderToStaticMarkup(
     createElement(
@@ -149,5 +159,5 @@ it('a page observation never animates stale, stopped, missing or ambiguous agent
       createElement(AgentChip, { name: 'Atlas', machine: 'Owner' }),
     ),
   );
-  expect(markup).toContain('aria-label="working"');
+  expect(markup).toContain('data-working');
 });

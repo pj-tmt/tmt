@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { capturePath } from './captures.js';
 
 async function mountFixture(page: import('@playwright/test').Page) {
@@ -10,34 +10,76 @@ async function mountFixture(page: import('@playwright/test').Page) {
   return page.locator('#agent-chip-fixture');
 }
 
-test('the icon turns into a labelled spinner only while the agent works', async ({ page }) => {
+/** The computed colour of a CSS colour expression, as the page resolves it. */
+const resolved = (host: Locator, colour: string) =>
+  host.evaluate((node, colour) => {
+    const probe = document.createElement('span');
+    probe.style.color = colour;
+    node.append(probe);
+    const value = getComputedStyle(probe).color;
+    probe.remove();
+    return value;
+  }, colour);
+const dot = (mark: Locator) =>
+  mark.evaluate((node) => {
+    const { width, height, top, right, backgroundColor } = getComputedStyle(node, '::after');
+    return { width, height, top, right, backgroundColor };
+  });
+
+test('a working agent keeps its robot and gains a static dot; nothing animates', async ({
+  page,
+}) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   const host = await mountFixture(page);
   const idle = host.locator('[data-row=inline-idle] .agent-chip');
   const working = host.locator('[data-row=inline-working] .agent-chip');
   await expect(idle.locator('.agent-chip-icon')).toBeVisible();
-  await expect(idle.getByRole('img')).toHaveCount(0);
-  await expect(working.locator('.agent-chip-icon')).toHaveCount(0);
-  await expect(working.getByRole('img', { name: 'working' })).toBeVisible();
+  await expect(working.locator('.agent-chip-icon')).toBeVisible();
   await expect(working.locator('.agent-chip-name')).toHaveText('Atlas');
-  await expect(working.locator('.agent-chip-spinner')).toHaveCSS(
-    'animation-name',
-    'agent-chip-spin',
+  await expect(idle.locator('[data-working]')).toHaveCount(0);
+  await expect(working.locator('[data-working]')).toHaveCount(1);
+
+  // The dot is 6px, at the icon's top-right inside its box, in the working colour.
+  const mark = working.locator('.agent-chip-mark');
+  expect(await dot(mark)).toEqual({
+    width: '6px',
+    height: '6px',
+    top: '0px',
+    right: '0px',
+    backgroundColor: await resolved(host, 'var(--tmt-ui-color-working)'),
+  });
+  expect((await dot(idle.locator('.agent-chip-mark'))).width).not.toBe('6px');
+  // The robot and the text stay neutral.
+  expect(await working.locator('.agent-chip-icon').evaluate((n) => getComputedStyle(n).color)).toBe(
+    await idle.locator('.agent-chip-icon').evaluate((n) => getComputedStyle(n).color),
   );
-  // The bordered form works too, and the spinner takes the same 16px mark box.
-  const chip = host.locator('[data-row=chip-working] .agent-chip-spinner');
-  // Layout size: the turning ring's bounding box changes with the frame.
+
+  // Words for assistive technology and the hover text; the chip's width does not change.
+  await expect(working).toHaveAttribute('title', 'Atlas, working');
+  await expect(host.locator('[data-row=inline-working]')).toMatchAriaSnapshot(
+    '- paragraph: /Waiting for Atlas ?, working/',
+  );
+  await expect(host.locator('[data-row=inline-idle]')).toMatchAriaSnapshot(
+    '- paragraph: Waiting for Atlas',
+  );
+  expect((await working.boundingBox())!.width).toBeCloseTo((await idle.boundingBox())!.width, 0);
+
+  // The bordered form takes the same 16px mark box, with the dot in it.
+  const chip = host.locator('[data-row=chip-working] .agent-chip-mark');
   expect(await chip.evaluate((node: HTMLElement) => [node.offsetWidth, node.offsetHeight])).toEqual(
     [16, 16],
   );
+  expect((await dot(chip)).width).toBe('6px');
+  // Not even with motion allowed: no chip carries an animation.
+  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
 });
 
-test('reduced motion keeps the spinner ring still', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
+test('forced colours draw the dot in the system text colour', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
   const host = await mountFixture(page);
-  const spinner = host.locator('[data-row=inline-working] .agent-chip-spinner');
-  await expect(spinner).toBeVisible();
-  await expect(spinner).toHaveCSS('animation-name', 'none');
+  const mark = host.locator('[data-row=inline-working] .agent-chip-mark');
+  await expect(mark).toBeVisible();
+  expect((await dot(mark)).backgroundColor).toBe(await resolved(host, 'CanvasText'));
 });
 
 test('a sentence names its agents as inline chips and a list separates them', async ({ page }) => {

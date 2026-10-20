@@ -7,11 +7,44 @@
   gap: 4px;
   line-height: 1.4;
 }
-.agent-chip-icon,
-.agent-chip-spinner {
+.agent-chip-mark {
+  position: relative;
   flex: none;
+  display: inline-flex;
   width: 1em;
   height: 1em;
+}
+/* The icon fills the mark's box, whatever size the global icon rules give an svg. */
+.agent-chip[data-variant] .agent-chip-mark > .agent-chip-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Working is a small filled dot at the icon's top-right, inside its box so the chip keeps its width.
+ * Nothing moves; where colours are forced the dot is CanvasText and its shape still carries it. */
+.agent-chip-mark[data-working]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tmt-ui-color-working);
+}
+@media (forced-colors: active) {
+  .agent-chip-mark[data-working]::after {
+    background: CanvasText;
+  }
+}
+/* The state's words for assistive technology; the dot is the sighted equivalent. */
+.agent-chip-state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .agent-chip-name,
 .agent-chip-machine,
@@ -29,8 +62,7 @@
 .agent-chip[data-variant='inline'] {
   display: inline;
 }
-.agent-chip[data-variant='inline'] .agent-chip-icon,
-.agent-chip[data-variant='inline'] .agent-chip-spinner {
+.agent-chip[data-variant='inline'] .agent-chip-mark {
   display: inline-block;
   /* The surrounding text's 1em, whatever the global icon size says. */
   width: 1em;
@@ -66,12 +98,11 @@
   --tmt-ui-host-icon-action-size: 24px;
   --tmt-ui-header-icon-size: 12px;
 }
-.agent-chip[data-variant='chip'] .agent-chip-icon,
-.agent-chip[data-variant='chip'] .agent-chip-spinner {
+.agent-chip[data-variant='chip'] .agent-chip-mark {
   width: 16px;
   height: 16px;
 }
-.agent-chip[data-variant='chip'] > :is(.agent-chip-icon, .agent-chip-spinner, .tmt-ui-icon-action) {
+.agent-chip[data-variant='chip'] > :is(.agent-chip-mark, .tmt-ui-icon-action) {
   align-self: center;
 }
 /* The remove control keeps its 24px hit area; only 16px of it counts toward the line. */
@@ -81,22 +112,4 @@
 .agent-chip[data-variant='chip'][data-state='not-found'] {
   border-style: dashed;
   border-color: var(--tmt-ui-color-edge);
-}
-/* The ring takes the working colour; the name stays neutral and the label says it in words. */
-.agent-chip-spinner {
-  box-sizing: border-box;
-  border: 1.5px solid var(--tmt-ui-surface-rule);
-  border-top-color: var(--tmt-ui-color-working);
-  border-radius: 50%;
-  animation: agent-chip-spin 0.9s linear infinite;
-}
-@keyframes agent-chip-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .agent-chip-spinner {
-    animation: none;
-  }
 }

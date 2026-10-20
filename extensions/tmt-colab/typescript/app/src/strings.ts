@@ -328,7 +328,7 @@ export const text = {
   threadResolveAction: 'Resolve thread',
   threadCollapse: 'Collapse thread',
   threadCollapseHelp: 'Collapse · Esc',
-  /** The accessible name of the spinner an agent chip shows while its agent works. */
+  /** The text equivalent of the dot an agent chip shows while its agent works. */
   agentWorking: 'working',
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
