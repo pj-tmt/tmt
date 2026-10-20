@@ -12,6 +12,8 @@ mod caller_session;
 mod nested_host;
 #[path = "external_host/nested_provider.rs"]
 mod nested_provider;
+#[path = "external_host/run_exit.rs"]
+mod run_exit;
 #[path = "external_host/sampling.rs"]
 mod sampling;
 #[allow(dead_code)]
