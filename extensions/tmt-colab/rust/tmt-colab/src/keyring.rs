@@ -225,7 +225,9 @@ impl Keyring {
         seed.fill(0);
         Ok(key)
     }
-    /// Caller admits the remote certificate and pinned owner-member binding first.
+    /// Caller admits the remote certificate and pinned owner-member binding first. Public only for
+    /// the integration-test fixtures that issue a device chain; no product caller outside the crate.
+    #[doc(hidden)]
     pub fn sign_device_certificate(
         &self,
         cert: &tmt_colab_model::certificate::Certificate<'_>,

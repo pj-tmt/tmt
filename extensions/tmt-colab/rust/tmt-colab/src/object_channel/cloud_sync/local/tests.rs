@@ -255,7 +255,8 @@ fn a_page_combined_by_an_owner_fold_before_it_was_published_stops_with_a_visible
     assert_eq!(
         crate::cloud_sync::stopped_line("page-1", FOLDED_STOP),
         "Cloud sync stopped for page page-1. Some changes were combined by `tmt colab page compact`, \
-         and the cloud cannot carry combined changes yet (#4049). Edits continue on this machine."
+         and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, \
+         then restart it to resume. Edits continue on this machine."
     );
 }
 

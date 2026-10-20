@@ -186,7 +186,7 @@ impl StoreLocal {
 }
 /// What a person is told when a page cannot be published because a device's changes on it were
 /// combined by an owner fold.
-const FOLDED_STOP: &str = "Some changes were combined by `tmt colab page compact`, and the cloud cannot carry combined changes yet (#4049).";
+const FOLDED_STOP: &str = "Some changes were combined by `tmt colab page compact`, and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, then restart it to resume.";
 impl Local for StoreLocal {
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<Row>, Fault> {
         let now = (self.now)();

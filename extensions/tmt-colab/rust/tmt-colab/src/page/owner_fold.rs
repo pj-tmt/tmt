@@ -99,6 +99,13 @@ fn context(
     }
 }
 
+/// The run's time ran out before it wrote anything: every eligible stream that did not end in
+/// `left` is still to do, so the report says to run the command again.
+fn stopped(mut folds: Folds, to_do: usize) -> Folds {
+    folds.unfolded = to_do;
+    folds
+}
+
 /// Fold the streams of other devices of `page` that this machine's local writer may combine, one
 /// bounded step. Nothing is written unless the folded page equals the page as it is.
 pub fn fold_others(
@@ -246,6 +253,9 @@ pub fn fold_others(
     let mut pending: Vec<Pending> = Vec::new();
     let mut merges = 0;
     let mut reached = Vec::new();
+    // Eligible streams that ended in `left` here; every other one is either folded below or, when
+    // the run stops before its writes, still to do (`stopped`).
+    let mut failed = 0;
     for (position, candidate) in eligible.iter().enumerate() {
         if trigger.late() || (merges > 0 && merges + candidate.namespaces.len() > MERGES_PER_RUN) {
             folds.unfolded += 1;
@@ -290,14 +300,17 @@ pub fn fold_others(
                 }
             }
             if trigger.late() {
-                return Ok(folds);
+                return Ok(stopped(folds, eligible.len() - failed));
             }
         }
         match why {
-            Some(why) => folds.left.push(Left {
-                stream: candidate.stream.clone(),
-                why,
-            }),
+            Some(why) => {
+                failed += 1;
+                folds.left.push(Left {
+                    stream: candidate.stream.clone(),
+                    why,
+                });
+            }
             None => {
                 reached.push(position);
                 pending.extend(merged_stream);
@@ -312,7 +325,7 @@ pub fn fold_others(
     // the first fold can make a paired prefix eligible for pruning.
     let current = s.materialize(key, page, decoder)?;
     if trigger.late() {
-        return Ok(folds);
+        return Ok(stopped(folds, eligible.len() - failed));
     }
     let replacements = pending
         .iter()
@@ -337,7 +350,7 @@ pub fn fold_others(
     }
     // Everything above only read; from here the page changes.
     if trigger.late() {
-        return Ok(folds);
+        return Ok(stopped(folds, eligible.len() - failed));
     }
     for position in reached {
         let candidate = &eligible[position];

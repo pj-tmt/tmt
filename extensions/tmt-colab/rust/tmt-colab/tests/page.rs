@@ -1986,6 +1986,32 @@ fn a_requested_compaction_past_its_deadline_says_it_could_not_combine_and_writes
 }
 
 #[test]
+fn a_fold_run_past_its_deadline_counts_the_devices_it_did_not_reach_and_writes_nothing() {
+    let mut f = Fixture::new();
+    let mut other = f.owner_device(FOLDED, 21);
+    f.write("old 🐈\r\n<p>local</p>");
+    other.type_text(&mut f, "[a]");
+    other.type_text(&mut f, "[b]");
+    let late = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(1))
+        .unwrap();
+    let stored = f.bytes();
+    let mut decoder = f.decoder();
+    let report =
+        page::compact::request(&mut f.store, &f.key, PAGE, &mut decoder, Some(late)).unwrap();
+    // The person is told to run it again: the other device's changes are counted, not dropped.
+    assert!(!report.compacted);
+    assert_eq!(report.skipped, Some(page::compact::Skipped::NotCombined));
+    assert_eq!(report.unfolded, 1);
+    assert_eq!(report.folded, []);
+    assert_eq!(f.bytes(), stored, "a run that gave up changed nothing");
+    // With time left the same request folds it, so the deadline was the only reason.
+    let report = request_compaction(&mut f);
+    assert_eq!(report.folded.len(), 1);
+    assert_eq!(report.unfolded, 0);
+}
+
+#[test]
 fn a_write_after_a_requested_compaction_lands_in_the_tail_and_the_next_one_keeps_it() {
     let mut f = Fixture::new();
     let mut source = String::from("old 🐈\r\n");

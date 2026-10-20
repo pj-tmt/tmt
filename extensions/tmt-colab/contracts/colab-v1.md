@@ -1845,10 +1845,11 @@ anything is pruned.
   the keys are absent when empty.
 - **Cloud.** The cloud channel carries no anchor, so a cloud reader would refuse a stream whose
   checkpoint is a fold. The cloud publisher therefore never starts from one: a page whose next
-  checkpoint to publish is a fold stops with the visible line `Some changes were combined by
-`tmt colab page compact`, and the cloud cannot carry combined changes yet (#4049).` and edits
-  continue locally. This holds for a page that was never published, compacted, and then activated.
-  [#4049](https://github.com/pj-tmt/tmt/issues/4049) lifts the stop by carrying the anchor.
+  checkpoint to publish is a fold stops with a visible line that names the command and the way out
+  (update Colab when a release adds combined changes, then restart it), and edits continue locally.
+  This holds for a page that was never published, compacted, and then activated.
+  [#4049](https://github.com/pj-tmt/tmt/issues/4049) lifts the stop by carrying the anchor. User
+  text never carries the issue number.
 
 Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
 admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer
