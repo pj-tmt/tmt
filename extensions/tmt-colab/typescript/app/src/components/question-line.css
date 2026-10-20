@@ -1,9 +1,16 @@
+/* The surface and the ink of a card over the author's page are the band's (needs-you.css). An open
+   block adds the band edge, drawn inside the box so opening moves nothing. */
 .question-compact-block {
+  box-sizing: border-box;
   max-height: 1900px;
   overflow: auto;
+  padding: 0 12px;
   color: var(--tmt-ui-color-text);
-  background: transparent;
   pointer-events: auto;
+}
+.question-compact-block[data-expanded] {
+  outline: 1px solid var(--tmt-ui-color-edge);
+  outline-offset: -1px;
 }
 .question-compact-heading {
   margin: 0;
@@ -21,13 +28,20 @@
   margin: 0;
   padding: 10px 0;
   border: 0;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
   border-radius: 0;
   background: transparent;
   color: var(--tmt-ui-color-text);
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+/* A closed line has no rule. An open one, the head of its controls, has one across the whole block,
+   past the block's own side padding. */
+.question-line[aria-expanded='true'] {
+  width: calc(100% + 24px);
+  margin-inline: -12px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .question-line:hover {
   background: var(--tmt-ui-surface-selection);

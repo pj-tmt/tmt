@@ -297,6 +297,13 @@ single header count uses `openThreadCount` for undecided unresolved proposals pl
 unresolved ordinary annotations, excluding Chat/deleted records and decided
 proposals; filtering does not change it. No new token or surface variant is introduced.
 
+A card the parent draws over the author's page (the compact question block, group and answer batch,
+a proposal card) takes the needs-you band's surface in the active theme, whatever the page paints,
+and an open block or a proposal card adds the 1px edge. All text in it is the theme ink: the
+secondary grey is not used on that fill (3.9:1 on the dark band), so rank comes from size and
+place. `e2e/page-surface-contrast.spec.ts` holds text to 4.5:1 and an open card's fill or edge to
+3:1 against the page, on a light, a dark and an unpainted page in both themes at 1440 and 390 px.
+
 `use-reply-notifications.ts` owns page-local Chat/Thread/Answer/Proposal presentation over admitted
 Ask finals and discussion comments; `reply-notifications.ts` reuses authenticated
 Yours refs and existing comment/Ask associations. The page read owner baselines

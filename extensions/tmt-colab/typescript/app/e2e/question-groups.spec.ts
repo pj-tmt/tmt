@@ -436,14 +436,18 @@ for (const width of [1440, 390])
           await (await pageAction(page.locator('#ask-page-fixture'), 'Theme: Dark')).click();
         const block = group.locator('.question-compact-block');
         const rows = group.locator('.question-line');
-        const background = 'rgba(0, 0, 0, 0)';
         const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
+        // The block is Colab's layer over the author's page: the needs-you band surface in the
+        // active theme, whatever the page paints; what it holds adds no surface of its own.
+        await expect(block).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
+        );
         for (const surface of [
-          block,
           activeCard(page).locator('.question-controls'),
           group.locator('.question-group-footer'),
         ])
-          await expect(surface).toHaveCSS('background-color', background);
+          await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
         await expect(block).toHaveCSS('color', ink);
         await expect(activeCard(page).locator('.question-controls')).toHaveCSS(
           'color-scheme',

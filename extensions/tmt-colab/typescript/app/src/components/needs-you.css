@@ -19,6 +19,15 @@
 .needs-you-bar[data-tone='done'] {
   color: var(--tmt-ui-color-secondary);
 }
+/* A Colab card over the author's page is one family with the band: the band surface whatever the
+   page paints, and the theme ink for all its text, since the secondary grey falls below 4.5:1 on the
+   dark band. Hierarchy inside comes from size and position. */
+.question-compact-block,
+.proposal-inline .proposal-card {
+  --tmt-ui-color-secondary: var(--tmt-ui-color-text);
+  --c-muted: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-mention-agent);
+}
 .needs-you-line {
   flex: 1 1 auto;
   min-width: 0;
