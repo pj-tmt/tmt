@@ -455,18 +455,6 @@ function SelectionAnnotation({
 }
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
-/** Style the command in the same complete sentence used by live errors. */
-function ReconnectFailure() {
-  const [before, after] = text.reconnectFailed.split(text.reconnectCommand);
-  return (
-    <>
-      {before}
-      <code className="tmt-ui-code">{text.reconnectCommand}</code>
-      {after}
-    </>
-  );
-}
-
 /** A terminal refusal as a sentence; its raw code stays as a small reference. */
 function TerminalFailure({
   error,
@@ -479,7 +467,7 @@ function TerminalFailure({
   const { sentence, reference } = terminalFailure(error);
   return (
     <>
-      <p>{sentence === text.reconnectFailed ? <ReconnectFailure /> : sentence}</p>
+      <p>{sentence}</p>
       {showReference && reference && (
         <p>
           <small className="failure-reference">
@@ -522,7 +510,7 @@ function EndedBody({
       {action === 'pair' && (
         <>
           <p>{text.pairAgain}</p>
-          <BrowserCommand text={text.reconnectCommand} />
+          <BrowserCommand text={text.pairCommand} />
         </>
       )}
     </>
@@ -672,17 +660,7 @@ const root = createRootRouteWithContext<AppContext>()({
               {failure ? (
                 <TerminalFailure error={error as Error} />
               ) : (
-                <p>
-                  {error instanceof Error ? (
-                    error.message === text.reconnectFailed ? (
-                      <ReconnectFailure />
-                    ) : (
-                      error.message
-                    )
-                  ) : (
-                    text.blocked
-                  )}
-                </p>
+                <p>{error instanceof Error ? error.message : text.blocked}</p>
               )}
             </NoticeCard>
           )}

@@ -5,6 +5,7 @@ import { SessionLimitError } from './session-limit-error.js';
 /** Why a live page ended for good. Each cause owns one `strings.ts` sentence. */
 export type FailureCause =
   | 'access'
+  | 'pairing'
   | 'gone'
   | 'session'
   | 'large'
@@ -59,8 +60,9 @@ export const CONNECTION_CODES: Readonly<Record<string, Classification>> = {
   REMOTE_CLOSED: recover('session', 'access'),
   REMOTE_GRANT_CHANGED: recover('session', 'access'),
   REMOTE_SERVE_STOPPED: recover('session'),
-  REMOTE_DEVICE_REVOKED: end('access'),
-  REMOTE_DEVICE_NOT_FOUND: end('access'),
+  REMOTE_DEVICE_REVOKED: end('pairing'),
+  REMOTE_DEVICE_NOT_FOUND: end('pairing'),
+  REMOTE_GRANT_EXPIRED: end('pairing'),
   'Page unavailable': end('gone'),
   REMOTE_SESSION_ENDED: end('session'),
   REMOTE_SEQUENCE_UNAVAILABLE: end('session'),
@@ -88,9 +90,10 @@ const REOPEN_REASONS: Readonly<Record<ReopenFailedError['reason'], Classificatio
   unconfirmed: recover('retry'),
   transient: recover('retry'),
   unpaired: end('unpaired'),
-  mismatch: end('unpaired'),
-  revoked: end('access'),
-  expired: end('access'),
+  // A different saved identity can still be paired; it is not proof of pairing loss.
+  mismatch: end('access'),
+  revoked: end('pairing'),
+  expired: end('pairing'),
   // The verified limit refusal arrives as a `SessionLimitError` (registration.ts) and has its own
   // card; a capacity reason without one is unverifiable and ends as a plain failure.
   capacity: generic,

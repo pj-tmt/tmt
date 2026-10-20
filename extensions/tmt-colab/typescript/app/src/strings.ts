@@ -23,7 +23,7 @@ function where(excerpt: string, line: number): string {
   return excerpt === '' ? `at line ${line}` : `near \u201c${excerpt}\u201d (line ${line})`;
 }
 
-const reconnectCommand = 'tmt remote pair';
+const pairCommand = 'tmt remote pair';
 
 export const text = {
   quickSwitcher: {
@@ -330,8 +330,8 @@ export const text = {
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
   sendOnHold: 'Send is on hold until the connection is back.',
-  reconnectCommand,
-  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair for page access with ${reconnectCommand}.`,
+  pairCommand,
+  reconnectFailed: 'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
   sessionEvicted: (limit: number) =>
     `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
   sessionLimitTitle: 'Remote session limit reached',
@@ -801,11 +801,13 @@ export const text = {
   failureAccessEnded: 'Your access to this page ended. Open it again to continue.',
   failureUnpaired: 'This browser is not paired with Remote for this page.',
   pairAgain: 'Pair again with:',
-  failurePageGone: 'This page is no longer available. It may have been deleted.',
-  failureSessionEnded: 'The Remote session for this page ended. Reopen the page to continue.',
+  failurePageGone:
+    'This page is unavailable. Open it again from the machine. Your pairing is unchanged.',
+  failureSessionEnded: "This page's connection ended. Try again. Your pairing is unchanged.",
   failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
   failureGeneric: 'This page stopped syncing. Reopen it to try again.',
-  failureSessionLimit: 'Your paired device is at its Remote session limit.',
+  failureSessionLimit:
+    "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
   failureCodeLabel: 'Code:',
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',

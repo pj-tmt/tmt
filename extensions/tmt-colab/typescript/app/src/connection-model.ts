@@ -27,12 +27,14 @@ export type ConnectionState =
   | (Ended & { readonly error: Error });
 
 const ACTIONS: Record<FailureCause, EndedAction> = {
-  // Access ended or the pairing is gone: only a new pairing helps.
-  access: 'pair',
+  // Only verified pairing loss permits pairing instructions. Access and identity failures
+  // can leave the browser paired; opening the page again checks its current access.
+  access: 'reload',
+  pairing: 'pair',
   unpaired: 'pair',
   // Nothing to pair for a page that no longer exists.
   gone: 'pages',
-  session: 'none',
+  session: 'reload',
   // The device is at its Remote session limit: a reload opens the page once another one closes.
   capacity: 'reload',
   large: 'none',

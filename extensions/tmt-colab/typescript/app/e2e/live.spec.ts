@@ -1491,7 +1491,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
   // The one action fits the reason: pairing again, with its command.
   await expect(page.locator('.tmt-ui-notice')).toContainText(copy.pairAgain);
-  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.reconnectCommand);
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.pairCommand);
   await capture('terminal-refusal');
   await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
@@ -1821,7 +1821,7 @@ for (const surface of ['Chat', 'annotation'] as const) {
     await expect(status).toContainText(copy.failureAccessEnded);
     await expect(container.getByText(copy.failureAccessEnded, { exact: true })).toHaveCount(1);
     await expect(status).toContainText(copy.pairAgain);
-    await expect(status).toContainText(copy.reconnectCommand);
+    await expect(status).toContainText(copy.pairCommand);
     await expect(status).not.toContainText(copy.messageAgentsUnavailable);
     await expect(status).not.toContainText(copy.sendOnHold);
     await expect(
@@ -1865,7 +1865,7 @@ for (const surface of ['Chat', 'annotation'] as const) {
       const source = page.locator('.tmt-ui-drawer[data-panel=source]');
       const notice = source.locator('.drawer-recovery');
       await expect(notice).toContainText(copy.failureAccessEnded);
-      await expect(notice).toContainText(copy.reconnectCommand);
+      await expect(notice).toContainText(copy.pairCommand);
       await expect(source.getByText(copy.failureAccessEnded, { exact: true })).toHaveCount(1);
     }
   });

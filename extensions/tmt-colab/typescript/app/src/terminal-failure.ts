@@ -4,6 +4,7 @@ import { AdmissionRefusedError } from './registration.js';
 
 const SENTENCES: Record<FailureCause, string> = {
   access: text.failureAccessEnded,
+  pairing: text.failureAccessEnded,
   unpaired: text.failureUnpaired,
   gone: text.failurePageGone,
   session: text.failureSessionEnded,

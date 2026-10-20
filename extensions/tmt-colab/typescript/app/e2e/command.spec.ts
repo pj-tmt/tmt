@@ -109,7 +109,7 @@ test('long literal commands wrap within a narrow page and copy every byte', asyn
 });
 
 for (const screen of ['reconnect-error', 'reconnect-terminal'] as const) {
-  test(`${screen} card keeps the complete reconnect command sentence`, async ({ page }) => {
+  test(`${screen} card offers reopening without pairing instructions`, async ({ page }) => {
     await page.goto('/');
     await page.evaluate(async (screen) => {
       const fixtureUrl = '/test/chrome-browser.tsx';
@@ -118,7 +118,8 @@ for (const screen of ['reconnect-error', 'reconnect-terminal'] as const) {
     const card = page.locator('#chrome-fixture .tmt-ui-notice');
     await expect(card).toBeVisible();
     await expect(card.locator('p')).toHaveText(text.reconnectFailed);
-    await expect(card.locator('code.tmt-ui-code')).toHaveText('tmt remote pair');
+    await expect(card).not.toContainText('tmt remote pair');
+    await expect(card.locator('.tmt-ui-command')).toHaveCount(0);
     await expect(card.locator('[data-failure-reference]')).toHaveCount(0);
     const directory = process.env.TMT_COMMAND_CAPTURE_DIR;
     if (directory) {
@@ -129,6 +130,54 @@ for (const screen of ['reconnect-error', 'reconnect-terminal'] as const) {
           await page.setViewportSize({ width, height: 900 });
           expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
           await page.screenshot({ path: `${directory}/colab-${screen}-${width}-${theme}.png` });
+        }
+      }
+    }
+  });
+}
+
+for (const [failure, sentence, pairingRequired] of [
+  ['capacity', text.sessionLimitReached(8), false],
+  ['ended', text.failureSessionEnded, false],
+  ['gone', text.failurePageGone, false],
+  ['uncertain', text.reconnectFailed, false],
+  ['denied', text.failureAccessEnded, false],
+  ['mismatch', text.failureAccessEnded, false],
+  ['missing', text.failureUnpaired, true],
+  ['revoked', text.failureAccessEnded, true],
+  ['expired', text.failureAccessEnded, true],
+] as const) {
+  test(`recovery ${failure} ${pairingRequired ? 'offers pairing for verified loss' : 'does not require pairing'}`, async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.evaluate(async (failure) => {
+      const fixtureUrl = '/test/chrome-browser.tsx';
+      await (await import(fixtureUrl)).mount('reconnect-terminal', failure);
+    }, failure);
+    const card = page.locator('#chrome-fixture .tmt-ui-notice');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText(sentence);
+    if (!pairingRequired) {
+      await expect(card).not.toContainText(text.pairCommand);
+      await expect(card).not.toContainText(text.pairAgain);
+      if (failure === 'ended' || failure === 'denied' || failure === 'mismatch')
+        await expect(card.getByRole('button', { name: text.reload, exact: true })).toBeVisible();
+    } else {
+      await expect(card).toContainText(text.pairAgain);
+      await expect(card.locator('.tmt-ui-command-text')).toHaveText(text.pairCommand);
+    }
+    const directory = process.env.TMT_COMMAND_CAPTURE_DIR;
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        if (directory) {
+          await mkdir(directory, { recursive: true });
+          await page.screenshot({
+            path: `${directory}/colab-recovery-${failure}-${width}-${theme}.png`,
+          });
         }
       }
     }

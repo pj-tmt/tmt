@@ -307,8 +307,9 @@ stays, the match never goes stale (`staleTime: Infinity`): a thread selection re
 address fragment, and a reload for it would replace the binding and close its writer under a send
 in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
-command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
-page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
+command only for verified revoked, expired or missing pairing; a way back to the space for a
+page that is gone; `Reload` for ended sessions, access refusals, identity mismatches and a device
+at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
 composer owns its ended sentence/action once; an archived Chat and every other drawer keep
 the same sentence/action in the `notice` row under the header. An ended annotation keeps its
 action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
@@ -317,7 +318,9 @@ and publishes failures, and no longer decides terminal or recoverable for the pa
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
 codes, Remote refusal codes, HTTP admission refusals, a few short messages, each `ReopenFailedError` reason): what recovers
 it (`resync` on the same session, replace the `session`, `reopen` the page for a new epoch,
-`retry` a fresh open, or `none`) and which sentence it ends with. `live.ts`, `readmit.ts`,
+`retry` a fresh open, or `none`) and which sentence it ends with. Verified pairing loss is a
+separate cause from page access ending; a saved identity mismatch never proves pairing loss.
+Generic reconnect failures offer reopening and never embed a pairing command. `live.ts`, `readmit.ts`,
 `connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
 `REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
 silently; the access card shows only when that fresh open is refused (#2619).

@@ -27,7 +27,7 @@ describe('terminal failure wording', () => {
     ['revoked', text.failureAccessEnded],
     ['expired', text.failureAccessEnded],
     ['unpaired', text.failureUnpaired],
-    ['mismatch', text.failureUnpaired],
+    ['mismatch', text.failureAccessEnded],
     ['capacity', text.failureGeneric],
   ] as const)('a fresh open refused as %s ends with its own sentence', (reason, sentence) => {
     expect(terminalFailure(new ReopenFailedError(reason))).toEqual({

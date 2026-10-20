@@ -27,6 +27,7 @@ export function openFailure(error: Error): OpenFailure {
   if (recovery !== 'none') return { kind: 'retry', reference };
   switch (cause) {
     case 'access':
+    case 'pairing':
     case 'gone':
     case 'unpaired':
     case 'capacity':
