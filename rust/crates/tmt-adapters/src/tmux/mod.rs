@@ -13,7 +13,6 @@ mod transport;
 mod workspace;
 mod workspace_restore;
 pub use binding::{BindingSession, PaneCosmetics, PaneRefresh};
-pub use discovery::DiscoveryObservation;
 pub use focus::{ClientView, FocusError, Invoker};
 
 #[cfg(test)]

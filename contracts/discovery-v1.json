@@ -132,6 +132,68 @@
         },
         "expect": "03357e59bd802a60b19796dcee87f5da95d89c74d6d068d5cfb2949faefbb3b6"
       }
-    ]
+    ],
+    "externalVectors": {
+      "base": {
+        "host": "herdr",
+        "socket": "/tmp/herdr.sock",
+        "serverPid": 1,
+        "serverStartTime": "server-start",
+        "pane": "term_7",
+        "panePid": 2,
+        "paneStartIdentity": "pane-start",
+        "runtime": "codex"
+      },
+      "vectors": [
+        {
+          "name": "herdr_unmarked",
+          "serverStartIdentity": "server-start",
+          "serverId": null,
+          "marker": null,
+          "expect": "1472ed2e2c97e43dd2aa16a54934d532e6bbe7660908be69ec58b9db9c20b242"
+        },
+        {
+          "name": "herdr_pane_reopened_same_id",
+          "serverStartIdentity": "server-start",
+          "paneStartIdentity": "pane-reopened",
+          "serverId": null,
+          "marker": null,
+          "expect": "28d06f555aa6ed262ce673732dd25bf29ea22d53ad37ebed1fcfee44cc2f6ac9"
+        },
+        {
+          "name": "herdr_server_restarted",
+          "serverStartIdentity": "server-restart",
+          "serverStartTime": "server-restart",
+          "serverId": null,
+          "marker": null,
+          "expect": "df032d28aa1f68a49d273046babc469b058a2f90ef59bb4f1197518deba8a037"
+        },
+        {
+          "name": "herdr_owned_pane",
+          "serverStartIdentity": "server-start",
+          "serverId": "11111111-1111-4111-8111-111111111111",
+          "marker": {
+            "identityId": "22222222-2222-4222-8222-222222222222",
+            "bindingId": "33333333-3333-4333-8333-333333333333",
+            "serverId": "11111111-1111-4111-8111-111111111111",
+            "panePid": 2
+          },
+          "expect": "c1816e90167498ef7b429bc800f4063be971b99ee28232bbfd6f895cd36fb183"
+        },
+        {
+          "name": "herdr_marker_renamed",
+          "serverStartIdentity": "server-start",
+          "serverId": "11111111-1111-4111-8111-111111111111",
+          "marker": {
+            "identityId": "22222222-2222-4222-8222-222222222222",
+            "bindingId": "33333333-3333-4333-8333-333333333333",
+            "serverId": "11111111-1111-4111-8111-111111111111",
+            "panePid": 2,
+            "name": "renamed"
+          },
+          "expect": "c1816e90167498ef7b429bc800f4063be971b99ee28232bbfd6f895cd36fb183"
+        }
+      ]
+    }
   }
 }

@@ -41,7 +41,6 @@ use tmt_core::{
     request::RequestEndpoint,
 };
 
-pub use crate::tmux::DiscoveryObservation;
 pub use crate::tmux::{
     ClientView, FocusError, Invoker, OperationOptions, PaneCosmetics, PaneRefresh,
 };
@@ -49,6 +48,7 @@ pub(crate) use delivery::DeliveryCause;
 pub use delivery::{DeliveryError, DeliveryStage};
 pub use driver::PaneSwap;
 pub use driver::{AgentNameRefusal, AgentNaming};
+pub use tmt_core::discovery::DiscoveryObservation;
 pub use tmt_core::host::SwapDirection;
 
 /// Recovery topology and evidence returned by the optional host capture port.

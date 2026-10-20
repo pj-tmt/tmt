@@ -14,24 +14,35 @@ use tmt_core::{
 
 struct GuardedEndpoint {
     inner: FakeEndpoint,
+    pane: String,
     reads: usize,
     replace_at: Option<usize>,
     marker_at: Option<usize>,
 }
 impl GuardedEndpoint {
     fn new() -> Self {
-        let mut inner = FakeEndpoint::new(&["%1", "%2"]);
+        Self::on(tmt_core::host::HostKind::Tmux, &["%1", "%2"])
+    }
+    fn on(host: tmt_core::host::HostKind, panes: &[&str]) -> Self {
+        let mut inner = FakeEndpoint::new(panes);
+        inner.server.host = host;
+        if host != tmt_core::host::HostKind::Tmux {
+            // An external server's start time is core's own start token.
+            inner.server.server_start_time = "server-native".into();
+        }
         inner.starts.insert(100, "pane-native".into());
-        inner.pane_mut("%1").pane_incarnation = Some("pane-native".into());
+        inner.pane_mut(panes[0]).pane_incarnation = Some("pane-native".into());
         Self {
             inner,
+            pane: panes[0].into(),
             reads: 0,
             replace_at: None,
             marker_at: None,
         }
     }
     fn target(&mut self) -> DiscoveryTarget {
-        self.discovery_target("%1").unwrap().unwrap()
+        let pane = self.pane.clone();
+        self.discovery_target(&pane).unwrap().unwrap()
     }
 }
 impl BindingEndpoint for GuardedEndpoint {
@@ -75,6 +86,7 @@ impl GuardedBindingEndpoint for GuardedEndpoint {
         let server = self.inner.server.clone();
         let observed = self.inner.pane_mut(pane).clone();
         let mut target = DiscoveryTarget {
+            host: server.host,
             socket: server.socket_path,
             server: ProcessIncarnation::new(server.server_pid, "server-native").unwrap(),
             server_id: Some(server.server_id),
@@ -182,6 +194,55 @@ fn guarded_add_binds_uuid_not_a_name_and_is_idempotent_with_a_fresh_expectation(
     .unwrap_err();
     assert!(matches!(old, BindingError::TargetChanged(_)));
     assert_eq!(endpoint.inner.current_calls, before);
+    storage.close().unwrap();
+}
+
+#[test]
+fn guarded_add_finds_an_external_pane_owner_by_the_fenced_host() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let herdr = tmt_core::host::HostKind::parse("herdr").unwrap();
+    let mut endpoint = GuardedEndpoint::on(herdr, &["term_7", "term_8"]);
+    let target = endpoint.target();
+    assert_eq!(target.host, herdr);
+    assert_eq!(target.server_start_time, target.server.start_identity());
+    let first = binding::bind_guarded(
+        &mut storage,
+        &mut endpoint,
+        &target,
+        GuardedIdentity::Name("first"),
+        false,
+    )
+    .unwrap();
+    let binding = first.bound.presence.binding.clone().unwrap();
+    assert_eq!(binding.server.host, herdr);
+    assert_eq!(binding.pane_id, "term_7");
+    let id = first.bound.presence.identity.id.clone();
+    let next = endpoint.target();
+    let second = binding::bind_guarded(
+        &mut storage,
+        &mut endpoint,
+        &next,
+        GuardedIdentity::Uuid(&id),
+        false,
+    )
+    .unwrap();
+    assert!(second.already_bound);
+    assert_eq!(second.bound.presence.binding, Some(binding));
+    assert_eq!(endpoint.inner.publish_calls, 1);
+    let other = create_or_resolve(&mut storage, "other", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let taken = binding::bind_guarded(
+        &mut storage,
+        &mut endpoint,
+        &next,
+        GuardedIdentity::Uuid(&other.id),
+        false,
+    )
+    .unwrap_err();
+    assert!(matches!(taken, BindingError::PaneAlreadyBound), "{taken:?}");
+    assert_eq!(endpoint.inner.publish_calls, 1);
     storage.close().unwrap();
 }
 
@@ -386,6 +447,8 @@ fn read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_an
         text_truncated: false,
     };
     let observation = |fence: DiscoveryTarget| DiscoveryObservation {
+        host: fence.host,
+        source: tmt_core::discovery::DiscoverySource::Ok,
         socket: fence.socket.clone(),
         candidates: vec![candidate(fence)],
         truncated: false,
@@ -402,6 +465,18 @@ fn read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_an
     .unwrap();
     assert_eq!(live.candidates[0].state, "known");
     assert!(live.candidates[0].adoptable());
+    // Stored rows of one host never annotate another host's pane.
+    let mut elsewhere = known.clone();
+    elsewhere.host = tmt_core::host::HostKind::parse("herdr").unwrap();
+    let mut elsewhere = observation(elsewhere);
+    annotate(
+        &mut elsewhere,
+        &fixture.database,
+        std::time::Instant::now() + std::time::Duration::from_secs(2),
+    )
+    .unwrap();
+    assert_eq!(elsewhere.candidates[0].state, "hook_only");
+    assert!(elsewhere.candidates[0].identity.is_none());
     let after = storage
         .with_binding_transaction(|records| records.binding_entries())
         .unwrap();
