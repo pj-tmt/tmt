@@ -1320,3 +1320,133 @@ fn short_public_reply_deadline_closes_the_owned_extension_connection() {
         .recv_timeout(Duration::from_secs(5))
         .expect("extension connection leaked");
 }
+
+#[test]
+fn shell_is_owner_only_and_reserves_the_hyphen_mount() {
+    let door = Mounted::new(Arc::new(OneOwner));
+    let path = door.at("/x/-/shell");
+    assert_eq!(door.status(&door.get(&path, "")), 404);
+    let reply = door.send(door.get(&path, &format!("Cookie: {OWNER}\r\n")).as_bytes());
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    let body: serde_json::Value =
+        serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["modules"][0]["extension"], "remote");
+    assert_eq!(
+        body["modules"][0]["rail"]["path"],
+        format!("{}/remote/", door.origin)
+    );
+    assert!(!tmt_remote::canonical::extension_name("-"));
+    assert!(EXTENSIONS.iter().all(|extension| extension.name != "-"));
+}
+
+#[test]
+fn shell_callback_is_private_bounded_and_browser_markers_never_forward() {
+    let door = Mounted::new(Arc::new(OneOwner));
+    let body=serde_json::json!({"version":1,"rail":{"label":"Colab","icon":"file-text","path":"/","order":100},"menu":[],"settings":[],"needsYou":7}).to_string();
+    let extension = door.extension(Arc::new(move |mut stream, seen| {
+        let head = request(&mut stream);
+        seen.push(head.clone());
+        let text = String::from_utf8(head).unwrap();
+        let body = if text.starts_with("GET /.tmt/remote/describe ") {
+            body.as_str()
+        } else {
+            "{}"
+        };
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    }));
+    let path = door.at("/x/-/shell");
+    for headers in ["", "Cookie: tmt_door=unknown\r\n"] {
+        assert_eq!(door.status(&door.get(&path, headers)), 404);
+    }
+    assert!(
+        extension.seen.all().is_empty(),
+        "pre-auth describe leaked counts"
+    );
+    let reply = door.send(door.get(&path, &format!("Cookie: {OWNER}\r\n")).as_bytes());
+    let body: serde_json::Value =
+        serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["modules"][0]["extension"], "colab");
+    assert_eq!(body["modules"][0]["needsYou"], 7);
+    assert_eq!(
+        body["modules"][0]["rail"]["path"],
+        format!("{}{}/x/colab/", door.origin, door.prefix)
+    );
+    let seen = extension.seen.all();
+    assert_eq!(seen.len(), 1);
+    assert!(seen[0].contains("\r\ntmt-describe: 1\r\n"));
+    assert!(seen[0].contains(&format!("\r\ntmt-mount: {}/x/colab/\r\n", door.prefix)));
+    assert!(!seen[0].to_ascii_lowercase().contains("cookie:"));
+    assert!(!seen[0].to_ascii_lowercase().contains("tmt-device-context:"));
+    for path in [
+        door.at("/x/colab/.tmt/remote/describe"),
+        door.at("/x/-/shell/"),
+    ] {
+        assert_eq!(
+            door.status(&door.get(&path, &format!("Cookie: {OWNER}\r\ntmt-describe: 1\r\n"))),
+            404
+        );
+    }
+    assert_eq!(extension.seen.all().len(), 1);
+    assert_eq!(
+        door.status(&door.get(&door.at("/x/colab/"), "tmt-describe: 1\r\n")),
+        200
+    );
+    assert!(!extension.seen.all()[1].contains("tmt-describe:"));
+}
+
+#[test]
+fn shell_skips_non_json_non_success_and_malformed_descriptions() {
+    for reply in [
+        b"HTTP/1.1 503 Unavailable\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}".as_slice(),
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 2\r\n\r\n{}",
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16385\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1\r\n\r\n\xff",
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\n{}",
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{}",
+    ] {
+        let door=Mounted::new(Arc::new(OneOwner));
+        let _extension=door.extension(replying(reply));
+        let reply=door.send(door.get(&door.at("/x/-/shell"),&format!("Cookie: {OWNER}\r\n")).as_bytes());
+        assert!(reply.starts_with("HTTP/1.1 200"),"{reply}");
+        let value:serde_json::Value=serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(value["modules"].as_array().unwrap().len(),1,"invalid callback was admitted");
+        assert_eq!(value["modules"][0]["extension"],"remote");
+    }
+}
+
+#[test]
+fn a_hyphen_extension_cannot_shadow_the_reserved_shell_segment() {
+    static INVALID: [Extension; 1] = [Extension {
+        name: "-",
+        body_bytes: 1024,
+        reply_bytes: 1024,
+        tunnels: 1,
+        tunnel_idle: Duration::from_secs(1),
+        objects: ObjectDeclaration::Disabled,
+    }];
+    let door = Mounted::with(Arc::new(OneOwner), &INVALID);
+    assert!(
+        door.mounts
+            .extension_of(&door.at("/x/-/anything"))
+            .is_none()
+    );
+    assert_eq!(
+        door.status(&door.get(&door.at("/x/-/anything"), &format!("Cookie: {OWNER}\r\n"))),
+        404
+    );
+    let reply = door.send(
+        door.get(&door.at("/x/-/shell"), &format!("Cookie: {OWNER}\r\n"))
+            .as_bytes(),
+    );
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    let body: serde_json::Value =
+        serde_json::from_str(reply.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["modules"].as_array().unwrap().len(), 1);
+    assert_eq!(body["modules"][0]["extension"], "remote");
+}

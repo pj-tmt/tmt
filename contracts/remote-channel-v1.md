@@ -1643,6 +1643,51 @@ headers are stripped. Only the door sets these headers: `tmt-mount` identifies t
 `tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
 is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
+### Module descriptions and composed shell
+
+`-` is reserved and can never be an extension or mount name. The door handles
+`GET /r/<prefix>/x/-/shell` before extension lookup; it is not forwarded. It requires
+an existing live owner-device session, rechecked after composition, and uses the existing
+mount-space cookie. Missing or ended authority receives the generic 404. Display data grants
+no page, operation or sending access.
+
+On demand, Remote asks each enabled extension on its admitted owner-only mount socket:
+`GET /.tmt/remote/describe`, with `tmt-describe: 1`, the actual `tmt-mount`, the door's
+`Host`, no body and `Connection: close`. Browser traffic cannot reach the `/.tmt` subtree
+or supply the callback marker. A callback has one second for connect/write/read and a
+16 KiB body cap; only HTTP 200 with `application/json` is admitted.
+
+The entire UTF-8 JSON object must match version 1; unknown or duplicate fields, missing
+required fields, explicit null optionals, invalid strings or exceeded bounds refuse the
+whole answer. Its fields are:
+
+- `version: 1`.
+- `rail: {label, icon, path, order}`: label 1–16 Unicode scalars; order 0–999.
+- `menu`: up to 24 `{id, label, path, group?, count?}` items; label 1–40 scalars,
+  group 1–24; count is `{value, kind}` with integer value 0–9999 and kind
+  `needs-you` or `plain`.
+- `settings`: up to 16 `{id, label, path}` items, label 1–40 scalars.
+- `needsYou`: integer 0–9999, display-only.
+- Optional `home`: up to eight `{id, title, path}` items, title 1–40 scalars.
+
+IDs match `[a-z0-9-]{1,32}` and are unique within their list. Labels contain no controls
+or bidi controls and are text, never markup. Icons are names from `house`, `file-text`,
+`monitor-smartphone`, `users`, `chart-column`, `search`, `settings`, `box`; an unknown
+lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Paths match
+`^/[A-Za-z0-9._~/-]{0,255}$` with no `..` segment or `//`, query, fragment, URL or
+escape. The door resolves every path inside that module's own mount, never another module.
+
+The composed answer is `{version:1, modules:[{extension, rail, menu, settings, needsYou,
+home?}]}`. Remote adds its own module and sorts by rail order, then extension name.
+After the existing authority checks, every due callback starts in parallel; composition
+waits within one 300 ms deadline, not one wait per extension. This budget covers module
+composition, not authority checks, which retain the blocking behavior of mounted routes. A successful answer is fresh for five seconds; a last good
+answer remains usable for at most 30 seconds. Missing, unsafe, slow, malformed or
+unknown-version answers never renew it. There is at most one in-flight callback per
+extension; late results are cache-only, fenced to the socket incarnation. No retries,
+poller or persisted cache exist; serve stop joins the finite workers. Shell rendering,
+Home composition and root navigation belong to their separate shell consumers.
+
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
 Operations are append with create-only per-stream sequence (an exact retry returns the original

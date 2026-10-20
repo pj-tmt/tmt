@@ -330,11 +330,48 @@ impl Registration {
         Code,
     > {
         Context::parse(context)?;
+        self.owner_catalog_fingerprinted()
+    }
+    fn owner_catalog_fingerprinted(
+        &self,
+    ) -> std::result::Result<
+        (
+            serde_json::Value,
+            std::collections::BTreeMap<String, String>,
+        ),
+        Code,
+    > {
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
                 Ok((tx.page_list()?, tx.page_fingerprints()?))
             })
             .map_err(map_error)
+    }
+    /// Display-only owner-socket callback. Unlike pages(), this never schedules a refresh.
+    pub(crate) fn describe(&self) -> std::result::Result<Vec<u8>, Code> {
+        let (catalog, fingerprints) = self.owner_catalog_fingerprinted()?;
+        let pages = catalog["pages"].as_array().ok_or(Code::Unavailable)?;
+        let mut needs_you = 0u32;
+        for page in pages {
+            let id = page["pageId"].as_str().ok_or(Code::Unavailable)?;
+            let fingerprint = fingerprints.get(id).ok_or(Code::Unavailable)?;
+            let summary = self
+                .summaries
+                .get(id, fingerprint)
+                .ok_or(Code::Unavailable)?;
+            needs_you = needs_you
+                .checked_add(summary.needs_you)
+                .ok_or(Code::Capacity)?;
+            if needs_you > crate::limits::DESCRIBE_COUNT {
+                return Err(Code::Capacity);
+            }
+        }
+        serde_json::to_vec(&serde_json::json!({
+            "version":1,
+            "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
+            "menu":[{"id":"pages","label":"Pages","path":"/","count":{"value":pages.len(),"kind":"plain"}}],
+            "settings":[],"needsYou":needs_you
+        })).map_err(|_|Code::Unavailable)
     }
     /// The caller serializes management with sync before taking this mutex.
     pub fn apply_owner(
@@ -1334,5 +1371,63 @@ fn reader_sync_error(code: Code) -> crate::sync::Code {
     match code {
         Code::Expired => crate::sync::Code::Expired,
         _ => crate::sync::Code::Denied,
+    }
+}
+
+#[cfg(test)]
+mod describe_tests {
+    use super::*;
+    use crate::summary::{Summary, SummaryProjection};
+
+    #[test]
+    fn describe_uses_only_fresh_complete_counts_and_never_clamps_or_invents_zero() {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "colab-describe-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let page = "00000000-0000-4000-8000-000000000002";
+        store.create_page(page).unwrap();
+        let service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        assert_eq!(service.describe(), Err(Code::Unavailable));
+        let (_, fingerprints) = service.owner_catalog_fingerprinted().unwrap();
+        let fingerprint = &fingerprints[page];
+        let put = |fingerprint: &str, count| {
+            service.summaries.put(
+                page,
+                fingerprint,
+                Some(SummaryProjection::from(Summary {
+                    comments: 0,
+                    waiting: count > 0,
+                    needs_you: count,
+                    author: None,
+                })),
+            )
+        };
+        put(fingerprint, 9999);
+        let answer: serde_json::Value =
+            serde_json::from_slice(&service.describe().unwrap()).unwrap();
+        assert_eq!(answer["needsYou"], 9999);
+        put(fingerprint, 10000);
+        assert_eq!(service.describe(), Err(Code::Capacity));
+        put("old fingerprint", 0);
+        assert_eq!(service.describe(), Err(Code::Unavailable));
+        service.summaries.put(page, fingerprint, None);
+        assert_eq!(service.describe(), Err(Code::Unavailable));
+        // No fresh cache is filled by a describe read; the ordinary page path owns that work.
+        assert!(service.summaries.get(page, fingerprint).is_none());
+        service.close().unwrap();
     }
 }

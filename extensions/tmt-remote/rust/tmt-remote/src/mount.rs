@@ -8,6 +8,7 @@ use crate::{
     canonical,
     http::{self, Head, Reply, Request},
     limits,
+    shell::{Description, Shell, Source},
 };
 use nix::poll::{PollFd, PollFlags, poll};
 use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
@@ -323,6 +324,7 @@ pub struct Mounts {
     origin: String,
     host: String,
     sessions: Arc<dyn Sessions>,
+    shell: Shell,
     extensions: &'static [Extension],
     /// Live tunnels per extension, indexed like `extensions`.
     active: Vec<Arc<AtomicUsize>>,
@@ -365,6 +367,7 @@ impl Mounts {
             host: origin.trim_start_matches("http://").to_owned(),
             origin: origin.to_owned(),
             sessions,
+            shell: Shell::new(),
             extensions,
             active: extensions.iter().map(|_| Arc::default()).collect(),
             tunnels: Mutex::default(),
@@ -389,6 +392,7 @@ impl Mounts {
     }
     /// Close every live tunnel and join its thread; later tunnels are refused.
     pub fn shutdown(&self) {
+        self.shell.shutdown();
         if let Some(activation) = &self.activation {
             activation.close();
         }
@@ -557,21 +561,7 @@ impl Mounts {
     /// this user, grant nothing to group/other and are not symlinks. The 0700
     /// directory keeps other users from swapping the socket after the check.
     fn socket(&self, extension: &Extension) -> Option<PathBuf> {
-        let uid = nix::unistd::getuid().as_raw();
-        let private = |path: &Path, socket: bool| {
-            fs::symlink_metadata(path).is_ok_and(|m| {
-                let kind = m.file_type();
-                (if socket {
-                    kind.is_socket()
-                } else {
-                    kind.is_dir()
-                }) && m.uid() == uid
-                    && m.mode() & 0o077 == 0
-            })
-        };
-        let directory = self.root.join(extension.name);
-        let socket = directory.join(SOCKET);
-        (private(&directory, false) && private(&socket, true)).then_some(socket)
+        private_socket(&self.root.join(extension.name))
     }
     /// Connect to the owner-only socket of an extension that declares an object channel,
     /// with the exact `Host` and mount values the door sets on every request it sends
@@ -592,6 +582,15 @@ impl Mounts {
         })
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
+        if self.is_shell(head.path) {
+            if head.method != "GET" || head.upgrade || head.content_length.is_some_and(|n| n != 0) {
+                return Err(Reply::empty(404));
+            }
+            if head.origin.is_some_and(|o| o != self.origin) {
+                return Err(Reply::empty(403));
+            }
+            return Ok(0);
+        }
         if head.path.contains('?') && !head.upgrade {
             return Err(Reply::empty(404));
         }
@@ -614,6 +613,9 @@ impl Mounts {
         Ok(extension.body_bytes)
     }
     pub fn handle(&self, request: Request, client: &mut TcpStream) -> Option<Reply> {
+        if self.is_shell(&request.path) {
+            return Some(self.shell_reply(&request));
+        }
         let (index, extension, rest) = self.extension(&request.path)?;
         if reserved(rest) {
             return Some(Reply::empty(404));
@@ -747,6 +749,58 @@ impl Mounts {
             deadline,
             false,
         )
+    }
+
+    fn is_shell(&self, path: &str) -> bool {
+        path == format!("{}-/shell", self.base)
+    }
+    fn shell_reply(&self, request: &Request) -> Reply {
+        if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
+            return Reply::empty(403);
+        }
+        let Some(admitted) = self.sessions.context(request.cookie.as_deref()) else {
+            return Reply::empty(404);
+        };
+        let deadline = Instant::now() + limits::SHELL_WAIT;
+        let sources = self
+            .extensions
+            .iter()
+            .filter(|e| canonical::extension_name(e.name))
+            .map(|e| {
+                let socket = self.root.join(e.name).join(SOCKET);
+                let identity = self
+                    .socket(e)
+                    .and_then(|path| fs::symlink_metadata(path).ok())
+                    .map(|m| (m.dev(), m.ino()));
+                Source {
+                    name: e.name,
+                    socket,
+                    identity,
+                    host: self.host.clone(),
+                    mount: self.mount(e),
+                }
+            })
+            .collect();
+        let value = self.shell.snapshot(sources, &self.origin, deadline);
+        // Recheck the admitted session after waiting; cached display data never bypasses revocation.
+        if admitted.session.ended()
+            || !self
+                .sessions
+                .context(request.cookie.as_deref())
+                .is_some_and(|current| {
+                    current.context.device_id == admitted.context.device_id
+                        && current.context.grant_revision == admitted.context.grant_revision
+                        && !current.session.ended()
+                })
+        {
+            return Reply::empty(404);
+        }
+        let mut reply = Reply::empty(200);
+        reply
+            .headers
+            .push(("content-type".into(), "application/json".into()));
+        reply.body = serde_json::to_vec(&value).expect("bounded shell display");
+        reply
     }
 
     /// Remote's only event channel uses the same admitted owner-only socket and
@@ -903,6 +957,61 @@ fn reserved(path: &str) -> bool {
     let mut segments = decoded.split('/').filter(|s| !s.is_empty() && *s != ".");
     let first = segments.next();
     first == Some(".tmt") || first == Some("..") || segments.any(|s| s == "..")
+}
+
+/// The one mount/callback admission rule: private, same-user, real directory and socket.
+fn private_socket(directory: &Path) -> Option<PathBuf> {
+    let uid = nix::unistd::getuid().as_raw();
+    let private = |path: &Path, socket: bool| {
+        fs::symlink_metadata(path).is_ok_and(|m| {
+            (if socket {
+                m.file_type().is_socket()
+            } else {
+                m.file_type().is_dir()
+            }) && m.uid() == uid
+                && m.mode() & 0o077 == 0
+        })
+    };
+    let socket = directory.join(SOCKET);
+    (private(directory, false) && private(&socket, true)).then_some(socket)
+}
+
+/// One finite describe attempt, using the same socket admission and HTTP I/O as device events.
+pub(crate) fn describe(source: &Source) -> Option<Description> {
+    let current = || {
+        let path = private_socket(source.socket.parent()?)?;
+        let metadata = fs::symlink_metadata(path).ok()?;
+        (Some((metadata.dev(), metadata.ino())) == source.identity).then_some(())
+    };
+    current()?;
+    let deadline = Instant::now() + limits::DESCRIBE_WAIT;
+    let mut stream = connect_event(&source.socket, deadline).ok()?;
+    let request = format!(
+        "GET /.tmt/remote/describe HTTP/1.1\r\nHost: {}\r\ntmt-describe: 1\r\n{MOUNT_HEADER}: {}\r\nConnection: close\r\n\r\n",
+        source.host, source.mount
+    );
+    send(&mut stream, request.as_bytes(), deadline).ok()?;
+    let reply = read_head(&mut stream, deadline).ok()?;
+    if reply.status != 200 || header(&reply.headers, "content-type") != Some("application/json") {
+        return None;
+    }
+    let length = header(&reply.headers, "content-length")?;
+    if length.is_empty() || !length.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let length = length.parse::<usize>().ok()?;
+    let mut body = reply.rest;
+    if length > limits::DESCRIBE_BYTES || body.len() > length {
+        return None;
+    }
+    while body.len() < length {
+        read_some(&mut stream, &mut body, deadline).ok()?;
+        if body.len() > length {
+            return None;
+        }
+    }
+    current()?;
+    Description::parse(&body)
 }
 
 /// Nonblocking connect also bounds a full extension accept backlog. Unix EAGAIN

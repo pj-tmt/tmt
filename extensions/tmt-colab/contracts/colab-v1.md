@@ -677,6 +677,15 @@ uses the local tombstone transaction alone. Equal/older events and already-revok
 devices return false with no write or signature, independently of operation ID;
 no later context revives a tombstone. Registered-device admission rechecks durable
 revocation and certificate expiry.
+
+The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
+[module-description contract](../../../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell).
+It reads only the existing bounded owner catalog/fingerprint projection and fresh page-summary
+cache; it starts no refresh, fold, subscription or new state. An empty catalog has a known zero
+count. Missing/stale summaries, unavailable projection or counts above the descriptor bound
+return a typed refusal, never an invented zero. The reply is display-only and does not change
+page admission. Browser mount traffic cannot call it.
+
 The exact reserved socket `POST /.tmt/remote/device-events` consumes remote's
 [local device events](../../../contracts/remote-channel-v1.md#extension-channel-api)
 only with `tmt-device-event: 1` and a strict body. A revoke commits this callback

@@ -48,6 +48,7 @@ const SOCKET_PATH_BYTES: usize = 103;
 /// The device context header the remote door sets for an owner session.
 const CONTEXT_HEADER: &str = "tmt-device-context";
 const EVENTS: &str = "/.tmt/remote/device-events";
+const DESCRIBE: &str = "/.tmt/remote/describe";
 const PROTOCOL: &str = "colab-sync-v1";
 const POLICY: &str = "default-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
@@ -429,6 +430,7 @@ struct Request {
     mount: Option<String>,
     body: Vec<u8>,
     event: Option<String>,
+    describe: Option<String>,
     prefetched: Vec<u8>,
     head: Vec<u8>,
     upgrade: bool,
@@ -478,6 +480,35 @@ fn serve(
             &request.prefetched,
             request.received + limits::ACQUISITION,
         );
+        return;
+    }
+    if request.path == DESCRIBE {
+        let result = (|| {
+            if request.method != "GET"
+                || request.upgrade
+                || !request.body.is_empty()
+                || request.describe.as_deref() != Some("1")
+                || crate::short_links::mounted_root(request.mount.as_deref()).is_none()
+            {
+                return Err(registration::Code::Invalid);
+            }
+            registration
+                .ok_or(registration::Code::Unavailable)?
+                .try_lock()
+                .map_err(|_| registration::Code::Unavailable)?
+                .describe()
+        })();
+        let (status, body) = match result {
+            Ok(body) => (200, body),
+            Err(code) => (
+                code.status(),
+                serde_json::to_vec(&serde_json::json!({
+                    "error":{"code":format!("COLAB_{}",code.text())}
+                }))
+                .expect("fixed describe refusal"),
+            ),
+        };
+        let _ = response_as(&mut socket, status, &body, "application/json");
         return;
     }
     if request.path == EVENTS {
@@ -1623,6 +1654,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         mount: None,
         body: Vec::new(),
         event: None,
+        describe: None,
         prefetched: Vec::new(),
         head: bytes[..end].to_vec(),
         upgrade: false,
@@ -1653,6 +1685,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
                 request.protocols = value.split(',').map(|p| p.trim().to_owned()).collect()
             }
             "tmt-device-event" => request.event = Some(value.to_owned()),
+            "tmt-describe" => request.describe = Some(value.to_owned()),
             CONTEXT_HEADER => request.context = Some(value.to_owned()),
             "tmt-origin" => request.origin = Some(value.to_owned()),
             "tmt-mount" => request.mount = Some(value.to_owned()),
@@ -1697,6 +1730,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
         request.path.as_str(),
         registration::PATH
             | EVENTS
+            | DESCRIBE
             | "/api/session"
             | "/api/serve-release"
             | "/api/pages"

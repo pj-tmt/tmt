@@ -2234,3 +2234,53 @@ fn real_revision_and_orderly_shutdown_have_bounded_signed_notices_without_a_revo
         );
     }
 }
+
+#[test]
+fn composed_shell_uses_the_existing_owner_cookie_and_refuses_expiry_and_revocation() {
+    for action in ["expiry", "revoke"] {
+        let h = Harness::new(FAST);
+        let _colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let reply = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+        let cookie = pair_of(&reply.cookie().unwrap());
+        let get = |cookie: Option<&str>| {
+            exchange(
+                &h,
+                &format!(
+                    "GET {}/x/-/shell HTTP/1.1\r\nHost: {}\r\n{}\r\n",
+                    h.prefix,
+                    h.addr,
+                    cookie
+                        .map(|c| format!("Cookie: {c}\r\n"))
+                        .unwrap_or_default()
+                ),
+            )
+        };
+        assert_eq!(get(None).status, 404);
+        let shell = get(Some(&cookie));
+        assert_eq!(shell.status, 200);
+        let body: Value = serde_json::from_str(&shell.body).unwrap();
+        assert_eq!(body["version"], 1);
+        assert!(
+            body["modules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["extension"] == "remote")
+        );
+        if action == "revoke" {
+            control(&h, json!({"op":"revoke","clientId":client}));
+        } else {
+            rusqlite::Connection::open(h.root.join("remote/remote.db"))
+                .unwrap()
+                .execute(
+                    "UPDATE grants SET expires_at_ms=1 WHERE client_id=?1",
+                    [&client],
+                )
+                .unwrap();
+        }
+        assert_eq!(get(Some(&cookie)).status, 404, "{action}");
+        assert!(h.core_calls().is_empty(), "display composition called Core");
+    }
+}

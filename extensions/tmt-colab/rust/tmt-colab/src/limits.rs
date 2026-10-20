@@ -33,6 +33,8 @@ pub const KEEPALIVE: Duration = Duration::from_secs(30);
 pub const HEADER_BYTES: usize = 8 * 1024;
 pub const HEADER_FIELDS: usize = 32;
 pub const HTTP_BODY_BYTES: usize = 64 * 1024;
+/// Remote's display-only module-description v1 count bound, without a Remote dependency.
+pub const DESCRIBE_COUNT: u32 = 9999;
 /// Raw update-v1 content bytes, before envelope/base64 expansion.
 pub use crate::decoder::UPDATE_BYTES as CONTENT_UPDATE_BYTES;
 /// All-or-none owner wrap publication bound for a single transaction.
