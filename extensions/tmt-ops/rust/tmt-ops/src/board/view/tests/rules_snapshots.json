@@ -5,11 +5,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────────────────────────────────── 1 squad · 1 agent ──┬── product ───────────────────────────────────────────────────────────── 1 member ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL            │ lead — · — · room product",
@@ -28,7 +28,7 @@
       "                                                                           │── Exchanges with you ──────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                                                 │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -37,11 +37,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -60,7 +60,7 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -69,11 +69,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -92,7 +92,7 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ]
   },
   {
@@ -101,11 +101,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────────────────────────────────── 1 squad · 1 agent ──┬── worker ───────────────────────────────────────────────────────────── ● working ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL            │ product · member · — · — · tmux",
@@ -124,7 +124,7 @@
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                                                 │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -133,11 +133,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -156,7 +156,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -165,11 +165,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -188,7 +188,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ]
   },
   {
@@ -197,11 +197,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────────────────────────────────── 1 squad · 1 agent ──┬── product ───────────────────────────────────────────────────────────── 1 member ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL            │ lead — · — · room product",
@@ -220,7 +220,7 @@
       "                                                                           │── Exchanges with you ──────────────────────────────────────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                                                 │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -229,11 +229,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────── 1 squad · 1 agent ──┬── product ───────────────────────────── 1 member ──",
       "  SQUAD / AGENT                STATE           │ lead — · — · room product",
@@ -252,7 +252,7 @@
       "                                               │── Exchanges with you ──────────────────────────────",
       " 1–3 / 3 rows  ·  0 more ↓                     │ No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -261,11 +261,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -284,7 +284,7 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ]
   },
   {
@@ -293,11 +293,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────────────────────────────────── 1 squad · 1 agent ──┬── worker ───────────────────────────────────────────────────────────── ● working ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL            │ product · member · — · — · tmux",
@@ -316,7 +316,7 @@
       "                                                                           │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                                                 │ worker  ● 0 unread                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -325,11 +325,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────── 1 squad · 1 agent ──┬── worker ───────────────────────────── ● working ──",
       "  SQUAD / AGENT                STATE           │ product · member · — · — · tmux",
@@ -348,7 +348,7 @@
       "                                               │   ⏎ to message worker",
       " 1–3 / 3 rows  ·  0 more ↓                     │ worker  ● 0 unread                     ⏎  Alt+⏎  @",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -357,11 +357,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -380,7 +380,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ]
   },
   {
@@ -389,11 +389,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -412,7 +412,7 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -421,11 +421,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -444,7 +444,7 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -453,11 +453,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -476,7 +476,7 @@
       "── Exchanges with you ──────────────────────────────────────────────────────────",
       " No current recipient observed.",
       " ↑↓ select  ←→ fold  ⏎ inspect  p pin  H Hide squad",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ]
   },
   {
@@ -485,11 +485,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -508,7 +508,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                                                                                                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -517,11 +517,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -540,7 +540,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                                               ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ]
   },
   {
@@ -549,11 +549,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -572,7 +572,7 @@
       "   ⏎ to message worker",
       " worker  ● 0 unread                           ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  v reader  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ]
   }
 ]

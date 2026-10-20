@@ -4,11 +4,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────────────────────────────────── 1 squad · 1 agent ──┬── alpha ────────────────────────────────────────────────────────────── ● working ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL            │ product · member · — · — · tmux",
@@ -27,7 +27,7 @@
       "                                                                           │   ⏎ to message alpha",
       " 1–3 / 3 rows  ·  0 more ↓                                                 │ alpha  ● 0 unread                                ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ],
     "hits": "[Hit { y: 8, x: 0, width: 75, row: 0 }, Hit { y: 9, x: 0, width: 75, row: 1 }, Hit { y: 10, x: 0, width: 75, row: 2 }]"
   },
@@ -36,11 +36,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -59,7 +59,7 @@
       "   ⏎ to message alpha",
       " alpha  ● 0 unread                                                ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  , settings  ? help  q quit"
     ],
     "hits": "[Hit { y: 8, x: 0, width: 100, row: 2 }]"
   },
@@ -68,11 +68,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -91,7 +91,7 @@
       "   ⏎ to message alpha",
       " alpha  ● 0 unread                            ⏎ send  Alt+⏎ new line  @ mention",
       " ↑↓ select  ←→ fold  ⏎ chat  a note  j host  p pin",
-      " Tab panes  / search  c timers  f Pinned  , settings  ? help  q quit"
+      " Tab panes  w snapshots  / search  c timers  f filter  ? help  q quit"
     ],
     "hits": "[Hit { y: 8, x: 0, width: 80, row: 2 }]"
   },
@@ -100,11 +100,11 @@
     "width": 160,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                                                                                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                                                                            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ──────────────────────────────────────────── 1 squad · 1 agent ──┬── alpha ────────────────────────────────────────────────────────────── ● working ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL            │ product · member · — · — · tmux",
@@ -132,11 +132,11 @@
     "width": 100,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                                               ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI                                w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
@@ -164,11 +164,11 @@
     "width": 80,
     "height": 24,
     "lines": [
-      " ▚ TMT   OPS / UI                           ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
+      " ▚ TMT   OPS / UI            w  Snapshots   ● 1 online  ◆ 0 waiting  ✗ 0 blocked",
       "",
-      "  1 Overview   2 Agents   3 Digest",
+      "   1  Overview    2  Agents    3  Digest",
       "",
-      "  All   Pinned    / Search",
+      " f    All   Pinned     /  Search",
       "",
       "── Squads ───────────────────────────────────────────────── 1 squad · 1 agent ──",
       "  SQUAD / AGENT           STATE             TOK 1h   ◷    MODEL",
