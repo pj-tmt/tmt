@@ -109,7 +109,7 @@ test('failed destination loading focuses the error screen heading', async ({ pag
   await options(page).filter({ hasText: 'Beta review' }).click();
   await expect(dialog(page)).toHaveCount(0);
   await expect(page.getByText('Fixture page load refused', { exact: true })).toBeVisible();
-  await expect(page.locator('.tmt-ui-header h1')).toHaveText('Page unavailable');
+  await expect(page.locator('.tmt-ui-header h1')).toHaveText('This page could not open.');
   await expect(page.locator('.tmt-ui-header h1')).toBeFocused();
   await expect(page.locator('.tmt-ui-header h1')).toHaveAttribute('tabindex', '-1');
 });

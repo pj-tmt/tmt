@@ -36,6 +36,7 @@ import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
 import { NoticeCard } from './notice-card.js';
+import { openFailure } from './open-failure.js';
 import {
   useEffect,
   useLayoutEffect,
@@ -569,9 +570,65 @@ type AppContext = {
   // The short-URL history resolves a prefix against the catalog the loaders last saw.
   rememberPages?: (pages: KnownPages) => void;
 };
+/**
+ * A page that could not open. A failure that reopening may cure is plain copy with a Retry that
+ * runs the page's loader again, and the raw token moves to a small reference; only a refusal keeps
+ * the red card (see `openFailure`). Return to space is always there.
+ */
+function PageOpenFailure({
+  failure,
+}: {
+  failure: Exclude<ReturnType<typeof openFailure>, { kind: 'refused' }>;
+}) {
+  const router = useRouter();
+  const [retrying, setRetrying] = useState(false);
+  const retry = failure.kind === 'retry';
+  return (
+    <NoticeCard
+      state={retry ? 'waiting' : 'ended'}
+      stateLabel={text.openFailedLabel}
+      eyebrow={text.product}
+      title={retry ? text.openFailed : text.openTooLarge}
+      testId="page-open-failure"
+      actions={
+        <>
+          {retry && (
+            <BrowserAction
+              type="button"
+              variant="text"
+              label={text.openRetry}
+              busy={retrying}
+              busyMark={<LoaderCircle />}
+              onActivate={() => {
+                setRetrying(true);
+                void router.invalidate().finally(() => setRetrying(false));
+              }}
+            />
+          )}
+          <Link className={ui.action} data-variant="text" to="/">
+            {text.retry}
+          </Link>
+        </>
+      }
+    >
+      <p>
+        <small className="failure-reference">
+          {text.failureCodeLabel}{' '}
+          <code className="tmt-ui-code" data-failure-reference>
+            {failure.reference}
+          </code>
+        </small>
+      </p>
+    </NoticeCard>
+  );
+}
 const root = createRootRouteWithContext<AppContext>()({
   component: Shell,
   errorComponent: function RootError({ error }) {
+    const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
+      '/pages/',
+    );
+    const failure = opening && error instanceof Error ? openFailure(error) : undefined;
     const header = useRef<HTMLElement>(null);
     useLayoutEffect(() => {
       const title = header.current?.querySelector('h1');
@@ -582,30 +639,41 @@ const root = createRootRouteWithContext<AppContext>()({
     }, []);
     return (
       <>
-        <AppHeader title={text.error} headerRef={header} />
+        <AppHeader
+          title={failure && failure.kind !== 'refused' ? text.openFailed : text.error}
+          headerRef={header}
+        />
         <main>
-          <NoticeCard
-            state="blocked"
-            eyebrow={text.product}
-            title={text.error}
-            actions={
-              <Link className={ui.action} data-variant="text" to="/">
-                {text.retry}
-              </Link>
-            }
-          >
-            <p>
-              {error instanceof Error ? (
-                error.message === text.reconnectFailed ? (
-                  <ReconnectFailure />
-                ) : (
-                  error.message
-                )
+          {failure && failure.kind !== 'refused' ? (
+            <PageOpenFailure failure={failure} />
+          ) : (
+            <NoticeCard
+              state="blocked"
+              eyebrow={text.product}
+              title={text.error}
+              actions={
+                <Link className={ui.action} data-variant="text" to="/">
+                  {text.retry}
+                </Link>
+              }
+            >
+              {failure ? (
+                <TerminalFailure error={error as Error} />
               ) : (
-                text.blocked
+                <p>
+                  {error instanceof Error ? (
+                    error.message === text.reconnectFailed ? (
+                      <ReconnectFailure />
+                    ) : (
+                      error.message
+                    )
+                  ) : (
+                    text.blocked
+                  )}
+                </p>
               )}
-            </p>
-          </NoticeCard>
+            </NoticeCard>
+          )}
         </main>
       </>
     );
