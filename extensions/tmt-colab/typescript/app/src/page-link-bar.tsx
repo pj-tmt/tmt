@@ -34,12 +34,10 @@ export function usePageLinks(context: LinkContext) {
     const open = (value: PendingLink) => {
       if (value.target.kind === 'refused' || used.current === value.request.renderId) return;
       reset();
-      if (value.target.kind === 'internal') {
+      if (value.target.kind === 'internal' && !value.request.newTab) {
         used.current = value.request.renderId;
-        if (!value.request.newTab) {
-          latest.current.navigate?.(value.target.route, value.target.anchor);
-          return;
-        }
+        latest.current.navigate?.(value.target.route, value.target.anchor);
+        return;
       }
       // noopener returns null on success too: never infer a blocked popup from that result.
       window.open(value.target.href, '_blank', 'noopener,noreferrer');

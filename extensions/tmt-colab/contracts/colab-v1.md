@@ -2290,8 +2290,9 @@ refused with a trusted notice, without echoing their payload.
 A same-space request navigates directly only when the parent observes
 `navigator.userActivation.isActive` at receipt. Activation proves recent interaction, not which
 link the person used. Without activation, even a forged current-render request requires the same
-trusted Open/Cancel confirmation. At most one internal navigation is allowed per render lifetime;
-modified/middle intent opens a new app tab, and plain intent uses the existing router owner.
+trusted Open/Cancel confirmation. At most one in-place navigation is allowed per render lifetime.
+Modified/middle intent opens a new app tab without consuming that guard; plain intent uses the
+existing router owner. Opening a tab leaves the current page's links available.
 This is the only exception to renderer requests being unable to select a page or navigate.
 
 Every outside URL requires confirmation, regardless of activation. A trusted bar below the header

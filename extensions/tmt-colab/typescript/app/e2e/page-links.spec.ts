@@ -118,27 +118,49 @@ for (const activation of ['Enter', 'middle', 'Control+Enter']) {
   });
 }
 
-test('modified internal activation opens a new tab and permits only one navigation per render', async ({
-  page,
-  context,
-}) => {
-  await mount(page, `<a href="/p/${second.slice(0, 8)}">Another page</a>`);
-  const opened = context.waitForEvent('page');
-  await frame(page)
-    .getByRole('link')
-    .click({ modifiers: ['ControlOrMeta'] });
-  const destination = await opened;
-  try {
-    await expect(destination).toHaveURL(new RegExp(`/p/${second.slice(0, 8)}`));
+for (const activation of ['modified', 'middle'] as const) {
+  test(`${activation} new-tab open leaves later external and in-place links available`, async ({
+    page,
+    context,
+  }) => {
+    await context.route('https://outside.example/**', (route) =>
+      route.fulfill({ body: '<h1>Destination</h1>', contentType: 'text/html' }),
+    );
+    await mount(
+      page,
+      `<a href="/p/${second.slice(0, 8)}">Another page</a><a href="${outside.replaceAll('&', '&amp;')}">Outside</a>`,
+    );
+    const id = await page.locator('#page-link-fixture iframe').getAttribute('data-render-id');
+    const opened = context.waitForEvent('page');
+    const link = frame(page).getByRole('link', { name: 'Another page' });
+    if (activation === 'middle') await link.click({ button: 'middle' });
+    else await link.click({ modifiers: ['ControlOrMeta'] });
+    const destination = await opened;
+    try {
+      await expect(destination).toHaveURL(new RegExp(`/p/${second.slice(0, 8)}`));
+      await expect(bar(page)).toHaveCount(0);
+      await expect(page).toHaveURL(new RegExp(encodeURIComponent(`/pages/${first}`)));
+    } finally {
+      await destination.close();
+    }
+    await frame(page).getByRole('link', { name: 'Outside' }).click();
+    await expect(bar(page)).toHaveAccessibleName('Open this link in a new tab?');
+    const outsideOpened = context.waitForEvent('page');
+    await bar(page).getByRole('button', { name: 'Open', exact: true }).click();
+    const outsideTab = await outsideOpened;
+    try {
+      await expect(outsideTab).toHaveURL(outside);
+      await expect(bar(page)).toHaveCount(0);
+    } finally {
+      await outsideTab.close();
+    }
+    await expect(page.locator('#page-link-fixture iframe')).toHaveAttribute('data-render-id', id!);
+    await frame(page).getByRole('link', { name: 'Another page' }).click();
+    await expect(frame(page).getByText('Second page', { exact: true })).toBeVisible();
     await expect(bar(page)).toHaveCount(0);
-    await expect(page).toHaveURL(new RegExp(encodeURIComponent(`/pages/${first}`)));
-    await forge(page, `/p/${second.slice(0, 8)}`);
-    await expect(bar(page)).toHaveCount(0);
-    expect(context.pages()).toHaveLength(2);
-  } finally {
-    await destination.close();
-  }
-});
+    await expect(page).toHaveURL(new RegExp(encodeURIComponent(`/pages/${second}`)));
+  });
+}
 
 test('a forged current-frame request without activation prompts and does not navigate', async ({
   page,

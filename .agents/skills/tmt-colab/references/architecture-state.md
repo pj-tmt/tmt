@@ -18,7 +18,7 @@ restate them.
 
 Page links stay with trusted chrome: `page-link-request.ts` admits the current renderer's closed
 request and classifies URLs against the trusted app base and space. `page-link-bar.tsx` owns the
-frozen pending confirmation and the one internal navigation per render. `renderer.ts` checks
+frozen pending confirmation and the one in-place navigation per render. `renderer.ts` checks
 frame/lifetime and reads the parent's browser activation at receipt; the bootstrap only intercepts
 links and reports intent. Neither its render ID nor its messages authenticate a user gesture.
 This is a bounded parent-owned exception: same-space navigation requires recent browser user
