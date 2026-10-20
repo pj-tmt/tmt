@@ -2314,7 +2314,8 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
     await wire(context, { source: '<h1>Never publish</h1>', invalid });
     await page.goto(mount);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
-    await expect(page.getByRole('alert')).toBeVisible();
+    // A rejected open is the plain "could not open" card (#4012), never a partial page.
+    await expect(page.getByTestId('page-open-failure')).toContainText('This page could not open.');
     await expect(page.locator('iframe')).toHaveCount(0);
     await expect(page.locator('.page-header-actions')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
@@ -2400,7 +2401,8 @@ for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap', 'ownBody', 'ow
     await wire(context, undefined, { invalid });
     await page.goto(mount);
     await page.locator(`[data-page-id="${v.page}"] a`).click();
-    await expect(page.getByRole('alert')).toBeVisible();
+    // A rejected open is the plain "could not open" card (#4012), never a partial page.
+    await expect(page.getByTestId('page-open-failure')).toContainText('This page could not open.');
     await expect(page.locator('iframe')).toHaveCount(0);
   });
 async function persistedLog(page: import('@playwright/test').Page) {
