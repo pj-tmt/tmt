@@ -253,6 +253,51 @@ describe('reply notice batching and real key debounce', { concurrent: false }, (
     );
   });
 
+  it('a reply from a person skips the fixed window while an agent reply still waits for it', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        await sender(fixture);
+        const second = await fixture.createMockPane('second');
+        expectJsonResult(await fixture.runJsonCli(['name', 'second'], { pane: second.pane }));
+        // 'receiver' is a person: the reserved entry marks every reply it sends.
+        expectJsonResult(
+          await fixture.runJsonCli([
+            'identity',
+            'meta',
+            'set',
+            'user',
+            'true',
+            '--identity',
+            'receiver',
+          ])
+        );
+        const person = await request(fixture, 'receiver');
+        const agent = await request(fixture, 'second');
+        const started = Date.now();
+        const answered = await reply(fixture, person);
+        expect(answered.notification).not.toBe('queued');
+        expect(batches(fixture)).toEqual([]);
+        await fixture.waitFor(
+          () => states(fixture).some((row) => row.reply_state === 'sent'),
+          3000,
+          'the person reply is delivered before the 5 s window could close'
+        );
+        expect(Date.now() - started).toBeLessThan(5000);
+        expect(submissions(fixture)).toHaveLength(1);
+        // The agent's reply is grouped as before.
+        expect((await reply(fixture, agent)).notification).toBe('queued');
+        expect(batches(fixture)).toMatchObject([{ window_ms: 5000, members: 1 }]);
+        await fixture.waitFor(
+          () => states(fixture).every((row) => row.reply_state === 'sent'),
+          10000,
+          'the agent reply is delivered after the fixed window'
+        );
+        expect(submissions(fixture)).toHaveLength(2);
+      },
+      { mode: 'input-log' }
+    );
+  });
+
   it('zero disables grouping and delivers each notice separately', async () => {
     await withE2EFixture(
       async (fixture) => {

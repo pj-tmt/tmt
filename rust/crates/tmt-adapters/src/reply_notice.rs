@@ -59,6 +59,20 @@ pub fn prepare(storage: &mut Storage, hint: &OriginatorHint) -> Result<Prepared,
     if hint.kind != HintKind::Reply {
         return delivery::notify(storage, hint).map(Prepared::Immediate);
     }
+    // A person's reply never waits in the fixed reply window either: it goes out at once.
+    if let Some(replier) = &hint.recipient_id
+        && RequestService::new(&mut *storage, wall_time_ms)
+            .identity_is_user(replier)
+            .map_err(|error| match error {
+                tmt_core::request::RequestError::Repository(error) => error,
+                error => StorageError::new(
+                    crate::storage::StorageErrorCode::Unknown,
+                    format!("User reply admission failed: {error}"),
+                ),
+            })?
+    {
+        return delivery::notify(storage, hint).map(Prepared::Immediate);
+    }
     let now = wall_time_ms();
     let Some(entry) = delivery::current(storage, &hint.originator_id)? else {
         return delivery::notify(storage, hint).map(Prepared::Immediate);

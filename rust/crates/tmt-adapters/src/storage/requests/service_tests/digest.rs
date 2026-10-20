@@ -1357,5 +1357,192 @@ fn digest_counter_failure_rolls_back_settlement_and_non_delivery_never_counts() 
     }
 }
 
+/// The reserved `user` entry, written the way `tmt identity meta set` stores it.
+fn mark_user(f: &Fixture, id: &str, value: &str) {
+    let db = rusqlite::Connection::open(&f.database).unwrap();
+    db.execute(
+        "INSERT INTO identity_metadata(identity_id, key, value) VALUES(?1, 'user', ?2)
+         ON CONFLICT(identity_id, key) DO UPDATE SET value = excluded.value",
+        [id, value],
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_person_is_never_held_while_agents_still_are() {
+    let (mut f, target, _, sender) = start();
+    let person = identity(&mut f, "Ben");
+    let held_by = |f: &mut Fixture, from: &str, id: &str| {
+        service(f)
+            .prepare_delivery(
+                request(&target, Some(from), id),
+                format!("attempt-{id}"),
+                7,
+                DeliveryPolicy::default(),
+                None,
+            )
+            .unwrap()
+            .digest_until_ms
+            .is_some()
+    };
+    // Unmarked, a person is an identity like any other.
+    assert!(held_by(&mut f, &person, "before-marking"));
+    mark_user(&f, &person, "true");
+    assert!(!held_by(&mut f, &person, "person"));
+    assert!(held_by(&mut f, &sender, "agent"));
+    // Only the exact entry counts, and it is read when the message arrives.
+    for value in ["false", "yes", "True", ""] {
+        mark_user(&f, &person, value);
+        assert!(
+            held_by(&mut f, &person, &format!("value-{value}")),
+            "{value:?}"
+        );
+    }
+    mark_user(&f, &person, "true");
+    assert!(!held_by(&mut f, &person, "person-again"));
+    // A retired person is no longer one.
+    let retired = identity(&mut f, "Retired person");
+    mark_user(&f, &retired, "true");
+    rusqlite::Connection::open(&f.database)
+        .unwrap()
+        .execute(
+            "UPDATE identities SET retired_at_ms = ?1 WHERE id = ?2",
+            rusqlite::params![NOW_MS as i64, retired],
+        )
+        .unwrap();
+    assert!(!service(&mut f).identity_is_user(&retired).unwrap());
+    assert!(service(&mut f).identity_is_user(&person).unwrap());
+    // The person's messages are not in the held set, so no checklist can seal them.
+    let (items, count) = service(&mut f)
+        .digest_checklist_items(&target, None, 0, 128)
+        .unwrap();
+    assert_eq!(count, 6);
+    assert!(
+        items
+            .iter()
+            .all(|item| !item.request_id.starts_with("person"))
+    );
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn a_reply_from_a_person_is_never_held_but_an_agents_reply_is() {
+    use tmt_core::request::notification::HintKind;
+    let (mut f, target, owner, sender) = start();
+    f.set_now(crate::request_runtime::wall_time_ms());
+    // The target keeps its requests held so they can be answered; the sender is the
+    // originator, so its policy decides what happens to the reply notices.
+    service(&mut f)
+        .write_digest(policy(
+            &target,
+            &owner,
+            1,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+        ))
+        .unwrap();
+    service(&mut f)
+        .write_digest(policy(
+            &sender,
+            &owner,
+            0,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+        ))
+        .unwrap();
+    let answered = |f: &mut Fixture, id: &str| {
+        let prepared = held(f, &target, &sender, id);
+        service(f)
+            .submit_response_with_hint(
+                SubmitResponse {
+                    request_id: id.into(),
+                    proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                        id,
+                        &prepared.attempt_id,
+                        &RequestRoute::Inbox {
+                            recipient_identity_id: target.clone(),
+                        },
+                    )),
+                    body: format!("answer {id}"),
+                },
+                None,
+            )
+            .unwrap();
+        crate::digest::hold_notice(&mut f.storage, id, HintKind::Reply).unwrap()
+    };
+    // The replier is the request's recipient: an agent's reply waits in the originator's digest...
+    assert!(answered(&mut f, "agent-reply"));
+    // ...and once that recipient is a person, their reply is never held.
+    mark_user(&f, &target, "true");
+    assert!(!answered(&mut f, "person-reply"));
+    let held_results: Vec<String> = service(&mut f)
+        .digest_checklist_items(&sender, None, 0, 128)
+        .unwrap()
+        .0
+        .into_iter()
+        .filter(|item| item.source == tmt_core::request::digest::DigestSource::Result)
+        .map(|item| item.request_id)
+        .collect();
+    assert_eq!(held_results, ["agent-reply"]);
+    // A person's reply is also admitted without the fixed reply window.
+    let hint = tmt_core::request::notification::OriginatorHint {
+        request_id: "person-reply".into(),
+        originator_id: sender.clone(),
+        recipient_id: Some(target.clone()),
+        kind: HintKind::Reply,
+        timeout_ms: 1000,
+    };
+    assert!(matches!(
+        crate::reply_notice::prepare(&mut f.storage, &hint).unwrap(),
+        crate::reply_notice::Prepared::Immediate(_)
+    ));
+    f.storage.close().unwrap();
+}
+
+#[test]
+fn an_item_held_before_its_sender_became_a_person_is_still_marked() {
+    let (mut f, target, owner, sender) = start();
+    // `read` uses the wall clock, so the request must be live in it.
+    let wall = crate::request_runtime::wall_time_ms();
+    f.set_now(wall);
+    service(&mut f)
+        .write_digest(policy(
+            &target,
+            &owner,
+            1,
+            tmt_core::limits::MAX_JS_SAFE_INTEGER,
+        ))
+        .unwrap();
+    let mut early = request(&target, Some(&sender), "early");
+    early.expires_at_ms = wall + 3_600_000;
+    service(&mut f)
+        .prepare_delivery(
+            early,
+            "attempt-early".into(),
+            7,
+            DeliveryPolicy::default(),
+            None,
+        )
+        .unwrap();
+    let batch = service(&mut f)
+        .claim_digest_checklist(
+            &target,
+            new_operation_id(),
+            new_operation_id(),
+            DigestOpportunity::TurnBoundary,
+        )
+        .unwrap()
+        .unwrap();
+    let page = |f: &mut Fixture| {
+        crate::digest::read(&mut f.storage, &target, Some(&batch.id), 0, 128).unwrap()
+    };
+    assert_eq!(page(&mut f)["items"][0]["fromUser"], false);
+    assert!(!crate::digest::digest(&page(&mut f), &batch).contains("(user)"));
+    mark_user(&f, &sender, "true");
+    let page = page(&mut f);
+    assert_eq!(page["items"][0]["fromUser"], true);
+    let text = crate::digest::digest(&page, &batch);
+    assert!(text.contains("Digest Sender (user) / early"), "{text}");
+    f.storage.close().unwrap();
+}
+
 #[path = "digest_history.rs"]
 mod history;

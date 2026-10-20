@@ -39,9 +39,10 @@ Member keys and setter IDs are canonical identity UUIDs.
 attribution: the setter is absent when Core cannot identify it, and a write with no
 identifiable setter removes a previous one rather than keeping a stale owner. A member
 that inherits the default has the default's setter as its recorded setter; a member
-override has only its own. The recorded setter is the owner whose messages pass the
+override has only its own. The recorded setter is an owner whose messages pass the
 member's [hold](digest-tick-v1.md#settings-and-deadlines); with none recorded the
-member owns it and only an urgent send passes.
+member owns it and only an urgent send passes. A person, an identity marked with
+Core's reserved `user` metadata entry, always passes every hold and needs no setter.
 
 `setByIdentityId` is absent when Core cannot identify the setter. `setAtMs` is the
 current override write timestamp, a nonnegative JS-safe integer; it is neither
@@ -89,7 +90,7 @@ Each row contains:
 
 `oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
 
-`ownerBypass` is an additive row field from settings alone: `true` when the member's recorded setter (its override's, or the global default's for an inheriting member) is someone else, whose messages then pass its hold; `false` when none is recorded, so the member owns its own hold and only an urgent send passes it; null for `off`, which holds nothing. It is a flag for a setting that needs attention, never delivery eligibility.
+`ownerBypass` is an additive row field from settings alone: `true` when the member's recorded setter (its override's, or the global default's for an inheriting member) is someone else, whose messages then pass its hold; `false` when none is recorded, so the member owns its own hold and, besides a person marked `user` in Core, only an urgent send passes it; null for `off`, which holds nothing. It is a flag for a setting that needs attention, never delivery eligibility.
 
 Timestamps and numeric counts are nonnegative JS-safe integers. Deadline arithmetic
 that cannot be represented safely is unknown. `nextSendAtMs` is an extension

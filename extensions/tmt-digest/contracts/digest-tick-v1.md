@@ -31,7 +31,7 @@ setting for both IDs: a member override's own setter, or for a member that inher
 the [global default's](digest-v1.md#settings); the member itself when none is
 recorded. Existing Core owner/setter IDs are preserved, except that an ID naming
 the member itself is replaced once the settings record a setter, which the next
-tick writes. This policy attribution does not fill an unknown settings setter.
+tick writes. This policy attribution does not fill an unknown settings setter. Core separately lets a person, an identity marked with the reserved `user` metadata entry, through every hold whatever the owner.
 A revision conflict is an error, never permission to repeat the same write.
 
 Interval delivery becomes due when the oldest held item has waited its configured

@@ -594,6 +594,59 @@ describe('native Digest held delivery and checklist seam', () => {
       ).toBe(1);
     });
   });
+
+  it('never holds a message from a person marked with the reserved user entry, in any mode', async () => {
+    await withSandbox(async (sandbox) => {
+      const target = await identity(sandbox, 'Worker');
+      const owner = await identity(sandbox, 'Owner');
+      await identity(sandbox, 'Ben');
+      expect(
+        (
+          await api(sandbox, 'digest.policy.set', {
+            identityId: target,
+            ownerIdentityId: owner,
+            setterIdentityId: owner,
+            expectedRevision: 0,
+            untilMs: Date.now() + 600_000,
+          })
+        ).status
+      ).toBe(0);
+      const talk = async (text: string) => {
+        const sent = await runCli(sandbox, [
+          'talk',
+          'Worker',
+          text,
+          '--detach',
+          '--json',
+          '--identity',
+          'Ben',
+        ]);
+        expect(sent.status).toBe(0);
+        return JSON.parse(sent.stdout);
+      };
+      const mark = async (value: string) =>
+        expect(
+          (await runCli(sandbox, ['identity', 'meta', 'set', 'user', value, '--identity', 'Ben']))
+            .status
+        ).toBe(0);
+      const held = async () =>
+        (await api(sandbox, 'digest.policy.show', { identities: [target] })).body.policies[0]
+          .heldCount;
+      // Unmarked, Ben is an identity like any other.
+      expect(await talk('before marking')).toMatchObject({ digest: true, status: 'queued' });
+      await mark('true');
+      const person = await talk('from a person');
+      expect(person.digest).toBeUndefined();
+      expect(person.status).toBe('queued');
+      // Only the exact entry counts.
+      await mark('yes');
+      expect(await talk('wrong value')).toMatchObject({ digest: true });
+      await mark('true');
+      expect((await talk('marked again')).digest).toBeUndefined();
+      // The person's messages are not in the held set.
+      expect(await held()).toBe(2);
+    });
+  });
 });
 
 describe('native Digest due-now and durable stats', () => {
