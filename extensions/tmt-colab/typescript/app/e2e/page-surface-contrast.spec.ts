@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
  * the app theme is, a card's text stays readable against what is really behind it. A card is the
  * page sheet with a 1px light rule, not the needs-you band and not a dark edge (#4068), of the
  * scheme the page paints (#4081): a light page gets the light sheet and a dark page the dark one in
- * either theme, and a page that paints nothing (the frame's canvas is white) follows the app theme.
+ * either theme, and a page that paints nothing is the frame's white canvas, so its cards are light.
  */
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
@@ -140,17 +140,18 @@ for (const width of [1440, 390])
           await expect(
             page.frameLocator('#ask-page-fixture iframe').locator('html'),
           ).toHaveAttribute('data-theme', theme);
-          // The frame reports what the page paints once it has loaded; a bare page keeps the app theme.
+          // The frame reports what the page paints once it has loaded; a bare page paints white.
           // A reading and a review band sit on the app's paper and keep the app's scheme.
           const cardsOnPage = name === 'question group' || name === 'question and proposal';
-          if (paint !== 'bare' && cardsOnPage)
+          const scheme = paint === 'dark' ? 'dark' : 'light';
+          if (cardsOnPage)
             await expect(
               page
                 .locator('.page-cards', {
                   has: page.locator('.proposal-inline:not([data-detached])'),
                 })
                 .first(),
-            ).toHaveAttribute('data-theme', paint);
+            ).toHaveAttribute('data-theme', scheme);
           const { text, cards } = await measure(page, backdrop);
           if (process.env.CONTRAST_DEBUG)
             console.log(
@@ -167,7 +168,6 @@ for (const width of [1440, 390])
           expect(text.filter((entry) => entry.ratio < 4.5)).toEqual([]);
           // Every card is the painted scheme's sheet with a 1px light rule and no dark edge; the 3:1 boundary
           // floor does not apply to it, by Ben's decision (#4068, as for floating panels in #4025).
-          const scheme = paint === 'bare' ? theme : paint;
           const sheet = scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
           const rule = scheme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)';
           // A reading and a review band hold no card of these two kinds.

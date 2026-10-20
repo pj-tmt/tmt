@@ -1446,7 +1446,8 @@ function Page() {
     renderer.current?.images(imageInput.current);
   }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
-  const [pageScheme, setPageScheme] = useState<PageScheme>('none');
+  // Until the frame reports what its page paints, the cards keep the app theme.
+  const [pageScheme, setPageScheme] = useState<PageScheme>();
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1614,7 +1615,7 @@ function Page() {
     // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
     setAnchorsChecked(false);
-    setPageScheme('none');
+    setPageScheme(undefined);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       layout: view.layout,
@@ -1939,18 +1940,12 @@ function Page() {
             <>
               {/* The proposal and question cards sit on the author's page, so they take the scheme it
                   paints; the review and reading bands sit on the app's paper and keep the app's. */}
-              <div
-                className="page-cards"
-                data-theme={pageScheme === 'none' ? undefined : pageScheme}
-              >
+              <div className="page-cards" data-theme={pageScheme}>
                 {proposalLayer.inline}
               </div>
               {reviewLayer.inline}
               {readingLayer.inline}
-              <div
-                className="page-cards"
-                data-theme={pageScheme === 'none' ? undefined : pageScheme}
-              >
+              <div className="page-cards" data-theme={pageScheme}>
                 {questionLayer.inline}
               </div>
             </>

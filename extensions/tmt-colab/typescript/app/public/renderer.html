@@ -185,6 +185,7 @@
           }
           // The scheme the author's page paints, for the parent's cards drawn over it (#4081): the
           // document's own canvas colour (the root's, else the body's) over the white frame canvas.
+          // The app's theme is no part of it.
           let scheme, schemeTimer;
           const swatch = document.createElement('canvas').getContext('2d', {
             willReadFrequently: true,
@@ -199,18 +200,15 @@
               swatch.fillRect(0, 0, 1, 1);
               return swatch.getImageData(0, 0, 1, 1).data;
             });
+            // Nothing painted is the white frame canvas: a light page.
             const fill = fills[0][3] > 0 ? fills[0] : fills[1];
-            let next = 'none';
-            if (fill[3] > 0) {
-              const alpha = fill[3] / 255;
-              const lin = (c) => {
-                const s = (c * alpha + 255 * (1 - alpha)) / 255;
-                return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-              };
-              const luminance =
-                0.2126 * lin(fill[0]) + 0.7152 * lin(fill[1]) + 0.0722 * lin(fill[2]);
-              next = luminance < 0.179 ? 'dark' : 'light';
-            }
+            const alpha = fill[3] / 255;
+            const lin = (c) => {
+              const s = (c * alpha + 255 * (1 - alpha)) / 255;
+              return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+            };
+            const luminance = 0.2126 * lin(fill[0]) + 0.7152 * lin(fill[1]) + 0.0722 * lin(fill[2]);
+            const next = luminance < 0.179 ? 'dark' : 'light';
             if (next === scheme) return;
             scheme = next;
             parent.postMessage({ type: 'colab.render.scheme', renderId, scheme }, '*');

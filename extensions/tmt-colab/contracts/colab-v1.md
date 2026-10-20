@@ -2291,12 +2291,13 @@ it grants no capability or truth about the page.
 The cards the parent draws over the page take the scheme the page paints, not the app's (#4081).
 The renderer measures the document's own canvas colour (the root's background, else the body's)
 over the white frame canvas and sends the parent exactly
-`{type:"colab.render.scheme", renderId, scheme}` with `scheme` one of `light`, `dark` (relative
-luminance under 0.179) or `none` (no background painted). It sends the first value after the
-document's `load`, and again only when the value changes, as the page repaints itself, the theme
-changes or the OS preference changes. The parent accepts only the current render ID and those
-three values, scopes the cards to the light or dark tokens, and leaves them on the app theme for
-`none`. The value is cosmetic: author code may send it, and it grants no capability.
+`{type:"colab.render.scheme", renderId, scheme}` with `scheme` one of `light` or `dark` (relative
+luminance under 0.179). A page that paints no background is the white frame canvas, so it is
+`light` in either theme. It sends the first value at the document's `load`, and again only when
+the value changes, as the page repaints itself, the theme changes or the OS preference changes.
+The parent accepts only the current render ID and those two values and scopes the cards to the
+light or dark tokens; until the first value they keep the app theme. The value is cosmetic:
+author code may send it, and it grants no capability.
 
 A `column` or `full` layout makes Colab own the page frame. Before author code runs, the
 bootstrap sets `data-colab-layout` on the renderer root and adds the stylesheet generated
