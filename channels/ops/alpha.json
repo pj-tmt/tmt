@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "ops",
   "channel": "alpha",
-  "version": "0.1.0-alpha.141",
-  "tag": "tmt-ops-v0.1.0-alpha.141",
+  "version": "0.1.0-alpha.142",
+  "tag": "tmt-ops-v0.1.0-alpha.142",
   "record": {
-    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-ops-v0.1.0-alpha.141/tmt-release-record.json",
+    "url": "https://github.com/pj-tmt/tmt/releases/download/tmt-ops-v0.1.0-alpha.142/tmt-release-record.json",
     "size": 1559,
-    "sha256": "e0649f3a10631caaeaa432d175f8416a2ac23944f399c39f03559c0227ae08b7"
+    "sha256": "12dfa5068206127ef1c2930ed7ed38b5b97b1cf35688a6608a967614765d4970"
   }
 }
