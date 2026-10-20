@@ -4370,6 +4370,7 @@ async function pairingPage(link) {
 		if (!lifetime.signal.aborted) showState(status, "blocked", pairingRecovery(error));
 		return;
 	}
+	form.hidden = false;
 	let parsed;
 	try {
 		parsed = await resolveLink(link, (url, init) => fetch(url, {

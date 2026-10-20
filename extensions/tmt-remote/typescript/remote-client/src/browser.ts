@@ -774,6 +774,9 @@ export async function pairingPage(link: string): Promise<void> {
     if (!lifetime.signal.aborted) showState(status, 'blocked', pairingRecovery(error));
     return;
   }
+  // Missing or proved-dead identity may prepare a name while the offer loads.
+  // The action stays disabled until the offer and its submit listener are ready.
+  form.hidden = false;
   let parsed: ReturnType<typeof parseLink>;
   try {
     parsed = await resolveLink(link, (url, init) =>
