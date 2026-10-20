@@ -26,7 +26,7 @@ import { RemotePresence } from '../src/remote-presence.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
-import type { ManagementPort } from '../src/management.js';
+import { ManagementError, type ManagementPort } from '../src/management.js';
 import type { ProjectChange } from '../src/projects.js';
 import { commentsForAnswerBatch } from '../src/answer-batch.js';
 import { inspectQuestions } from '../src/questions.js';
@@ -230,7 +230,7 @@ export async function mount(
     management?: ManagementPort;
     strict?: boolean;
     /** The viewer writes projects: the space's names and the ones this page is in. */
-    projects?: { names: string[]; current: string[] };
+    projects?: { names: string[]; current: string[]; fail?: boolean };
     /** The page is readable by anyone who holds its link. */
     shared?: boolean;
     /** The Remote door cannot be read, so the header shows its attention mark. */
@@ -893,6 +893,7 @@ export async function mount(
   const projectPort = projectState
     ? ({
         async setProjects(changes: readonly ProjectChange[]) {
+          if (options.projects?.fail) throw new ManagementError('UNKNOWN');
           for (const change of changes) {
             projectRequests.push(change);
             projectState.current = [...change.projects];

@@ -136,41 +136,40 @@ export function PageProjects({
   return (
     <>
       <span className="page-header-projects">
-        {projects.slice(0, CHIPS).map((name) => (
-          // The picker's own trigger is the accessible control; a chip is the same press for the mouse.
-          <button
-            key={name}
-            type="button"
-            className="page-header-project-chip"
-            tabIndex={-1}
-            aria-hidden="true"
-            onClick={open}
-          >
-            {name}
-          </button>
-        ))}
-        {projects.length > CHIPS && (
+        {projects.length > 0 && (
+          // The chips are the one visible control: they open the picker. With no project, and on a
+          // phone, Projects… in the More menu opens the same picker.
           <button
             type="button"
-            className="page-header-project-chip"
-            tabIndex={-1}
-            aria-hidden="true"
+            className="page-header-chips"
+            aria-haspopup="menu"
+            aria-label={`${t.projectsFor(pageTitle(page))}: ${projects.join(', ')}`}
             onClick={open}
           >
-            +{projects.length - CHIPS}
+            {projects.slice(0, CHIPS).map((name) => (
+              <span key={name} className="page-header-project-chip">
+                {name}
+              </span>
+            ))}
+            {projects.length > CHIPS && (
+              <span className="page-header-project-chip">+{projects.length - CHIPS}</span>
+            )}
           </button>
         )}
-        <PageProjectsMenu
-          page={page}
-          names={names}
-          openRequest={request}
-          toggle={(target, name) => void toggle(target, name)}
-          create={() => setCreating(true)}
-        />
+        {/* The picker's own trigger is the menu's anchor, never shown: the chips and More open it. */}
+        <span className="page-header-projects-anchor">
+          <PageProjectsMenu
+            page={page}
+            names={names}
+            openRequest={request}
+            toggle={(target, name) => void toggle(target, name)}
+            create={() => setCreating(true)}
+          />
+        </span>
         {failure !== undefined && (
           <span className="page-attention" data-attention="projects" role="alert">
             <span aria-hidden="true">△</span>
-            {failure}
+            <span className="page-attention-word">{failure}</span>
           </span>
         )}
         <span className="page-header-projects-status" role="status">

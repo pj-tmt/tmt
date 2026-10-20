@@ -1,6 +1,7 @@
-/* The page's projects after its title: small chips, then the picker's own trigger. A phone keeps the
-   trigger alone; the picker names every project. */
+/* The page's projects after its title: one button of small chips that opens the picker. With no
+   project, and on a phone, More → Projects… opens it; the picker's own trigger is only its anchor. */
 .page-header-projects {
+  position: relative;
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
@@ -8,6 +9,8 @@
   min-width: 0;
 }
 .page-header-project-chip {
+  display: inline-flex;
+  align-items: center;
   box-sizing: border-box;
   max-width: 16ch;
   min-height: 24px;
@@ -24,8 +27,33 @@
   white-space: nowrap;
   cursor: pointer;
 }
+.page-header-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.page-header-chips:focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+  outline-offset: 1px;
+}
+.page-header-projects-anchor {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+/* Only the trigger is hidden: the menu opens from it and stays visible and clickable. */
+.page-header-projects-anchor .tmt-ui-icon-action-control {
+  visibility: hidden;
+  pointer-events: none;
+}
 @media (max-width: 639px) {
-  .page-header-project-chip {
+  .page-header-chips {
     display: none;
   }
 }
