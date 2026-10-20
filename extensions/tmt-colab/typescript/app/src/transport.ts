@@ -107,7 +107,8 @@ export interface PageTransport {
   /** Device-local unsent-draft persistence; absent means drafts stay in memory. */
   readonly drafts?: DraftStore;
   readonly management?: ManagementPort;
-  spaceHome(): Promise<SpaceHome>;
+  /** The space's page list. A `signal` that aborts ends the read: a reader that leaves cancels it. */
+  spaceHome(signal?: AbortSignal): Promise<SpaceHome>;
   /** Optional, owner-only cached reading metadata. No page subscription, fold or publication. */
   readingDetails?(id: string, signal: AbortSignal): Promise<ReadingDetails>;
   /** A verified title only: no editor, discussion or live subscription. */

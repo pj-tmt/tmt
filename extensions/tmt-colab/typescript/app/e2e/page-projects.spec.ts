@@ -22,23 +22,38 @@ const reads = (page: Page) =>
     async (path) => (await import(path)).projectProof().spaceHomeReads,
     fixture,
   ) as Promise<number>;
+const proof = (page: Page) =>
+  page.evaluate(async (path) => (await import(path)).projectProof(), fixture) as Promise<{
+    spaceHomeReads: number;
+    spaceHomeRunning: number;
+    spaceHomeAborted: number;
+  }>;
 const names = ['alpha', 'beta', 'gamma'];
 
 async function open(
   page: Page,
   width = 1440,
   theme: 'light' | 'dark' = 'light',
-  options: { current?: string[]; all?: string[]; fail?: boolean; deepLink?: boolean } = {},
+  options: {
+    current?: string[];
+    all?: string[];
+    fail?: boolean;
+    deepLink?: boolean;
+    slowRead?: boolean;
+    strict?: boolean;
+  } = {},
 ) {
   await page.setViewportSize({ width, height: 900 });
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
   await page.goto('/');
   await run(page, 'mount', {
+    strict: options.strict,
     projects: {
       names: options.all ?? names,
       current: options.current ?? ['alpha', 'beta'],
       fail: options.fail,
       deepLink: options.deepLink,
+      slowRead: options.slowRead,
     },
   });
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
@@ -185,19 +200,33 @@ test('New project… names a project and puts this page in it', async ({ page })
   expect((await requests(page)).at(-1)!.projects).toEqual(['alpha', 'beta', 'delta']);
 });
 
-test('opening a page reads no list; a page opened by a link shows no chips until the picker is used', async ({
+test('a page opened by a link reads the list once and then shows its chips', async ({ page }) => {
+  const header = await open(page, 1440, 'light', { deepLink: true });
+  await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+  expect(await reads(page)).toBe(1);
+  await openPicker(page, header);
+  // The picker opens at once on what is known, with this page's projects checked.
+  await expect(page.getByRole('menuitemcheckbox')).toHaveText(['alpha✓', 'beta✓', 'gamma']);
+  await expect.poll(() => reads(page)).toBe(2);
+});
+
+test('a page opened by a link in a strict tree still shows its chips, with no read left running', async ({
   page,
 }) => {
-  const header = await open(page, 1440, 'light', { deepLink: true });
-  await expect(chips(header)).toHaveCount(0);
-  expect(await reads(page)).toBe(0);
-  await openPicker(page, header);
-  // The picker opened once the list was read, with this page's projects checked.
-  const rows = page.getByRole('menuitemcheckbox');
-  await expect(rows).toHaveText(['alpha✓', 'beta✓', 'gamma']);
-  expect(await reads(page)).toBe(1);
-  await page.keyboard.press('Escape');
+  const header = await open(page, 1440, 'light', { deepLink: true, strict: true });
   await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+  const { spaceHomeReads, spaceHomeRunning } = await proof(page);
+  expect(spaceHomeReads).toBeLessThanOrEqual(2);
+  expect(spaceHomeRunning).toBe(0);
+});
+
+test('leaving a page while its list read waits cancels that read', async ({ page }) => {
+  const header = await open(page, 1440, 'light', { deepLink: true, slowRead: true });
+  await expect.poll(async () => (await proof(page)).spaceHomeRunning).toBe(1);
+  await expect(chips(header)).toHaveCount(0);
+  await header.getByRole('link', { name: 'Colab' }).click();
+  await expect.poll(async () => (await proof(page)).spaceHomeAborted).toBe(1);
+  expect((await proof(page)).spaceHomeRunning).toBe(0);
 });
 
 test('arriving from the list shows the chips with no read, and the picker refreshes behind what it shows', async ({
