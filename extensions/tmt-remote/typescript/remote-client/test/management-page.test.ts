@@ -18,6 +18,13 @@ function fixture() {
   let firestoreError: unknown;
   let firestoreGate: Promise<void> | undefined;
   const remote: RemoteManagement = {
+    clientId: '11111111-1111-4111-8111-111111111111',
+    async previewRemoveOthers() {
+      return { count: 2, fingerprint: 'ab'.repeat(32) };
+    },
+    async removeOthers(input) {
+      return this.set({ operationId: input.operationId, setting: 'open', value: true });
+    },
     async settings(options?: { firestore: true }) {
       if (options && firestoreGate) await firestoreGate;
       if (options && firestoreError) throw firestoreError;
@@ -416,7 +423,7 @@ for (const [intent, expected] of [
     { kind: 'talk', input: { operationId: 'original', clientId: 'device', enabled: false } },
     'Sending disabled for this device.',
   ],
-  [{ kind: 'revoke', input: { operationId: 'original', clientId: 'device' } }, 'Device revoked.'],
+  [{ kind: 'revoke', input: { operationId: 'original', clientId: 'device' } }, 'Device removed.'],
 ] satisfies [PageIntent, string][]) {
   test(`acknowledged outcome copy: ${expected}`, async () => {
     for (const sessionEnded of [false, true]) {
@@ -459,7 +466,7 @@ for (const [kind, enabled, expected] of [
   ['rename', false, 'Saving…'],
   ['talk', true, 'Enabling sending…'],
   ['talk', false, 'Disabling sending…'],
-  ['revoke', false, 'Revoking device…'],
+  ['revoke', false, 'Removing devices…'],
 ] as const) {
   test(`pending ${kind}/${enabled} copy comes from the frozen original`, async () => {
     const f = fixture();
@@ -486,7 +493,9 @@ for (const [kind, enabled, expected] of [
     await submission;
     assert.equal(
       f.page.notice,
-      'This change could not be confirmed. Check its original result before making another change.',
+      kind === 'revoke'
+        ? 'Could not confirm the removal. Check its result before trying again.'
+        : 'This change could not be confirmed. Check its original result before making another change.',
     );
   });
 }
@@ -662,4 +671,31 @@ test('busy recovery excludes refresh and a second recovery without a second open
   assert.equal(f.page.outcome!.state, 'unknown');
   assert.equal(f.page.writable, false);
   assert.deepEqual(f.counts(), { effectCalls: 1, readCalls: 1, reopens: 1 });
+});
+
+test('bulk preview is read-only, invalidated by refresh, and unknown removal never resends', async () => {
+  const f = fixture();
+  await f.page.refresh();
+  await f.page.previewRemoval();
+  assert.equal(f.page.removalPreview?.count, 2);
+  assert.equal(f.counts().effectCalls, 0);
+  const snapshot = f.page.removalPreview!.fingerprint;
+  await f.page.refresh();
+  assert.equal(f.page.removalPreview, undefined);
+  const intent: PageIntent = {
+    kind: 'remove-others',
+    input: { operationId: 'original', fingerprint: snapshot },
+  };
+  await f.page.submit(intent);
+  assert.equal(f.page.outcome?.state, 'unknown');
+  assert.equal(f.page.writable, false);
+  assert.equal(
+    f.page.notice,
+    'Could not confirm the removal. Check its result before trying again.',
+  );
+  f.setResult({ operationId: 'original', state: 'unknown', reason: 'effect_outcome_unconfirmed' });
+  await f.page.recover();
+  assert.equal(f.page.outcome?.state, 'unknown');
+  assert.equal(f.page.writable, false);
+  assert.equal(f.counts().effectCalls, 1);
 });

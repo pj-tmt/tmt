@@ -56,8 +56,20 @@
           ></p>
         </div>
         <p id="read-only">
-          Read-only in this browser. Change Remote settings or manage devices with the local CLI.
+          Read-only in this browser. To remove devices here, run this on the machine:
         </p>
+        <div id="designation-command" class="tmt-ui-command" hidden>
+          <code id="designation-code" class="tmt-ui-code"></code
+          ><button
+            id="copy-designation"
+            class="tmt-ui-command-copy"
+            type="button"
+            aria-label="Copy designation command"
+          >
+            Copy
+          </button>
+        </div>
+        <p id="designation-copy-feedback" role="status"></p>
         <p class="settings-cli">
           <code class="tmt-ui-code">tmt remote settings</code> ·
           <code class="tmt-ui-code">tmt remote devices</code>
@@ -171,7 +183,8 @@
             </h2>
             <p id="limit-value">Loading…</p>
             <p id="limit-help">
-              Default is 8. Off means unlimited. Changes apply at the next session open.
+              No limit by default. A limit can stop another tab from connecting; it does not remove
+              the browser's pairing.
             </p>
           </div>
           <form class="settings-fields" id="limit-form" aria-describedby="limit-help read-only">
@@ -204,12 +217,12 @@
                 type="button"
                 role="option"
                 data-value="default"
-                aria-label="Default (8, not configured)"
+                aria-label="Default (off, not configured)"
                 aria-selected="false"
                 tabindex="-1"
                 disabled
               >
-                Default (8, not configured)
+                Default (off, not configured)
               </button>
               <button
                 class="tmt-ui-menu-item"
@@ -293,6 +306,21 @@
         <div class="settings-section-body">
           <h2 id="devices-title" class="tmt-ui-notice-heading settings-heading">Paired devices</h2>
           <p>“This device” identifies a pairing. It does not grant settings authority.</p>
+          <button
+            id="remove-others"
+            class="tmt-ui-action"
+            data-variant="destructive"
+            type="button"
+            disabled
+            aria-expanded="false"
+            aria-controls="remove-others-confirmation"
+          >
+            <span class="tmt-ui-action-label">Remove the others</span>
+          </button>
+          <div id="remove-others-confirmation" class="device-confirmation" hidden>
+            <p id="remove-others-consequence" role="status"></p>
+            <button id="cancel-remove-others" class="tmt-ui-action" type="button">Cancel</button>
+          </div>
           <div id="devices"></div>
           <button
             class="tmt-ui-action"

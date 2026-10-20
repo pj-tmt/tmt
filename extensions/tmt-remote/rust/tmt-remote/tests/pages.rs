@@ -143,7 +143,7 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
     assert_eq!(sdk.header("x-content-type-options"), Some("nosniff"));
     for copy in [
         "This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.",
-        "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+        "This page's connection ended. Try again. Your pairing is unchanged.",
     ] {
         assert!(sdk.body.contains(copy), "{copy}");
     }
@@ -413,7 +413,10 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         assert_eq!(reply.body, include_str!("../assets/error.html"));
         assert!(reply.body.contains("aria-hidden=\"true\">✗</span"));
         // No cause crosses the generic refusal boundary; never infer expiry or reuse.
-        assert!(reply.body.contains("This page is unavailable"));
+        assert!(reply.body.contains(
+            "This page is unavailable. Open it again from the machine. Your pairing is unchanged."
+        ));
+        assert!(!reply.body.contains("tmt remote pair"));
         assert!(!reply.body.contains("has expired"));
         assert!(!reply.body.contains("was already used"));
     }

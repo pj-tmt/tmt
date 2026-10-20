@@ -281,6 +281,8 @@ export class Door {
         case 'remote.devices.list':
         case 'remote.devices.rename':
         case 'remote.devices.revoke':
+        case 'remote.devices.remove-others.preview':
+        case 'remote.devices.remove-others':
         case 'remote.devices.talk':
         case 'remote.management.operation':
           assert.ok(this.managementReply, 'Management fixture is explicitly configured.');

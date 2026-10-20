@@ -81,15 +81,19 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       assert.equal((nodes['state-label'] as { textContent: string }).textContent, 'Not connected');
       assert.equal(
         status.textContent,
-        failure === 'consumed'
-          ? 'This link no longer works. Open the page again from the machine with tmt remote open.'
-          : `Could not connect this browser. Open the page again from the machine with ${failure === 'storage-colab' ? 'tmt colab open' : 'tmt remote open'}. If it still fails, run tmt remote pair there.`,
+        failure === 'storage-colab'
+          ? 'Your saved pairing could not be read. Check browser storage and try again.'
+          : failure === 'consumed'
+            ? 'This link no longer works. Open the page again from the machine with tmt remote open.'
+            : 'Could not connect this browser. Open the page again from the machine with tmt remote open.',
       );
       assert.deepEqual(
         children.filter((node) => node.tagName === 'CODE').map((node) => node.textContent),
-        failure === 'consumed'
-          ? ['tmt remote open']
-          : [failure === 'storage-colab' ? 'tmt colab open' : 'tmt remote open', 'tmt remote pair'],
+        failure === 'storage-colab'
+          ? []
+          : failure === 'consumed'
+            ? ['tmt remote open']
+            : ['tmt remote open'],
       );
       assert.ok(
         children
@@ -98,6 +102,12 @@ for (const failure of ['consumed', 'transport', 'storage-colab'] as const) {
       );
       assert.equal(requests, 1);
       manual = true;
+      vi.stubGlobal('indexedDB', {
+        open: () =>
+          request({
+            transaction: () => ({ objectStore: () => ({ get: () => request(undefined) }) }),
+          }),
+      });
       await pairingPage(door.link());
       assert.equal(labels['pairing-title'].textContent, 'Pair a browser');
       assert.equal(labels.heading.textContent, 'Pair this browser with tmt remote');
@@ -227,7 +237,9 @@ async function fixture(mode = 'success') {
       if (mode === 'delayed') await blocked;
       if (mode === 'transport') throw new Error('private transport cause');
       return Response.json({
-        machineId: mode === 'other-machine' ? crypto.randomUUID() : door.descriptor.machineId,
+        machineId: ['other-machine', 'mismatch'].includes(mode)
+          ? crypto.randomUUID()
+          : door.descriptor.machineId,
         address: door.descriptor.address,
         windowId: mode === 'stale' && mounts === 2 ? crypto.randomUUID() : door.descriptor.windowId,
         extension: null,
@@ -619,6 +631,12 @@ for (const outcome of ['valid', 'refused', 'malformed', 'transport']) {
         status: outcome === 'refused' ? 404 : 200,
       });
     });
+    vi.stubGlobal('indexedDB', {
+      open: () =>
+        request({
+          transaction: () => ({ objectStore: () => ({ get: () => request(undefined) }) }),
+        }),
+    });
     const attempt = pairingPage(door.link());
     try {
       await reached;
@@ -717,6 +735,12 @@ for (const ownsFocus of [true, false]) {
     };
     vi.stubGlobal('document', doc);
     vi.stubGlobal('fetch', async () => Response.json(door.descriptor));
+    vi.stubGlobal('indexedDB', {
+      open: () =>
+        request({
+          transaction: () => ({ objectStore: () => ({ get: () => request(undefined) }) }),
+        }),
+    });
     const key = vi.spyOn(DeviceKey, 'generate').mockImplementation(() => generated);
     try {
       await pairingPage(door.link());
@@ -739,13 +763,13 @@ for (const mode of ['revoked-proof', 'expired-proof', 'ended-proof', 'signed-ref
     try {
       await landingPage();
       assert.equal(f.nodes.get('state-label')!.textContent, 'Not accepted');
-      assert.equal(f.nodes.get('steps-refused')!.hidden, false);
       const authorityEnded = mode === 'revoked-proof' || mode === 'expired-proof';
+      assert.equal(f.nodes.get('steps-refused')!.hidden, !authorityEnded);
       assert.equal(
         f.nodes.get('status')!.textContent,
         authorityEnded
           ? 'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.'
-          : "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+          : "This page's connection ended. Try again. Your pairing is unchanged.",
       );
       assert.equal(f.button.disabled, false);
       assert.equal((f.button as { hidden?: boolean }).hidden, false);
@@ -768,3 +792,118 @@ for (const mode of ['revoked-proof', 'expired-proof', 'ended-proof', 'signed-ref
     }
   });
 }
+
+for (const mode of [
+  'success',
+  'revoked-proof',
+  'expired-proof',
+  'mismatch',
+  'unverified',
+  'transport',
+  'unreadable',
+]) {
+  test(`manual pairing with a stored device first checks its existing grant: ${mode}`, async () => {
+    const f = await fixture(mode);
+    if (mode === 'unreadable') f.record(null);
+    const button = { disabled: true };
+    const form = { hidden: false, querySelector: () => button, addEventListener: () => {} };
+    const oldDocument = document;
+    const nodes: Record<string, unknown> = {
+      ...pairingLabels(),
+      pair: form,
+      comparison: { hidden: true },
+      'entry-link': { hidden: true },
+    };
+    vi.stubGlobal('document', {
+      ...oldDocument,
+      getElementById: (id: string) => nodes[id] ?? oldDocument.getElementById(id),
+    });
+    let destination = '';
+    vi.stubGlobal('location', {
+      origin: new URL(f.door.descriptor.address).origin,
+      pathname: '/remote/pair',
+      replace: (path: string) => {
+        destination = path;
+      },
+    });
+    const network = fetch;
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+      String(url).endsWith('/sdk/pair-offer')
+        ? Promise.resolve(Response.json(f.door.descriptor))
+        : network(url, init),
+    );
+    const generate = vi.spyOn(DeviceKey, 'generate');
+    try {
+      await pairingPage(f.door.link());
+      assert.equal(generate.mock.calls.length, 0, 'no new browser key');
+      assert.equal(f.door.calls.length, 0, 'no new enrollment or agent operation');
+      if (mode === 'success') {
+        assert.equal(f.nodes.get('status')!.textContent, 'This browser is already paired.');
+        assert.equal(form.hidden, true);
+        assert.equal(destination, '/remote/');
+      } else if (['revoked-proof', 'expired-proof', 'mismatch'].includes(mode)) {
+        assert.equal(form.hidden, false);
+        assert.equal(button.disabled, false);
+      } else {
+        assert.equal(form.hidden, true);
+        assert.equal(button.disabled, true);
+        assert.equal(destination, '');
+        assert.ok(!f.nodes.get('status')!.textContent.includes('tmt remote pair'));
+      }
+    } finally {
+      generate.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+}
+
+test('automatic pairing with a mismatched stored device stops for manual terminal confirmation', async () => {
+  const f = await fixture('mismatch');
+  const button = { disabled: true };
+  const form = { hidden: false, querySelector: () => button, addEventListener: () => {} };
+  const oldDocument = document;
+  const nodes: Record<string, unknown> = {
+    ...pairingLabels(),
+    pair: form,
+    comparison: { hidden: true },
+    'entry-link': { hidden: true },
+  };
+  vi.stubGlobal('document', {
+    ...oldDocument,
+    getElementById: (id: string) => nodes[id] ?? oldDocument.getElementById(id),
+  });
+  let destination = '';
+  vi.stubGlobal('location', {
+    origin: new URL(f.door.descriptor.address).origin,
+    pathname: '/remote/pair',
+    replace: (path: string) => {
+      destination = path;
+    },
+  });
+  const network = fetch;
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+    String(url).endsWith('/sdk/pair-offer')
+      ? Promise.resolve(Response.json({ ...f.door.descriptor, automatic: true, target: '/p/abcd' }))
+      : network(url, init),
+  );
+  const generate = vi.spyOn(DeviceKey, 'generate');
+  try {
+    await pairingPage(f.door.link().replace('#', '#auto='));
+    assert.equal(generate.mock.calls.length, 0, 'no automatic replacement browser key');
+    assert.equal(f.door.calls.length, 0, 'no enrollment, cancellation or agent operation');
+    assert.deepEqual(f.counts(), { mounts: 1, admissions: 0 });
+    assert.equal(destination, '');
+    assert.equal(form.hidden, true);
+    assert.equal(
+      f.nodes.get('status')!.textContent,
+      'This browser is paired with a different machine. To use this one, run tmt remote pair on it.',
+    );
+    assert.deepEqual(
+      f.statusChildren.filter((node) => node.tagName === 'CODE'),
+      [{ tagName: 'CODE', className: 'tmt-ui-code', textContent: 'tmt remote pair' }],
+    );
+  } finally {
+    generate.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});

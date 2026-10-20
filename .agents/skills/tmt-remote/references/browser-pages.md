@@ -10,8 +10,9 @@ The automatic flow labels its page “Connect this browser”, hides the pairing
 The automatic form is hidden before paint; the SDK either reuses/cancels with the stored device
 or enrolls exactly the read-only default, then replaces the same tab with its validated target.
 No code enters logs, requests, ordinary output or continuation links. Used/cancelled/expired
-codes show a plain refusal and a machine-side reopen command; transport/storage failures add
-manual pairing as the fallback and do not claim that a grant was refused. Commands use code styling and stay unbroken within the pairing status.
+codes show a plain refusal and a machine-side reopen command. Storage and unconfirmed
+reopen failures retain the saved pairing, with no pair-again instruction or silent enrollment.
+Only a genuinely absent or verified revoked/expired pairing permits enrollment. Commands use code styling and stay unbroken within the pairing status.
 A same-document fragment change restarts capture/erasure and cancels the previous page attempt. Browser fixtures cover erasure before SDK loading, first enrollment,
 returning-browser cancellation, another profile's replay refusal and code-free Back/Forward.
 
@@ -58,7 +59,8 @@ Only signed refusal supports Not accepted. Its body names pairing removal/expiry
 revoked/expired authority; a session-ended/evicted body offers Check again without claiming pairing
 loss. Opaque404 remains unconfirmed even after a
 descriptor-only recheck, never another admission. Page-lifetime/signing fences prevent new
-requests after departure; per-check fences prevent late painting. Pair success still links back
+requests after departure; per-check fences prevent late painting. A valid stored pairing short-circuits manual enrollment, leaves its offer open and continues
+to `/remote/`; unreadable/unconfirmed state never enrolls silently. Pair success still links back
 to `/remote/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
 
 The native CLI regression fetches the printed human URL as HTML and verifies protocol-base
@@ -114,7 +116,9 @@ so only one bounded page of forms is retained. The separately generated
 `settings-v1.js` imports the single served public SDK, without another key/channel owner.
 Both generated modules must pass rebuild byte equality. The owning
 [management protocol](../../../../contracts/remote-channel-v1.md#remote-settings-page)
-defines default/source, capacity and bounded live-grant admission behavior.
+defines the unlimited default/source, capacity, durable last use and atomic remove-others behavior.
+Only the locally designated browser may remove devices; read-only pages show its exact designation
+command. Removed rows disappear without deleting revocation tombstones.
 
 The existing Chromium pairing fixture also exercises the actual settings page: designated/
 read-only values, exact custom cap/off/default source, role removal, retained drafts/caret,
