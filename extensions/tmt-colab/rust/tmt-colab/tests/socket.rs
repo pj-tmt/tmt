@@ -1050,10 +1050,48 @@ fn send(peer: &mut WebSocket<UnixStream>, frame: Value) {
     peer.send(Message::Text(frame.to_string().into())).unwrap();
 }
 fn receive(peer: &mut WebSocket<UnixStream>) -> Value {
-    let message = peer.read().unwrap();
-    serde_json::from_str(message.to_text().unwrap())
-        .unwrap_or_else(|_| panic!("not JSON: {message:?}"))
+    loop {
+        let message = peer.read().unwrap();
+        match &message {
+            Message::Text(text) => {
+                return serde_json::from_str(text)
+                    .unwrap_or_else(|_| panic!("not JSON: {message:?}"));
+            }
+            Message::Ping(_) | Message::Pong(_) => continue,
+            _ => panic!("expected a JSON text frame: {message:?}"),
+        }
+    }
 }
+#[test]
+fn receive_skips_websocket_keepalive_frames_before_json() {
+    let (client, server) = UnixStream::pair().unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let mut server = WebSocket::from_raw_socket(server, Role::Server, None);
+    server.send(Message::Ping(Vec::new().into())).unwrap();
+    server.send(Message::Pong(vec![1].into())).unwrap();
+    let expected = json!({"type": "saved", "seq": "1"});
+    server
+        .send(Message::Text(expected.to_string().into()))
+        .unwrap();
+    let mut client = WebSocket::from_raw_socket(client, Role::Client, None);
+    assert_eq!(receive(&mut client), expected);
+}
+
+#[test]
+#[should_panic(expected = "expected a JSON text frame")]
+fn receive_rejects_binary_frames_even_when_the_bytes_are_json() {
+    let (client, server) = UnixStream::pair().unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let mut server = WebSocket::from_raw_socket(server, Role::Server, None);
+    server.send(Message::Binary(b"{}".to_vec().into())).unwrap();
+    let mut client = WebSocket::from_raw_socket(client, Role::Client, None);
+    receive(&mut client);
+}
+
 fn hello(server: &Running, peer: &mut WebSocket<UnixStream>, id: &str) -> Vec<Value> {
     send(
         peer,
