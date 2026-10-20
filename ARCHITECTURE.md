@@ -420,7 +420,7 @@ own module/drawing boundaries and verification.
   `migration` owns locked byte-preserving legacy cutover. Its shared invocation notice warns once on CLI stderr; the UI projects the same notice through App without out-of-band terminal writes.
   No Ops
   data enters `config.json` or Core's database.
-- **Workspace.** Overview/Agents/Digest share one acquired roster; Overview caches selectable squad and canonical all-agent projections, while tree projections are frame-scoped.
+- **Workspace.** Agents/Digest share one acquired roster; the flat Agents list caches canonical all-agent projections, while tree projections are frame-scoped.
   UUID squad anchors and virtual Common pool define selection; paint/input do no Core reads. WP1 owns conversation/editor/drafts.
   `board::buttons` owns chip paint and hover, including ChipGroup selectors, through neutral Strip paint and shared screen styles; callers keep activation authority.
   The existing quiet cache lane publishes per-name view hints (default keeps its
