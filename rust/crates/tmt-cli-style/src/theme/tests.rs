@@ -389,10 +389,12 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
     ] {
         let color = |role: Role| tokens["color"][role.name()][mode].as_str().unwrap();
         let backgrounds = [tokens["surface"]["paper"][mode].as_str().unwrap()];
-        for role in Role::ALL
-            .into_iter()
-            .filter(|role| !matches!(role, Role::Selection | Role::Track))
-        {
+        for role in Role::ALL.into_iter().filter(|role| {
+            !matches!(
+                role,
+                Role::Selection | Role::Track | Role::Keycap | Role::KeycapSelected
+            )
+        }) {
             let floor = if matches!(role, Role::Muted | Role::Dim) {
                 3.0
             } else {
@@ -655,4 +657,45 @@ fn unread_has_a_canonical_blue_role_and_honours_overrides_and_no_color() {
             Style::new()
         );
     }
+}
+
+#[cfg(feature = "ratatui")]
+#[test]
+fn keycaps_are_neutral_readable_bold_and_brighter_in_the_selected_control() {
+    use ratatui::style::{Color, Modifier};
+    for base in [Base::Tmt, Base::TmtLight] {
+        let theme = Theme::new(base);
+        for (selected, expected) in [(false, 0x55), (true, 0x70)] {
+            let cap = screen::keycap(&theme, Depth::TrueColor, selected);
+            assert_eq!(cap.bg, Some(Color::Rgb(expected, expected, expected)));
+            assert_eq!(cap.fg, Some(Color::White));
+            assert!(cap.add_modifier.contains(Modifier::BOLD));
+            assert!(cap.sub_modifier.contains(Modifier::DIM));
+            let channel = f64::from(expected) / 255.0;
+            let luminance = ((channel + 0.055) / 1.055).powf(2.4);
+            assert!(1.05 / (luminance + 0.05) >= 4.5);
+        }
+        let no_color = screen::keycap(&theme, Depth::None, false);
+        assert_eq!(no_color.fg, None);
+        assert_eq!(no_color.bg, None);
+        assert!(
+            no_color
+                .add_modifier
+                .contains(Modifier::REVERSED | Modifier::BOLD)
+        );
+        for selected in [false, true] {
+            let ansi = screen::keycap(&theme, Depth::Ansi16, selected);
+            assert!(ansi.add_modifier.contains(Modifier::BOLD));
+            assert!(matches!(ansi.bg, Some(Color::Black | Color::DarkGray)));
+            let inherited = ratatui::style::Style::new()
+                .add_modifier(Modifier::REVERSED)
+                .patch(ansi);
+            assert!(!inherited.add_modifier.contains(Modifier::REVERSED));
+            assert_eq!(inherited.fg, Some(Color::White));
+        }
+    }
+    let overridden = Theme::default().with(Role::Keycap, Paint::Rgb(240, 240, 240));
+    let cap = screen::keycap(&overridden, Depth::TrueColor, false);
+    assert_eq!(cap.bg, Some(Color::Rgb(240, 240, 240)));
+    assert_eq!(cap.fg, Some(Color::Black));
 }

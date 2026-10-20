@@ -821,22 +821,27 @@ fn mouse_choice_close_retains_the_submitted_write_on_every_pending_screen() {
 }
 
 #[test]
-fn app_snapshot_action_is_agents_list_only_in_dispatch_help_and_menu_table() {
+fn app_snapshot_action_is_available_on_every_tab_without_replacing_its_owner() {
     use crate::{
         action::{OpsUiAction, Verb},
         board::{app::Effect, shell::OpsTab},
     };
-    let mut app = crate::board::app::workspace::tests::board();
-    for tab in [OpsTab::Overview, OpsTab::Digest] {
+    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        let mut app = crate::board::app::workspace::tests::board();
         app.shell.tab = tab;
         assert!(
-            !app.bindings()
+            app.bindings()
                 .values()
                 .any(|a| a.verb == Verb::Ui(OpsUiAction::WorkspaceSnapshots))
         );
-        assert!(matches!(app.open_recovery(), Effect::None));
-        assert!(app.recovery.is_none());
+        let Effect::Recovery(read) = app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE))
+        else {
+            panic!("{tab:?}: global snapshots key must emit the existing read job");
+        };
+        assert_eq!(read.job, Job::List(None));
+        assert!(app.recovery_shown());
     }
+    let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = OpsTab::Agents;
     app.focus = 0;
     assert_eq!(
@@ -855,7 +860,7 @@ fn app_snapshot_action_is_agents_list_only_in_dispatch_help_and_menu_table() {
     app.menu = None;
     app.focus = 1;
     assert!(
-        !app.bindings()
+        app.bindings()
             .values()
             .any(|a| a.verb == Verb::Ui(OpsUiAction::WorkspaceSnapshots))
     );
@@ -927,13 +932,50 @@ fn rapid_close_reopen_retains_one_active_read_and_coalesces_one_refresh() {
 }
 
 #[test]
+fn top_bar_snapshot_padding_uses_the_existing_recovery_owner_on_every_tab() {
+    use crate::{
+        action::{OpsUiAction, Verb},
+        board::{
+            app::{Choice, Effect},
+            shell::OpsTab,
+        },
+    };
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.shell.tab = tab;
+        let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let area = app.workspace_strip_hits.borrow().iter().find_map(|(area, choice)| {
+            matches!(choice, Choice::Action(action) if action.verb == Verb::Ui(OpsUiAction::WorkspaceSnapshots)).then_some(*area)
+        }).expect("whole top-bar Snapshots control");
+        assert_eq!(area.y, 0);
+        let Effect::Recovery(read) = app.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            std::time::Instant::now(),
+        ) else {
+            panic!("left padding must invoke the existing read lane")
+        };
+        assert_eq!(read.job, Job::List(None));
+        assert!(app.recovery_shown());
+    }
+}
+
+#[test]
 fn help_has_one_effective_snapshot_binding_and_no_retired_reservation() {
     use crate::board::shell::OpsTab;
     let mut app = crate::board::app::workspace::tests::board();
     for (tab, expected) in [
         (OpsTab::Agents, 1),
-        (OpsTab::Overview, 0),
-        (OpsTab::Digest, 0),
+        (OpsTab::Overview, 1),
+        (OpsTab::Digest, 1),
     ] {
         app.shell.tab = tab;
         let value = crate::board::help::model(&app).value().to_string();

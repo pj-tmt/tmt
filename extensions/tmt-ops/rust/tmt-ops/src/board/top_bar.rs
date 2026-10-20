@@ -99,7 +99,8 @@ impl Attention {
     }
 }
 
-pub(in crate::board) fn paint(
+#[cfg(test)]
+fn paint(
     buffer: &mut Buffer,
     area: Rect,
     layer: Option<&str>,
@@ -107,6 +108,21 @@ pub(in crate::board) fn paint(
     observations: Option<&Observations<'_>>,
     look: Look,
 ) {
+    paint_with_control(buffer, area, layer, attention, observations, look, 0);
+}
+
+/// Paints the caption and attention strip. A control of `control_width` columns takes the right
+/// end of the caption side when the stage keeps the whole caption beside it; its rectangle is
+/// returned for the caller to paint.
+pub(in crate::board) fn paint_with_control(
+    buffer: &mut Buffer,
+    area: Rect,
+    layer: Option<&str>,
+    attention: Option<&Attention>,
+    observations: Option<&Observations<'_>>,
+    look: Look,
+    control_width: u16,
+) -> Option<Rect> {
     // Whole semantic segments yield in the approved order. Never fit a partial
     // percentage or token count into the space between the two owners.
     let stages = [
@@ -124,7 +140,7 @@ pub(in crate::board) fn paint(
                 value.with_words(look, false)
             }
         });
-        let left_width = right.as_ref().map_or(area.width, |line| {
+        let mut left_width = right.as_ref().map_or(area.width, |line| {
             area.width
                 .saturating_sub((line.width() as u16).saturating_add(2))
         });
@@ -135,6 +151,20 @@ pub(in crate::board) fn paint(
             ),
             Span::styled(if brand { "OPS / UI" } else { "" }, look.role(Role::Muted)),
         ]);
+        let control = (control_width > 0
+            && control_width.saturating_add(caption.width() as u16 + 1) <= left_width
+            && area.height > 0)
+            .then(|| {
+                Rect::new(
+                    area.x + left_width - control_width,
+                    area.y,
+                    control_width,
+                    1,
+                )
+            });
+        if control.is_some() {
+            left_width = left_width.saturating_sub(control_width + 1);
+        }
         let extra = observations.map(|value| {
             let width = (index + 1 == stages.len())
                 .then(|| usize::from(left_width).saturating_sub(caption.width()));
@@ -176,13 +206,56 @@ pub(in crate::board) fn paint(
         if let Some(right) = right {
             strip::paint_right(buffer, area, right);
         }
-        return;
+        return control;
     }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_control_never_clips_the_shell_caption_or_attention() {
+        let attention = Attention {
+            online: "28".into(),
+            unread: Default::default(),
+            waiting: "9".into(),
+            blocked: "1".into(),
+            waiting_positive: true,
+            blocked_positive: true,
+            complete: true,
+            ascii: false,
+        };
+        for width in [60, 100] {
+            let area = Rect::new(0, 0, width, 1);
+            let mut buffer = Buffer::empty(area);
+            let control = paint_with_control(
+                &mut buffer,
+                area,
+                None,
+                Some(&attention),
+                None,
+                Look::default(),
+                15,
+            );
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(text.contains("OPS / UI"), "{text}");
+            assert!(
+                text.contains("online") && text.contains("waiting") && text.contains("blocked"),
+                "{text}"
+            );
+            assert_eq!(control.is_some(), width == 100);
+            if let Some(control) = control {
+                assert_eq!(control.width, 15);
+                assert!(control.right() <= area.right());
+                assert!(
+                    buffer.content[usize::from(control.x)..usize::from(control.right())]
+                        .iter()
+                        .all(|cell| cell.symbol() == " ")
+                );
+            }
+        }
+    }
     #[test]
     fn only_nonzero_attention_glyphs_use_state_colour() {
         let look = Look::default();

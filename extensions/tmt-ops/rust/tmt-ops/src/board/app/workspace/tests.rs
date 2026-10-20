@@ -845,7 +845,7 @@ fn workspace_shell_is_available_before_data_at_every_theme_depth() {
             });
             let lines = paint(&app, 80, 8);
             assert!(lines[0].contains("TMT   OPS / UI"), "{base:?} {depth:?}");
-            for label in ["1 Overview", "2 Agents", "3 Digest"] {
+            for label in ["1  Overview", "2  Agents", "3  Digest"] {
                 assert!(lines[2].contains(label), "{base:?} {depth:?}: {label}");
             }
             assert!(!lines[0].contains("private-squad"));
@@ -1116,13 +1116,16 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
             );
             app.tab_hits.borrow_mut().clear();
             let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
-            assert_eq!(line.to_string(), "  1 Overview   2 Agents   3 Digest  ");
+            assert_eq!(
+                line.to_string(),
+                "   1  Overview    2  Agents    3  Digest  "
+            );
             let hits = app.tab_hits.borrow();
             assert_eq!(hits.len(), 3);
-            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 10), (25, 10)]) {
+            for (hit, (x, width)) in hits.iter().zip([(1, 14), (16, 12), (29, 12)]) {
                 assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
             }
-            for gap_x in [13, 24, 35] {
+            for gap_x in [15, 28, 41] {
                 assert!(
                     !hits
                         .iter()
@@ -1130,12 +1133,12 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
                 );
             }
             drop(hits);
-            for gap in [2, 4, 6] {
-                assert_eq!(line.spans[gap].content, " ");
-                assert_eq!(line.spans[gap].style, ratatui::style::Style::default());
-            }
-            for (index, span) in line.spans.iter().skip(1).step_by(2).enumerate() {
-                let selected = index == 1; // The fixture starts in Agents.
+            for (label, selected) in [("Overview", false), ("Agents", true), ("Digest", false)] {
+                let span = line
+                    .spans
+                    .iter()
+                    .find(|span| span.content == label)
+                    .unwrap();
                 let expected = if selected {
                     app.look()
                         .role(tmt_cli_style::Role::Text)
@@ -1147,6 +1150,17 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
                 assert_eq!(
                     span.style, expected,
                     "attention cannot recolor shell labels"
+                );
+            }
+            for (key, selected) in [(" 1 ", false), (" 2 ", true), (" 3 ", false)] {
+                let span = line.spans.iter().find(|span| span.content == key).unwrap();
+                assert_eq!(
+                    span.style,
+                    tmt_cli_style::theme::screen::keycap(
+                        &app.look().theme,
+                        app.look().depth,
+                        selected
+                    )
                 );
             }
         }
@@ -3168,8 +3182,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_)) || matches!(choice, Choice::Action(action) if action.verb == Verb::Ui(crate::action::OpsUiAction::Search))),
-        "Overview paints its own view controls, in-place search and any admitted estimate"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
+        "Overview paints view/search/estimate controls and the global Snapshots action"
     );
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(
@@ -3860,7 +3874,7 @@ fn nondefault_layer_caption_changes_only_the_header_and_never_overlaps_attention
                 assert!(
                     long.contains("online") && long.contains("waiting") && long.contains("blocked")
                 );
-                if width >= 100 {
+                if width >= 160 {
                     assert!(long.contains(&"x".repeat(32)));
                 } else {
                     assert!(long.contains('…'));
@@ -4242,7 +4256,7 @@ fn agents_search_count_lives_on_squads_rule_and_highlights_matching_name() {
     assert!(rule.contains("1 of 1 agents"), "{rule}");
     let filter = lines
         .iter()
-        .find(|line| line.contains("/ worker"))
+        .find(|line| line.contains("/  worker"))
         .expect("shared search field");
     assert!(!filter.contains("of 1"));
     let name_row = app
@@ -4449,7 +4463,7 @@ fn individually_pinned_agents_keep_read_only_no_match_previews_and_dynamic_hints
 }
 
 #[test]
-fn overview_v_toggles_for_member_or_squad_from_either_pane_without_a_reader() {
+fn overview_f_toggles_for_member_or_squad_from_either_pane_without_a_reader() {
     use crate::board::overview::monitor::View;
     for focus in [0, 1] {
         let mut app = board();
@@ -4458,13 +4472,135 @@ fn overview_v_toggles_for_member_or_squad_from_either_pane_without_a_reader() {
         app.workspace_reconcile();
         paint(&app, 148, 51);
         app.focus = focus;
-        assert_eq!(app.bindings()["v"].text, "overview-view");
-        assert_eq!(key(&mut app, KeyCode::Char('v')), Effect::None);
+        assert_eq!(app.bindings()["f"].text, "overview-view");
+        assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
         assert_eq!(app.overview_view, View::Squads);
-        assert_eq!(app.bindings()["v"].text, "overview-view");
-        key(&mut app, KeyCode::Char('v'));
+        assert_eq!(app.bindings()["f"].text, "overview-view");
+        key(&mut app, KeyCode::Char('f'));
         assert_eq!(app.overview_view, View::Agents);
     }
+}
+
+#[test]
+fn keycaps_follow_authored_bindings_without_inventing_unbound_keys() {
+    use crate::action::OpsUiAction;
+    let mut app = configured_member(
+        "[bind]\nv = 'overview-view'\nf = 'help'\n'1' = 'help'\nf2 = 'overview'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    app.shell.tab = OpsTab::Overview;
+    assert_eq!(
+        crate::board::keycap::key(&app, OpsUiAction::OverviewView, "f").as_deref(),
+        Some("v")
+    );
+    assert_eq!(
+        crate::board::keycap::key(&app, OpsUiAction::Overview, "1").as_deref(),
+        Some("f2")
+    );
+    assert_eq!(
+        crate::board::keycap::key(&app, OpsUiAction::WorkspaceSnapshots, "w").as_deref(),
+        Some("f3")
+    );
+    let lines = paint(&app, 160, 44);
+    assert!(lines.iter().any(|line| line.contains(" f2  Overview")));
+    assert!(lines.iter().any(|line| line.contains(" f3  Snapshots")));
+    let mut unbound = configured_member(
+        "[bind]\nf = 'help'\nw = 'help'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    unbound.shell.tab = OpsTab::Overview;
+    assert_eq!(
+        crate::board::keycap::key(&unbound, OpsUiAction::OverviewView, "f"),
+        None
+    );
+    assert_eq!(
+        crate::board::keycap::key(&unbound, OpsUiAction::WorkspaceSnapshots, "w"),
+        None
+    );
+}
+
+#[test]
+fn snapshots_shortcut_yields_to_search_and_the_existing_composer() {
+    let mut app = board();
+    key(&mut app, KeyCode::Char('/'));
+    assert!(app.searching);
+    assert_eq!(key(&mut app, KeyCode::Char('w')), Effect::None);
+    assert_eq!(app.search, "w");
+    assert!(!app.recovery_shown());
+    key(&mut app, KeyCode::Esc);
+    paint(&app, 160, 44);
+    key(&mut app, KeyCode::Enter);
+    assert!(app.input.is_some());
+    assert_eq!(key(&mut app, KeyCode::Char('w')), Effect::None);
+    assert!(!app.recovery_shown());
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), "w");
+}
+
+#[test]
+#[ignore = "explicit keycap candidate evidence export; never records fixtures"]
+fn capture_keycaps_packet() {
+    let output = std::env::var("TMT_KEYCAP_PACKET").expect("task-owned evidence path");
+    let mut captures = Vec::new();
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let _no_commands = crate::runner::forbid_commands();
+        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+            for scene in ["default", "custom", "unbound"] {
+                for width in [160, 100, 60] {
+                    for (base, depth) in [
+                        ("tmt", tmt_cli_style::Depth::TrueColor),
+                        ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                        ("terminal", tmt_cli_style::Depth::Ansi16),
+                        ("tmt", tmt_cli_style::Depth::None),
+                    ] {
+                        let mut app = match scene {
+                            "custom" => configured_member(
+                                "[bind]\nv = 'overview-view'\nf = 'help'\nf2 = 'overview'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+                                json!({"id":MEMBER,"name":"worker"}),
+                            ),
+                            "unbound" => configured_member(
+                                "[bind]\nf = 'help'\nw = 'help'\n",
+                                json!({"id":MEMBER,"name":"worker"}),
+                            ),
+                            _ => board(),
+                        };
+                        app.shell.tab = tab;
+                        let look = crate::look::Look {
+                            theme: tmt_cli_style::Theme::new(
+                                tmt_cli_style::Base::parse(base).unwrap(),
+                            ),
+                            depth,
+                        };
+                        let view = app.view.as_mut().unwrap();
+                        view.look = look;
+                        for value in view
+                            .home
+                            .as_mut()
+                            .unwrap()
+                            .workspace
+                            .squad_looks
+                            .values_mut()
+                        {
+                            *value = look;
+                        }
+                        let mut terminal = Terminal::new(TestBackend::new(width, 44)).unwrap();
+                        terminal
+                            .draw(|frame| crate::board::view::render(frame, &app))
+                            .unwrap();
+                        let buffer = terminal.backend().buffer();
+                        let cells = buffer.content.iter().map(|cell| json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>();
+                        let lines = buffer
+                            .content
+                            .chunks(usize::from(width))
+                            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                            .collect::<Vec<_>>();
+                        captures.push(json!({"scene":format!("{tab:?}-{scene}"),"width":width,"height":44,"base":base,"depth":format!("{depth:?}"),"cells":cells,"lines":lines,"hits":format!("{:?}",app.hits.borrow())}));
+                    }
+                }
+            }
+        }
+    });
+    assert_eq!(captures.len(), 108);
+    std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
 }
 
 #[test]
@@ -4543,7 +4679,7 @@ fn capture_agent_pin_packet() {
                                 app.overview_view,
                                 crate::board::overview::monitor::View::Agents
                             );
-                            key(&mut app, KeyCode::Char('v'));
+                            key(&mut app, KeyCode::Char('f'));
                             assert_eq!(
                                 app.overview_view,
                                 crate::board::overview::monitor::View::Squads

@@ -234,6 +234,10 @@ no raw key interception or default binding is added.
 ## Workspace and retained identity
 
 `board::shell` selects Overview/Agents/Digest without loading a second roster.
+`board::keycap` projects effective configured keys through the shared style
+keycap painter; tab, filter, search and Snapshots hosts retain their activation
+and geometry owners. Snapshots uses the existing recovery controller on every tab,
+after editor and modal key ownership.
 `workspace::observe` projects the same acquired room/document/identity snapshots;
 `workspace::OpsWorkspace` owns UUID selection, expansion and filter/sort ordering.
 The [workspace reference](board-home.md) owns geometry, count truth and modal

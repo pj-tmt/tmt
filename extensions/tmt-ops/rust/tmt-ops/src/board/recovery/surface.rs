@@ -166,7 +166,8 @@ impl Controller {
         rows
     }
     fn notes(&self) -> Vec<String> {
-        let mut notes = vec![];
+        let mut notes =
+            vec!["Save which agents run where, and bring them back after a restart.".into()];
         if let Some(socket) = &self.socket {
             notes.push(format!("Original tmux socket: {}", safe(socket)));
         }

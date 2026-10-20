@@ -241,7 +241,7 @@ export function TokenTable({ group = "color" }: { group?: "color" | "surface" })
 // and a terminal running the default theme.
 export function TokenPreview() {
   const colors = Object.entries(tokens.color as Record<string, Rendering>).filter(
-    ([name]) => name !== "selection" && name !== "track",
+    ([name]) => !["selection", "track", "keycap", "keycap-selected"].includes(name),
   );
   const panel = (
     title: string,

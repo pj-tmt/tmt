@@ -288,6 +288,8 @@ Boards started before this behavior shipped need one manual restart.
 ## Board appearance
 
 The board opens one `OPS / UI` shell: `1 Overview`, `2 Agents`, `3 Digest`.
+Shortcut caps precede tab and filter labels and show effective configured keys;
+unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Overview contains visible-agent attention, global usage and provider limits; the shell attention bar stays global. Agents contains the
 squad workspace and the selected agent's conversation. Digest keeps the same
 identity context and existing Core-owned policy controls. A squad's theme applies
@@ -460,9 +462,10 @@ selected membership, `D` opens Digest and `c` opens Timers. The one-line Overvie
 these actions remain in Help and the Actions menu with their effective keys.
 `r` reviews Rename for
 the selected visible agent by UUID; compatible explicit bindings keep their meaning.
-In the Agents tree, `w` opens saved workspace snapshots;
-compatible explicit `w` bindings retain their configured meaning. Snapshots are
-not offered in Overview, Digest or conversation focus.
+Outside an editor or modal, `w` opens saved workspace snapshots on every tab;
+compatible explicit bindings retain their configured meaning. The top bar offers
+the same Snapshots action. Overview's default `f` switches Agents/Squads; Agents'
+default `f` switches All/Pinned. Authored `v = 'overview-view'` remains valid.
 Default `j` jumps through the observed tmux binding only from a tmux invoker; Herdr
 focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their

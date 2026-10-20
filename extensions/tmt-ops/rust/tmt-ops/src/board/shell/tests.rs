@@ -36,7 +36,7 @@ fn shell_digits_preserve_typing_and_switch_every_non_typing_owner() {
 
 #[test]
 fn agents_label_never_includes_an_aggregate_badge() {
-    assert_eq!(OpsTab::Overview.label(), "1 Overview");
-    assert_eq!(OpsTab::Agents.label(), "2 Agents");
-    assert_eq!(OpsTab::Digest.label(), "3 Digest");
+    assert_eq!(OpsTab::Overview.label(), "Overview");
+    assert_eq!(OpsTab::Agents.label(), "Agents");
+    assert_eq!(OpsTab::Digest.label(), "Digest");
 }

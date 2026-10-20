@@ -12,9 +12,9 @@ pub enum OpsTab {
 impl OpsTab {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Overview => "1 Overview",
-            Self::Agents => "2 Agents",
-            Self::Digest => "3 Digest",
+            Self::Overview => "Overview",
+            Self::Agents => "Agents",
+            Self::Digest => "Digest",
         }
     }
 }
