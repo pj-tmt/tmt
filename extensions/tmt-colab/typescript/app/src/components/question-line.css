@@ -28,13 +28,20 @@
   margin: 0;
   padding: 10px 0;
   border: 0;
-  border-bottom: 1px solid var(--tmt-ui-surface-rule);
   border-radius: 0;
   background: transparent;
   color: var(--tmt-ui-color-text);
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+/* A closed line has no rule. An open one, the head of its controls, has one across the whole block,
+   past the block's own side padding. */
+.question-line[aria-expanded='true'] {
+  width: calc(100% + 24px);
+  margin-inline: -12px;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--tmt-ui-surface-rule);
 }
 .question-line:hover {
   background: var(--tmt-ui-surface-selection);
