@@ -33,10 +33,22 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             app,
             Rect::new(area.x, y, area.width, 1),
         );
+        // The target the cells describe: the selected agent or squad, else every agent.
+        let title = match app.workspace.selected.as_ref() {
+            Some(_) if app.flat_agents() => "All agents".to_owned(),
+            Some(target @ OpsTarget::Member { .. }) => app
+                .target_row(&crate::board::app::RowTarget::Workspace(target.clone()))
+                .and_then(|row| row["name"].as_str().map(str::to_owned))
+                .unwrap_or_else(|| "Measure".to_owned()),
+            Some(OpsTarget::Squad(_)) => {
+                selected_squad.map_or_else(|| "Measure".to_owned(), |squad| squad.name.clone())
+            }
+            _ => "All agents".to_owned(),
+        };
         section_rule::paint(
             frame.buffer_mut(),
             top,
-            "Measure",
+            &crate::board::workspace::render::safe(&title),
             Line::default(),
             app.focused() == crate::config::Pane::Replies,
             look,
