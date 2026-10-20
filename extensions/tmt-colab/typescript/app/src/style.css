@@ -285,6 +285,35 @@ body:has(.needs-you-header-menu) {
   border: 0;
   background: #fff;
 }
+/* The pending page (#3976): the header holds, one spinner sits centred in the area a loaded page gets.
+   It is the LoaderCircle mark of the busy and echo marks, without words; reduced motion keeps it still. */
+.page-opening {
+  display: grid;
+  place-items: center;
+  min-height: calc(100dvh - var(--page-bar-size));
+}
+.page-opening-mark {
+  display: block;
+  width: 24px;
+  height: 24px;
+  color: var(--tmt-ui-color-secondary);
+}
+.page-opening-mark svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+  animation: page-opening-spin 0.9s linear infinite;
+}
+@keyframes page-opening-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-opening-mark svg {
+    animation: none;
+  }
+}
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
 .page-size h3 {
   margin: 16px 0 8px;
