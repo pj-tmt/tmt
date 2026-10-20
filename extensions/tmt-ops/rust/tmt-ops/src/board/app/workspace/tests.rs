@@ -2978,11 +2978,12 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     );
 }
 
+mod agents_chips;
 mod member_actions;
-mod talk_measure;
 mod member_rename;
 mod membership_context;
 mod navigation;
+mod talk_measure;
 
 #[test]
 fn agents_table_cells_and_hits_keep_state_color_scoped_across_sizes_and_focus() {

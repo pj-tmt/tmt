@@ -201,7 +201,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         agents_controls(frame, app, bands);
     }
     if let Some(list) = placement.list {
-        if app.shell.tab == OpsTab::Overview {
+        if app.shell.tab == OpsTab::Overview || app.flat_agents() {
             crate::board::overview::composition::render(frame, app, list);
         } else {
             tree(frame, app, list);
@@ -559,14 +559,23 @@ fn agents_controls(
     for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),
         inside,
-        &[("all", "All"), ("pinned", "Pinned")],
-        usize::from(app.workspace.filter == AgentsFilter::Pinned),
+        &[
+            ("all", "Squads"),
+            ("agents", "Agents"),
+            ("pinned", "Pinned"),
+        ],
+        match app.workspace.filter {
+            AgentsFilter::All => 0,
+            AgentsFilter::Agents => 1,
+            AgentsFilter::Pinned => 2,
+        },
         app,
         crate::action::OpsUiAction::AgentsFilter,
         search_count.as_deref(),
     ) {
         let choice = match hit.id.as_str() {
             "all" => Choice::AgentsFilter(AgentsFilter::All),
+            "agents" => Choice::AgentsFilter(AgentsFilter::Agents),
             "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
             "clear-search" => Choice::ClearSearch,
             _ => Choice::Action(crate::action::Action::parse("search").unwrap()),

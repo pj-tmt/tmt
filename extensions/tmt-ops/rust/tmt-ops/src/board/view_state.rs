@@ -126,7 +126,7 @@ impl Controls {
         use super::workspace::AgentsFilter;
         use crate::config::{OpsSort, OverviewDirection};
         json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
-            "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Pinned => "pinned" },
+            "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Agents => "agents", AgentsFilter::Pinned => "pinned" },
             "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
             "quotaWindow": self.quota_window.key(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
@@ -147,6 +147,7 @@ impl Controls {
             agents_filter: match value["agentsFilter"].as_str()? {
                 "all" => AgentsFilter::All,
                 "needs-you" => AgentsFilter::All,
+                "agents" => AgentsFilter::Agents,
                 "pinned" => AgentsFilter::Pinned,
                 _ => return None,
             },

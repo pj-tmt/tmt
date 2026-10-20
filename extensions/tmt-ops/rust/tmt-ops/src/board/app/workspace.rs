@@ -206,11 +206,16 @@ impl App {
             width,
         )
     }
+    /// The Agents chip is active: the left pane is Overview's flat attention list of agents.
+    pub(in crate::board) fn flat_agents(&self) -> bool {
+        self.shell.tab == OpsTab::Agents
+            && self.workspace.filter == crate::board::workspace::AgentsFilter::Agents
+    }
     pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {
         if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
             return Rc::clone(rows);
         }
-        if self.shell.tab == OpsTab::Overview
+        if (self.shell.tab == OpsTab::Overview || self.flat_agents())
             && let Some(snapshot) = self.workspace_snapshot()
         {
             return crate::board::overview::monitor::rows(self, snapshot);
@@ -1134,6 +1139,9 @@ impl App {
             return Effect::None;
         }
         self.workspace.filter = filter;
+        if filter == crate::board::workspace::AgentsFilter::Agents {
+            self.overview_view = crate::board::overview::monitor::View::Agents;
+        }
         self.workspace_reconcile();
         self.invalidate_frame_geometry();
         self.follow = true;
