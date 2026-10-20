@@ -40,24 +40,17 @@ export async function attachmentHistory(
     objects = new Objects(a, epoch),
     catchup = new Catchup(a, sharing, objects, epoch, true),
     fold = new Fold(worker);
-  let fault: Error | undefined,
-    complete = false;
-  const frames = new Frames(
-    a,
-    (error) => {
-      fault = error;
-    },
-    epoch,
-  );
+  let complete = false;
+  const frames = new Frames(a, epoch);
   try {
     for await (const raw of source.frames(epoch, deadline)) {
       remaining(deadline);
-      requireValue(fault === undefined && !complete);
+      requireValue(!complete);
       const frame = frames.receive(raw);
       if (frame) complete = await catchup.admitValue(frame);
     }
     remaining(deadline);
-    requireValue(fault === undefined && complete);
+    requireValue(complete);
     const baseline = catchup.baseline;
     if (baseline) {
       const projection = await fold.run({

@@ -229,7 +229,7 @@ export async function managementLog(
       if (error) reject(error);
       else resolve(a.statements());
     };
-    const frames = new Frames(a, finish);
+    const frames = new Frames(a);
     const abort = () => finish(new ManagementError('UNAVAILABLE'));
     const timer = setTimeout(() => finish(new ManagementError('UNAVAILABLE')), 10_000);
     const send = (type: string, fields: Record<string, unknown>) =>

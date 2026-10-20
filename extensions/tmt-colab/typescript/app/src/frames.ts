@@ -26,14 +26,11 @@ export class Frames {
     count: number | null;
     limit: number;
   } | null = null;
-  #timer: ReturnType<typeof setTimeout> | undefined;
   constructor(
     readonly admission: Admission,
-    readonly fail: (error: Error) => void,
     readonly epoch = admission.epoch,
   ) {}
   close() {
-    clearTimeout(this.#timer);
     this.#pending = null;
   }
   receive(raw: unknown): Record<string, unknown> | null {
@@ -184,10 +181,8 @@ export class Frames {
     hash: string,
     limit: number,
   ) {
+    // No wall-clock deadline: an acquisition ends with its last part, a protocol violation, or
+    // the connection closing. Liveness belongs to the connection's keepalive and close handling.
     this.#pending = { frame, target, identity, hash, parts: [], size: 0, count: null, limit };
-    this.#timer = setTimeout(() => {
-      this.close();
-      this.fail(new Error('Envelope acquisition timed out'));
-    }, 2000);
   }
 }

@@ -103,10 +103,9 @@ it('opens own ciphertext only after admission, and rejects author substitution a
     objects.admit('00000000-0000-4000-8000-000000000123', await f.entry(await f.seal())),
   ).rejects.toThrow();
 });
-it('reassembles exact bounded chunks, binds referenced ID and enforces an absolute deadline', async () => {
+it('reassembles exact bounded chunks, binds referenced ID and waits as long as the parts take', async () => {
   const f = await fixture(),
-    fail = vi.fn(),
-    frames = new Frames(f.admission, fail),
+    frames = new Frames(f.admission),
     env = await f.seal(f.context, new Uint8Array(50_000)),
     row = await f.entry(env);
   const scope = {
@@ -126,39 +125,36 @@ it('reassembles exact bounded chunks, binds referenced ID and enforces an absolu
   expect(frames.receive(JSON.stringify(reference))).toBeNull();
   const bytes = env.toJson(),
     count = Math.ceil(bytes.length / 32768);
+  const part = (index: number) =>
+    JSON.stringify({
+      ...scope,
+      type: 'chunk',
+      objectId: id,
+      envelopeHash: row.envelopeHash,
+      index,
+      count,
+      bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
+    });
   let complete: Record<string, unknown> | null = null;
-  for (let index = 0; index < count; index++)
-    complete = frames.receive(
-      JSON.stringify({
-        ...scope,
-        type: 'chunk',
-        objectId: id,
-        envelopeHash: row.envelopeHash,
-        index,
-        count,
-        bytes: c.encodeBinary(bytes.slice(index * 32768, (index + 1) * 32768)),
-      }),
-    );
+  for (let index = 0; index < count; index++) complete = frames.receive(part(index));
   expect(complete?.envelope).toBe(row.envelope);
-  expect(fail).not.toHaveBeenCalled();
+  // There is no deadline: parts that arrive a minute apart still assemble.
   vi.useFakeTimers();
   try {
     frames.receive(JSON.stringify(reference));
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(fail).toHaveBeenCalledOnce();
-    expect(() =>
-      frames.receive(
-        JSON.stringify({
-          ...scope,
-          type: 'chunk',
-          objectId: id,
-          envelopeHash: row.envelopeHash,
-          index: 0,
-          count,
-          bytes: c.encodeBinary(bytes.slice(0, 32768)),
-        }),
-      ),
-    ).toThrow();
+    let slow: Record<string, unknown> | null = null;
+    for (let index = 0; index < count; index++) {
+      await vi.advanceTimersByTimeAsync(60_000);
+      slow = frames.receive(part(index));
+    }
+    expect(slow?.envelope).toBe(row.envelope);
+    // A violation still fails (an index out of order), and so does a part after the acquisition
+    // was closed, which is what the connection closing does.
+    frames.receive(JSON.stringify(reference));
+    expect(() => frames.receive(part(1))).toThrow();
+    frames.receive(JSON.stringify(reference));
+    frames.close();
+    expect(() => frames.receive(part(0))).toThrow();
   } finally {
     frames.close();
     vi.useRealTimers();

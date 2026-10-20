@@ -54,6 +54,9 @@ async function wire(
   statementTransfer?: 'valid' | 'hash',
   pageTitle = 'Live fixture',
   largeTail = false,
+  /** Holds back chunk frames by `ms` each, as a busy local server does: statement chunks too,
+   * or only the chunks of referenced objects (the page's own catchup). */
+  chunkDelay?: { ms: number; objectsOnly?: boolean },
 ) {
   const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
@@ -528,6 +531,8 @@ async function wire(
     chunked = 0,
     hellos = 0,
     statementChunks = 0,
+    delayedChunks = 0,
+    delay = chunkDelay,
     statusChecks = 0;
   // Saves the fixture committed, by operation ID, so a lost reply can be settled by status.
   const saved = new Map<string, string>();
@@ -540,7 +545,12 @@ async function wire(
     const state = outgoing.get(socket);
     if (!state || state.waiting || !state.frames.length) return;
     state.waiting = true;
-    socket.send(state.frames.shift()!);
+    const frame = state.frames.shift()!;
+    const parsed = JSON.parse(frame);
+    if (delay && parsed.type === 'chunk' && (!delay.objectsOnly || 'objectId' in parsed)) {
+      delayedChunks++;
+      setTimeout(() => outgoing.has(socket) && socket.send(frame), delay.ms);
+    } else socket.send(frame);
   };
   const send = (socket: WebSocketRoute, type: string, fields: Record<string, unknown>) => {
     const state = outgoing.get(socket)!;
@@ -928,6 +938,13 @@ async function wire(
     statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
     get statementChunks() {
       return statementChunks;
+    },
+    get delayedChunks() {
+      return delayedChunks;
+    },
+    /** Holds back chunks from now on, so a test can let the home list load first. */
+    slowChunks(next: typeof chunkDelay) {
+      delay = next;
     },
     get saveFrames() {
       return saveFrames;
@@ -2427,6 +2444,47 @@ test('baseline finishes before a signed large statement; exact owner log survive
   ).toBeVisible();
   expect(await persistedLog(page)).toEqual(log);
   expect(f.statementChunks).toBe(chunks);
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+test('a signed statement whose chunks take over two seconds in all still opens the page', async ({
+  page,
+  context,
+}) => {
+  const delay = 300,
+    source = '<h1>Slow statement</h1>' + 'x'.repeat(40_000),
+    f = await wire(context, { source }, undefined, 'valid', undefined, false, { ms: delay });
+  await page.goto(mount);
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Slow statement' }),
+  ).toBeVisible({ timeout: 30_000 });
+  // More than two seconds of chunks: the old per-envelope deadline would have failed the page.
+  expect(f.delayedChunks * delay).toBeGreaterThan(2000);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+test('a page whose catchup takes over ten seconds in all still opens', async ({
+  page,
+  context,
+}) => {
+  // The old whole-catchup deadline was 10 s. A baseline of many chunks, each held back, passes it.
+  test.setTimeout(90_000);
+  const delay = 1000,
+    source = '<h1>Slow catchup</h1>' + 'x'.repeat(150_000),
+    f = await wire(context, { source });
+  await page.goto(mount);
+  // The home list reads the page's title first; only the page's own catchup is slowed.
+  await expect(page.locator(`[data-page-id="${v.page}"] a`)).toBeVisible();
+  f.slowChunks({ ms: delay, objectsOnly: true });
+  const opened = Date.now();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Slow catchup' }),
+  ).toBeVisible({ timeout: 60_000 });
+  expect(Date.now() - opened).toBeGreaterThan(10_000);
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
 });
