@@ -462,11 +462,7 @@ fn captures() -> Value {
                                 .insert(workspace.roster.squads[7].room_id.clone());
                             app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
                         }
-                        app.shell.tab = if mode.starts_with("overview") {
-                            crate::board::shell::OpsTab::Agents
-                        } else {
-                            crate::board::shell::OpsTab::Agents
-                        };
+                        app.shell.tab = crate::board::shell::OpsTab::Agents;
                         app.overview_view = if mode == "overview-squads" {
                             crate::board::overview::monitor::View::Squads
                         } else {

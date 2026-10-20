@@ -1440,6 +1440,7 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
         .get_mut(&selected)
         .unwrap()["waitingOnYou"] = json!([{"requestId":"req_55555555-5555-4555-8555-555555555555","preparedAtMs":1000,"preview":"A real waiting question keeps Overview's response viewport visible."}]);
     app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     workspace(&mut app, 160, 36);
     assert!(
         app.scrolls.visible(Pane::Replies),

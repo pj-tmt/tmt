@@ -624,14 +624,13 @@ fn agents_default_and_modal_open_close_use_the_effective_table_without_scan() {
     };
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = crate::board::app::workspace::tests::board();
-    for tab in [OpsTab::Digest] {
-        app.shell.tab = tab;
-        assert!(
-            !app.bindings()
-                .values()
-                .any(|a| a.verb == Verb::Ui(OpsUiAction::DiscoverAgents))
-        );
-    }
+    let tab = OpsTab::Digest;
+    app.shell.tab = tab;
+    assert!(
+        !app.bindings()
+            .values()
+            .any(|a| a.verb == Verb::Ui(OpsUiAction::DiscoverAgents))
+    );
     app.shell.tab = OpsTab::Agents;
     app.focus = 0;
     assert_eq!(
@@ -665,10 +664,7 @@ fn agents_default_and_modal_open_close_use_the_effective_table_without_scan() {
 fn help_has_one_effective_discovery_key_only_in_agents() {
     use crate::board::shell::OpsTab;
     let mut app = crate::board::app::workspace::tests::board();
-    for (tab, expected) in [
-        (OpsTab::Agents, 1),
-        (OpsTab::Digest, 0),
-    ] {
+    for (tab, expected) in [(OpsTab::Agents, 1), (OpsTab::Digest, 0)] {
         app.shell.tab = tab;
         app.focus = 0;
         let value = crate::board::help::model(&app).value().to_string();

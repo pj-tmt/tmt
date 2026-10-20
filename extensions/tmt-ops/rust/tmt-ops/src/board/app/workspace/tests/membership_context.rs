@@ -105,18 +105,17 @@ fn multiple_memberships_require_a_room_choice_before_any_review() {
 
 #[test]
 fn common_pool_member_has_no_membership_instead_of_a_refresh_problem() {
-    for tab in [OpsTab::Agents] {
-        let mut app = flat(0, tab);
-        app.shell.tab = tab;
-        app.workspace.pool_expanded = true;
-        app.workspace_reconcile();
-        paint(&app, 100, 24);
-        assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
-        let notice = app.notice.as_deref().expect("known membership absence");
-        assert!(notice.contains("worker is not in a squad"), "{notice}");
-        assert!(!notice.contains("refresh"), "{notice}");
-        assert!(app.workspace_form.is_none() && app.menu.is_none());
-    }
+    let tab = OpsTab::Agents;
+    let mut app = flat(0, tab);
+    app.shell.tab = tab;
+    app.workspace.pool_expanded = true;
+    app.workspace_reconcile();
+    paint(&app, 100, 24);
+    assert_eq!(key(&mut app, KeyCode::Char('x')), Effect::None);
+    let notice = app.notice.as_deref().expect("known membership absence");
+    assert!(notice.contains("worker is not in a squad"), "{notice}");
+    assert!(!notice.contains("refresh"), "{notice}");
+    assert!(app.workspace_form.is_none() && app.menu.is_none());
 }
 
 #[test]
@@ -176,6 +175,7 @@ fn explicit_agents_membership_needs_only_its_complete_room() {
 #[test]
 fn agents_choose_the_exact_second_membership_without_flat_resolution() {
     let mut app = flat(2, OpsTab::Agents);
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.workspace.expanded.insert(SECOND_ROOM.into());
     app.workspace.selected = Some(OpsTarget::Member {
         room_id: Some(SECOND_ROOM.into()),

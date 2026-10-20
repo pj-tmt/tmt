@@ -61,8 +61,7 @@ pub(super) fn quotas_visible(app: &App) -> bool {
 }
 fn title(app: &App, data: &Series, selection: Selection) -> String {
     let title = project::summary(data, selection.range_minutes);
-    if app.shell.tab == OpsTab::Agents
-        && app.view.as_ref().is_some_and(|view| view.history_pending)
+    if app.shell.tab == OpsTab::Agents && app.view.as_ref().is_some_and(|view| view.history_pending)
     {
         format!("{title} · Updating usage…")
     } else {

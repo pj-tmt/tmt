@@ -1954,12 +1954,31 @@ impl App {
         self.view.as_ref().map(|view| &view.board)
     }
 
+    /// Reader focus alone may come from Tab. The existing UUID draft owner
+    /// distinguishes an explicit message reveal without another open flag.
+    fn conversation_revealed(&self) -> bool {
+        self.focused() == Pane::Replies
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.draft_key.is_some())
+    }
+
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
         if self.workspace_snapshot().is_none() {
             return [Pane::Replies].into();
         }
         let mut collapsed = BTreeSet::new();
         match self.shell.tab {
+            super::shell::OpsTab::Agents => {
+                let policy = self.overview_panels();
+                if !policy.shown(crate::config::OverviewPanel::Monitor) {
+                    collapsed.insert(Pane::Rows);
+                }
+                if !policy.side_shown() && !self.conversation_revealed() {
+                    collapsed.insert(Pane::Replies);
+                }
+            }
             super::shell::OpsTab::Digest => {
                 let policy = self.digest_panels();
                 if !policy.shown(crate::config::DigestPanel::List) {
@@ -1969,7 +1988,6 @@ impl App {
                     collapsed.insert(Pane::Replies);
                 }
             }
-            _ => {}
         }
         collapsed
     }
@@ -1998,7 +2016,7 @@ impl App {
                 area.width,
                 area.height.saturating_sub(usage.height),
             );
-            layout::agents_tree(
+            let mut placement = layout::agents_tree(
                 below,
                 match snapshot.preferences.layout {
                     crate::config::OpsLayout::Auto => Preference::Auto,
@@ -2006,7 +2024,26 @@ impl App {
                     crate::config::OpsLayout::Stack => Preference::Stack,
                 },
                 self.focused() == Pane::Replies,
-            )
+            );
+            // The Panels list and side switches claim the whole body for the other pane.
+            let policy = self.overview_panels();
+            let whole = match (placement.panes.list, placement.panes.conversation) {
+                (Some(list), Some(conversation)) => list.union(conversation),
+                (Some(only), None) | (None, Some(only)) => only,
+                (None, None) => below,
+            };
+            if !policy.shown(crate::config::OverviewPanel::Monitor) {
+                placement.panes = layout::Placement {
+                    list: None,
+                    conversation: Some(whole),
+                };
+            } else if !policy.side_shown() && !self.conversation_revealed() {
+                placement.panes = layout::Placement {
+                    list: Some(whole),
+                    conversation: None,
+                };
+            }
+            placement
         } else {
             self.digest_placement(area).into()
         };
@@ -4174,10 +4211,8 @@ impl App {
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
                 // Scope controls and the savings figure work on every tab that paints them.
-                let visibility = matches!(
-                    choice,
-                    Choice::SavingsUnit | Choice::ClearSearch
-                ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                let visibility = matches!(choice, Choice::SavingsUnit | Choice::ClearSearch)
+                    || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {

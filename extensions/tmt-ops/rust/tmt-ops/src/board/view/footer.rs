@@ -660,15 +660,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     } else if app.searching {
         Line::styled("↑↓ move · ⏎ done · Esc clear", look.role(Role::Text))
     } else if let Some(notice) = app.migration_notice.as_ref() {
-        Line::from(Span::styled(
-            notice.as_str(),
-            look.role(Role::Waiting),
-        ))
+        Line::from(Span::styled(notice.as_str(), look.role(Role::Waiting)))
     } else if let Some(error) = &app.error {
-        Line::from(Span::styled(
-            error.as_str(),
-            look.role(Role::Blocked),
-        ))
+        Line::from(Span::styled(error.as_str(), look.role(Role::Blocked)))
     } else if app.modal_open() {
         Line::default()
     } else if app
@@ -696,10 +690,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         line.spans.insert(0, Span::raw(" "));
         line
     } else if let Some(hint) = app.member_link_hint() {
-        if matches!(
-            app.shell.tab,
-            crate::board::shell::OpsTab::Agents
-        ) {
+        if matches!(app.shell.tab, crate::board::shell::OpsTab::Agents) {
             crate::board::key_hints::legacy_line(hint, look, look.role(Role::Text), "  ")
         } else {
             hint_line(hint, look)

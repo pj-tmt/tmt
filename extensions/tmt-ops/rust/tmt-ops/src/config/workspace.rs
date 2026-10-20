@@ -891,7 +891,12 @@ mod tests {
                 assert_eq!(defaults(scope)["f"].text, "agents-filter");
             }
         }
-        for scope in [OpsKeyScope::Reader, OpsKeyScope::Member, OpsKeyScope::Squad, OpsKeyScope::Pool] {
+        for scope in [
+            OpsKeyScope::Reader,
+            OpsKeyScope::Member,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Pool,
+        ] {
             assert_eq!(
                 config.workspace_keys(scope, None, None).unwrap().bindings["v"].text,
                 "search"
@@ -1164,11 +1169,7 @@ mod tests {
                 .verb,
             Verb::Copy
         );
-        for scope in [
-            OpsKeyScope::Squad,
-            OpsKeyScope::Pool,
-            OpsKeyScope::Reader,
-        ] {
+        for scope in [OpsKeyScope::Squad, OpsKeyScope::Pool, OpsKeyScope::Reader] {
             assert!(!defaults(scope).contains_key("r"));
         }
     }
@@ -1772,9 +1773,7 @@ mod tests {
     #[test]
     fn overview_sort_keys_are_authored_only() {
         let cfg = config("[bind]\ns='sort'\nS='reverse-sort'");
-        let keys = cfg
-            .workspace_keys(OpsKeyScope::Member, None, None)
-            .unwrap();
+        let keys = cfg.workspace_keys(OpsKeyScope::Member, None, None).unwrap();
         assert_eq!(keys.bindings["s"].text, "sort");
         assert_eq!(keys.bindings["S"].text, "reverse-sort");
     }

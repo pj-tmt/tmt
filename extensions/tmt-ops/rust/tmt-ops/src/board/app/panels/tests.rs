@@ -7,6 +7,7 @@ fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app
 }
 #[test]

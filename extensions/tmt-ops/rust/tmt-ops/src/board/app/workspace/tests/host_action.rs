@@ -21,41 +21,37 @@ fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
 
 #[test]
 fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table() {
-    for tab in [OpsTab::Agents] {
-        let mut app = configured_member(
-            "[bind]\nj='swap left'\no='open {pr_link}'\n",
-            json!({"id":MEMBER,"name":"worker","fields":{"pr_link":"https://example.com/pull/42"},"pane":{"id":"%3","location":{"host":"tmux"}}}),
-        );
-        app.shell.tab = tab;
-        app.focus = 0;
-        assert_eq!(
-            key(&mut app, KeyCode::Char('j')),
-            Effect::Act(Request::Swap {
-                target: MEMBER.into(),
-                name: "worker".into(),
-                direction: "left".into()
-            })
-        );
-        assert!(matches!(
-            key(&mut app, KeyCode::Char('o')),
-            Effect::Act(Request::Open { .. })
-        ));
-        assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
-        key(&mut app, KeyCode::Tab);
-        assert_eq!(
-            app.workspace_scope(),
-            crate::config::OpsKeyScope::Reader
-        );
-        assert_eq!(
-            key(&mut app, KeyCode::Char('j')),
-            Effect::Act(Request::Swap {
-                target: MEMBER.into(),
-                name: "worker".into(),
-                direction: "left".into()
-            })
-        );
-        assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
-    }
+    let tab = OpsTab::Agents;
+    let mut app = configured_member(
+        "[bind]\nj='swap left'\no='open {pr_link}'\n",
+        json!({"id":MEMBER,"name":"worker","fields":{"pr_link":"https://example.com/pull/42"},"pane":{"id":"%3","location":{"host":"tmux"}}}),
+    );
+    app.shell.tab = tab;
+    app.focus = 0;
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Swap {
+            target: MEMBER.into(),
+            name: "worker".into(),
+            direction: "left".into()
+        })
+    );
+    assert!(matches!(
+        key(&mut app, KeyCode::Char('o')),
+        Effect::Act(Request::Open { .. })
+    ));
+    assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.workspace_scope(), crate::config::OpsKeyScope::Reader);
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Swap {
+            target: MEMBER.into(),
+            name: "worker".into(),
+            direction: "left".into()
+        })
+    );
+    assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
 }
 
 #[test]
@@ -80,74 +76,81 @@ fn board_pane_run_defers_only_reserved_context_to_the_effect_lane() {
 
 #[test]
 fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
-    for tab in [OpsTab::Agents] {
-        let mut app = configured_member(
-            "[bind]\nj='jump'\n[bind.tmux]\nj='swap left'\n",
-            json!({"id":MEMBER,"name":"worker","pane":{"id":"%3","location":{"host":"tmux"}}}),
-        );
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .roster
-            .squads[0]
-            .lead = Some(MEMBER.into());
-        app.shell.tab = tab;
-        app.overview_view = crate::board::overview::monitor::View::Squads;
-        app.overview_rows.borrow_mut().clear();
-        app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
-        app.workspace_reconcile();
-        paint(&app, 160, 36);
-        let selection = app.host_action_selection();
-        assert_eq!(selection.row.as_ref().unwrap()["roomId"], ROOM);
-        assert_eq!(selection.recipient.as_ref().unwrap()["id"], MEMBER);
-        assert_eq!(
-            selection.squad, None,
-            "squad roots do not apply a member section"
-        );
-        assert_eq!(
-            key(&mut app, KeyCode::Char('j')),
-            Effect::Act(Request::Swap {
-                target: MEMBER.into(),
-                name: "worker".into(),
-                direction: "left".into()
-            })
-        );
-        assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
-        app.view
-            .as_mut()
-            .unwrap()
-            .home
-            .as_mut()
-            .unwrap()
-            .workspace
-            .roster
-            .squads[0]
-            .lead = None;
-        assert!(
-            app.host_action_selection().recipient.is_none(),
-            "an unobserved lead never becomes the squad record"
-        );
-    }
+    let tab = OpsTab::Agents;
+    let mut app = configured_member(
+        "[bind]\nj='jump'\n[bind.tmux]\nj='swap left'\n",
+        json!({"id":MEMBER,"name":"worker","pane":{"id":"%3","location":{"host":"tmux"}}}),
+    );
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
+    app.shell.tab = tab;
+    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.overview_rows.borrow_mut().clear();
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
+    paint(&app, 160, 36);
+    let selection = app.host_action_selection();
+    assert_eq!(selection.row.as_ref().unwrap()["roomId"], ROOM);
+    assert_eq!(selection.recipient.as_ref().unwrap()["id"], MEMBER);
+    assert_eq!(
+        selection.squad, None,
+        "squad roots do not apply a member section"
+    );
+    assert_eq!(
+        key(&mut app, KeyCode::Char('j')),
+        Effect::Act(Request::Swap {
+            target: MEMBER.into(),
+            name: "worker".into(),
+            direction: "left".into()
+        })
+    );
+    assert!(paint(&app, 160, 36).join("\n").contains("j swap left"));
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = None;
+    assert!(
+        app.host_action_selection().recipient.is_none(),
+        "an unobserved lead never becomes the squad record"
+    );
 }
 
 #[test]
 fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
-    for tab in [OpsTab::Agents] {
+    // The tree follows the recipient in either pane; the flat list's reader keeps reader keys.
+    for flat in [false, true] {
         for reader in [false, true] {
             let mut app = configured_member(
                 "",
                 json!({"id":MEMBER,"name":"worker","presence":"active","pane":{"id":"%3","location":{"host":"tmux"}}}),
             );
-            app.shell.tab = tab;
+            app.shell.tab = OpsTab::Agents;
+            if flat {
+                app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+            }
             paint(&app, 160, 36);
             if reader {
                 key(&mut app, KeyCode::Tab);
             }
-            let expected = if reader { "scroll-down" } else { "jump" };
+            let expected = if flat && reader {
+                "scroll-down"
+            } else {
+                "jump"
+            };
             assert_eq!(app.bindings()["j"].text, expected);
             let selection = app.host_action_selection();
             let path = std::path::PathBuf::from(&app.workspace_snapshot().unwrap().config_path);

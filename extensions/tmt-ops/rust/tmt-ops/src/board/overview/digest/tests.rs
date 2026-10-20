@@ -16,6 +16,7 @@ fn metrics_reuse_observed_values_and_never_write_the_unit_preference() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     let rows = rows(&app, &summary(&app));
     assert_eq!(rows[0].amount.as_deref(), Some("0"));
@@ -30,6 +31,7 @@ fn metrics_reuse_observed_values_and_never_write_the_unit_preference() {
 fn missing_stale_and_partial_counts_do_not_turn_into_measured_zero() {
     let mut app = savings_board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let mut partial = summary(&app);
     partial.complete = false;
     let values = rows(&app, &partial);

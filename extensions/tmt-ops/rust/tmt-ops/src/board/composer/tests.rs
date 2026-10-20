@@ -497,10 +497,7 @@ fn enter_shift_enter_and_paste_keep_open_edit_and_submit_distinct() {
 fn scoped_enter_preserves_group_inspect_and_explicit_keys_in_help_and_hints() {
     use crate::{board::app::Effect, config::OpsKeyScope};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    for scope in [
-        OpsKeyScope::Member,
-        OpsKeyScope::Reader,
-    ] {
+    for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
         let keys = crate::config::workspace_defaults(scope);
         assert_eq!(keys["enter"].verb, crate::action::Verb::Talk);
         assert_eq!(

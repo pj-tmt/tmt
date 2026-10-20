@@ -23,6 +23,7 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
     for count in [0, 1, 2] {
         let mut app = crate::board::app::workspace::tests::populated_board(count, count);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         for view in [View::Squads, View::Agents] {
             app.overview_view = view;
             app.search.clear();
@@ -84,6 +85,7 @@ fn agents_use_available_height_before_reporting_overflow() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.overview_view = View::Agents;
     app.workspace_reconcile();
     for height in [51, 24] {
@@ -187,6 +189,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.overview_view = View::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     for member in snapshot.roster.members.values_mut() {
@@ -804,6 +807,7 @@ fn hidden_empty_lists_are_filtered_and_missing_sources_never_claim_a_fresh_empty
 fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.search = "squad-00".into();
     app.workspace_reconcile();
     app.agents_filter(crate::board::workspace::AgentsFilter::All);

@@ -326,6 +326,7 @@ fn capture_squads_packet(output: &str) {
                 ] {
                     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
                     app.shell.tab = crate::board::shell::OpsTab::Agents;
+                    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
                     app.overview_view = if scene.starts_with("agents") {
                         super::monitor::View::Agents
                     } else {

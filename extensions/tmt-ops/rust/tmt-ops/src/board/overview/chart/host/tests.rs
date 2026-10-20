@@ -547,6 +547,7 @@ fn unavailable_idle_chart_does_not_wake_until_visible_time_evidence_changes() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let mut app = board();
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         paint(&mut app, 100, 36);
         assert_eq!(
             clock_mark(&app, fixtures::NOW),
@@ -651,6 +652,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
         for known_zero in [false, true] {
             let mut app = board();
             app.shell.tab = OpsTab::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             if known_zero {
                 fixtures::populate_values(&mut app, [0; 12]);
             }
@@ -794,6 +796,7 @@ fn demand_bounds_cells_hits_and_remaining_target_budget() {
 fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let area = Rect::new(0, 0, 100, 36);
     let mut original = Terminal::new(TestBackend::new(100, 36)).unwrap();
     let used = crate::status::with_now_ms(fixtures::NOW, || {

@@ -193,6 +193,7 @@ fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retarge
         reference_inventory(&mut app);
         if surface == "squad" {
             app.shell.tab = OpsTab::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             app.overview_view = crate::board::overview::monitor::View::Squads;
             app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
             app.workspace_reconcile();

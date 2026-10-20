@@ -98,7 +98,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     if app
         .overview_panels()
         .shown(crate::config::OverviewPanel::Digest)
-        && bottom.saturating_sub(y) >= DIGEST_ROWS + 1
+        && bottom.saturating_sub(y) > DIGEST_ROWS
     {
         rule(frame, y, "Digest", Line::default());
         for (row, metric) in digest::rows(app, &scene.summary).iter().enumerate() {

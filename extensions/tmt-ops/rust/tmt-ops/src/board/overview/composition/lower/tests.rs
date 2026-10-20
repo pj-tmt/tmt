@@ -16,6 +16,7 @@ fn app() -> App {
     let mut app = board();
     observe_waiting_member(&mut app);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.cron.replace(Ok(test_cron(
         test_views(5, "team", "room"),
         tmt_ops::cron::ClockStatus::NoClock,
@@ -228,6 +229,7 @@ fn scrolled_rows_keep_filter_rule_and_header_fixed_above_the_lower_band() {
     };
     let mut app = populated_board(8, 28);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.overview_view = View::Agents;
     app.workspace_reconcile();
     app.follow = false;

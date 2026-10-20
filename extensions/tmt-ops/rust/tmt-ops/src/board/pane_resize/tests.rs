@@ -536,6 +536,7 @@ fn overview_section_rules_are_the_only_horizontal_resize_targets() {
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         paint(&mut app, width, 51);
         let ids: Vec<_> = app
             .pane_resize
@@ -705,6 +706,7 @@ fn growing_usage_never_hides_the_existing_list_timers_or_digest() {
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let original = paint(&mut app, width, 51);
         let text = |buffer: &Buffer| {
             buffer
@@ -910,6 +912,7 @@ fn empty_wide_exchange_can_resize_without_borrowing_a_recipient() {
     use crate::board::shell::OpsTab;
     let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.overview_view = crate::board::overview::monitor::View::Squads;
     paint(&mut app, 148, 51);
     assert!(app.conversation_target().is_none());

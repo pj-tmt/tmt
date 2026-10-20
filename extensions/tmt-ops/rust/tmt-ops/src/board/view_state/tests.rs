@@ -39,6 +39,7 @@ fn saved() -> ViewState {
 fn cold() -> App {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.workspace.expanded.clear();
     app.workspace.pool_expanded = false;
     app.workspace.selected = None;
@@ -849,6 +850,7 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
             "saved Agents tab cannot override fixed startup"
         );
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.workspace_reconcile();
         assert_eq!(app.shell.tab, OpsTab::Agents, "startup is consumed once");
     }

@@ -33,6 +33,7 @@ fn compact_overview_tab_never_enters_a_hidden_pane_or_changes_destination() {
     for width in [60, 100] {
         let mut app = app(Depth::None);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.set_body_width(width);
         let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
         terminal

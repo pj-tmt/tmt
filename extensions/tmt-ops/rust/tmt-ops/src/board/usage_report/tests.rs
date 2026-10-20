@@ -587,6 +587,7 @@ fn the_panel_is_wanted_only_on_the_digest_tab_while_it_is_shown() {
     app.usage_report.since = Since::Month;
     assert_eq!(app.usage_report_want(), Some(Since::Month));
     app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     assert_eq!(app.usage_report_want(), None);
     app.shell.tab = crate::board::shell::OpsTab::Digest;
     let mut policy = DigestPanels::default();
@@ -694,6 +695,7 @@ fn a_chip_click_and_the_settings_menu_choose_the_window() {
     );
     // Other tabs do not offer it.
     app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.workspace_settings();
     assert!(
         !app.menu

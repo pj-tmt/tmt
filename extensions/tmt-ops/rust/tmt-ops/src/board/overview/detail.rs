@@ -305,6 +305,7 @@ mod tests {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         assert_eq!(app.overview_details(), Effect::None);
         let details = app.monitor_details.as_ref().unwrap();
         assert!(details.lines.iter().any(|line| line == "Runtime: —"));
@@ -324,6 +325,7 @@ mod tests {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.cron_glyphs = super::super::cron_counts::GlyphSet::from_ascii(true);
         assert_eq!(app.overview_details(), Effect::None);
         let lines = &app.monitor_details.as_ref().unwrap().lines;
@@ -335,6 +337,7 @@ mod tests {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         assert_eq!(app.overview_details(), Effect::None);
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 8)).unwrap();
@@ -362,6 +365,7 @@ mod tests {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let target = app.workspace.selected.clone().unwrap();
         let OpsTarget::Member { identity_id, .. } = &target else {
             panic!("member")

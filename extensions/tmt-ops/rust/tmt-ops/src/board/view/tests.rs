@@ -164,6 +164,7 @@ fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
     for width in [80, 100, 160] {
         let mut app = workspace_board();
         app.shell.tab = crate::board::shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let summary = draw(&app, width, 24)[2].clone();
         app.view.as_mut().unwrap().history_pending = true;
         let pending = draw(&app, width, 24);
@@ -1251,22 +1252,21 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
 fn applied_search_and_footer_notices_fit_whole_effective_hints() {
     use crate::board::shell::OpsTab;
     for width in [103, 148] {
-        for tab in [OpsTab::Agents] {
-            let mut app = workspace_board();
-            app.shell.tab = tab;
-            app.search = "worker".into();
-            app.workspace_reconcile();
-            let screen = draw(&app, width, 51);
-            let footer = screen.last().unwrap();
-            assert!(
-                footer.contains("/ edit filter"),
-                "{tab:?}/{width}: {footer}"
-            );
-            assert!(
-                footer.contains("Esc clear filter"),
-                "{tab:?}/{width}: {footer}"
-            );
-        }
+        let tab = OpsTab::Agents;
+        let mut app = workspace_board();
+        app.shell.tab = tab;
+        app.search = "worker".into();
+        app.workspace_reconcile();
+        let screen = draw(&app, width, 51);
+        let footer = screen.last().unwrap();
+        assert!(
+            footer.contains("/ edit filter"),
+            "{tab:?}/{width}: {footer}"
+        );
+        assert!(
+            footer.contains("Esc clear filter"),
+            "{tab:?}/{width}: {footer}"
+        );
         for tab in [OpsTab::Agents, OpsTab::Digest] {
             let mut app = workspace_board();
             app.shell.tab = tab;

@@ -9,6 +9,7 @@ use crate::board::{
 fn many_agents(count: usize) -> App {
     let mut app = populated_board(1, count);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app.overview_view = super::super::monitor::View::Agents;
     let first = app
         .workspace_snapshot()
@@ -135,6 +136,7 @@ fn capture_digest_identity_rows() {
 fn matrix_reuses_values_in_fixed_units_without_writing_preferences() {
     let mut app = valued_board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     capture::populate_final(&mut app, "squads");
     let saved = app.workspace_snapshot().unwrap().preferences.clone();
     let matrix = Matrix::project(&app, 5);
@@ -167,6 +169,7 @@ fn matrix_reuses_values_in_fixed_units_without_writing_preferences() {
 fn rank_and_all_totals_use_unique_scoped_hour_identities_and_grow_by_rows() {
     let mut app = populated_board(2, 6);
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     capture::populate_lower_band(&mut app, "squads");
     capture::populate_final(&mut app, "squads");
     let wide = Matrix::project(&app, 5);
@@ -207,6 +210,7 @@ fn rank_and_all_totals_use_unique_scoped_hour_identities_and_grow_by_rows() {
 fn a_different_supplier_window_never_changes_the_fixed_twenty_four_hour_captions() {
     let mut app = valued_board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let mut document = valued_document();
     document["members"][0]["savings"]["window"] = serde_json::json!("7d");
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);

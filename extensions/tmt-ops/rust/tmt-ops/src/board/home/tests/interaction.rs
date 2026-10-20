@@ -428,6 +428,7 @@ fn header_frames() -> Value {
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = crate::board::shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.view.as_mut().unwrap().look = crate::look::Look {
             theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
             depth,

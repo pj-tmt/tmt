@@ -608,6 +608,7 @@ mod frozen_membership_tests {
     fn flat_overview_identity_resolves_an_acquired_membership_before_showing_agents() {
         let mut app = app();
         app.shell.tab = crate::board::shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.workspace.selected = Some(OpsTarget::Member {
             room_id: None,
             identity_id: MEMBER.into(),
@@ -933,6 +934,7 @@ mod named_surface_tests {
         let mut app = app();
         app.focus = 0;
         app.shell.tab = crate::board::shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         paint_row(&app, "ask night-2");
         let mut shown = 0;
         for width in 0..=160 {
@@ -974,6 +976,7 @@ mod named_surface_tests {
         app.overview_rows.borrow_mut().clear();
         if scene == "task" || scene == "notice" {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             // The agents list shows no free text; a squad's "now" line is the task surface.
             app.overview_view = crate::board::overview::monitor::View::Squads;
             app.focus = 0;

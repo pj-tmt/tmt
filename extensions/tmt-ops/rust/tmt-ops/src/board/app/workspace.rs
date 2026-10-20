@@ -289,7 +289,7 @@ impl App {
                 _ => None,
             };
             let pinned = self.shell.tab != OpsTab::Agents
-                || self.workspace.filter == AgentsFilter::All
+                || self.workspace.filter != AgentsFilter::Pinned
                 || room.is_some_and(|room| snapshot.preferences.pinned.contains(room))
                 || matches!(target, OpsTarget::Member { identity_id, .. } if snapshot.preferences.agent_pins.contains(identity_id));
             let visible = room.map_or_else(
@@ -307,9 +307,7 @@ impl App {
         None
     }
     pub(in crate::board) fn workspace_is_pinned(&self) -> Option<bool> {
-        if !matches!(self.shell.tab, OpsTab::Agents)
-            || !self.workspace_selection_visible()
-        {
+        if !matches!(self.shell.tab, OpsTab::Agents) || !self.workspace_selection_visible() {
             return None;
         }
         let preferences = &self.workspace_snapshot()?.preferences;
@@ -324,8 +322,10 @@ impl App {
 
     pub(in crate::board) fn workspace_selection_visible(&self) -> bool {
         let target_shown = match self.shell.tab {
+            OpsTab::Agents => self
+                .overview_panels()
+                .shown(crate::config::OverviewPanel::Monitor),
             OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
-            _ => true,
         };
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
@@ -556,6 +556,7 @@ impl App {
             host,
         );
         if self.shell.tab == OpsTab::Agents
+            && !self.flat_agents()
             && let Some(target) = self.workspace_message_target()
             && let Some(sources) = self.workspace_binding_sources()
         {
@@ -585,9 +586,9 @@ impl App {
         }
         keys
     }
-    /// Agents' factory j follows its recipient; other contexts keep their scope default.
+    /// The tree's factory j follows its recipient; the flat list keeps its scope default.
     pub(super) fn workspace_factory_j(&self, recipient: Option<&OpsTarget>) -> Option<Action> {
-        if self.shell.tab == OpsTab::Agents && recipient.is_some() {
+        if self.shell.tab == OpsTab::Agents && !self.flat_agents() && recipient.is_some() {
             Some(Action::parse("jump").expect("factory host action"))
         } else {
             crate::config::workspace_defaults(self.workspace_scope()).remove("j")
@@ -1076,9 +1077,9 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership => {
                 return self.workspace_management(action);
             }
-            ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit
-            | UsageControls | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp
-            | ScrollPageDown | ScrollTop | ScrollBottom => {
+            ResizePane | Agents | DigestDashboard | QuotaDetails | SavingsUnit | UsageControls
+            | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown | ScrollTop
+            | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }

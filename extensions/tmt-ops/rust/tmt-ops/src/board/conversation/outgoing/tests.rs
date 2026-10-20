@@ -933,6 +933,7 @@ fn answers_use_the_existing_worker_once_and_keep_the_question_and_reply_in_one_g
         let mut app = board();
         observe_waiting_member(&mut app);
         app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let target = app.workspace.selected.clone().unwrap();
         app.view
             .as_mut()

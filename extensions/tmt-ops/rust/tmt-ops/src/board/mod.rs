@@ -1591,6 +1591,7 @@ mod tests {
         let mut app = app::workspace::tests::board();
         app::workspace::tests::observe_waiting_member(&mut app);
         app.shell.tab = shell::OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.workspace.filter = workspace::AgentsFilter::Agents;
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app
@@ -1761,34 +1762,33 @@ mod tests {
             !old.acquired,
             "a result for the selection left behind is never admitted"
         );
-        for tab in [shell::OpsTab::Agents] {
-            app.shell.tab = tab;
-            // Terminal::resize alone leaves TestBackend at160x36; draw would
-            // auto-resize back and never exercise a hidden conversation.
-            terminal.backend_mut().resize(60, 8);
-            terminal
-                .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
-                .unwrap();
-            terminal
-                .draw(|frame| {
-                    view::prepare(&mut app, frame.area());
-                    view::render(frame, &app);
-                })
-                .unwrap();
-            assert_eq!(
-                terminal.backend().buffer().area,
-                ratatui::layout::Rect::new(0, 0, 60, 8)
-            );
-            assert!(
-                !app.scrolls.visible(crate::config::Pane::Replies),
-                "{tab:?}"
-            );
-            assert_eq!(
-                app.selected_read(),
-                None,
-                "hidden source surfaces start no background read: {tab:?}"
-            );
-        }
+        let tab = shell::OpsTab::Agents;
+        app.shell.tab = tab;
+        // Terminal::resize alone leaves TestBackend at160x36; draw would
+        // auto-resize back and never exercise a hidden conversation.
+        terminal.backend_mut().resize(60, 8);
+        terminal
+            .resize(ratatui::layout::Rect::new(0, 0, 60, 8))
+            .unwrap();
+        terminal
+            .draw(|frame| {
+                view::prepare(&mut app, frame.area());
+                view::render(frame, &app);
+            })
+            .unwrap();
+        assert_eq!(
+            terminal.backend().buffer().area,
+            ratatui::layout::Rect::new(0, 0, 60, 8)
+        );
+        assert!(
+            !app.scrolls.visible(crate::config::Pane::Replies),
+            "{tab:?}"
+        );
+        assert_eq!(
+            app.selected_read(),
+            None,
+            "hidden source surfaces start no background read: {tab:?}"
+        );
     }
 
     #[test]
