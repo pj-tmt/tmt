@@ -49,8 +49,16 @@ asks the person to update Colab to open the page, preserving space/sign-in detai
 About overlay. `page-header-actions.tsx` owns the page header's entry points, the same at every
 width (#4116): Search, Discussion (combined pending count; opens Chat or Comments), Agents and More.
 More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
-opens the Manage dialog), Remote (the submenu above), Files (count; while the page holds a
-file or the viewer can add one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
+opens the Manage dialog), Remote (the submenu above), Projects… (when the viewer writes
+projects; opens the picker below), Files (count; while the page holds a file or the viewer can add
+one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
+The page's own projects (`page-projects.tsx`) follow the title: the first three as small chips
+and a count of the rest (hidden under 640px), then the list row's picker (`PageProjectsMenu`: up to
+eight projects, New project… names one and puts this page in it). The chips, the trigger and
+Projects… open the same menu. The chips come from the list the space home last loaded, so opening
+a page reads nothing extra (a page opened by a link shows none until the picker is used); the owner
+list is read when the picker opens and after each write. A viewer who cannot write projects shows
+none of it.
 Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The floating Chat icon shares the selection control's corner and opens the same

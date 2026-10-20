@@ -19,6 +19,13 @@ type Cached = Extract<SwitcherSource, { state: 'ready' }>;
 const cache = new WeakMap<PageTransport, Map<string | undefined, Cached>>();
 
 const NO_OPENED: ReadonlyMap<string, number> = new Map();
+/** The list this transport and space last loaded (the space home), without reading anything. */
+export function rememberedPages(
+  transport: PageTransport,
+  space: string | undefined,
+): readonly PageSummary[] | undefined {
+  return cache.get(transport)?.get(space)?.pages;
+}
 /**
  * A list this transport and space already loaded elsewhere (the space home), so a switcher opened
  * before it ever read one still shows it at once. The opened pages stay what a switcher last read,

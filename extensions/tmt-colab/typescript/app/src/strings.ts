@@ -271,6 +271,7 @@ export const text = {
   files: 'Files',
   /** The More menu's entry for the page's sharing, with its state as secondary text. */
   shareItem: 'Share…',
+  projectsItem: 'Projects…',
   filesEmpty: 'No files yet.',
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',

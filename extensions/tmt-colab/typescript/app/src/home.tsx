@@ -9,10 +9,16 @@ import {
   BrowserTabs,
 } from '@tmt/browser-ui/react';
 import { getRouteApi, useRouter } from '@tanstack/react-router';
-import { Archive, ExternalLink, Tag } from 'lucide-react';
+import { Archive, ExternalLink } from 'lucide-react';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ProjectWriting, ManageProjectsDialog, NewProjectDialog } from './project-dialogs.js';
+import {
+  ProjectWriting,
+  ManageProjectsDialog,
+  NewProjectDialog,
+  projectFailureText,
+} from './project-dialogs.js';
+import { PageProjectsMenu } from './page-projects.js';
 import {
   applyProjectChanges,
   authorCounts,
@@ -28,7 +34,6 @@ import { AUTHOR_BYTES } from './bootstrap.js';
 import { HeaderSlot } from './header-slot.js';
 import { ProjectScopeMenu } from './project-scope-menu.js';
 import { inScope, knownScope, scopeRows, writeScope } from './project-scope.js';
-import { ManagementError } from './management.js';
 import { ManagePage } from './manage-page.js';
 import { PageOperationDialog } from './page-operation-dialog.js';
 import { runPageOperations, type PageOperation } from './page-operations.js';
@@ -191,49 +196,6 @@ function ArchiveAction({ page, operate }: { page: PageSummary; operate(): void }
         onActivate={operate}
       />
     </span>
-  );
-}
-
-function PageProjectsMenu({
-  page,
-  names,
-  toggle,
-  create,
-  openRequest,
-}: {
-  page: PageSummary;
-  names: readonly string[];
-  toggle(page: PageSummary, name: string): void;
-  create(page: PageSummary): void;
-  /** A new value opens the menu: the `l` shortcut. */
-  openRequest?: number;
-}) {
-  const carried = new Set(page.projects ?? []);
-  const full = carried.size >= 8;
-  return (
-    <BrowserMenu
-      label={t.projectsFor(pageTitle(page))}
-      icon={<Tag />}
-      openRequest={openRequest}
-      items={[
-        ...names.map((name) => {
-          const blocked = full && !carried.has(name);
-          return {
-            key: `label:${name}`,
-            label: name,
-            role: 'menuitemcheckbox' as const,
-            checked: carried.has(name),
-            ...(blocked ? { disabled: true, disabledReason: t.pageFull } : {}),
-          };
-        }),
-        {
-          key: 'new',
-          label: t.newProjectItem,
-          ...(full ? { disabled: true, disabledReason: t.pageFull } : {}),
-        },
-      ]}
-      onSelect={(key) => (key === 'new' ? create(page) : toggle(page, key.slice('label:'.length)))}
-    />
   );
 }
 
@@ -445,10 +407,7 @@ export function Home() {
       await router.invalidate();
       return {};
     },
-    failureText(failure) {
-      const code = failure instanceof ManagementError ? failure.code : 'UNKNOWN';
-      return t.failures[code as keyof typeof t.failures] ?? t.failures.UNKNOWN;
-    },
+    failureText: projectFailureText,
   };
   async function toggleOnPage(page: PageSummary, name: string) {
     const change = withProject(page, name, !page.projects?.includes(name));

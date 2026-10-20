@@ -64,6 +64,16 @@ function PageHeaderIcon({
   );
 }
 
+/** Where the More trigger is (the last visible button of the page header's actions, outside any open
+ * menu), for a menu opened from one of its items that belongs under it. */
+export function moreButtonRect(): DOMRect | undefined {
+  const rects = [...document.querySelectorAll('.page-header-actions button')]
+    .filter((button) => !button.closest('dialog, [role="menu"]'))
+    .map((button) => button.getBoundingClientRect())
+    .filter((rect) => rect.width > 0);
+  return rects[rects.length - 1];
+}
+
 /** Search, Chat and Agents stay in the header; everything else lives in the More menu (#4116). */
 export function PageHeaderActions({
   active,
@@ -75,6 +85,7 @@ export function PageHeaderActions({
   canManage,
   readOnly = false,
   canFiles,
+  canProjects,
   access,
   onSelect,
 }: {
@@ -87,10 +98,12 @@ export function PageHeaderActions({
   canExport: boolean;
   canManage: boolean;
   canFiles: boolean;
+  /** The viewer can set the page's projects (the picker is beside the title). */
+  canProjects: boolean;
   readOnly?: boolean;
   /** The page's sharing and connection words, the secondary text of the Share… item. */
   access: string;
-  onSelect(action: PageHeaderAction): void;
+  onSelect(action: PageHeaderAction | 'projects'): void;
 }) {
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   const remoteAvailable = useRemoteHeaderSource();
@@ -107,6 +120,7 @@ export function PageHeaderActions({
         ),
         disabled: !canManage,
       },
+      ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
       // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
       // which is where files are added.
       ...(files > 0 || canFiles
@@ -124,6 +138,7 @@ export function PageHeaderActions({
     ],
     onSelect: (key: string) => {
       if (key === 'share') onSelect('manage');
+      else if (key === 'projects') onSelect('projects');
       else if (
         key === 'manage' ||
         key === 'about' ||

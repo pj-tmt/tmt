@@ -7,6 +7,7 @@ import {
   type ProjectManage,
   type ProjectOutcome,
 } from './projects.js';
+import { ManagementError } from './management.js';
 import { pageTitle } from './page-index.js';
 import { text } from './strings.js';
 import type { PageSummary } from './transport.js';
@@ -21,6 +22,12 @@ export interface ProjectWriting {
   /** Create, rename or delete a project: one request, no page named. */
   manage(change: ProjectManage): Promise<{ failure?: unknown }>;
   failureText(failure: unknown): string;
+}
+
+/** The words for a failed project write, whichever surface asked for it. */
+export function projectFailureText(failure: unknown): string {
+  const code = failure instanceof ManagementError ? failure.code : 'UNKNOWN';
+  return t.failures[code as keyof typeof t.failures] ?? t.failures.UNKNOWN;
 }
 
 function NameField({

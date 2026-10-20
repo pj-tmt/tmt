@@ -3,6 +3,7 @@ import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
+import { PageProjects } from './page-projects.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryMount, entryOpenTarget, publicEntry } from './entry.js';
@@ -31,7 +32,7 @@ import {
   MousePointer2,
   Sun,
 } from 'lucide-react';
-import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
+import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
@@ -1022,6 +1023,10 @@ function Page() {
   }, [panel]);
   useEffect(() => setChatActivation(undefined), [snapshot.binding]);
 
+  // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
+  const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
+  const openProjects = (from?: DOMRect) =>
+    setProjects((previous) => ({ request: previous.request + 1, from }));
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
@@ -1814,6 +1819,17 @@ function Page() {
       <ColabHeader
         remoteMenu={false}
         remoteChip={false}
+        headingSuffix={
+          <PageProjects
+            transport={transport}
+            space={space}
+            pageId={snapshot.id}
+            title={view.title || snapshot.title}
+            request={projects.request}
+            from={projects.from}
+            open={() => openProjects()}
+          />
+        }
         crumb={
           scope === undefined ? undefined : (
             <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
@@ -1913,7 +1929,10 @@ function Page() {
             canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
-            onSelect={toggle}
+            canProjects={!!transport.management}
+            onSelect={(action) =>
+              action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
+            }
           />
         }
       />
