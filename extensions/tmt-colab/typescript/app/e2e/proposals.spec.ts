@@ -43,12 +43,14 @@ for (const width of [1440, 390])
       const inline = page.locator('[data-inline-proposal]').first();
       await expect(inline).not.toHaveAttribute('data-detached');
       const card = inline.locator('.proposal-card');
-      const sheet = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
-      const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
-      const muted = theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
+      // The fixture page paints white, so its cards are light whatever the app theme (#4081).
+      const scheme = 'light' as 'light' | 'dark';
+      const sheet = scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+      const ink = scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
+      const muted = scheme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
       await expect(card).toHaveCSS('background-color', sheet);
       await expect(card).toHaveCSS('color', ink);
-      await expect(card).toHaveCSS('color-scheme', theme);
+      await expect(card).toHaveCSS('color-scheme', scheme);
       await expect(card.locator('.proposal-body')).toHaveCSS('color', ink);
       await expect(card.locator('.proposal-author')).toHaveCSS('color', muted);
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
@@ -57,7 +59,7 @@ for (const width of [1440, 390])
       );
       await expect(card.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
         'color',
-        theme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
+        scheme === 'dark' ? 'rgb(8, 8, 8)' : 'rgb(250, 250, 250)',
       );
       await expect(card.getByRole('button', { name: 'Decline', exact: true })).toHaveCSS(
         'background-color',
@@ -95,7 +97,7 @@ for (const width of [1440, 390])
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toBeFocused();
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-color',
-        theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
+        scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
       );
       await expect(card.getByRole('button', { name: 'Follow up', exact: true })).toHaveCSS(
         'outline-width',
@@ -127,7 +129,7 @@ for (const width of [1440, 390])
       // The shared borderless composer paints through to its themed card.
       await expect(composer).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
       await expect(card).toHaveCSS('background-color', sheet);
-      await expect(composer).toHaveCSS('color-scheme', theme);
+      await expect(composer).toHaveCSS('color-scheme', scheme);
       await expect(composer).toHaveCSS('color', ink);
       await expect(composer).toContainText('@Agent 1');
       await capture(page, `follow-up-${width}-${theme}`);
