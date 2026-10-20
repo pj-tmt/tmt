@@ -54,11 +54,14 @@ async function mount(page: Page, setup: (page: Page) => Promise<void>) {
 }
 const peak = (page: Page) =>
   page.evaluate(() => (window as unknown as { peakMarks: number }).peakMarks);
-/** Settles a held operation while the clock runs, since the fixture waits two frames to render. */
+/**
+ * Settles a held operation while the clock runs, since the fixture waits two frames to render. It
+ * steps one frame at a time, so a fast case's 200 ms head start leaves a wide margin below 400 ms.
+ */
 async function settle(page: Page, release: () => Promise<unknown>) {
   let done = false;
   const released = release().then(() => (done = true));
-  for (let frames = 0; !done && frames < 50; frames++) await page.clock.runFor(50);
+  for (let frames = 0; !done && frames < 150; frames++) await page.clock.runFor(16);
   await released;
 }
 const fenced = async (action: Locator) => {
@@ -89,7 +92,7 @@ for (const kind of ['fast', 'slow'] as const) {
     await fenced(note);
     // The label never swaps and no status paragraph is inserted.
     await expect(card.getByText('Saving…')).toHaveCount(0);
-    await page.clock.runFor(kind === 'fast' ? 300 : 400);
+    await page.clock.runFor(kind === 'fast' ? 200 : 400);
     if (kind === 'fast') {
       await settle(page, () => run(page, 'releaseStatus'));
       await page.clock.runFor(2000);
@@ -122,7 +125,7 @@ for (const kind of ['fast', 'slow'] as const) {
     await fenced(mark);
     await expect(next).toHaveAttribute('aria-busy', 'true');
     await expect(band.getByText('Saving…')).toHaveCount(0);
-    await page.clock.runFor(kind === 'fast' ? 300 : 400);
+    await page.clock.runFor(kind === 'fast' ? 200 : 400);
     if (kind === 'fast') {
       await settle(page, () => run(page, 'releaseStatus'));
       await page.clock.runFor(2000);
@@ -151,7 +154,7 @@ for (const kind of ['fast', 'slow'] as const) {
     await save.click();
     await fenced(save);
     await expect(page.getByRole('button', { name: 'Saving…' })).toHaveCount(0);
-    await page.clock.runFor(kind === 'fast' ? 300 : 400);
+    await page.clock.runFor(kind === 'fast' ? 200 : 400);
     if (kind === 'fast') {
       await settle(page, () => run(page, 'releaseEdit'));
       await page.clock.runFor(2000);
