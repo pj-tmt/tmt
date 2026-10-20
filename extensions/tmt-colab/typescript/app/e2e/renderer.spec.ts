@@ -513,9 +513,20 @@ test('a bind may carry a layout; only column and full select the page frame', as
     await bindFrame(page, id, layout ? { layout } : {});
     const target = page.frameLocator(`#${id}`);
     await expect(target.getByText('Bound text')).toBeVisible();
-    if (layout === 'column' || layout === 'full')
-      await expect(target.locator('html')).toHaveAttribute('data-colab-layout', layout);
+    const framed = layout === 'column' || layout === 'full';
+    if (framed) await expect(target.locator('html')).toHaveAttribute('data-colab-layout', layout);
     else expect(await target.locator('html').getAttribute('data-colab-layout')).toBeNull();
+    // The page frame's layer is in the document only for a framed layout.
+    const hasFrameRule = await target
+      .locator('html')
+      .evaluate((html) =>
+        [...html.ownerDocument.styleSheets].some((sheet) =>
+          [...sheet.cssRules].some(
+            (rule) => rule instanceof CSSLayerBlockRule && rule.name === 'colab-frame',
+          ),
+        ),
+      );
+    expect(hasFrameRule).toBe(framed);
   }
   // An unknown layout is not a bind: the frame stays unwritten.
   await bindFrame(page, 'target-wide', { layout: 'wide' });

@@ -13,8 +13,8 @@
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
           // Only a framed layout selects the page frame's rules; the rest leave the author's layout.
-          if (layout === 'column' || layout === 'full')
-            document.documentElement.dataset.colabLayout = layout;
+          const framed = layout === 'column' || layout === 'full';
+          if (framed) document.documentElement.dataset.colabLayout = layout;
           const utf8 = new TextEncoder();
           const excluded =
             'head,script,style,template,noscript,[hidden],[data-colab-highlight],[data-colab-image]';
@@ -234,7 +234,7 @@
           // END GENERATED PAGE FRAME
           const highlightStyle =
             annotationTokens +
-            pageFrame +
+            (framed ? pageFrame : '') +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
