@@ -29,6 +29,17 @@ non-force pointer update. Smoke and the Project reconcile dispatch precede index
 an index failure keeps the release published and the run red. API-free client
 consumption remains pending.
 
+Digest releases additionally carry `tmt-digest-pricing-v1.json`, copied from
+`extensions/tmt-digest/pricing/pricing-v1.json` at the captured cut, never current main.
+Draft attachment verifies its stored digest before the completeness marker is uploaded last.
+Pricing-source changes select Digest's rehearsal; its draft-less dry gate requires the source
+file within 64 KiB. The mandatory final publish guard requires one pricing asset with exactly
+those bytes, outside hold-skip selection.
+Source reads retry command/JSON failures at most three times with 1/2 s backoff; invalid,
+missing, oversized or differing evidence prevents publication. Post-publication verification
+compares against the resolved tagged commit and includes the asset in GitHub attestation checks;
+failure is reported without rollback. Published historical assets are never backfilled.
+
 The packaging stages (build, assemble, final verification on the four matching hosts) live in the
 read-only reusable `.github/workflows/native-release-prepare.yml`, called with an exact source SHA
 by `native-release-bundle.yml` for a draft and by the rehearsal before merge, so a release is never

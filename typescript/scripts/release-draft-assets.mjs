@@ -27,6 +27,8 @@ import {
   productOfTag,
   releaseFlags,
   releasePolicy,
+  DIGEST_PRICING,
+  digestPricingBytes,
 } from './native-release-policy.mjs';
 import { BUNDLE_ASSET, FAILURE_ASSET, HOLD_ASSET, releasesFrom } from './plan-release-builds.mjs';
 
@@ -58,7 +60,12 @@ export function bundleFiles(product, manifest, tag) {
       throw new Error(`Unexpected archive ${name} in the ${product} bundle.`);
     }
   }
-  return [...archives, MANIFEST, ...(product === 'cli' ? ['tmt-installer.sh', 'install.sh'] : [])];
+  return [
+    ...archives,
+    MANIFEST,
+    ...(product === 'cli' ? ['tmt-installer.sh', 'install.sh'] : []),
+    ...(product === 'digest' ? [DIGEST_PRICING.asset] : []),
+  ];
 }
 
 const sha256 = (file) => `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
@@ -131,6 +138,10 @@ export function attachBundle({ api, product, tag, directory, sleep = () => {} })
   });
   if (!existsSync(marker) || readFileSync(marker, 'utf8').trim() !== expectedMarker) {
     throw new Error(`${BUNDLE_ASSET} does not match the ${product} publication policy.`);
+  }
+  if (product === 'digest') {
+    const pricing = digestPricingBytes(api.readPricing(release.target_commitish));
+    writeFileSync(path.join(directory, DIGEST_PRICING.asset), pricing);
   }
   for (const name of names) {
     if (!existsSync(path.join(directory, name))) throw new Error(`The bundle has no ${name}.`);
@@ -301,7 +312,38 @@ export function ghApi({ repository, env = process.env, spawn = spawnSync, sleep 
         ],
         300_000
       ),
-    downloadAsset: (id) => {
+    readPricing: (sha) => {
+      if (!/^[a-f0-9]{40}$/.test(sha ?? ''))
+        throw new Error('Digest pricing source needs an exact commit SHA.');
+      const file = retryReleaseRead(
+        () =>
+          JSON.parse(
+            gh(
+              ['api', `repos/${repository}/contents/${DIGEST_PRICING.source}?ref=${sha}`],
+              60_000,
+              2 * DIGEST_PRICING.limit
+            )
+          ),
+        { label: 'Digest pricing source', sleep }
+      );
+      // Retry acquisition/JSON failures only; invalid or oversized source data refuses once.
+      if (
+        file?.type !== 'file' ||
+        file.path !== DIGEST_PRICING.source ||
+        file.encoding !== 'base64' ||
+        typeof file.content !== 'string' ||
+        !Number.isSafeInteger(file.size) ||
+        file.size < 0 ||
+        file.size > DIGEST_PRICING.limit
+      )
+        throw new Error('Invalid or oversized Digest pricing source.');
+      const content = file.content.replace(/[\r\n]/g, '');
+      const bytes = Buffer.from(content, 'base64');
+      if (bytes.length !== file.size || bytes.toString('base64') !== content)
+        throw new Error('Invalid Digest pricing source encoding.');
+      return digestPricingBytes(bytes);
+    },
+    downloadAsset: (id, limit = RECORD_LIMIT) => {
       if (!Number.isSafeInteger(id) || id <= 0)
         throw new Error('Record readback requires an asset ID.');
       return gh(
@@ -313,7 +355,7 @@ export function ghApi({ repository, env = process.env, spawn = spawnSync, sleep 
           `repos/${repository}/releases/assets/${id}`,
         ],
         60_000,
-        RECORD_LIMIT
+        limit
       );
     },
     deleteAsset: (id) =>

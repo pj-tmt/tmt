@@ -5,7 +5,7 @@ import { appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { componentMap, readChangedCiSelection, releasedComponentNamesOfPath } from './ci-scope.mjs';
-import { productOfComponent } from './native-release-policy.mjs';
+import { productOfComponent, DIGEST_PRICING } from './native-release-policy.mjs';
 
 // Inputs every active product's packaging depends on: dependency and toolchain pins, notice and
 // dist configuration, ownership data, packaging and verification scripts, and the workflows and
@@ -61,7 +61,7 @@ export function activeProducts(map = componentMap()) {
 /**
  * Products to rehearse for the changed paths: all active products for a shared release input (or an
  * empty path list, kept conservative), CLI for upgrade/skill-refresh owners, and products owning
- * changed extension manifests.
+ * changed extension manifests or the fixed Digest pricing source.
  */
 export function selectReleaseRehearsal(paths, map = componentMap()) {
   const all = activeProducts(map);
@@ -72,6 +72,7 @@ export function selectReleaseRehearsal(paths, map = componentMap()) {
     return all;
   const selected = new Set();
   for (const path of paths) {
+    if (path === DIGEST_PRICING.source && all.includes('digest')) selected.add('digest');
     if (
       all.includes('cli') &&
       CLI_UPGRADE_INPUTS.some((input) =>

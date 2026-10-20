@@ -26,6 +26,7 @@ import { writeReleaseWorkspace } from '../support/release-workspace-fixture.js';
 const script = fileURLToPath(new URL('../../scripts/publication-gates.mjs', import.meta.url));
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const MIGRATIONS = 'rust/crates/tmt-adapters/src/storage/migrations.rs';
+const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
 
 let root: string;
 let predecessorScript: string;
@@ -85,8 +86,26 @@ if (method === 'POST') {
   out(state.assetTexts[joined.split('releases/assets/')[1]] ?? '');
 } else if (joined.includes('/check-runs')) {
   out([{ check_runs: state.checkRuns }]);
+} else if (joined.includes('/contents/')) {
+  const url = new URL('https://api.github.com/' + args[1]);
+  const file = url.pathname.split('/contents/')[1];
+  const read = require('node:child_process').spawnSync('git', ['show', url.searchParams.get('ref') + ':' + file]);
+  if (read.status !== 0) { process.stderr.write('missing source file'); process.exit(1); }
+  out({ type: 'file', path: file, encoding: 'base64', size: read.stdout.length, content: read.stdout.toString('base64') });
 } else if (joined.includes('/pulls')) {
   out(state.pulls);
+} else if (args[1].includes('/commits/')) {
+  const ref = decodeURIComponent(args[1].split('/commits/')[1]);
+  const read = require('node:child_process').spawnSync('git', ['rev-parse', ref + '^{commit}'], { encoding: 'utf8' });
+  if (read.status !== 0) process.exit(1);
+  out({ sha: read.stdout.trim() });
+} else if (args[1].includes('/compare/')) {
+  const [base, head] = args[1].split('/compare/')[1].split('...');
+  const read = require('node:child_process').spawnSync('git', ['merge-base', base, head], { encoding: 'utf8' });
+  if (read.status !== 0) process.exit(1);
+  const ancestor = read.stdout.trim();
+  out({ status: base === head ? 'identical' : ancestor === base ? 'ahead' : ancestor === head ? 'behind' : 'diverged',
+    base_commit: { sha: base }, merge_base_commit: { sha: ancestor } });
 } else if (joined.includes('/releases')) {
   out([state.releases]);
 } else {
@@ -108,6 +127,7 @@ const green = REQUIRED_CONTEXTS.map((name) => ({
 }));
 
 interface Scenario {
+  digestPricing?: 'valid' | 'missing' | 'oversized';
   predecessor?: boolean;
   migrations?: number;
   failedCut?: 'breaking' | 'migration';
@@ -170,10 +190,46 @@ function scenario(options: Scenario = {}) {
   );
   writeFileSync(path.join(repo, MIGRATIONS), list(2));
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
+  if (options.digestPricing && options.digestPricing !== 'missing') {
+    mkdirSync(path.join(repo, path.dirname(PRICING_SOURCE)), { recursive: true });
+    writeFileSync(
+      path.join(repo, PRICING_SOURCE),
+      options.digestPricing === 'oversized'
+        ? 'x'.repeat(65537)
+        : readFileSync(path.join(repositoryRoot, PRICING_SOURCE))
+    );
+  }
   git('add', '-A');
   git('commit', '-q', '-m', 'feat: the published release');
   git('tag', previousTag);
   const previous = git('rev-parse', 'HEAD');
+  let digestScript: string | undefined;
+  if (options.digestPricing) {
+    const mapFile = path.join(repo, '.github/components.json');
+    const map = JSON.parse(readFileSync(mapFile, 'utf8'));
+    map.components.digest.requiresCliSha = previous;
+    writeFileSync(mapFile, JSON.stringify(map));
+    // Isolated Git history uses its published baseline for both registration floors.
+    // Real declaration, source reader and dry CLI remain in the exercised flow.
+    const tooling = path.join(directory, 'tooling/typescript');
+    cpSync(path.join(repositoryRoot, 'typescript/scripts'), path.join(tooling, 'scripts'), {
+      recursive: true,
+    });
+    symlinkSync(
+      path.join(repositoryRoot, 'typescript/node_modules'),
+      path.join(tooling, 'node_modules'),
+      'dir'
+    );
+    const declaration = path.join(tooling, 'scripts/release-declaration.mjs');
+    writeFileSync(
+      declaration,
+      readFileSync(declaration, 'utf8').replace(
+        "export const DECLARATION_SUPPORT = 'cb5ca3d09c584dc78d333b548208a2ca90498cb0';",
+        `export const DECLARATION_SUPPORT = '${previous}';`
+      )
+    );
+    digestScript = realpathSync(path.join(tooling, 'scripts/publication-gates.mjs'));
+  }
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() { 1; }\n');
   if (options.failedCut === 'migration') writeFileSync(path.join(repo, MIGRATIONS), list(3));
   git(
@@ -268,7 +324,7 @@ function scenario(options: Scenario = {}) {
   writeFileSync(output, '');
   writeFileSync(summary, '');
   const run = (args: string[], environment: NodeJS.ProcessEnv = process.env) => {
-    const entry = options.predecessor ? predecessorScript : script;
+    const entry = digestScript ?? (options.predecessor ? predecessorScript : script);
     const result = spawnSync(process.execPath, [entry, ...args], {
       cwd: repo,
       encoding: 'utf8',
@@ -577,6 +633,35 @@ describe('publication-gates.mjs dry', () => {
     sha,
     ...more,
   ];
+
+  it.each(['valid', 'missing', 'oversized'] as const)(
+    'rehearses the Digest source requirement without a draft: %s',
+    (digestPricing) => {
+      const { run, candidate, calls, uploaded } = scenario({ digestPricing, hold: null });
+      const result = run([
+        'dry',
+        '--product',
+        'digest',
+        '--tag',
+        'tmt-digest-v0.1.0-alpha.999999',
+        '--sha',
+        candidate,
+      ]);
+      if (digestPricing === 'valid') {
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.summary).toContain('nothing was recorded or published');
+      } else {
+        expect(result.status).toBe(1);
+        expect(result.stderr).toMatch(/missing source file|oversized Digest pricing source/);
+      }
+      expect(calls()).toContainEqual([
+        'api',
+        `repos/wkh237/tmt/contents/${PRICING_SOURCE}?ref=${candidate}`,
+      ]);
+      expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+      expect(uploaded('publication-held.json')).toBeNull();
+    }
+  );
 
   it('evaluates the gates for a synthetic candidate without a commit gate or any write', () => {
     const { run, uploaded, calls, candidate } = scenario({ hold: null });

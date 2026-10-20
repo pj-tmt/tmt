@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import {
@@ -22,6 +22,7 @@ import {
   type PublishedRelease,
 } from '../../scripts/release-publish.mjs';
 import type { IndexApi } from '../../scripts/release-index.mjs';
+import { releaseRecordBytes } from '../../scripts/release-index.mjs';
 import { declarationMarker } from '../../scripts/release-declaration.mjs';
 import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import type { DraftRelease } from '../../scripts/release-draft-assets.mjs';
@@ -42,6 +43,11 @@ afterAll(() => rmSync(verifyDirectory, { recursive: true, force: true }));
 const SHA = 'a'.repeat(40);
 const TAG = 'v5.0.0-alpha.9';
 const EXTENSION_TAG = 'tmt-ops-v0.1.0-alpha.2';
+const DIGEST_TAG = 'tmt-digest-v0.1.0-alpha.4';
+const PRICING_SOURCE = 'extensions/tmt-digest/pricing/pricing-v1.json';
+const PRICING_ASSET = 'tmt-digest-pricing-v1.json';
+// Exercise the release boundary with the canonical product file's exact bytes.
+const PRICING_BYTES = readFileSync(new URL(`../../../${PRICING_SOURCE}`, import.meta.url));
 const assets = (...names: string[]) => names.map((name, index) => ({ id: index + 1, name }));
 
 function draft(tag: string, names: string[], overrides: Partial<DraftRelease> = {}): DraftRelease {
@@ -206,6 +212,78 @@ describe('publishDraft', () => {
     };
     return { api, published };
   }
+
+  it.each([
+    'exact',
+    'missing asset',
+    'duplicate asset',
+    'different',
+    'whitespace',
+    'missing source',
+    'oversized source',
+    'oversized asset',
+    'unavailable asset',
+  ])('guards Digest pricing before publication: %s', (mode) => {
+    const record = {
+      schema: 1,
+      cut: SHA,
+      product: 'digest',
+      cli: { tag: 'v5.0.0-alpha.8', version: '5.0.0-alpha.8', sha: SHA },
+    };
+    const names = [
+      'release-publication.json',
+      ...(mode === 'missing asset' ? [] : [PRICING_ASSET]),
+      ...(mode === 'duplicate asset' ? [PRICING_ASSET] : []),
+    ];
+    const { api, published } = fakeApi([
+      draft('v5.0.0-alpha.8', [], { draft: false }),
+      draft(DIGEST_TAG, names, { body: declarationMarker(record) }),
+    ]);
+    const source = path.join(verifyDirectory, 'source', PRICING_SOURCE);
+    mkdirSync(path.dirname(source), { recursive: true });
+    writeFileSync(source, PRICING_BYTES);
+    api.readPricing = (sha) => {
+      expect(sha).toBe(SHA);
+      if (mode === 'missing source') throw new Error('missing pricing source');
+      return mode === 'oversized source' ? Buffer.alloc(65537) : readFileSync(source);
+    };
+    api.downloadAsset = (id, limit) => {
+      expect(id).toBe(2);
+      expect(limit).toBe(65536);
+      if (mode === 'unavailable asset') throw new Error('pricing asset unavailable');
+      return mode === 'oversized asset'
+        ? 'x'.repeat(65537)
+        : mode === 'different'
+          ? PRICING_BYTES.toString().replace('v1', 'v2')
+          : mode === 'whitespace'
+            ? PRICING_BYTES.toString() + '\n'
+            : PRICING_BYTES.toString();
+    };
+    const declarationEvidence = {
+      map: parseComponentMap(
+        JSON.stringify({
+          components: {
+            digest: {
+              owns: ['extensions/tmt-digest'],
+              package: 'tmt-digest',
+              requiresCliSha: SHA,
+              uses: [],
+            },
+          },
+        })
+      ),
+      observeCli: () => ({ sha: SHA, status: 'ahead' }),
+    };
+    const publish = () =>
+      publishDraft({ api, product: 'digest', tag: DIGEST_TAG, declarationEvidence });
+    if (mode === 'exact') {
+      expect(publish().flags).toEqual(['--draft=false', '--prerelease=true', '--latest=false']);
+      expect(published).toHaveLength(1);
+    } else {
+      expect(publish).toThrow(/pricing/i);
+      expect(published).toEqual([]);
+    }
+  });
 
   it.each([
     ['cli', TAG, ['--draft=false', '--prerelease=false', '--latest=false']],
@@ -432,6 +510,68 @@ describe('verifyPublication', () => {
       attempts,
       sleep: (milliseconds) => sleeps.push(milliseconds),
     });
+
+  it.each(['exact', 'different', 'missing', 'attestation failure'])(
+    'checks tagged Digest pricing bytes and its public asset attestation: %s',
+    (mode) => {
+      const names = [
+        'release-publication.json',
+        'dist-manifest.json',
+        ...RECORD_TARGETS.map((target) => `tmt-digest-${target}.tar.gz`),
+        'tmt-release-record.json',
+        ...(mode === 'missing' ? [] : [PRICING_ASSET]),
+      ];
+      const sourceSha = 'b'.repeat(40);
+      const { api, calls } = fakeApi({
+        getRelease: () => ({
+          ...published(),
+          tag_name: DIGEST_TAG,
+          target_commitish: sourceSha,
+          prerelease: true,
+          assets: names.map((name) => ({ name })),
+        }),
+        tagCommit: () => sourceSha,
+        readPricing: (sha) => {
+          expect(sha).toBe(sourceSha);
+          return PRICING_BYTES;
+        },
+        download: (_tag, directory) => {
+          const { record } = writeRecordFixture(directory, 'digest', DIGEST_TAG);
+          writeFileSync(
+            path.join(directory, 'tmt-release-record.json'),
+            releaseRecordBytes({ ...record, sourceSha })
+          );
+          writeFileSync(path.join(directory, 'release-publication.json'), '{}');
+          writeFileSync(
+            path.join(directory, PRICING_ASSET),
+            mode === 'different' ? 'different source bytes' : PRICING_BYTES
+          );
+          return ok;
+        },
+        verifyAsset: (tag, file) => {
+          calls.push(`verify-asset ${tag} ${file}`);
+          return mode === 'attestation failure' && path.basename(file) === PRICING_ASSET
+            ? { ok: false, output: 'pricing attestation failed' }
+            : ok;
+        },
+      });
+      const results = verifyPublication({
+        api,
+        product: 'digest',
+        tag: DIGEST_TAG,
+        directory: verifyDirectory,
+        attempts: 1,
+      });
+      if (mode === 'exact') expect(failures(results)).toEqual({});
+      else if (mode === 'attestation failure')
+        expect(failures(results).assets).toContain('pricing attestation failed');
+      else expect(failures(results).pricing).toMatch(/pricing/);
+      if (mode !== 'missing')
+        expect(calls).toContain(
+          `verify-asset ${DIGEST_TAG} ${path.join(verifyDirectory, PRICING_ASSET)}`
+        );
+    }
+  );
 
   it('checks the release, its attestation and every asset, without waiting when all is ready', () => {
     const { api, calls } = fakeApi();
