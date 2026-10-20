@@ -990,6 +990,8 @@ for (const status of [403, 503])
     await page.goto(mount);
     await page.locator(`[data-page-id="${pageId}"] a`).click();
     await expect(page).toHaveURL(/\/p\//);
+    // The page reads the owner list once as it opens (its projects); count only what follows.
+    await page.waitForLoadState('networkidle');
     let reads = 0;
     await page.route(`**${mount}api/pages`, (route) =>
       reads++ === 0 ? route.fulfill({ status, json: { code: 'DENIED' } }) : route.fallback(),
@@ -1009,6 +1011,7 @@ test('Back to the list still ends in the error when a refreshed session is refus
   await page.goto(mount);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page).toHaveURL(/\/p\//);
+  await page.waitForLoadState('networkidle');
   let reads = 0;
   await page.route(`**${mount}api/pages`, (route) => {
     reads++;
