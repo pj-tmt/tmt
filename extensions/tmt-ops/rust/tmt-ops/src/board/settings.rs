@@ -1374,7 +1374,13 @@ mod tests {
             .join("\n")
     }
     fn select(f: &mut Fixture, key: &str) {
-        f.app.settings.as_mut().unwrap().surface.borrow_mut().select(key);
+        f.app
+            .settings
+            .as_mut()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select(key);
     }
     #[test]
     fn space_flips_the_selected_on_off_setting_through_the_cli_writer() {
@@ -1382,14 +1388,23 @@ mod tests {
         select(&mut f, "idle_alert.enabled");
         let screen = settings_screen(&f, 120);
         assert!(screen.contains("Space on/off"), "{screen}");
-        assert!(screen.contains("Tells the lead once when a member stays idle"), "{screen}");
+        assert!(
+            screen.contains("Tells the lead once when a member stays idle"),
+            "{screen}"
+        );
         assert_eq!(
             press(&mut f.app, KeyCode::Char(' ')),
             crate::board::app::Effect::SaveSetting
         );
         assert!(f.app.settings.as_mut().unwrap().save());
         let saved = std::fs::read_to_string(&f.path).unwrap();
-        assert!(Config::read(f.path.clone()).unwrap().idle_alert("product").unwrap().enabled);
+        assert!(
+            Config::read(f.path.clone())
+                .unwrap()
+                .idle_alert("product")
+                .unwrap()
+                .enabled
+        );
         // The board writes the bytes `tmt ops sq config set` writes.
         let cli = f.root.join("cli.toml");
         std::fs::write(&cli, &f.original).unwrap();
@@ -1404,7 +1419,13 @@ mod tests {
             crate::board::app::Effect::SaveSetting
         );
         assert!(f.app.settings.as_mut().unwrap().save());
-        assert!(!Config::read(f.path.clone()).unwrap().idle_alert("product").unwrap().enabled);
+        assert!(
+            !Config::read(f.path.clone())
+                .unwrap()
+                .idle_alert("product")
+                .unwrap()
+                .enabled
+        );
     }
     #[test]
     fn space_does_nothing_on_a_value_row_and_the_hint_names_only_what_a_row_accepts() {
@@ -1432,7 +1453,11 @@ mod tests {
                 crate::board::app::Effect::None
             );
             press(&mut f.app, KeyCode::Esc);
-            assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original, "{bad}");
+            assert_eq!(
+                std::fs::read_to_string(&f.path).unwrap(),
+                f.original,
+                "{bad}"
+            );
         }
         edit(&mut f.app, "idle_alert.after", "20m");
         assert_eq!(
@@ -1441,7 +1466,12 @@ mod tests {
         );
         assert!(f.app.settings.as_mut().unwrap().save());
         assert_eq!(
-            Config::read(f.path.clone()).unwrap().idle_alert("product").unwrap().after.as_secs(),
+            Config::read(f.path.clone())
+                .unwrap()
+                .idle_alert("product")
+                .unwrap()
+                .after
+                .as_secs(),
             1200
         );
     }

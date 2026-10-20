@@ -3539,7 +3539,10 @@ impl App {
                         }
                         super::settings::Input::Close => {
                             self.settings_preview();
-                            let from_menu = self.settings.take().is_some_and(|overlay| overlay.from_menu);
+                            let from_menu = self
+                                .settings
+                                .take()
+                                .is_some_and(|overlay| overlay.from_menu);
                             if from_menu {
                                 // Back to the Workspace settings menu the overlay was opened from.
                                 self.workspace_settings();

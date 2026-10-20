@@ -53,7 +53,13 @@ fn an_over_member_shows_the_cron_glyph_before_the_idle_word_and_time() {
 fn only_a_member_shown_as_idle_keeps_the_over_mark() {
     let mut app = idle_board(32 * MINUTE, true, alert(30));
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
-    workspace.roster.members.get_mut(MEMBER).unwrap().activity.phase = Phase::Working;
+    workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity
+        .phase = Phase::Working;
     app.overview_rows.borrow_mut().clear();
     let row = painted_member_row(&app, 160, 30);
     assert!(!row.contains("◷ idle"), "{row}");
@@ -78,7 +84,10 @@ fn the_squad_row_names_the_alert_and_counts_the_members_over_only_while_it_is_on
         let screen = screen(&idle_board(32 * MINUTE, false, off), 160);
         assert!(!screen.contains("alert"), "{screen}");
         // The ◷ column caption stays; no row or count carries the idle mark.
-        assert!(!screen.contains("◷ idle") && !screen.contains("1 idle"), "{screen}");
+        assert!(
+            !screen.contains("◷ idle") && !screen.contains("1 idle"),
+            "{screen}"
+        );
     }
 }
 
@@ -103,7 +112,8 @@ fn settings_config(name: &str, text: &str) -> (std::path::PathBuf, Config) {
 }
 
 #[test]
-fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_when_one_is_selected() {
+fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_when_one_is_selected()
+{
     let mut app = board();
     app.workspace_settings();
     let labels = menu_labels(&app);
@@ -140,7 +150,12 @@ fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_t
     let overlay = app.settings.as_ref().unwrap();
     assert!(overlay.from_menu);
     assert_eq!(overlay.settings.context.as_deref(), Some("product"));
-    app.settings.as_ref().unwrap().surface.borrow_mut().select("idle_alert.enabled");
+    app.settings
+        .as_ref()
+        .unwrap()
+        .surface
+        .borrow_mut()
+        .select("idle_alert.enabled");
     let screen = paint(&app, 120, 40).join("\n");
     assert!(
         screen.contains("idle_alert")
@@ -156,9 +171,127 @@ fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_t
     assert!(app.settings.is_some());
     assert_eq!(key(&mut app, KeyCode::Esc), Effect::CancelSettings);
     assert!(app.settings.is_none());
-    assert_eq!(
-        menu_labels(&app).last().unwrap(),
-        "Squad settings: product"
-    );
+    assert_eq!(menu_labels(&app).last().unwrap(), "Squad settings: product");
     std::fs::remove_file(path).unwrap();
+}
+
+/// The oracle's idle-alert squad: a lead and a worker over the 30m threshold, one member excepted by
+/// a pending decision, one resting on `hold`, and one still working.
+pub(in crate::board) fn populate(home: &mut crate::board::home::Home) {
+    use crate::board::workspace::{OpsMember, OpsMembershipState};
+    let now = crate::status::now_ms();
+    let people: [(&str, &str, Phase, u64, &str, bool, bool); 5] = [
+        (
+            "lead",
+            "lead",
+            Phase::Idle,
+            35 * MINUTE,
+            "idle",
+            false,
+            true,
+        ),
+        (
+            "worker-2",
+            "worker-2",
+            Phase::Working,
+            4 * MINUTE,
+            "working",
+            false,
+            false,
+        ),
+        (
+            "worker-3",
+            "worker-3",
+            Phase::Idle,
+            32 * MINUTE,
+            "review",
+            false,
+            true,
+        ),
+        (
+            "worker-4",
+            "worker-4",
+            Phase::Idle,
+            41 * MINUTE,
+            "blocked",
+            true,
+            false,
+        ),
+        (
+            "night-1",
+            "night-1",
+            Phase::Idle,
+            9 * 60 * MINUTE,
+            "hold",
+            false,
+            false,
+        ),
+    ];
+    let workspace = &mut home.workspace;
+    for (index, (_, name, phase, ago, state, waiting, over)) in people.into_iter().enumerate() {
+        let id = format!("55555555-5555-4555-8555-{:012}", index + 1);
+        workspace.roster.members.insert(
+            id.clone(),
+            OpsMember {
+                id: id.clone(),
+                name: name.into(),
+                state: Some(state.into()),
+                waiting,
+                presence: Some(true),
+                usage: None,
+                activity: ObservedActivity {
+                    phase,
+                    since_ms: Some(now - ago),
+                    last_ms: None,
+                },
+            },
+        );
+        let squad = &mut workspace.roster.squads[0];
+        squad.members.push(id.clone());
+        squad.member_states.insert(
+            id.clone(),
+            OpsMembershipState {
+                state: Some(state.into()),
+                waiting,
+                rank: None,
+                idle_over: over,
+            },
+        );
+        if index == 0 {
+            squad.lead = Some(id.clone());
+        }
+        workspace.rows.insert(
+            OpsTarget::Member {
+                room_id: Some(ROOM.into()),
+                identity_id: id.clone(),
+            },
+            json!({"id":id,"name":name,"state":state,"presence":"active","pane":{"location":{"host":"tmux"}}}),
+        );
+    }
+    workspace.roster.squads[0].idle_alert = alert(30);
+    home.summary.members = 6;
+    home.summary.working = 2;
+    home.summary.idle = 4;
+}
+
+/// The scene where `Squad settings: product` was chosen from the menu and the idle rows are in view.
+pub(in crate::board) fn open_squad_settings(app: &mut App) {
+    let path = std::env::temp_dir().join(format!(
+        "ops-idle-oracle-{}.toml",
+        crate::id::new_v4().unwrap()
+    ));
+    std::fs::write(
+        &path,
+        "[squad.product.idle_alert]\nenabled = true\nafter = \"30m\"\n",
+    )
+    .unwrap();
+    let config = Config::read(path.clone()).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    app.open_settings_in(config, Some("product")).unwrap();
+    app.settings
+        .as_ref()
+        .unwrap()
+        .surface
+        .borrow_mut()
+        .select("idle_alert.enabled");
 }

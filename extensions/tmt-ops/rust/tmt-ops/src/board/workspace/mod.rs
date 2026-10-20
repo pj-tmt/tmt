@@ -76,8 +76,13 @@ impl IdleAlertSetting {
         use unicode_width::UnicodeWidthStr;
         let after = crate::idle_alert::threshold(std::time::Duration::from_millis(self.after_ms));
         let full = format!("idle alert {after}");
-        self.enabled
-            .then(|| if full.width() <= width { full } else { format!("alert {after}") })
+        self.enabled.then(|| {
+            if full.width() <= width {
+                full
+            } else {
+                format!("alert {after}")
+            }
+        })
     }
 }
 

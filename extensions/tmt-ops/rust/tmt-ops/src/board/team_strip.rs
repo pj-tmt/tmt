@@ -104,7 +104,10 @@ mod tests {
                 over: false,
             },
         ];
-        assert_eq!(line(&members, Some("lead"), 11, look, GlyphSet::Unicode).to_string(), "◆ ● ◌");
+        assert_eq!(
+            line(&members, Some("lead"), 11, look, GlyphSet::Unicode).to_string(),
+            "◆ ● ◌"
+        );
         assert_eq!(
             line(&members, Some("missing"), 11, look, GlyphSet::Unicode).to_string(),
             "● ◆ ◌"
@@ -112,7 +115,10 @@ mod tests {
         for width in 0..8 {
             assert!(line(&members, Some("lead"), width, look, GlyphSet::Unicode).width() <= width);
         }
-        assert_eq!(line(&members, Some("lead"), 3, look, GlyphSet::Unicode).to_string(), "◆ …");
+        assert_eq!(
+            line(&members, Some("lead"), 3, look, GlyphSet::Unicode).to_string(),
+            "◆ …"
+        );
     }
 }
 

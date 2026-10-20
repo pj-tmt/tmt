@@ -65,7 +65,11 @@ mod parser_tests {
         assert_eq!(
             links
                 .iter()
-                .map(|link| (&text[link.range.clone()], link.identity.as_str(), link.name.as_str()))
+                .map(|link| (
+                    &text[link.range.clone()],
+                    link.identity.as_str(),
+                    link.name.as_str()
+                ))
                 .collect::<Vec<_>>(),
             [(ada, ada, "Ada"), (ada, ada, "Ada")]
         );

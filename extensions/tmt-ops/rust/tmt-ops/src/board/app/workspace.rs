@@ -1383,7 +1383,10 @@ impl App {
             });
             entries.push(MenuEntry {
                 key: String::new(),
-                label: format!("Squad settings: {}", crate::board::workspace::render::safe(&squad)),
+                label: format!(
+                    "Squad settings: {}",
+                    crate::board::workspace::render::safe(&squad)
+                ),
                 choice: Choice::SquadSettings(squad),
             });
         }

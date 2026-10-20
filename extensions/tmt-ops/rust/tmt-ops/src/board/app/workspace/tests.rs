@@ -1,5 +1,5 @@
 mod host_action;
-mod idle_alert;
+pub(in crate::board) mod idle_alert;
 use super::*;
 use crate::board::workspace::{
     OpsMember, OpsObservation, OpsRoster, OpsSquad,
@@ -2623,6 +2623,13 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 identity_id: "44444444-4444-4444-8444-000000000150".into(),
             });
         }
+        "idle-alert" | "idle-alert-overview" => {
+            idle_alert::populate(home);
+            if scene == "idle-alert-overview" {
+                app.shell.tab = OpsTab::Overview;
+                app.overview_view = crate::board::overview::monitor::View::Squads;
+            }
+        }
         "partial" => {
             home.workspace.roster.observation = OpsObservation::Partial;
             home.workspace.roster.membership_complete = false;
@@ -2666,6 +2673,17 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         }
         "help" => {
             key(&mut app, KeyCode::Char('?'));
+        }
+        "settings-menu" => {
+            app.workspace_settings();
+        }
+        "settings-menu-pool" => {
+            app.workspace.selected = Some(OpsTarget::Pool);
+            app.workspace_settings();
+        }
+        "squad-settings" => {
+            app.workspace_settings();
+            idle_alert::open_squad_settings(&mut app);
         }
         "review" | "result" => {
             app.workspace_begin(Kind::Remove);

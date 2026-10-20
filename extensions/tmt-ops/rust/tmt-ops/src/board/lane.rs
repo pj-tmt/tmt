@@ -52,7 +52,9 @@ impl Job {
             Self::ReadMarkers(_) => "Saving read markers…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
-            Self::Open(Opening::Settings | Opening::SquadSettings(_) | Opening::HostAction(_)) => "Loading settings…",
+            Self::Open(Opening::Settings | Opening::SquadSettings(_) | Opening::HostAction(_)) => {
+                "Loading settings…"
+            }
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",
             Self::ViewState(_) => "Saving the board view…",

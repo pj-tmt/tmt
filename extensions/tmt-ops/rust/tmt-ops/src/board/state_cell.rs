@@ -26,7 +26,10 @@ pub(in crate::board) fn mark(state: Option<&str>, look: Look) -> Span<'static> {
 }
 /// The idle alert's over mark. It reuses the cron glyph, so a time or the word
 /// `idle` always follows it; the attention colour is the only thing it adds.
-pub(in crate::board) fn over(glyphs: super::overview::cron_counts::GlyphSet, look: Look) -> Span<'static> {
+pub(in crate::board) fn over(
+    glyphs: super::overview::cron_counts::GlyphSet,
+    look: Look,
+) -> Span<'static> {
     use super::overview::cron_counts::GlyphSet;
     Span::styled(
         match glyphs {
