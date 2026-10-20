@@ -74,6 +74,20 @@ test('a working agent keeps its robot and gains a static dot; nothing animates',
   expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
 });
 
+test('the icon keeps a visible gap before the name in every form and state', async ({ page }) => {
+  const host = await mountFixture(page);
+  for (const row of ['inline-idle', 'inline-working', 'chip', 'chip-working']) {
+    const chip = host.locator(`[data-row=${row}] .agent-chip`);
+    const icon = (await chip.locator('.agent-chip-icon').boundingBox())!;
+    const name = (await chip.locator('.agent-chip-name').boundingBox())!;
+    // The 4px between the mark box and the name, whatever the state or the global icon size.
+    expect(name.x - (icon.x + icon.width), row).toBeGreaterThanOrEqual(3.5);
+    // The icon fills its mark box: it neither overflows into the gap nor shrinks away from it.
+    const mark = (await chip.locator('.agent-chip-mark').boundingBox())!;
+    expect(icon.x + icon.width, row).toBeCloseTo(mark.x + mark.width, 1);
+  }
+});
+
 test('forced colours draw the dot in the system text colour', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
   const host = await mountFixture(page);
