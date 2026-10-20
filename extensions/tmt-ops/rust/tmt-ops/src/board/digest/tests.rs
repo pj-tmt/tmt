@@ -345,11 +345,11 @@ fn mouse(kind: MouseEventKind, (column, row): (u16, u16)) -> MouseEvent {
 }
 
 #[test]
-fn the_mouse_chooses_an_entry_scrolls_the_highlight_and_ignores_the_outside() {
+fn a_click_outside_the_dropdown_closes_it_and_lands_below() {
     let mut app = app();
     app.open_digest(granted("5m"));
-    let hour = find(&app, "1h");
-    // A click outside the entries keeps the dropdown open.
+    // Paint once so the sheet's place is known; a press elsewhere is outside it.
+    find(&app, "1h");
     assert_eq!(
         app.mouse(
             mouse(MouseEventKind::Down(MouseButton::Left), (0, 0)),
@@ -357,7 +357,14 @@ fn the_mouse_chooses_an_entry_scrolls_the_highlight_and_ignores_the_outside() {
         ),
         Effect::None
     );
-    assert!(app.menu.is_some());
+    assert!(app.menu.is_none());
+}
+
+#[test]
+fn the_mouse_chooses_an_entry_and_scrolls_the_highlight() {
+    let mut app = app();
+    app.open_digest(granted("5m"));
+    let hour = find(&app, "1h");
     // The wheel moves the highlight, one entry per notch, within the list.
     let selected = app.menu.as_ref().unwrap().selected;
     app.mouse(mouse(MouseEventKind::ScrollDown, hour), Instant::now());

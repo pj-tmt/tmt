@@ -44,6 +44,7 @@ mod overview;
 mod pane_chrome;
 mod pane_resize;
 mod panels_picker;
+mod peek;
 mod picker_surface;
 mod rate;
 mod recent_responses;

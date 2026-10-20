@@ -776,6 +776,7 @@ pub struct App {
     pub hits: RefCell<Vec<Hit>>,
     /// Clock text belongs to painted surfaces and is invalidated with frame geometry.
     pub(in crate::board) frame_clocks: RefCell<Vec<super::view::ClockSurface>>,
+    pub(super) peek_areas: super::peek::PeekAreas,
     /// Where a row's choice chip was last drawn, with its row.
     pub(super) chip_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     /// Each record's first visual line in the last rows draw, for paging.
@@ -3458,7 +3459,7 @@ impl App {
         self.overlay() == Some(Overlay::UsageControls) && self.menu.is_none()
     }
 
-    fn overlay(&self) -> Option<Overlay> {
+    pub(super) fn overlay(&self) -> Option<Overlay> {
         if self.monitor_details.is_some() {
             Some(Overlay::MonitorDetails)
         } else if self.cron_review.is_some() {
@@ -4003,6 +4004,8 @@ impl App {
         if self.meter_hover.is_some() {
             self.move_pointer(event);
         }
+        // A peek window closes on an outside press and the press goes on below.
+        self.light_dismiss(event);
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
             return effect;
         }

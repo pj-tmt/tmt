@@ -206,7 +206,7 @@ impl Details {
             ));
         }
         let look = app.look();
-        surface::render(
+        let outer = surface::render(
             &self.scene.as_ref().unwrap().1,
             &mut self.scroll,
             body,
@@ -217,7 +217,10 @@ impl Details {
             },
             |role| look.role(role),
         )
-        .expect("admitted quota details surface");
+        .expect("admitted quota details surface")
+        .areas
+        .outer;
+        app.peek_areas.set(crate::board::peek::Peek::Quota, outer);
         if self.scroll.viewport().height > 0 {
             app.frame_clocks
                 .borrow_mut()
