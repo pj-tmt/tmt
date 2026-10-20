@@ -42,6 +42,7 @@ fn sixteen(role: crate::Role) -> Option<AnsiColor> {
         | Role::Dim
         | Role::Selection
         | Role::Track
+        | Role::Code
         | Role::Keycap
         | Role::KeycapSelected => None,
     }

@@ -216,13 +216,16 @@ fn body(squad: &Squad, member: &Member, since_ms: u64, after: Duration, zone: &T
     )
 }
 
-/// `idle alert 30m` for a squad document whose alert is on; an off alert has no label.
-pub fn setting_label(document: &Value) -> Option<String> {
+/// `idle alert 30m` while the alert is on; an off alert has no label. The one owner of the words,
+/// for the `ls` text and the board.
+pub fn setting_label(enabled: bool, after_ms: u64) -> Option<String> {
+    enabled.then(|| format!("idle alert {}", threshold(Duration::from_millis(after_ms))))
+}
+
+/// The label of a squad document's `idleAlert` setting.
+pub fn document_label(document: &Value) -> Option<String> {
     let setting = &document["squad"]["idleAlert"];
-    (setting["enabled"] == true).then(|| {
-        let after = Duration::from_millis(setting["afterMs"].as_u64()?);
-        Some(format!("idle alert {}", threshold(after)))
-    })?
+    setting_label(setting["enabled"] == true, setting["afterMs"].as_u64()?)
 }
 
 /// `◷ idle 32m` for a row Core marked over, from Core's idle start. An excepted row has no mark.

@@ -75,7 +75,11 @@ impl Renderer<'_> {
         } else {
             self.look.role(Role::Text)
         };
-        if self.bold > 0 || self.heading {
+        if self.heading {
+            style = style
+                .patch(self.look.role(Role::Accent))
+                .add_modifier(Modifier::BOLD);
+        } else if self.bold > 0 {
             style = style.add_modifier(Modifier::BOLD);
         }
         if self.italic > 0 {
@@ -83,7 +87,7 @@ impl Renderer<'_> {
         }
         if self.link {
             style = style
-                .patch(self.look.role(Role::Text))
+                .patch(self.look.role(Role::Accent))
                 .add_modifier(Modifier::UNDERLINED);
         }
         style
@@ -106,7 +110,7 @@ impl Renderer<'_> {
             prefix_style: self.look.role(if self.quote_depth > 0 {
                 Role::Dim
             } else {
-                Role::Muted
+                Role::Accent
             }),
         });
     }
@@ -291,7 +295,12 @@ impl Renderer<'_> {
             Event::Text(text) => {
                 self.prose(&text);
             }
-            Event::Code(code) => self.push(&code, self.style().patch(self.look.role(Role::Track))),
+            Event::Code(code) => self.push(
+                &code,
+                self.style()
+                    .patch(self.look.role(Role::Code))
+                    .patch(self.look.role(Role::Track)),
+            ),
             Event::SoftBreak if !self.preserve_breaks => self.push(" ", self.style()),
             Event::SoftBreak => {
                 let indent = self.current.as_ref().map_or(0, |block| block.indent);
@@ -640,6 +649,36 @@ mod tests {
     }
 
     #[test]
+    fn headings_links_quote_bars_and_code_carry_their_own_roles() {
+        let look = Look::default();
+        let mapped = render_mapped(
+            "# Title\n\n[site](https://x.dev) and `inline`\n\n- [ ] item\n\n> quoted\n\n```\nblock\n```",
+            40,
+            look,
+        );
+        let title = style_of(&mapped.lines, "Title");
+        assert_eq!(title.fg, look.role(Role::Accent).fg);
+        assert!(title.add_modifier.contains(Modifier::BOLD));
+        let link = style_of(&mapped.lines, "site");
+        assert_eq!(link.fg, look.role(Role::Accent).fg);
+        assert!(link.add_modifier.contains(Modifier::UNDERLINED));
+        let inline = style_of(&mapped.lines, "inline");
+        assert_eq!(inline.fg, look.role(Role::Code).fg);
+        assert_eq!(inline.bg, look.role(Role::Track).bg);
+        let block = style_of(&mapped.lines, "block");
+        assert_eq!(block.fg, look.role(Role::Code).fg);
+        assert_eq!(block.bg, look.role(Role::Track).bg);
+        // A quote keeps the dim bar; an ordinary list or prefix is Accent only outside a quote.
+        let quote_bar = mapped
+            .lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .find(|span| span.content.starts_with('▎'))
+            .expect("quote bar");
+        assert_eq!(quote_bar.style.fg, look.role(Role::Dim).fg);
+    }
+
+    #[test]
     fn wrapped_quote_rows_keep_the_gutter_inside_the_width() {
         let lines = render("> wide words that wrap", 10, Look::default());
         assert!(lines.len() > 1);
@@ -820,7 +859,7 @@ mod tests {
         );
         assert_eq!(
             style_of(&lines, "sweep").fg,
-            Look::default().role(Role::Text).fg
+            Look::default().role(Role::Code).fg
         );
         assert!(
             style_of(&lines, "412")

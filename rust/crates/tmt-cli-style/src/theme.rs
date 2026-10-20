@@ -42,10 +42,12 @@ pub enum Role {
     Keycap,
     /// A shortcut inside the selected control, one step brighter.
     KeycapSelected,
+    /// Inline code and code blocks in rendered Markdown.
+    Code,
 }
 
 impl Role {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -60,6 +62,7 @@ impl Role {
         Self::Unread,
         Self::Keycap,
         Self::KeycapSelected,
+        Self::Code,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -79,6 +82,7 @@ impl Role {
             Self::Unread => "unread",
             Self::Keycap => "keycap",
             Self::KeycapSelected => "keycap-selected",
+            Self::Code => "code",
         }
     }
 
@@ -297,6 +301,7 @@ impl Base {
             Role::Review => Paint::Ansi(AnsiColor::Magenta),
             Role::Blocked => Paint::Ansi(AnsiColor::Red),
             Role::Link => Paint::Ansi(AnsiColor::Cyan),
+            Role::Code => Paint::Ansi(AnsiColor::White),
             Role::Selection => Paint::Reverse,
             Role::Track => Paint::Dimmed,
             Role::Keycap => Paint::Ansi(AnsiColor::Black),
@@ -320,6 +325,7 @@ impl Base {
             Role::Track => ((0x38, 0x38, 0x38), (0xE0, 0xE0, 0xE0)),
             Role::Keycap => ((0x55, 0x55, 0x55), (0x55, 0x55, 0x55)),
             Role::KeycapSelected => ((0x70, 0x70, 0x70), (0x70, 0x70, 0x70)),
+            Role::Code => ((0xA9, 0xB1, 0xD6), (0x3B, 0x42, 0x61)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)
@@ -327,7 +333,7 @@ impl Base {
 
     fn mono(role: Role) -> Paint {
         match role {
-            Role::Text | Role::Working | Role::Link => Paint::Plain,
+            Role::Text | Role::Working | Role::Link | Role::Code => Paint::Plain,
             Role::Muted | Role::Dim | Role::Track => Paint::Dimmed,
             Role::Accent | Role::Waiting | Role::Review | Role::Blocked | Role::Unread => {
                 Paint::Bold

@@ -74,14 +74,11 @@ impl IdleAlertSetting {
     /// narrow for the full words; an off alert shows nothing.
     pub fn label(self, width: usize) -> Option<String> {
         use unicode_width::UnicodeWidthStr;
-        let after = crate::idle_alert::threshold(std::time::Duration::from_millis(self.after_ms));
-        let full = format!("idle alert {after}");
-        self.enabled.then(|| {
-            if full.width() <= width {
-                full
-            } else {
-                format!("alert {after}")
-            }
+        let full = crate::idle_alert::setting_label(self.enabled, self.after_ms)?;
+        Some(if full.width() <= width {
+            full
+        } else {
+            full.trim_start_matches("idle ").to_owned()
         })
     }
 }
