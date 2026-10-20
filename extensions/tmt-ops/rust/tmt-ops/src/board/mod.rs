@@ -64,6 +64,7 @@ mod stat_tiles;
 mod state_cell;
 mod status_update;
 mod tab_strip;
+mod talk_measure;
 mod team_strip;
 mod timer_rows;
 mod top_bar;

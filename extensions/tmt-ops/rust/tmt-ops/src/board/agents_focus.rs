@@ -207,12 +207,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         member_state(app, selected, usize::from(area.width.saturating_sub(8)))
     };
-    section_rule::paint(
+    let title_rule = crate::board::talk_measure::paint(
         frame.buffer_mut(),
+        app,
         Rect {
             height: area.height.min(1),
             ..area
         },
+    );
+    section_rule::paint(
+        frame.buffer_mut(),
+        title_rule,
         title,
         note,
         app.focused() == Pane::Replies,

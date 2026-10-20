@@ -515,7 +515,7 @@ fn retained_controls_carry_ratios_but_not_drag_or_hover() {
     );
     let controls = Controls::capture(&first);
     let value = controls.json();
-    assert_eq!(value["paneRatios"]["agents-columns"], 4100);
+    assert_eq!(value["paneRatios"]["agents-columns"], 4000);
     let mut next = app(OpsTab::Agents);
     Controls::decode(&value).unwrap().apply(&mut next);
     assert_eq!(next.pane_resize.ratios(), first.pane_resize.ratios());

@@ -2003,7 +2003,7 @@ impl App {
     pub(in crate::board) fn workspace_placement(
         &self,
         area: ratatui::layout::Rect,
-    ) -> Option<super::conversation::layout::WorkspacePlacement> {
+    ) -> Option<super::conversation::layout::Placement> {
         use super::conversation::layout::{self, Preference};
         let snapshot = self.workspace_snapshot()?;
         let mut placement = if self.shell.tab == super::shell::OpsTab::Agents {
@@ -2026,30 +2026,30 @@ impl App {
             );
             // The Panels list and side switches claim the whole body for the other pane.
             let policy = self.overview_panels();
-            let whole = match (placement.panes.list, placement.panes.conversation) {
+            let whole = match (placement.list, placement.conversation) {
                 (Some(list), Some(conversation)) => list.union(conversation),
                 (Some(only), None) | (None, Some(only)) => only,
                 (None, None) => below,
             };
             if !policy.shown(crate::config::OverviewPanel::Monitor) {
-                placement.panes = layout::Placement {
+                placement = layout::Placement {
                     list: None,
                     conversation: Some(whole),
                 };
             } else if !policy.side_shown() && !self.conversation_revealed() {
-                placement.panes = layout::Placement {
+                placement = layout::Placement {
                     list: Some(whole),
                     conversation: None,
                 };
             }
             placement
         } else {
-            self.digest_placement(area).into()
+            self.digest_placement(area)
         };
         use crate::action::ResizeBoundary as Boundary;
         if self.shell.tab == super::shell::OpsTab::Agents {
-            placement.panes = self.pane_resize.panes(
-                placement.panes,
+            placement = self.pane_resize.panes(
+                placement,
                 Boundary::AgentsColumns,
                 Boundary::AgentsRows,
                 self.agents_list_min_columns(),
@@ -3974,12 +3974,6 @@ impl App {
         if (self.scrolls.visible(Pane::Rows) || self.conversation.borrow().pane.is_some())
             && let Some(placement) = self.workspace_placement(self.conversation.borrow().area)
         {
-            if placement
-                .agents
-                .is_some_and(|bands| bands.filters.contains((column, row).into()))
-            {
-                return Some(Pane::Rows);
-            }
             for (pane, area) in [
                 (Pane::Rows, placement.list),
                 (Pane::Replies, placement.conversation),

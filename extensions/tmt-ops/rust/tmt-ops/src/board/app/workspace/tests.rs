@@ -1149,7 +1149,7 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
                     "attention cannot recolor shell labels"
                 );
             }
-            for (key, selected) in [(" 1 ", false), (" 2 ", true), (" 3 ", false)] {
+            for (key, selected) in [(" 1 ", true), (" 2 ", false)] {
                 let span = line.spans.iter().find(|span| span.content == key).unwrap();
                 assert_eq!(
                     span.style,
@@ -1544,19 +1544,16 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.workspace_reconcile();
-    assert!(app.workspace_rows().is_empty());
-    assert!(paint(&app, 80, 24).join("\n").contains(" No squads yet."));
-    let empty = paint(&app, 80, 24);
-    assert!(empty.iter().any(|line| line.starts_with(" No squads yet.")));
-    assert!(empty.last().unwrap().starts_with(' '));
-    app.workspace.query = "missing".into();
-    assert!(
-        paint(&app, 80, 24)
-            .iter()
-            .any(|line| line.starts_with(" No matching squads"))
+    assert_eq!(
+        app.workspace_rows().len(),
+        1,
+        "only the Common pool row is left in the tree"
     );
-    app.workspace.query.clear();
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    app.workspace_reconcile();
+    assert!(app.workspace_rows().is_empty());
+    let empty = paint(&app, 80, 24);
+    assert!(empty.last().unwrap().starts_with(' '));
     assert!(
         paint(&app, 80, 24)
             .iter()
@@ -2274,9 +2271,9 @@ fn selected_squad_discloses_existing_usage_facts_without_private_lead_fields() {
                 .position(|row| row.target == OpsTarget::Squad(ROOM.into()))
                 .unwrap();
             app.select(index);
-            paint(&app, width, 36);
+            paint(&app, width, 51);
             key(&mut app, KeyCode::Tab);
-            let text = paint(&app, width, 36).join("\n");
+            let text = paint(&app, width, 51).join("\n");
             assert!(text.contains("── Usage "), "{width}: {text}");
             assert!(text.contains("~21 tok"), "{width}: {text}");
             assert!(text.contains("~100%"), "{width}: {text}");
@@ -3236,7 +3233,7 @@ fn agents_wide_table_uses_hour_readings_once_and_marks_missing_members() {
             for (field, expected) in [
                 (
                     crate::board::workspace::columns::AgentsField::Model,
-                    String::new(),
+                    "—".to_owned(),
                 ),
                 (
                     crate::board::workspace::columns::AgentsField::Tokens,
@@ -4969,7 +4966,7 @@ fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
             };
             let x = name_x(&after, after_y);
             assert!(x >= 2, "name must reserve two cells for its pin mark");
-            let pin_x = if tab == OpsTab::Agents { 0 } else { x - 2 };
+            let pin_x = if app.flat_agents() { x - 2 } else { 0 };
             assert_eq!(after[(pin_x, after_y)].symbol(), "▪");
             let pinned_row = (0..148)
                 .map(|column| after[(column, after_y)].symbol())

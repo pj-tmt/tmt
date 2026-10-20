@@ -23,60 +23,15 @@ pub struct Placement {
     pub conversation: Option<Rect>,
 }
 
-/// The Agents section bands precede both panes, as in the fixed-cell mock.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AgentsBands {
-    pub filters: Rect,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WorkspacePlacement {
-    pub(in crate::board) panes: Placement,
-    pub agents: Option<AgentsBands>,
-}
-
-impl From<Placement> for WorkspacePlacement {
-    fn from(panes: Placement) -> Self {
-        Self {
-            panes,
-            agents: None,
-        }
-    }
-}
-impl std::ops::Deref for WorkspacePlacement {
-    type Target = Placement;
-    fn deref(&self) -> &Self::Target {
-        &self.panes
-    }
-}
-
-/// Agents-only geometry; Digest retains `agents`.
-pub fn agents_tree(
-    area: Rect,
-    preference: Preference,
-    conversation_focused: bool,
-) -> WorkspacePlacement {
-    // Optional section controls yield before the compact conversation loses
-    // its host metadata or response position. Narrow single-pane screens can
-    // still afford these controls above their list.
-    let bands = (area.height >= 8
-        && (area.width < 80 || area.height >= LIST_MIN_ROWS + CONVERSATION_MIN_ROWS + 6))
-        .then_some(AgentsBands {
-            filters: Rect::new(area.x, area.y, area.width, 1),
-        });
-    let reserved = if bands.is_some() { 2 } else { 0 };
-    let body = Rect::new(
-        area.x,
-        area.y + reserved,
-        area.width,
-        area.height - reserved,
-    );
+/// Agents-only geometry; The list's controls sit on its own section rule.
+pub fn agents_tree(area: Rect, preference: Preference, conversation_focused: bool) -> Placement {
+    let body = area;
     let dual_fits = body.height >= LIST_MIN_ROWS + CONVERSATION_MIN_ROWS;
     let side_fits = area.width >= 100 && dual_fits;
     let stack_fits = area.width >= 80 && dual_fits;
     let wants_side =
         preference == Preference::Side || preference == Preference::Auto && area.width >= 120;
-    let panes = if side_fits && (wants_side || !stack_fits) {
+    if side_fits && (wants_side || !stack_fits) {
         let left = (((u32::from(area.width) * 47 + 50) / 100) as u16).max(LIST_MIN_COLUMNS);
         Placement {
             list: Some(Rect::new(body.x, body.y, left, body.height)),
@@ -108,10 +63,6 @@ pub fn agents_tree(
             list: (!conversation_focused).then_some(body),
             conversation: conversation_focused.then_some(body),
         }
-    };
-    WorkspacePlacement {
-        panes,
-        agents: bands,
     }
 }
 
@@ -159,13 +110,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agents_tree_matches_the_mock_bands_and_keeps_the_conversation_minimum() {
+    fn agents_tree_keeps_the_conversation_minimum() {
         let wide = agents_tree(Rect::new(0, 4, 160, 37), Preference::Auto, false);
-        assert_eq!(wide.list, Some(Rect::new(0, 6, 75, 35)));
-        assert_eq!(wide.conversation, Some(Rect::new(76, 6, 84, 35)));
+        assert_eq!(wide.list, Some(Rect::new(0, 4, 75, 37)));
+        assert_eq!(wide.conversation, Some(Rect::new(76, 4, 84, 37)));
         let medium = agents_tree(Rect::new(0, 4, 100, 17), Preference::Auto, false);
-        assert_eq!(medium.list, Some(Rect::new(0, 6, 100, 4)));
-        assert_eq!(medium.conversation, Some(Rect::new(0, 10, 100, 11)));
+        assert_eq!(medium.list, Some(Rect::new(0, 4, 100, 4)));
+        assert_eq!(medium.conversation, Some(Rect::new(0, 8, 100, 13)));
         for width in 100..=200 {
             for height in [0, 1, 4, 8, 10, 13, 17, 29, 37] {
                 let area = Rect::new(2, 3, width, height);

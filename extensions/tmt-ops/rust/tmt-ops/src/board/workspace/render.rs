@@ -147,7 +147,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     use crate::action::ResizeBoundary as Boundary;
     let (columns, rows) = (Boundary::AgentsColumns, Boundary::AgentsRows);
     app.pane_resize.record_panes(
-        placement.panes,
+        placement,
         columns,
         rows,
         app.agents_list_min_columns(),
@@ -197,9 +197,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             app.look(),
         );
     }
-    if let Some(bands) = placement.agents {
-        agents_controls(frame, app, bands);
-    }
     if let Some(list) = placement.list {
         if app.flat_agents() {
             crate::board::overview::composition::render(frame, app, list);
@@ -242,7 +239,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         y: inside.y + rule_height,
         ..inside
     });
-    let note = if app.workspace.query.is_empty() {
+    let totals = if app.workspace.query.is_empty() {
         let squads = snapshot
             .roster
             .squads
@@ -281,16 +278,13 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             look.role(Role::Muted),
         )
     };
-    crate::board::section_rule::paint(
-        frame.buffer_mut(),
+    controls_rule(
+        frame,
+        app,
         Rect {
             height: rule_height,
             ..inside
         },
-        "Squads",
-        note,
-        app.focused() == Pane::Rows,
-        look,
     );
     columns::paint_agents_header(
         frame.buffer_mut(),
@@ -547,14 +541,50 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
     };
     app.scrolls
         .show_table(frame, Pane::Rows, body, rows.len(), look, paint_rows);
+    if body.height >= 2 {
+        paint_totals(
+            frame,
+            Rect::new(body.x, body.bottom() - 1, body.width, 1),
+            totals,
+        );
+    }
 }
 
-fn agents_controls(
-    frame: &mut Frame,
-    app: &App,
-    bands: crate::board::conversation::layout::AgentsBands,
-) {
-    let inside = bands.filters;
+/// The counts sit at the right of the rows line, below the list they describe.
+pub(in crate::board) fn paint_totals(frame: &mut Frame, line: Rect, totals: Line<'static>) {
+    // The range text on the left is at most 36 cells wide; yield before they meet.
+    if totals.width() == 0 || usize::from(line.width) < totals.width() + 40 {
+        return;
+    }
+    tmt_tui::components::strip::paint_right(
+        frame.buffer_mut(),
+        Rect::new(line.x, line.y, line.width.saturating_sub(1), 1),
+        totals,
+    );
+}
+
+/// The left pane's section rule carries the list controls: the filter chips
+/// and the search field.
+pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) {
+    if area.is_empty() {
+        return;
+    }
+    let look = app.look();
+    let focused = app.focused() == Pane::Rows;
+    let rule = Line::styled(
+        format!(
+            "── {}",
+            "─".repeat(usize::from(area.width).saturating_sub(3))
+        ),
+        look.role(if focused { Role::Muted } else { Role::Dim }),
+    );
+    tmt_tui::components::strip::paint_left(frame.buffer_mut(), Rect { height: 1, ..area }, rule);
+    let inside = Rect::new(
+        area.x + 3.min(area.width),
+        area.y,
+        area.width.saturating_sub(3),
+        1,
+    );
     use super::AgentsFilter;
     let search_count = app
         .workspace_snapshot()

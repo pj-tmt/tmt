@@ -3,7 +3,7 @@ use super::monitor;
 use crate::{
     board::{
         app::{App, Hit, HitTarget},
-        empty_state, section_rule, state_cell,
+        empty_state, state_cell,
         workspace::OpsTreeRow,
     },
     config::Pane,
@@ -96,14 +96,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     // `widest` is the widest agent STATE cell of the list.
     let paint = |frame: &mut Frame, slot: Rect, index: usize, widest: usize| match index {
-        0 => section_rule::paint(
-            frame.buffer_mut(),
-            slot,
-            "Agents",
-            count.clone(),
-            app.focused() == Pane::Rows,
-            look,
-        ),
+        0 => crate::board::workspace::render::controls_rule(frame, app, slot),
         1 => strip::paint_left(
             frame.buffer_mut(),
             slot,
@@ -212,7 +205,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             widest,
         );
     }
-    app.scrolls.show_list(
+    let (_, viewport) = app.scrolls.show_list(
         frame,
         Pane::Rows,
         data,
@@ -229,6 +222,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
         },
     );
+    // The last line is free when the rows end above it or carry the overflow caption.
+    if data.height >= 2
+        && (rows.len() < usize::from(data.height) || viewport < usize::from(data.height))
+    {
+        crate::board::workspace::render::paint_totals(
+            frame,
+            Rect::new(data.x, data.bottom() - 1, data.width, 1),
+            count,
+        );
+    }
 }
 /// Where an agent row's STATE words start.
 const AGENT_STATE_X: usize = 37;

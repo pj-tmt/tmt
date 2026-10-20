@@ -26,6 +26,23 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     let mut y = area.y;
     let bottom = area.bottom();
+    // The top rule carries the Talk/Measure control.
+    if area.height >= 2 {
+        let top = crate::board::talk_measure::paint(
+            frame.buffer_mut(),
+            app,
+            Rect::new(area.x, y, area.width, 1),
+        );
+        section_rule::paint(
+            frame.buffer_mut(),
+            top,
+            "Measure",
+            Line::default(),
+            app.focused() == crate::config::Pane::Replies,
+            look,
+        );
+        y += 1;
+    }
     let rule = |frame: &mut Frame, y: u16, title: &str, note: Line<'static>| {
         section_rule::paint(
             frame.buffer_mut(),
