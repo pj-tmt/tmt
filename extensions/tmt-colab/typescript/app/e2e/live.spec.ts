@@ -1482,7 +1482,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
 
 /** The mounted/registration/Connection/Worker/Writer path is production; only
  * the signed server and Remote protocol are fixtures, as in the Ask wire case. */
-async function draftRecoveryWire(context: BrowserContext) {
+async function draftRecoveryWire(context: BrowserContext, holdDirectory = false) {
   const f = await wire(context);
   const agent = '00000000-0000-4000-8000-000000000006';
   let down = false,
@@ -1492,6 +1492,12 @@ async function draftRecoveryWire(context: BrowserContext) {
     opens = 0,
     sends = 0;
   let pending: Promise<void> | undefined, release: (() => void) | undefined;
+  let releaseDirectory = () => {};
+  const directoryReady = holdDirectory
+    ? new Promise<void>((resolve) => {
+        releaseDirectory = resolve;
+      })
+    : undefined;
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
@@ -1522,9 +1528,10 @@ result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-0000000
     f.resumeSync();
     return route.fulfill({ json: {} });
   });
-  await context.route('**/test-draft-directory', (route) =>
-    route.fulfill({ status: ended ? 410 : 200, json: {} }),
-  );
+  await context.route('**/test-draft-directory', async (route) => {
+    await directoryReady;
+    await route.fulfill({ status: ended ? 410 : 200, json: {} });
+  });
   await context.route('**/sdk/mount', (route) =>
     route.fulfill({
       json: {
@@ -1552,6 +1559,7 @@ result:async()=>({state:'replied',requestId:'req_00000000-0000-4000-8000-0000000
   });
   return {
     ...f,
+    releaseDirectory,
     get connections() {
       return f.connections;
     },
@@ -1606,7 +1614,7 @@ for (const width of [1440, 390])
         context,
       }) => {
         await page.setViewportSize({ width, height: 900 });
-        const f = await draftRecoveryWire(context);
+        const f = await draftRecoveryWire(context, true);
         await page.goto(mount);
         await page.locator(`[data-page-id="${v.page}"] a`).click();
         const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
@@ -1637,6 +1645,12 @@ for (const width of [1440, 390])
           exact: true,
           includeHidden: true,
         });
+        // Page rendering does not settle the mounted composer's separate directory read.
+        // Exercise that ordering explicitly, then edit only after its ready presentation.
+        const hint = container.locator('.annotation-hint');
+        await expect(hint).toHaveText(copy.messageAgentsChecking);
+        f.releaseDirectory();
+        await expect(hint).toHaveText(copy.messageComment);
         await input.pressSequentially('@');
         await page.getByRole('option').filter({ hasText: '@Draft agent ·' }).click();
         const draft = 'Keep this exact recovery draft. @Draft agent';

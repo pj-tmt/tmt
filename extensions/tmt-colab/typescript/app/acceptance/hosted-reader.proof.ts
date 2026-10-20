@@ -8,7 +8,7 @@ import path from 'node:path';
 import { run } from './harness/ask.js';
 import { openReaderLink, startDoor } from './harness/browser.js';
 import { composed, serve } from './harness/hosting.js';
-import { finiteFirestore } from './harness/firestore-proxy.js';
+import { finiteLoopbackResponse } from './harness/firestore-proxy.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 // Run only via scripts/hosted-reader-emulator.mjs. The wrapper builds the exact private native
@@ -258,7 +258,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
           response = { status: poll.status(), headers: poll.headers(), body: await poll.body() };
         } else {
           try {
-            response = await finiteFirestore({
+            response = await finiteLoopbackResponse({
               url: target,
               method: request.method(),
               headers: await request.allHeaders(),
@@ -579,7 +579,7 @@ test('a hosted editor verifies native content, publishes own edit requests and o
         } else {
           try {
             await route.fulfill(
-              await finiteFirestore({
+              await finiteLoopbackResponse({
                 url: target,
                 method: incoming.method(),
                 headers: await incoming.allHeaders(),
