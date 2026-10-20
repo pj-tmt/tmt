@@ -2014,8 +2014,16 @@ impl App {
         let mut placement = if self.shell.tab == super::shell::OpsTab::Overview {
             self.overview_placement(area).into()
         } else if self.shell.tab == super::shell::OpsTab::Agents {
+            // The Usage band is the top of the tab, as on Overview; the columns sit below it.
+            let usage = self.overview_usage_band(area);
+            let below = ratatui::layout::Rect::new(
+                area.x,
+                area.y + usage.height,
+                area.width,
+                area.height.saturating_sub(usage.height),
+            );
             layout::agents_tree(
-                area,
+                below,
                 match snapshot.preferences.layout {
                     crate::config::OpsLayout::Auto => Preference::Auto,
                     crate::config::OpsLayout::Side => Preference::Side,

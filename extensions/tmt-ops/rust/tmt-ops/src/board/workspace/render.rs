@@ -134,7 +134,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    if app.shell.tab == OpsTab::Overview {
+    if matches!(app.shell.tab, OpsTab::Overview | OpsTab::Agents) {
         crate::board::overview::chart::host::render_panel(
             frame,
             app,
@@ -153,7 +153,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     app.pane_resize
         .record_panes(placement.panes, columns, rows, frame.area());
-    if app.shell.tab == OpsTab::Overview {
+    if matches!(app.shell.tab, OpsTab::Overview | OpsTab::Agents) {
         let usage = app.overview_usage_band(area);
         if usage.height > 1
             && app
@@ -185,7 +185,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 frame.area(),
             );
         }
-    } else if let (Some(list), Some(detail)) = (placement.list, placement.conversation)
+    }
+    if app.shell.tab == OpsTab::Agents
+        && let (Some(list), Some(detail)) = (placement.list, placement.conversation)
         && list.y == detail.y
     {
         crate::board::divider::paint(
