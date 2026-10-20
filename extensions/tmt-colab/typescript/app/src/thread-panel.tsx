@@ -18,7 +18,7 @@ import { captureConversation, conversationAsks } from './thread-store.js';
 import { ConversationWindow } from './components/conversation-window.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 import { threadNotificationDestination } from './reply-notification-context.js';
-import { MessageText } from './components/message-text.js';
+import { MarkdownText } from './components/markdown-text.js';
 import { MessageAttachments } from './message-attachments.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
@@ -138,9 +138,7 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
         )
       }
     >
-      <p className="comment-body">
-        <MessageText value={echo.body} names={[]} />
-      </p>
+      <MarkdownText className="comment-body" value={echo.body} names={[]} />
     </ConversationTurn>
   );
 }
@@ -365,9 +363,7 @@ export function DiscussionComment({
             </form>
           ) : (
             <>
-              <p className="comment-body">
-                <MessageText value={comment.body} names={mentionedNames} />
-              </p>
+              <MarkdownText className="comment-body" value={comment.body} names={mentionedNames} />
               {attachments && (
                 <MessageAttachments comment={comment} binding={binding?.attachments} />
               )}
