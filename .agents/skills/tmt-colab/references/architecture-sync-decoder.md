@@ -26,7 +26,9 @@ and `limits.rs`; do not restate them.
   admission reads folds through `fold.rs` (`open_fold_object`, anchors from `fold_anchors`); catch-up
   sends the anchor frame, then the fold; the browser admits both in `Objects` through
   `Admission.readFold`. A fold is not accepted as an `append` from another device yet. The cloud
-  publisher stops a page whose next checkpoint is a fold (`FOLDED_STOP`, #4049).
+  publisher sends its retained anchor in `log` before the fold pair in `checkpoints`; the hosted
+  reader admits the anchor frame before either fold. Native cloud checkpoint bootstrap remains
+  refused pending [#4113](https://github.com/pj-tmt/tmt/issues/4113).
   `contracts/vectors/fold-v1.json` is replayed by `src/fold_vectors.rs`, `tests/fold_vectors.rs` and
   `test/fold-own.test.ts`.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:

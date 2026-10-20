@@ -237,27 +237,59 @@ fn a_compacted_stream_starts_from_its_pair_then_the_retained_tail() {
 }
 
 #[test]
-fn a_page_combined_by_an_owner_fold_before_it_was_published_stops_with_a_visible_line() {
+fn a_folded_stream_publishes_its_anchor_before_the_pair_then_the_retained_tail() {
     let mut fixture = Fixture::new();
     let page = fixture.page(1);
-    for _ in 0..2 {
-        fixture.append(DEVICE);
-    }
-    // The page was never active, so the compaction folded its stream; the cloud cannot carry a fold.
+    fixture.append(DEVICE);
+    let anchor = fixture.append(DEVICE);
     fixture.fold_pair(DEVICE, 2);
     fixture.append(DEVICE);
-    assert!(matches!(
-        fixture.local.next(&page),
-        Err(Fault::Stuck(reason)) if reason == FOLDED_STOP
-    ));
-    // Nothing was published before the stop: the owner rows still read, the stream does not move.
-    assert!(fixture.local.preamble(&page).is_ok());
+    let data = fixture
+        .local
+        .next(&page)
+        .ok()
+        .unwrap()
+        .expect("fold publication");
+    assert_eq!(data.documents[0].target.resource, "log");
+    assert_eq!(decode_envelope(&data.documents[0]).as_bytes(), anchor);
+    let groups: Vec<_> = data.documents[1..]
+        .chunks(1)
+        .map(|group| originals::checkpoint(group).unwrap())
+        .collect();
+    assert_eq!(groups.len(), 2);
+    for original in &groups {
+        assert_eq!(original.header.context.kind, "fold");
+        assert_eq!(original.header.covered_device.as_deref(), Some(DEVICE));
+        assert_eq!(
+            original.header.context.prev_hash,
+            object::Envelope::from_json(&anchor)
+                .unwrap()
+                .hash()
+                .unwrap()
+        );
+    }
+    // The same exact batch remains pending until its complete confirmation.
+    let again = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert_eq!(again.documents, data.documents);
+    fixture.local.confirm(&page, &data.confirm).ok().unwrap();
     assert_eq!(
-        crate::cloud_sync::stopped_line("page-1", FOLDED_STOP),
-        "Cloud sync stopped for page page-1. Some changes were combined by `tmt colab page compact`, \
-         and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, \
-         then restart it to resume. Edits continue on this machine."
+        update_seq(&fixture.local.next(&page).ok().unwrap().unwrap()),
+        3
     );
+}
+
+#[test]
+fn a_fold_after_tracking_replaces_the_pending_prefix_without_a_new_cursor() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    fixture.append(DEVICE);
+    let pending = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert_eq!(update_seq(&pending), 1);
+    let anchor = fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    let data = fixture.local.next(&page).ok().unwrap().unwrap();
+    assert!(matches!(data.confirm, Confirm::Checkpoint { seq: 2, .. }));
+    assert_eq!(decode_envelope(&data.documents[0]).as_bytes(), anchor);
 }
 
 #[test]
@@ -724,5 +756,27 @@ fn a_link_that_ends_is_retired_once_and_forgotten() {
             .link_publications(&page.page)
             .unwrap()
             .is_empty()
+    );
+}
+
+#[test]
+fn the_preamble_includes_a_fold_signer_without_publishing_its_stream() {
+    let mut fixture = Fixture::new();
+    fixture.append(DEVICE);
+    fixture.append(DEVICE);
+    fixture.fold_pair(DEVICE, 2);
+    let rows = fixture.local.preamble(&fixture.page(1)).ok().unwrap();
+    let chains: Vec<_> = documents(&rows, "authority")
+        .iter()
+        .filter_map(|row| {
+            let (kind, bytes) = originals::authority(std::slice::from_ref(row)).unwrap();
+            (kind == originals::Authority::Chain).then_some(bytes)
+        })
+        .collect();
+    assert!(chains.contains(&fixture.chain(DEVICE)));
+    assert!(chains.contains(&fixture.chain(FOREIGN)));
+    assert_eq!(
+        fixture.local.local_streams(&fixture.page(1)).unwrap(),
+        [DEVICE]
     );
 }

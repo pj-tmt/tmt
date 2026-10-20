@@ -148,6 +148,7 @@ impl StoreLocal {
         };
         let routing = self.routing(page, self.entry_expiry()?);
         let (mut documents, mut digests) = (Vec::new(), Vec::new());
+        let mut anchored = false;
         for namespace in [Namespace::Content, Namespace::Own] {
             let object = self
                 .store
@@ -156,15 +157,27 @@ impl StoreLocal {
                 .filter(|object| object.checkpoint && object.cursor.seq == seq)
                 // Compaction moved the cut between the position and this read: look again.
                 .ok_or(Fault::Retry)?;
-            // A fold carries no anchor to the cloud, so a cloud reader would refuse the stream:
-            // the page stops here, visibly, until the publisher and the readers carry it (#4049).
             let envelope = mapping(
                 object::Envelope::from_json(&object.bytes).map_err(|_| documents::Invalid),
             )?;
             let header =
                 mapping(object::Header::decode(envelope.header()).map_err(|_| documents::Invalid))?;
-            if header.covered_device.is_some() {
-                return Err(Fault::Stuck(FOLDED_STOP));
+            if let Some(covered) = &header.covered_device {
+                if covered != stream {
+                    return Err(Fault::Retry);
+                }
+                if !anchored {
+                    let anchor = self
+                        .store
+                        .anchor(scope, seq)
+                        .map_err(store_fault)?
+                        .ok_or(Fault::Retry)?;
+                    documents.insert(
+                        0,
+                        mapping(originals::log_document(&routing, &anchor.bytes))?,
+                    );
+                    anchored = true;
+                }
             }
             let base = mapping(originals::checkpoint_base(&routing, &object.bytes))?;
             documents.extend(mapping(originals::checkpoint_documents(
@@ -184,13 +197,35 @@ impl StoreLocal {
         })
     }
 }
-/// What a person is told when a page cannot be published because a device's changes on it were
-/// combined by an owner fold.
-const FOLDED_STOP: &str = "Some changes were combined by `tmt colab page compact`, and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, then restart it to resume.";
 impl Local for StoreLocal {
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<Row>, Fault> {
         let now = (self.now)();
         let local = self.local_streams(page)?;
+        // A fold signer may have no local data stream. Publish its chain, not its data.
+        let mut authors: std::collections::BTreeSet<String> = local.iter().cloned().collect();
+        for stream in &local {
+            let scope = StreamScope {
+                page: &page.page,
+                epoch: page.epoch,
+                stream,
+            };
+            for namespace in [Namespace::Content, Namespace::Own] {
+                if let Some(stored) = self
+                    .store
+                    .namespace_next(scope, namespace, NamespaceCursor::default())
+                    .map_err(store_fault)?
+                    && stored.checkpoint
+                {
+                    let envelope =
+                        object::Envelope::from_json(&stored.bytes).map_err(|_| Fault::Retry)?;
+                    let header =
+                        object::Header::decode(envelope.header()).map_err(|_| Fault::Retry)?;
+                    if header.covered_device.is_some() {
+                        authors.insert(header.context.author_device);
+                    }
+                }
+            }
+        }
         struct Snapshot {
             retention_days: Option<u64>,
             archived: bool,
@@ -214,8 +249,8 @@ impl Local for StoreLocal {
                     return Ok(None);
                 }
                 let mut chains = Vec::new();
-                for stream in &local {
-                    chains.push(tx.author_chain(stream)?);
+                for author in &authors {
+                    chains.push(tx.author_chain(author)?);
                 }
                 let mut links = Vec::new();
                 for (id, token) in tx.link_admissions()? {

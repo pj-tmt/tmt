@@ -351,11 +351,16 @@ impl Home {
         }
         out
     }
-    /// Both namespaces' folds at `seq`: checkpoints of `stream` that the local writer signs for it,
-    /// the way an owner fold combines another device's changes.
+    /// Both namespaces' folds at `seq`, signed by another certified owner device,
+    /// the way an owner fold combines a covered device's changes.
     pub(crate) fn fold_pair(&mut self, stream: &str, seq: u64) {
         let (_, previous) = self.head(stream);
-        let signer = self.key.local_writer().unwrap().0;
+        let spec = self
+            .devices
+            .iter()
+            .find(|device| device.id != stream)
+            .unwrap();
+        let signer = spec.id.to_owned();
         for (namespace, name) in [(Namespace::Content, "content"), (Namespace::Own, "own")] {
             let envelope = object::seal_fold(
                 &object::Context {
@@ -371,7 +376,7 @@ impl Home {
                 },
                 stream,
                 &SECRET,
-                &SigningKey::from_bytes(&[9; 32]),
+                &SigningKey::from_bytes(&[spec.signing; 32]),
                 format!("fold-{name}-{seq}").as_bytes(),
             )
             .unwrap();

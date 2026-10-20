@@ -150,18 +150,29 @@ export class HostedPageReader {
         streams: [],
         more: true,
       });
-      const checkpoints = originals.filter((value) => value.header.context.kind === 'checkpoint');
+      const checkpoints = originals.filter((value) =>
+        ['checkpoint', 'fold'].includes(value.header.context.kind),
+      );
       const checkpointPairs = paired(checkpoints),
         writers = new Set([
           ...this.knownWriters,
-          ...checkpointPairs.map((pair) => pair[0].header.context.authorDevice),
+          ...checkpointPairs.flatMap((pair) =>
+            pair.flatMap((original) => [
+              original.header.context.authorDevice,
+              ...(original.header.coveredDevice ? [original.header.coveredDevice] : []),
+            ]),
+          ),
         ]);
       const logChanged = !this.started || resources.has('log');
       // Initial catch-up observes every referenced writer, including one with a missing proof.
       // Later wakes use the bounded chain inventory rather than re-reading retained history.
+      const anchors = new Map<string, HostedOriginal>();
       if (!this.started) {
-        for (const document of await this.discover('log', {}, call))
-          writers.add((await hostedLog(document, this.scope)).header.context.authorDevice);
+        for (const document of await this.discover('log', {}, call)) {
+          const original = await hostedLog(document, this.scope);
+          writers.add(original.header.context.authorDevice);
+          anchors.set(document.target.id, original);
+        }
       }
       const chains =
         logChanged ||
@@ -182,13 +193,39 @@ export class HostedPageReader {
       };
       requireValue(writers.size <= 256);
       await admitChains(writers);
+      let anchorReads = 0,
+        anchorBytes = 0;
       for (const pair of checkpointPairs) {
-        const stream = pair[0].header.context.authorDevice,
+        const stream = pair[0].header.coveredDevice ?? pair[0].header.context.authorDevice,
           held = this.objects.head(stream).seq,
           cut = decimal(pair[0].header.context.streamSeq);
         if (held !== 0n) {
           if (cut > held) throw catchUpRequired();
           continue;
+        }
+        if (pair.some((original) => original.header.context.kind === 'fold')) {
+          const id = `${a.space}_${a.page}_${a.epoch}_${stream}_${cut}`;
+          let anchor = anchors.get(id);
+          if (!anchor) {
+            const limit = this.limits.get('log');
+            requireValue(limit !== undefined && ++anchorReads <= limit.documents);
+            this.live(call);
+            const document = await this.port.read({ resource: 'log', id }, call);
+            this.live(call);
+            requireValue(
+              document !== undefined &&
+                document.target.resource === 'log' &&
+                document.target.id === id,
+            );
+            anchorBytes += document.bytes.length;
+            requireValue(anchorBytes <= limit.bytes);
+            anchor = await hostedLog(document, this.scope);
+          }
+          requireValue(
+            anchor.header.context.authorDevice === stream &&
+              decimal(anchor.header.context.streamSeq) === cut,
+          );
+          await this.admit(catchup, anchor, 'anchor', call);
         }
         for (const original of pair) await this.admit(catchup, original, 'checkpoint', call);
       }
@@ -451,7 +488,7 @@ export class HostedPageReader {
   private async admit(
     catchup: Catchup,
     original: HostedOriginal,
-    kind: 'update' | 'checkpoint',
+    kind: 'update' | 'checkpoint' | 'anchor',
     call: SyncCall,
   ) {
     this.live(call);
@@ -465,9 +502,13 @@ export class HostedPageReader {
       ...this.frame(),
       streams: [
         {
-          streamId: context.authorDevice,
+          streamId:
+            kind === 'checkpoint'
+              ? (original.header.coveredDevice ?? context.authorDevice)
+              : context.authorDevice,
           namespace: context.namespace,
           checkpoint: kind === 'checkpoint' ? entry : null,
+          ...(kind === 'anchor' ? { anchor: entry } : {}),
           tail: kind === 'update' ? [entry] : [],
         },
       ],
@@ -489,12 +530,13 @@ function paired(originals: readonly HostedOriginal[]): readonly (readonly Hosted
   for (const original of originals) {
     const c = original.header.context,
       seq = decimal(c.streamSeq),
-      cuts = streams.get(c.authorDevice) ?? new Map<bigint, Map<string, HostedOriginal>>(),
+      stream = original.header.coveredDevice ?? c.authorDevice,
+      cuts = streams.get(stream) ?? new Map<bigint, Map<string, HostedOriginal>>(),
       pair = cuts.get(seq) ?? new Map<string, HostedOriginal>();
     requireValue(!pair.has(c.namespace));
     pair.set(c.namespace, original);
     cuts.set(seq, pair);
-    streams.set(c.authorDevice, cuts);
+    streams.set(stream, cuts);
   }
   const selected: HostedOriginal[][] = [];
   for (const cuts of streams.values()) {

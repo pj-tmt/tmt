@@ -410,7 +410,7 @@ fn a_sequence_the_cloud_no_longer_holds_stops_that_writer_with_a_line() {
     assert_eq!(
         rig.reports.lock().unwrap()[0],
         format!(
-            "Cloud sync stopped following one writer of page {PAGE}: it is too far behind; open a fresh copy of the page to catch up."
+            "Cloud sync stopped following one writer of page {PAGE}: this machine cannot load the cloud checkpoint yet (#4113). Keep the original page on its machine."
         )
     );
 }
@@ -550,4 +550,25 @@ fn a_records_change_reads_the_chains_again_only_once_their_spacing_has_passed() 
     rig.puller.refresh();
     assert_eq!(rig.pass(), Ok(false));
     assert_eq!(authority_reads(&rig), (2, 3));
+}
+
+#[test]
+fn a_folded_prefix_published_as_an_anchor_still_refuses_native_bootstrap_visibly() {
+    let mut rig = rig();
+    rig.writer.append(A);
+    rig.writer.append(A);
+    rig.writer.fold_pair(A, 2);
+    rig.publish_authority(&[A, C]);
+    let scope = StreamScope {
+        page: PAGE,
+        epoch: 1,
+        stream: A,
+    };
+    let anchor = rig.writer.store.anchor(scope, 2).unwrap().unwrap();
+    rig.publish(&anchor.bytes);
+    assert_eq!(rig.pass(), Ok(false));
+    assert_eq!(rig.head(A), None);
+    let reports = rig.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(reports[0].contains("this machine cannot load the cloud checkpoint yet (#4113)"));
 }

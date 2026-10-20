@@ -134,7 +134,7 @@ impl Puller {
                     self.stopped.insert(key);
                     report(&super::writer_line(
                         &page.page,
-                        "it is too far behind; open a fresh copy of the page to catch up.",
+                        "this machine cannot load the cloud checkpoint yet (#4113). Keep the original page on its machine.",
                     ));
                     continue;
                 }
