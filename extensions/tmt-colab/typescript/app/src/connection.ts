@@ -144,7 +144,6 @@ export class Connection {
   >();
   #resolve!: (value: Projection) => void;
   #reject!: (error: Error) => void;
-  #timer: ReturnType<typeof setTimeout>;
   constructor(
     readonly admission: Admission,
     mount: URL,
@@ -164,7 +163,6 @@ export class Connection {
       this.#resolve = resolve;
       this.#reject = reject;
     });
-    this.#timer = setTimeout(() => this.close(new Error('Page catchup timed out')), 10_000);
     const url = new URL('sync', mount);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = (this.#socket = new WebSocket(admission.registration.syncUrl ?? url, [
@@ -399,7 +397,6 @@ export class Connection {
         const projection = await this.fold.run({ type: 'apply', ...this.#batch(updates) });
         requireValue(!this.#stopped);
         this.#complete = true;
-        clearTimeout(this.#timer);
         this.#emit(projection);
         this.#resolve(projection);
       } finally {
@@ -693,7 +690,6 @@ export class Connection {
   close(error = new Error('Page closed')) {
     if (this.#stopped) return;
     this.#stopped = true;
-    clearTimeout(this.#timer);
     this.#frames.close();
     this.#catchup.close();
     this.fold.close();

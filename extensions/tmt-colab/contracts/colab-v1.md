@@ -3387,10 +3387,11 @@ while credit is exhausted, even if the socket is writable. The reference and
 all chunks stay consecutive across credit releases, with no interleaved receipt
 or live frame; clients admit only the fully reconstructed object. Live frames
 awaiting credit use the existing bounded queue and overflow still resyncs.
-The client gives a reconstruction no wall-clock deadline of its own: it ends with the last chunk,
-a protocol violation (order, count, hash or size), or the connection closing, so a large object
-or a busy server only makes the page open slowly. Liveness stays with the connection's keepalive and
-close handling (#3975).
+The client gives neither a reconstruction nor the whole catchup a wall-clock deadline of its own: a
+reconstruction ends with the last chunk, a protocol violation (order, count, hash or size), or the
+connection closing, and the catchup ends with the page's final frame, so a large page or a busy
+server only makes the page open slowly. Liveness stays with the server's 30 s WebSocket ping and
+the connection's close handling (#3975).
 Pre-hello live-only subscribe remains available without the hello credit flow.
 
 Pages are generated only when that peer's outbound queue is empty, its buffered
