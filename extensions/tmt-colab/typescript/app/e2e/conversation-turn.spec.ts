@@ -94,13 +94,13 @@ async function styles(message: Locator) {
 }
 async function flat(message: Locator) {
   const chat = await message.evaluate((node) => !!node.closest('.chat-panel'));
-  const agent = (await message.getAttribute('data-turn-role')) === 'agent';
   await expect(message).toHaveCSS('border-radius', '0px');
   await expect(message).toHaveCSS('box-shadow', 'none');
   await expect(message).toHaveCSS('border-bottom-width', '0px');
-  if (chat || !agent) await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  else await expect(message).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(message).toHaveCSS('padding-top', chat || agent ? '8px' : '0px');
+  // One turn look: no fill and no rule for an agent either, in Chat and in a thread (#4111).
+  await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(message).toHaveCSS('border-left-width', '0px');
+  await expect(message).toHaveCSS('padding-top', chat ? '8px' : '0px');
   expect(await message.getAttribute('data-turn-layout')).toBeNull();
   const bounds = await message.evaluate((node) => {
     const history = node.closest('.conversation-messages')!;
@@ -188,8 +188,6 @@ for (const width of [1440, 390]) {
           if (state === 'replied') {
             await expect(agent).toHaveCount(1);
             await flat(agent);
-            await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
-            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '13px' : '8px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
             computed[`${surface}-agent`] = await styles(agent);
@@ -257,8 +255,11 @@ for (const width of [1440, 390]) {
       }
       expect(computed['chat-user'].row['border-bottom']).toContain('0px');
       expect(computed['thread-user'].row['border-bottom']).toContain('0px');
-      expect(computed['chat-agent'].row['border-left']).toContain('3px');
+      expect(computed['chat-agent'].row['border-left']).toContain('0px');
       expect(computed['thread-agent'].row['border-left']).toContain('0px');
+      // The same agent reply has one meta line style in Chat and in a thread.
+      for (const key of ['font-family', 'font-size', 'font-weight', 'color'])
+        expect(computed['thread-agent'].meta[key], key).toBe(computed['chat-agent'].meta[key]);
       await annotate(page);
       await shell(page.getByTestId('annotation-window'));
       await capture(page, page.getByTestId('annotation-window'), `annotate-${width}-${theme}`);
@@ -893,7 +894,7 @@ for (const [width, theme] of [
     await expect(panel.locator('.chat-day').last()).toHaveText(text.chatToday);
     await expect(panel.locator('.conversation-author')).toHaveText(['Pat', 'You', 'Atlas']);
     const agent = panel.locator('[data-turn-role="agent"]');
-    await expect(agent).toHaveCSS('border-left-width', '3px');
+    await expect(agent).toHaveCSS('border-left-width', '0px');
     await expect(panel.locator('.conversation-turn')).toHaveCount(3);
     for (const row of await panel.locator('.conversation-turn').all()) {
       await expect(row).toHaveCSS('border-bottom-width', '0px');

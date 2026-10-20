@@ -441,14 +441,13 @@ An anchored window adds no decorative connector line beside the circle.
 One message in Chat or a thread: author line (`name AGENT · time` for agents, `name · time` for people), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
-- Chat and threads share `ConversationTurn` structure and history ownership.
-  In annotation/thread windows, human messages sit directly on the grey panel;
-  agent messages use a whole-message sheet block without borders or bubbles.
-  Every author line includes a person/agent icon, name and time; agent messages
-  carry one small outlined `AGENT` tag, 6px after the name and before the time.
-  Chat uses the same look.
-- An agent reply has one look in Chat and in a thread, running or finished: no
-  edge or colour per driver and no driver word. A running turn shows only the
+- Chat and threads share `ConversationTurn` structure and history ownership, and one
+  turn look: a message sits directly on its surface, with no card fill, border or rule,
+  whoever wrote it. The author line is the Chat meta style in both: the person or agent
+  name in semibold sans, then the muted time. A person's turn in a thread keeps its
+  small avatar. The thread's own `THREAD` and `OPEN` header may stay mono.
+- An agent reply looks the same running or finished: no edge or colour per driver
+  and no driver word. A running turn shows only the
   chip's own working state. The verified `runningDriver` never selects a
   treatment. No shadow.
 - Literal markup in a body always renders as text. Basis: own.
