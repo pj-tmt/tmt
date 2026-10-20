@@ -1810,7 +1810,7 @@ anything is pruned.
 - **Wire.** `append` accepts kind `fold` from an owner-member signer for a covered owner-member stream
   at n up to its head; it is stored, receipted and announced as a `checkpoint` notice whose `streamId`
   is the covered device. Work is bounded per step: one covered stream and namespace per decoder step,
-  inside the 2 s decoder deadline and the serialized checkpoint budgets.
+  within the decoder's time budget (see the limits table above) and the serialized checkpoint budgets.
 - **Order of delivery.** Browser admission and fold-read (all checkpoints before the tail, one agreed n
   per stream in catch-up) merge before any native write is enabled. Native writes come first, because
   the browser has no folding command. When both ship, `page compact` folds every owner-member stream
