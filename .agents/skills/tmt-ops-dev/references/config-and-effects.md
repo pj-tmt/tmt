@@ -242,8 +242,9 @@ scoped override semantics; CLI configuration remains available for explicit edit
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the
-  selected squad's reminder enable/threshold (booleans `true`/`false`, thresholds through
-  the `Config::reminders` whole `s`/`m`/`h` validation, 1 m–24 h); arrays use JSON. Structural edits of a nested split tree refuse rather than flatten a
+  selected squad's reminder and idle-alert enable/threshold (booleans `true`/`false`,
+  thresholds through the `Config::reminders` whole `s`/`m`/`h` validation, 1 m–24 h, or
+  `Config::idle_alert`, 5 m–24 h); arrays use JSON. Structural edits of a nested split tree refuse rather than flatten a
   custom or factory tree. Partial flat edits keep the workflow preset and seed missing flat
   split keys from the resolved arrangement. The draft runs the existing area validators,
   then `Config::set_setting` calls only the `Config::write` compare-and-set path; a changed
@@ -253,6 +254,12 @@ scoped override semantics; CLI configuration remains available for explicit edit
   `staleness::Snapshot` (disabled previews remove marks; unknown ages stay unknown) and does
   no observation, cache publication or reminder claim; confirmed edits reach the shared
   observer on the ordinary reload.
+- `config::idle_alert` owns `[squad.<name>.idle_alert]` (`enabled`, default false in every
+  layout; `after`, default 30 m, 5 m–24 h, digit-first like reminders) and
+  `Config::idle_alert_squads`, which lists the squads that switched it on from the document alone
+  so a squad with it off costs no Core read. `config show` reports both keys with the source
+  `default:off`/`default:30m` or the key path. Detection and the notice are
+  [`idle_alert`](board-cron.md#idle-alert-scan), not config.
 - `board::help` projects navigation, effective bindings and meter explanations into
   `tmt-tui::components::KeyHelp` sections; `Action::description` owns binding wording for
   help and settings, while settings keep their literal JSON value and source apart from

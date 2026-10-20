@@ -23,6 +23,7 @@ mod filter;
 mod hook_protocol;
 mod hotkeys;
 mod id;
+mod idle_alert;
 mod labels;
 mod layout;
 mod links;
@@ -1057,6 +1058,7 @@ fn squads_document(
         let rows = config.rows(&squad.name)?;
         let providers = config.providers(&squad.name)?;
         let reminders = config.reminders(&squad.name)?;
+        let idle_alert = config.idle_alert(&squad.name)?;
         let mut observation = observe::observe(
             core,
             config.path(),
@@ -1089,6 +1091,7 @@ fn squads_document(
                     states: &states,
                     sections: &sections,
                     rows: &rows,
+                    idle_alert,
                 },
             )?
             .document;

@@ -5,7 +5,7 @@
 //! which reads run and in what order.
 
 use crate::{
-    config::{Layout, Reminders, Section, States},
+    config::{IdleAlert, Layout, Reminders, Section, States},
     core::{Core, SquadError},
     me::Me,
     provider,
@@ -124,6 +124,7 @@ pub struct Shape<'a> {
     pub states: &'a States,
     pub sections: &'a [Section],
     pub rows: &'a Rows,
+    pub idle_alert: IdleAlert,
 }
 
 /// A squad's document and acquired request source.
@@ -153,6 +154,7 @@ impl Observation {
             reminder: _,
         } = self;
         provider::apply(providers, &mut members, &cached);
+        let overs = crate::idle_alert::overs(&members, shape.idle_alert, status::now_ms());
         let mut document = status::document(
             squad,
             shape.layout,
@@ -161,6 +163,7 @@ impl Observation {
             shape.rows,
             members,
         );
+        crate::idle_alert::annotate(&mut document, shape.idle_alert, &overs);
         snapshot.apply(&mut document);
         let sent = requests::overlay(core, squad, me, &mut document, room)?;
         Ok(Projected { document, sent })
@@ -211,7 +214,9 @@ case "$1" in
       *'"requests.list"'*) printf '%s\n' room >> "$root/calls"; printf '%s\n' '{"items":[]}' ;;
       *) exit 2 ;;
     esac ;;
-  ls) printf '%s\n' ls >> "$root/calls"; printf '%s\n' '{"identities":[]}' ;;
+  ls)
+    printf '%s\n' ls >> "$root/calls"
+    if [ -f "$root/ls" ]; then cat "$root/ls"; else printf '%s\n' '{"identities":[]}'; fi ;;
   *) exit 2 ;;
 esac
 "#,
@@ -265,6 +270,7 @@ esac
                         states: &states,
                         sections: &sections,
                         rows: &rows,
+                        idle_alert: config.idle_alert("p").unwrap(),
                     },
                 )
                 .unwrap()
@@ -318,6 +324,72 @@ esac
             "the lead's notes are read once, after the roster"
         );
         assert_eq!(shown.document, listed.document);
+    }
+
+    #[test]
+    fn the_status_document_marks_the_members_the_idle_alert_would_announce() {
+        let mut fixture = Fixture::new(
+            "idle-alert",
+            json!([
+                member("SOL", json!({"squad.p.lead.marker": "true"})),
+                member("RIN", json!({"squad.p.state": "working"})),
+                member("ZED", json!({"squad.p.pending": "approve?"})),
+                member("KAI", json!({})),
+            ]),
+        );
+        let since = i64::try_from(status::now_ms()).unwrap() - 3_600_000;
+        let idle = |id: &str, since: i64| json!({"id": id, "presence": "active", "session": {"activity": {"state": "idle", "sinceMs": since}}});
+        fs::write(
+            fixture.root.join("ls"),
+            json!({"identities": [idle("SOL", since), idle("RIN", since), idle("ZED", since - 1),
+                idle("KAI", since + 3_000_000)]})
+            .to_string(),
+        )
+        .unwrap();
+
+        let off = fixture.read(false).document;
+        assert_eq!(
+            off["squad"]["idleAlert"],
+            json!({"enabled": false, "afterMs": 1_800_000})
+        );
+        assert!(!off.to_string().contains("\"state\":\"over\""), "{off}");
+
+        fs::write(
+            fixture.config.path(),
+            "[squad.p.idle_alert]\nenabled = true\nafter = \"30m\"\n",
+        )
+        .unwrap();
+        fixture.config = Config::read(fixture.config.path().to_owned()).unwrap();
+        let on = fixture.read(false).document;
+        assert_eq!(
+            on["squad"]["idleAlert"],
+            json!({"enabled": true, "afterMs": 1_800_000})
+        );
+        assert_eq!(
+            on["squad"]["lead"]["idleAlert"],
+            json!({"state": "over", "sinceMs": since})
+        );
+        let rows = on["sections"][0]["rows"].as_array().unwrap();
+        let mark = |name: &str| {
+            rows.iter()
+                .find(|row| row["name"] == name)
+                .unwrap_or_else(|| panic!("{name} is not listed: {on}"))
+                .get("idleAlert")
+                .cloned()
+        };
+        assert_eq!(
+            mark("rin"),
+            Some(json!({"state": "over", "sinceMs": since}))
+        );
+        assert_eq!(
+            mark("zed"),
+            Some(json!({"state": "excepted", "reason": "pending", "sinceMs": since - 1}))
+        );
+        assert_eq!(
+            mark("kai"),
+            None,
+            "idle for 10 minutes is under the threshold"
+        );
     }
 
     #[test]

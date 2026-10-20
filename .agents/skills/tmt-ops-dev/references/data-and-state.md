@@ -379,3 +379,4 @@ own these layers:
   board. Shutdown cancels and joins tick children before lease release. This
   preserves the existing board-owned or explicit foreground clock lifetime;
   closing the board starts no replacement clock or service.
+  The same tick runs the [idle alert](board-cron.md#idle-alert-scan) scan.

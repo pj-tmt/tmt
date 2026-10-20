@@ -154,18 +154,24 @@ fn line(squad: &str, claim: &staleness::Reminder, members: &[Member]) -> String 
 }
 
 fn sanitized(text: &str) -> String {
+    let name = one_line(text, 40);
+    if name.is_empty() {
+        "unnamed member".into()
+    } else {
+        name
+    }
+}
+
+/// Free text as one visible line of at most `limit` characters: control, bidirectional and
+/// zero-width characters become spaces, and runs of whitespace one space.
+pub(crate) fn one_line(text: &str, limit: usize) -> String {
     let text: String = text.chars().map(|ch| {
         if ch.is_control() || matches!(ch, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}') {
             ' '
         } else { ch }
     }).collect();
     let visible = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let name: String = visible.chars().take(40).collect();
-    if name.is_empty() {
-        "unnamed member".into()
-    } else {
-        name
-    }
+    visible.chars().take(limit).collect()
 }
 
 #[cfg(test)]
