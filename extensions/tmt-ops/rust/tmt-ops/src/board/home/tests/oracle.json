@@ -109097,7 +109097,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109190,7 +109190,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109283,7 +109283,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109374,7 +109374,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109465,7 +109465,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109556,7 +109556,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109650,7 +109650,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109744,7 +109744,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109838,7 +109838,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -109929,7 +109929,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110020,7 +110020,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110111,7 +110111,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110204,7 +110204,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110297,7 +110297,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110390,7 +110390,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110481,7 +110481,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110572,7 +110572,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110663,7 +110663,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110757,7 +110757,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110851,7 +110851,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -110945,7 +110945,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111036,7 +111036,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111127,7 +111127,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111218,7 +111218,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111311,7 +111311,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111404,7 +111404,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111497,7 +111497,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111588,7 +111588,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111679,7 +111679,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111770,7 +111770,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111864,7 +111864,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -111958,7 +111958,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112052,7 +112052,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112143,7 +112143,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112234,7 +112234,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112325,7 +112325,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112418,7 +112418,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112511,7 +112511,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112604,7 +112604,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112695,7 +112695,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112786,7 +112786,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112877,7 +112877,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -112971,7 +112971,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113065,7 +113065,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113159,7 +113159,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113250,7 +113250,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113341,7 +113341,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113432,7 +113432,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113525,7 +113525,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113618,7 +113618,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113711,7 +113711,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113802,7 +113802,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113893,7 +113893,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -113984,7 +113984,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114078,7 +114078,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114172,7 +114172,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114266,7 +114266,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114357,7 +114357,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114448,7 +114448,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114539,7 +114539,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114632,7 +114632,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114725,7 +114725,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114818,7 +114818,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -114909,7 +114909,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115000,7 +115000,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115091,7 +115091,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115185,7 +115185,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115279,7 +115279,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115373,7 +115373,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115464,7 +115464,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115555,7 +115555,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115646,7 +115646,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115739,7 +115739,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115832,7 +115832,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -115925,7 +115925,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116016,7 +116016,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116107,7 +116107,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116198,7 +116198,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116292,7 +116292,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116386,7 +116386,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116480,7 +116480,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116571,7 +116571,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116662,7 +116662,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116753,7 +116753,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116846,7 +116846,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -116939,7 +116939,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117032,7 +117032,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117123,7 +117123,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117214,7 +117214,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117305,7 +117305,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117399,7 +117399,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 77, y: 32, width: 82, height: 2 })",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117493,7 +117493,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 98, height: 2 })",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117587,7 +117587,7 @@
       "selectionState": "Visible",
       "focus": "Some(Rows)",
       "input": "Some(Rect { x: 1, y: 32, width: 78, height: 2 })",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117678,7 +117678,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 88, y: 8, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 106, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 72, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 40, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 81, y: 8, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 88, y: 8, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117769,7 +117769,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 46, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 97, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 65, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
@@ -117860,7 +117860,7 @@
       "selectionState": "Hidden",
       "focus": "Some(Rows)",
       "input": "None",
-      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" })), (Rect { x: 12, y: 15, width: 9, height: 1 }, Action(Action { verb: Ui(TalkMeasure), args: [], text: \"talk-measure\" }))]"
+      "stripHits": "[(Rect { x: 26, y: 0, width: 15, height: 1 }, Action(Action { verb: Ui(WorkspaceSnapshots), args: [], text: \"workspace-snapshots\" })), (Rect { x: 5, y: 8, width: 8, height: 1 }, AgentsFilter(All)), (Rect { x: 14, y: 8, width: 8, height: 1 }, AgentsFilter(Agents)), (Rect { x: 23, y: 8, width: 8, height: 1 }, AgentsFilter(Pinned)), (Rect { x: 77, y: 8, width: 1, height: 1 }, ClearSearch), (Rect { x: 45, y: 8, width: 32, height: 1 }, Action(Action { verb: Ui(Search), args: [], text: \"search\" })), (Rect { x: 5, y: 15, width: 6, height: 1 }, RightTab(Talk)), (Rect { x: 12, y: 15, width: 9, height: 1 }, RightTab(Measure))]"
     },
     {
       "lines": [
