@@ -78,7 +78,9 @@ impl StartupTab {
     pub fn flag(value: &str) -> Result<Self, String> {
         Self::parse(value)
             .filter(|tab| *tab != Self::Last)
-            .ok_or_else(|| "Tab must be overview, agents or digest (also 1, 2 or 3).".into())
+            .ok_or_else(|| {
+                "Tab must be agents or digest (also 1 or 2; overview opens agents).".into()
+            })
     }
     pub fn name(self) -> &'static str {
         match self {
@@ -1907,7 +1909,7 @@ impl Config {
             Some(tab) => (tab, None),
             None => (
                 StartupTab::Last,
-                Some("Ignored board.startup_tab: use last, overview, agents or digest.".into()),
+                Some("Ignored board.startup_tab: use last, agents or digest (overview opens agents).".into()),
             ),
         }
     }
