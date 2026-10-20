@@ -266,7 +266,7 @@
           // END GENERATED ANNOTATION TOKENS
           // BEGIN GENERATED PAGE FRAME
           const pageFrame =
-            '@layer colab-frame { html:is([data-colab-layout="column"], [data-colab-layout="full"]) { margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(1280px, 100% - 32px) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { align-self: stretch !important; width: auto !important; padding-inline: max(16px, (100% - 1280px) / 2) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
+            '@layer colab-frame { html:is([data-colab-layout="column"], [data-colab-layout="full"]) { --colab-column: 1280px !important; --colab-gutter: 16px !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { align-self: stretch !important; width: auto !important; padding-inline: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
           // END GENERATED PAGE FRAME
           const highlightStyle =
             annotationTokens +
@@ -703,14 +703,19 @@
                 let left = column.left + inset[0];
                 let width = column.width - inset[0] - inset[1];
                 if (container === document.body && document.documentElement.dataset.colabLayout) {
-                  // A direct child of a framed page sits on the frame's column (the rule below: centred,
-                  // min(1280px, 100% - 32px), or the whole width for data-width="full"), which the
-                  // body's own box does not show and the hidden target cannot be measured for (#4011).
+                  // A direct child of a framed page sits on the frame's column (the frame stylesheet:
+                  // centred, min(column, 100% - 2 gutters), or the whole width for data-width="full"),
+                  // which the body's own box does not show and the hidden target cannot be measured
+                  // for (#4011). The column and the gutter are the frame stylesheet's own properties.
                   if (target.getAttribute('data-width') === 'full') {
                     left = column.left;
                     width = column.width;
                   } else {
-                    width = Math.min(1280, column.width - 32);
+                    const frame = getComputedStyle(document.documentElement);
+                    width = Math.min(
+                      parseFloat(frame.getPropertyValue('--colab-column')),
+                      column.width - 2 * parseFloat(frame.getPropertyValue('--colab-gutter')),
+                    );
                     left = column.left + (column.width - width) / 2;
                   }
                 }
