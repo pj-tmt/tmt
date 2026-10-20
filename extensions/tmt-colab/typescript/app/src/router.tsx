@@ -1,7 +1,7 @@
 import { ShellPage } from './shell-page.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
-import { RemotePresenceProvider } from './remote-header.js';
+import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
 import { entryOpenTarget, publicEntry } from './entry.js';
@@ -1788,6 +1788,7 @@ function Page() {
       />
       <ColabHeader
         remoteMenu={false}
+        remoteChip={false}
         crumb={
           scope === undefined ? undefined : (
             <Link to="/" search={{ scope }} className="colab-scope-crumb" title={scope}>
@@ -1849,23 +1850,30 @@ function Page() {
                   }}
                 />
               )}
-            <span
-              className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
-              title={
-                archived
-                  ? text.archiveReadOnlyHint
-                  : recoveryRequired
-                    ? text.reconnecting
-                    : state === 'ready'
-                      ? text.loaded
-                      : state === 'loading'
-                        ? text.loading
-                        : text.blocked
-              }
-            >
+            {/* The connection state is not shown (a notice below the header carries trouble); its words
+                stay in the document for assistive technology and as the page's readiness signal. */}
+            <span className={`status page-connection ${state === 'ready' ? 'live' : ''}`}>
               {archived ? '○ ' : `${text[snapshot.sharing]} · `}
               <span className="status-label">{accessLabel}</span>
             </span>
+            <RemoteAttention />
+            {archived ? (
+              <span
+                className="page-attention"
+                data-attention="archived"
+                title={text.archiveReadOnlyHint}
+              >
+                <span aria-hidden="true">○</span>
+                <span className="page-attention-word">{text.archived}</span>
+              </span>
+            ) : (
+              snapshot.sharing !== 'private' && (
+                <span className="page-attention" data-attention="shared">
+                  <span aria-hidden="true">◉</span>
+                  <span className="page-attention-word">{text.shared}</span>
+                </span>
+              )
+            )}
           </div>
         }
         actions={

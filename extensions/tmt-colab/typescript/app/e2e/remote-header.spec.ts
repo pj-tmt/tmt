@@ -36,7 +36,9 @@ for (const width of [1440, 390])
     test(`Remote snapshots, details, focus and settings ${width} ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ colorScheme: theme });
-      await fixture(page);
+      // The chip and its tooltip are the space home header's; the page header's More menu holds Remote
+      // at every width (#4116), so the phone width exercises that path.
+      await fixture(page, { home: width === 1440 });
       const header = page.locator('#remote-header-fixture header');
       if (width === 1440) {
         const chip = header.getByRole('link', { name: 'Remote: 3 live sessions' });
@@ -147,7 +149,7 @@ test('mount, visible and tooltip are the only triggers, and concurrent triggers 
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await fixture(page);
+  await fixture(page, { home: true });
   const chip = page.getByRole('link', { name: 'Remote: 3 live sessions' });
   await expect(chip).toBeVisible();
   expect(await readCount(page)).toBe(1);
@@ -230,3 +232,28 @@ test('Manage captures the persistent More opener after the shared menu closes', 
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
 });
+
+for (const width of [1440, 390])
+  test(`the page header keeps no Remote chip: Remote is in More after Share…, and a Remote that cannot be confirmed shows a mark and a word at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page);
+    const header = page.locator('#remote-header-fixture header');
+    await expect(header.getByRole('link', { name: /^Remote:/ })).toHaveCount(0);
+    await expect(header.locator('.page-attention')).toHaveCount(0);
+    await header.getByRole('button', { name: 'More', exact: true }).click();
+    const items = page.getByRole('menuitem');
+    await expect(items.nth(0)).toHaveText(/^Share…/);
+    await expect(items.nth(1)).toHaveAccessibleName('Remote: 3 live sessions');
+    await expect(items.nth(2)).toHaveText('Source');
+    await page.keyboard.press('Escape');
+    await fixture(page, { unconfirmed: true });
+    const mark = header.locator('.page-attention[data-attention="remote"]');
+    await expect(mark).toContainText('Remote offline');
+    await expect(mark.locator('[aria-hidden]')).toHaveText('△');
+    if (width < 480)
+      expect((await mark.locator('.page-attention-word').boundingBox())!.width).toBeLessThanOrEqual(
+        1,
+      );
+  });

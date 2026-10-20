@@ -49,7 +49,7 @@ for (const width of [1440, 390])
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
       const heading = page.getByRole('heading', { name: 'Release notes', exact: true });
-      // A phone drops the access chip, so the title keeps room beside the mark and the actions.
+      // The header holds no access chip at any width (#4116), so the title keeps its room.
       await expect(heading).toBeVisible();
       if (width < 480) await expect(heading).toHaveAttribute('title', 'Release notes');
       await expect(bar.locator('.tmt-ui-mark')).toBeVisible();
@@ -60,16 +60,11 @@ for (const width of [1440, 390])
         'title',
         'Colab · local · Studio Mac',
       );
-      if (width < 480) await expect(bar.locator('.page-sharing')).toBeHidden();
-      else {
-        await expect(bar.locator('.page-sharing')).toHaveText('Private · Live');
-        expect(
-          await bar
-            .locator('.page-sharing')
-            .evaluate((node) => node.scrollWidth <= node.clientWidth),
-        ).toBe(true);
-      }
-      await expect(bar.locator('.page-header-actions button')).toHaveCount(width <= 640 ? 2 : 5);
+      // The connection words stay in the document for assistive technology; nothing shows.
+      await expect(bar.locator('.page-connection')).toHaveText('Private · Live');
+      await expect(bar.locator('.page-attention')).toHaveCount(0);
+      // Discussion, Agents and More at every width.
+      await expect(bar.locator('.page-header-actions button')).toHaveCount(3);
       await page.getByRole('button', { name: 'More', exact: true }).click();
       await expect(
         page.getByRole('menuitemradio', { name: 'Theme: System', exact: true }),
@@ -129,12 +124,7 @@ for (const width of [1440, 390])
       await editor.getByRole('button', { name: 'Close Source', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(editor).not.toBeVisible();
-      await expect(
-        page.getByRole('button', {
-          name: width <= 640 ? 'More' : 'Source and export',
-          exact: true,
-        }),
-      ).toBeFocused();
+      await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
       expect((await frame.boundingBox())?.width).toBe(
         await page.evaluate(() => document.documentElement.clientWidth),
       );
@@ -179,14 +169,9 @@ for (const width of [1440, 390])
     });
     await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
     const actions = page.getByRole('navigation', { name: 'Page actions' });
-    const names = [
-      /^Discussion \(0\)$/,
-      /^Agents$/,
-      /^Files \(0\)$/,
-      /^Source and export$/,
-      /^More$/,
-    ];
-    for (const name of width <= 640 ? [names[0], names[4]] : names) {
+    // The same three entries at every width; Files, Source and Export live in More (#4116).
+    const names = [/^Discussion \(0\)$/, /^Agents$/, /^More$/];
+    for (const name of names) {
       const button = actions.getByRole('button', { name });
       await expect(button).toBeInViewport();
       await button.hover();
@@ -384,31 +369,21 @@ test('one-row fitting retains full labels, stable content and compact action aut
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     expect(await iframe.evaluate((node, saved) => node === saved, frameHandle)).toBe(true);
     expect(await heading.evaluate((node, saved) => node === saved, titleHandle)).toBe(true);
-    const chip = header.locator('.page-sharing');
-    if (width < 480) {
-      await expect(chip).toBeHidden();
-      await expect(heading).toBeVisible();
-    } else {
-      await expect(chip).toBeVisible();
-      expect(await chip.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-    }
+    await expect(heading).toBeVisible();
     const actions = header.getByRole('navigation', { name: 'Page actions' });
-    await expect(actions.getByRole('button')).toHaveCount(width <= 640 ? 2 : 5);
-    if (width <= 640) {
-      const more = actions.getByRole('button', { name: 'More', exact: true });
-      await more.press('ArrowDown');
-      await expect(actions.getByRole('menuitem', { name: 'Agents', exact: true })).toBeFocused();
-      await expect(
-        actions.getByRole('menuitem', { name: 'Files (0)', exact: true }),
-      ).toBeDisabled();
-      await expect(
-        actions.getByRole('menuitem', { name: 'Export page', exact: true }),
-      ).toBeEnabled();
-      await page.keyboard.press('ArrowDown');
-      await expect(actions.getByRole('menuitem', { name: 'Source', exact: true })).toBeFocused();
-      await page.keyboard.press('Escape');
-      await expect(more).toBeFocused();
-    }
+    await expect(actions.getByRole('button')).toHaveCount(3);
+    const more = actions.getByRole('button', { name: 'More', exact: true });
+    await more.press('ArrowDown');
+    // Share… waits on page management and a page that holds no file shows no Files entry; the first
+    // enabled entry is Source, then Export page.
+    await expect(actions.getByRole('menuitem', { name: /^Share…/ })).toBeDisabled();
+    await expect(actions.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
+    await expect(actions.getByRole('menuitem', { name: 'Source', exact: true })).toBeFocused();
+    await expect(actions.getByRole('menuitem', { name: 'Export page', exact: true })).toBeEnabled();
+    await page.keyboard.press('ArrowDown');
+    await expect(actions.getByRole('menuitem', { name: 'Export page', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(more).toBeFocused();
   }
   await page.evaluate(async () => {
     const path = '/test/page-layout-browser.tsx';
