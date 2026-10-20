@@ -104,6 +104,11 @@ test('a batch Send publishes each answer with its own files and the card shows t
   await expect
     .poll(() => published(page))
     .toEqual([`message:${SHORT}:0`, 'attach:upload:tradeoffs.png', `message:${LONG}:1`]);
+  // Recorded messages precede the admitted answer's disclosure collapse. Reopen only after it.
+  await expect(group.locator('.question-line', { hasText: LONG })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
   // The answered card shows the image the way a comment does.
   await group.locator('.question-line', { hasText: LONG }).click();
   const answered = group.locator('.question-compact-controls:not([hidden]) .question-answer');

@@ -41,7 +41,7 @@ export function splitPageHint(path: string): { route: string; hint?: PageHint } 
         ? readingSearch({ read: search.get('read') }).read !== undefined
           ? { read: search.get('read')! }
           : undefined
-        : route.startsWith('/pages/') && pageSearch({ anchor: search.get('anchor') }).anchor
+        : pageSearch({ anchor: search.get('anchor') }).anchor
           ? { anchor: search.get('anchor')! }
           : undefined
       : undefined;
@@ -71,11 +71,9 @@ export function ownerPageHint(url: URL, space: string, page?: string): PageHint 
     const read = fields.get('read')!;
     return validReadingId(read) ? { read } : undefined;
   }
-  // An anchor names an element inside a full page, so it never rides a short link.
+  // A short link keeps its cosmetic anchor through resolution to the admitted full page.
   const anchor = fields.get('anchor')!;
-  return fields.get('path')!.startsWith('/pages/') && validShellAnchor(anchor)
-    ? { anchor }
-    : undefined;
+  return validShellAnchor(anchor) ? { anchor } : undefined;
 }
 
 /** The reading hint alone; the anchor hint belongs to the page's own reveal. */

@@ -140,7 +140,7 @@ request with the incoming command from the wake notice, for example:
 tmt x show REQUEST --incoming --identity YOUR_IDENTITY --json
 ```
 
-Read [links](references/links.md) (`tmt colab skill links`) for page links and ID resolution.
+Read [links](references/links.md) (`tmt colab skill links`) and [HTML](references/components.md#links).
 
 Sharing/deletion require `--yes`; keep full IDs and frozen operation/revision
 values for explicit retries.

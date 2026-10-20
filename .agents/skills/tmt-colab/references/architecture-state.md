@@ -16,6 +16,18 @@ restate them.
 
 ## Gotchas
 
+Page links stay with trusted chrome: `page-link-request.ts` admits the current renderer's closed
+request and classifies URLs against the trusted app base and space. `page-link-bar.tsx` owns the
+frozen pending confirmation and the one in-place navigation per render. `renderer.ts` checks
+frame/lifetime and reads the parent's browser activation at receipt; the bootstrap only intercepts
+links and reports intent. Neither its render ID nor its messages authenticate a user gesture.
+This is a bounded parent-owned exception: same-space navigation requires recent browser user
+activation or trusted confirmation, and outside URLs always require confirmation with the full
+frozen URL. No frame privilege or network policy is widened.
+The [renderer contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
+owns direct internal activation versus confirmed external/fallback behavior. ReaderApp reuses the
+confirmation owner without receiving same-space app-navigation authority.
+
 Attachment descriptor/manifest/selector/publication syntax and asset verification
 live in model `attachment.rs` and client `attachment.ts`, reusing existing crypto;
 [attachment-v1](../../../../extensions/tmt-colab/contracts/attachment-v1.md) owns the bytes.

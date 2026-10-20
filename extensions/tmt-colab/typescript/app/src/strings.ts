@@ -26,6 +26,20 @@ function where(excerpt: string, line: number): string {
 const pairCommand = 'tmt remote pair';
 
 export const text = {
+  pageLink: {
+    close: 'Close',
+    external: 'Open this link in a new tab?',
+    internal: 'Open another Colab page?',
+    externalLabel: 'Outside Colab',
+    internalLabel: 'This page asked to switch pages.',
+    refused: 'Pages can open https links and other Colab pages only.',
+    open: 'Open',
+    cancel: 'Cancel',
+    copy: 'Copy link',
+    copied: 'Copied',
+    copyHint: 'If no tab opens, copy the link instead.',
+    copyFailed: 'Could not copy. Select the link and copy it.',
+  },
   quickSwitcher: {
     title: 'Search pages',
     placeholder: 'Search pages, projects or authors…',

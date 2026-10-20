@@ -1,10 +1,11 @@
 import { ShellPage } from './shell-page.js';
+import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
 import { RemoteAttention, RemotePresenceProvider } from './remote-header.js';
 import './source-editor.css';
 import { OwnPublicationTimeout } from './own-publication.js';
-import { entryOpenTarget, publicEntry } from './entry.js';
+import { entryMount, entryOpenTarget, publicEntry } from './entry.js';
 import type { ComposerEdit } from './components/message-composer-edit.js';
 import {
   BrowserAction,
@@ -18,7 +19,6 @@ import {
   ownerPageHint,
   ownerReadingHref,
   pageSearch,
-  readingSearch,
   splitPageHint,
   type PageHint,
 } from './reading-link.js';
@@ -793,7 +793,7 @@ const page = createRoute({
 const shortPage = createRoute({
   getParentRoute: () => root,
   path: '/short/$prefix',
-  validateSearch: readingSearch,
+  validateSearch: pageSearch,
   loader: async ({ context, params, location }) => {
     if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
     const home = await context.transport.spaceHome();
@@ -814,7 +814,7 @@ const shortPage = createRoute({
       throw redirect({
         to: '/pages/$pageId',
         params: { pageId: pages[0].id },
-        search: readingSearch(location.search),
+        search: pageSearch(location.search),
         replace: true,
       });
     return { pages, prefix: params.prefix };
@@ -994,6 +994,18 @@ function Page() {
   const snapshot = reopened?.from === loaded ? reopened.next : loaded;
   const replyObserver = useMemo(() => new ReplyNotificationObserver(snapshot), [snapshot]);
   const toolbar = useRef<HTMLElement>(null);
+  const {
+    reset: resetPageLinks,
+    request: requestPageLink,
+    bar: pageLinkBar,
+  } = usePageLinks({
+    base: () => (publicEntry() ? entryMount().href : location.href),
+    space,
+    inset: () => toolbar.current?.getBoundingClientRect().bottom ?? 0,
+    navigate: (route, anchor) => {
+      void router.navigate({ to: route, search: anchor ? { anchor } : {} });
+    },
+  });
   const needsYouMenuFocus = useRef(false);
   // The list the reader came from, when it was scoped to a project: history state, not the address.
   const fromScope = useRouterState({
@@ -1611,6 +1623,7 @@ function Page() {
       return () => controller.abort();
     }
     setState('loading');
+    resetPageLinks();
     // Source revisions replace only author content. Parent selection and composer
     // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
@@ -1619,8 +1632,12 @@ function Page() {
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       layout: view.layout,
-      onState: setState,
+      onState: (next) => {
+        if (next !== 'ready') resetPageLinks();
+        setState(next);
+      },
       onScheme: setPageScheme,
+      onLink: requestPageLink,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
@@ -1670,10 +1687,12 @@ function Page() {
       // Retire messages before replacing the frame, retaining its layout and the
       // parent's frozen selection. Unmount removes the host itself.
       renderer.current?.release();
+      resetPageLinks();
       controller.abort();
       renderer.current = null;
     };
   }, [
+    snapshot.id,
     view.source,
     view.layout,
     view.pageType,
@@ -1681,6 +1700,8 @@ function Page() {
     inlineSlots.onSlots,
     onQuestionAnchors,
     onReadingAnchors,
+    resetPageLinks,
+    requestPageLink,
   ]);
   // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
   // A reply or a status change elsewhere leaves this list as it was, so the document is not told
@@ -1937,6 +1958,7 @@ function Page() {
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
+        {pageLinkBar}
         <div className="canvas" data-layout={framedLayout(view.layout) ? view.layout : undefined}>
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
@@ -2437,7 +2459,7 @@ export function createAppRouter(
                   : `/short/${prefix}`;
               // A thread names a place inside the page; a reading or shell anchor is a page hint.
               if (target && !('thread' in target) && path !== '/') hint = target;
-              if (hint && 'anchor' in hint && !path.startsWith('/pages/')) hint = undefined;
+              if (hint && 'anchor' in hint && path === '/') hint = undefined;
             } catch {
               path = '/blocked';
             }
