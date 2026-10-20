@@ -46,8 +46,9 @@ for (const [name, options, value] of [
       await expect(section.locator('dd')).toContainText(value);
       const label = await box(section.locator('dt'));
       const text = await box(section.locator('dd'));
-      if (width === 390) expect(text.top).toBeGreaterThanOrEqual(label.bottom - 1);
-      else expect(text.left).toBeGreaterThan(label.right);
+      // Stacked at every width, like the attribution rows above it.
+      expect(text.top).toBeGreaterThanOrEqual(label.bottom - 1);
+      expect(Math.abs(text.left - label.left)).toBeLessThan(1);
       if ('layoutReason' in options) {
         await expect(section.locator('.page-layout-reason')).toHaveText(reason);
         // A short reason needs no expansion.
@@ -74,6 +75,8 @@ for (const width of [1440, 390])
     await expect(line).toHaveAttribute('title', long);
     const show = section.getByRole('button', { name: 'Show all' });
     await expect(show).toBeVisible();
+    // The action sits flush with the reason text, not indented by the button's own padding.
+    expect(Math.abs((await box(show)).left - clamped.left)).toBeLessThan(1);
     if (process.env.COLAB_CAPTURE_DIR)
       await page.screenshot({ path: capturePath(`layout-info-long-clamped-${width}.png`) });
     await show.click();

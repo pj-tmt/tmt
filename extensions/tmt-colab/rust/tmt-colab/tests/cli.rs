@@ -3740,8 +3740,12 @@ fn create_stores_each_layout_and_ls_and_show_report_it() {
         .unwrap();
     let text = String::from_utf8(human.stdout).unwrap();
     assert!(text.contains("column (max 1280 px)"), "{text}");
-    assert!(text.contains("tmt colab skill layout"), "{text}");
-    assert!(text.contains("tmt colab skill components"), "{text}");
+    // One row, so the two topics do not read like a duplicated label.
+    assert_eq!(text.matches("read first").count(), 1, "{text}");
+    assert!(
+        text.contains("tmt colab skill layout · tmt colab skill components"),
+        "{text}"
+    );
 }
 #[test]
 fn a_page_without_layout_metadata_reads_as_freeform() {

@@ -314,26 +314,22 @@ body:has(.needs-you-header-menu) {
     animation: none;
   }
 }
-/* About > Layout: one label/value row; at 390 the label sits above the value and the reason below it. */
+/* About > Layout: the same stacked label-over-value row as the attribution rows above it, at every width. */
 .page-layout-info dl {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 4px 16px;
-  margin: 8px 0;
-  font: 400 13px/1.5 var(--tmt-ui-font-body);
+  margin: 0 0 12px;
+  font: 12px/1.4 var(--f-body);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .page-layout-info dt {
   color: var(--c-muted);
 }
 .page-layout-info dd {
-  margin: 0;
-  overflow-wrap: anywhere;
+  margin: 0 0 8px;
 }
 .page-layout-reason {
   margin: 4px 0 0;
   color: var(--c-muted);
-  font-size: 12px;
-  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -343,11 +339,9 @@ body:has(.needs-you-header-menu) {
   display: block;
   overflow: visible;
 }
-@media (max-width: 479px) {
-  .page-layout-info dl {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-  }
+/* Show all / Show less sit flush with the reason text; the block padding keeps the hit area. */
+.page-layout-info .tmt-ui-action[data-variant='text'] {
+  padding-inline: 0;
 }
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
 .page-size h3 {

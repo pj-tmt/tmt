@@ -833,10 +833,12 @@ fn create_page_kind(
         if let Some(reason) = &layout.reason {
             rows.push(("reason", tmt_cli_style::table::escape(reason)));
         }
-        rows.extend(
+        rows.push((
+            "read first",
             crate::cli_layout::READ_FIRST
-                .map(|topic| ("read first", format!("tmt colab skill {topic}"))),
-        );
+                .map(|topic| format!("tmt colab skill {topic}"))
+                .join(" · "),
+        ));
     }
     rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
     tmt_cli_style::detail::write(&mut out, terminal, "PAGE CREATED", &rows)?;
