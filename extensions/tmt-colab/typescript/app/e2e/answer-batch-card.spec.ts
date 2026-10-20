@@ -592,6 +592,9 @@ for (const [width, theme] of [
       await answerThree(page, group);
       await group.getByRole('button', { name: /^Send 3 answers/ }).click();
       await recorded(page, 2);
+      // The two recorded answers are folded into the group before the unconfirmed one is opened:
+      // a click while that is still settling opens a card the settling then closes.
+      await expect(group.locator('.question-compact-heading')).toContainText('1 of 3 waiting');
       await group.locator('.question-line').nth(0).click();
       await expect(card(page).getByRole('alert')).toHaveText(
         'Could not confirm this answer. Your draft is kept for the next Send.',
