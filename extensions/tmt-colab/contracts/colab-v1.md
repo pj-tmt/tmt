@@ -3345,7 +3345,8 @@ Statement envelope admission uses the existing model cap:
 `floor((768 KiB + 1 KiB) * 4 / 3) + 2 KiB`, or 1,051,989 bytes and at most 33
 chunks. SQL checks that cap before loading the transfer bytes. Chunk bytes/order,
 consecutive delivery and frame credit follow the object-transfer rules below;
-assembly uses the same absolute two-second deadline. Partial bytes never advance
+the client gives the assembly no deadline of its own (see the catchup paragraph on
+reconstruction). Partial bytes never advance
 or persist the referenced statement. Before admission, clients check strict model
 syntax and payload digest, the reference's model statement hash, pinned owner
 root/space, owner signature, next revision and previous hash. The completed
@@ -3452,8 +3453,9 @@ Baseline transfers use the model's non-update envelope ceiling (16 MiB plaintext
 plus authentication tag, framed header and base64/JSON overhead), exposed by the
 browser model as `MAX_ENVELOPE_JSON`; their chunk-count ceiling is that serialized
 bound divided by 32 KiB, rounded up. This does not raise the update ceiling below.
-The same one-transfer rule, absolute two-second deadline and queue bounds apply;
-a maximum accepted size is not a delivery-time promise. Consumers retain
+The same one-transfer rule and queue bounds apply, and the client gives the reassembly no
+deadline of its own (see the catchup paragraph on reconstruction); a maximum accepted size
+is not a delivery-time promise. Consumers retain
 only one bounded incomplete object and apply nothing until exact reassembly,
 model hash/signature and application admission succeed; abnormal close discards it.
 
