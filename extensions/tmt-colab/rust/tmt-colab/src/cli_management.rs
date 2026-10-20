@@ -816,6 +816,10 @@ fn create_page_kind(
         }
         result["read"] = json!(crate::cli_layout::READ_FIRST);
     }
+    let template = args.try_get_one::<String>("template").ok().flatten();
+    if let Some(name) = template {
+        result["template"] = json!(name);
+    }
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
         result["warnings"] = crate::cli_page_check::warnings_json(checks);
@@ -828,6 +832,9 @@ fn create_page_kind(
         ("title", title.to_owned()),
         ("open", shown),
     ];
+    if let Some(name) = template {
+        rows.push(("template", name.clone()));
+    }
     if let Some(layout) = page_layout {
         rows.push(("layout", crate::cli_layout::describe(layout)));
         if let Some(reason) = &layout.reason {

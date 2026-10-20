@@ -9,6 +9,7 @@ mod cli_projects;
 mod cli_proposal;
 mod cli_read;
 mod cli_shell;
+mod cli_template;
 mod cli_threads;
 mod door;
 mod open;
@@ -349,18 +350,19 @@ fn grammar() -> Command {
             .subcommand(cli_attachments::command())
             .subcommand(cli_projects::command())
             .subcommand(cli_shell::command())
+            .subcommand(cli_template::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
                     .subcommand(
                         open_args(
-                            cli_layout::create_args(
+                            cli_template::create_arg(cli_layout::create_args(
                                 tmt_cli_style::command(&CREATE)
                                     .arg(cli_page_check::strict())
                                     .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
                                     .arg(Arg::new("file").long("file").value_name("path|-")
                                         .value_parser(clap::value_parser!(std::path::PathBuf))),
-                            ),
+                            )),
                         ),
                     )
                     .subcommand(cli_page_check::command())
@@ -430,6 +432,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         output.write_all(text.as_bytes())?;
         output.flush()?;
         return Ok(());
+    }
+    if command == "template" {
+        return cli_template::run(args);
     }
     if command == "deploy-declaration" {
         return tmt_colab::deploy_declaration::run();
@@ -801,13 +806,21 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::{decoder::Decoder, page::Fault};
     let (command, args) = args.subcommand().expect("required page command");
     if command == "create" {
-        // The layout is chosen before any state is initialized or any source is read.
-        let page_layout = cli_layout::choice(args)?;
-        let source = args
-            .get_one::<std::path::PathBuf>("file")
-            .map(|path| page_source(path))
-            .transpose()?
-            .unwrap_or_default();
+        // The layout is chosen before any state is initialized or any source is read. A template
+        // brings its own layout and source (clap keeps it apart from --layout, --reason, --file).
+        let template = cli_template::chosen(args);
+        let page_layout = match template {
+            Some(template) => template.layout(),
+            None => cli_layout::choice(args)?,
+        };
+        let source = match template {
+            Some(template) => template.source()?,
+            None => args
+                .get_one::<std::path::PathBuf>("file")
+                .map(|path| page_source(path))
+                .transpose()?
+                .unwrap_or_default(),
+        };
         // A new page has no attachments: every reference in its first source is unresolved.
         let warnings = cli_page_check::gate(&source, args, cli_page_check::Attachments::NewPage)?;
         return cli_management::create_page(root, args, source, &page_layout, &warnings);

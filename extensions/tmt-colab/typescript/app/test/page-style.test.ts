@@ -70,6 +70,7 @@ it('ships a compact content-only starter with exact browser token roles and both
       paper: tokens.browser.surface.paper[theme].toLowerCase(),
       sheet: tokens.browser.surface.sheet[theme].toLowerCase(),
       edge: tokens.browser.surface.rule[theme].toLowerCase(),
+      waiting: tokens.browser.color.waiting[theme].toLowerCase(),
     });
   }
   expect(declarations(':root {')).toMatchObject({
@@ -86,7 +87,7 @@ it('ships a compact content-only starter with exact browser token roles and both
   expect(starter).not.toMatch(
     /url\s*\(|@import|https?:|\/\/|shadow|radius|position\s*:|header|nav|chrome|tmt-ui/i,
   );
-  // Only content elements, theme roots and a muted-text utility belong in the starter.
+  // Only content elements, theme roots and two text-colour utilities belong in the starter.
   const selectors = [...starter.matchAll(/([^{}]+)\{/g)].map((m) => m[1].trim());
   expect(selectors).toEqual([
     '<style>\n  :root',
@@ -108,7 +109,9 @@ it('ships a compact content-only starter with exact browser token roles and both
     'code,\n  pre',
     'pre',
     'section',
+    'section > :last-child',
     '.muted',
+    '.waiting',
   ]);
 });
 

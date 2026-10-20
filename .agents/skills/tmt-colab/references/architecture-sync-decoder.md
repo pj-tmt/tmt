@@ -145,6 +145,8 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   layout, so source writes, patches, browser Save, compaction and epochs preserve it; a page without
   the key is `freeform`, an absence. The browser binds the render frame from the live `PageView`, so a
   metadata-only change reframes an open page. Frozen export does not carry it.
+  `--template` on `page create` (`cli_template.rs`) resolves a compiled-in template to a
+  `PageLayout` and a source before the same create path, so it adds no stored field and no decoder rule.
   Creation reuses that single bounded identity
   snapshot and one optional same-root public machine-status observation to freeze
   `decoder::CreationRecipient`; the browser projection uses the canonical

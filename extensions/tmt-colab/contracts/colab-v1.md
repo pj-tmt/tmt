@@ -4692,6 +4692,22 @@ moved since that revision. The JSON result is the write receipt plus `layout` an
 canvas, `layoutReason`. A page that has no layout (freeform) can be given one this way; there
 is no command that returns a page to freeform.
 
+`tmt colab page create --title <title> --template <name> [--json]` starts from a template instead
+of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and `--file`,
+because the template brings its own layout and source. The catalog is closed and compiled into the
+binary: `report`, `review` and `compare` (layout `column`) and `board` (layout `full`). Each source
+is under 8 KiB and passes the page check with no finding. It starts from the page-style starter
+(`tmt colab skill page-style`) without that starter's `body` rule, which frames `canvas` and
+`freeform` pages, and adds no width, margin or gap CSS of its own: those stay the frame's
+(`data-width` and `data-gap` are the only declarations it uses). A one-line
+HTML comment before each block names the rule and the `tmt colab skill` topic and section that
+teaches it; the comments are not rendered. Each `{{uuid:NAME}}` placeholder becomes one fresh
+canonical UUID per name on that page, so no two pages share a block ID. The create result adds
+`template` (the human result a `template` row) to the layout fields and `read`. A template page is
+an ordinary page: nothing stored marks it. `tmt colab template ls [--json]` lists the catalog as
+`templates: [{name, layout, summary}]`; it reads no local state and needs no running serve. A
+create without `--layout` or `--template` is refused as above, and the refusal names both.
+
 `ls` and `show` report each page's layout from its verified metadata: JSON `layout`
 (`column`, `full`, `canvas`, or `freeform` for a page without the key; `null` when the page's
 title cannot be read, as for an archived page) and, for a canvas, the whole `layoutReason`;

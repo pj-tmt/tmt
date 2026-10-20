@@ -1,0 +1,29 @@
+<!-- layout: column. Colab sets the column width and the gaps: never set max-width or margin on a block. See tmt colab skill layout, section The frame -->
+<!-- style: the base look, from tmt colab skill page-style. Keep it, and change colours and type there, never the frame. See tmt colab skill page-style -->
+{{style}}
+<!-- component: summary. One short paragraph: the result and what the reader should do next. See tmt colab skill components, section Summary -->
+<section>
+  <h2>Summary</h2>
+  <p>State the result in a sentence, then what the reader should do next.</p>
+</section>
+<!-- component: table. One finding per row; the table fills its block, so never set a width. A state is a mark and a word. See tmt colab skill components, sections Table and State -->
+<section>
+  <h2>Findings</h2>
+  <table>
+    <thead>
+      <tr><th>Finding</th><th>State</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>First finding</td><td>✓ Done</td></tr>
+      <tr><td>Second finding</td><td><span class="waiting">◆</span> Waiting</td></tr>
+    </tbody>
+  </table>
+</section>
+<!-- component: section. One topic in a block; data-gap="tight" keeps a related block close. See tmt colab skill components, section Section -->
+<section>
+  <h2>Next steps</h2>
+  <ul>
+    <li>What happens next, and who does it</li>
+    <li>What needs the reader's decision</li>
+  </ul>
+</section>

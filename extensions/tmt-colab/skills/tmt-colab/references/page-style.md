@@ -2,7 +2,8 @@
 
 Use the TMT browser style: square, flat, shadow-free surfaces; neutral greys;
 system fonts; and a mark plus a word for every state (for example, "◆ Waiting"),
-never colour alone. On a `column` or `full` page Colab sets the width and the
+never colour alone. Colour only the waiting mark, with the starter's `waiting` class
+(`<span class="waiting">◆</span>`); leave `●` and `✓` neutral. On a `column` or `full` page Colab sets the width and the
 gaps: read [layout](layout.md) (`tmt colab skill layout`) and do not set a
 width, margin or block gap yourself. The starter's `body` rule (centred,
 `max-width: 1280px`) is for `canvas` and `freeform` pages. Start with the inline
@@ -36,6 +37,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     --paper: #fafafa;
     --sheet: #ffffff;
     --edge: #d0d0d0;
+    --waiting: #964500;
     --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --size: 14px;
@@ -52,6 +54,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
       --paper: #080808;
       --sheet: #101010;
       --edge: #303030;
+      --waiting: #ff9e64;
     }
   }
   :root[data-theme='light'] {
@@ -60,6 +63,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     --paper: #fafafa;
     --sheet: #ffffff;
     --edge: #d0d0d0;
+    --waiting: #964500;
     color-scheme: light;
   }
   :root[data-theme='dark'] {
@@ -68,6 +72,7 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     --paper: #080808;
     --sheet: #101010;
     --edge: #303030;
+    --waiting: #ff9e64;
     color-scheme: dark;
   }
   * {
@@ -139,8 +144,14 @@ its muted `Q:` prefix and the pinned light answer card are supplied by Colab.
     background: var(--sheet);
     border: var(--rule) solid var(--edge);
   }
+  section > :last-child {
+    margin-bottom: 0;
+  }
   .muted {
     color: var(--muted);
+  }
+  .waiting {
+    color: var(--waiting);
   }
 </style>
 ```

@@ -3632,7 +3632,9 @@ fn create_refuses_a_missing_or_malformed_layout_choice_before_reading_or_creatin
     ] {
         assert!(message.contains(wanted), "{message}");
     }
-    assert!(!message.contains("--template"), "{message}");
+    // The refusal also offers a template, which sets the layout and the source together.
+    assert!(message.contains("--template NAME"), "{message}");
+    assert!(message.contains("tmt colab template ls"), "{message}");
     for args in [
         vec!["--layout", "canvas"],
         vec!["--layout", "canvas", "--reason", "   "],
@@ -3746,6 +3748,150 @@ fn create_stores_each_layout_and_ls_and_show_report_it() {
         text.contains("tmt colab skill layout · tmt colab skill components"),
         "{text}"
     );
+}
+#[test]
+fn template_ls_lists_every_template_with_its_layout_and_needs_no_state() {
+    let pilot = Pilot::new(None);
+    let listed = pilot.call(&["template", "ls", "--json"]);
+    let templates: Vec<(&str, &str)> = listed["templates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            assert!(!entry["summary"].as_str().unwrap().is_empty(), "{entry}");
+            (
+                entry["name"].as_str().unwrap(),
+                entry["layout"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        templates,
+        [
+            ("report", "column"),
+            ("review", "column"),
+            ("compare", "column"),
+            ("board", "full")
+        ]
+    );
+    let human = pilot.command().args(["template", "ls"]).output().unwrap();
+    assert!(
+        human.status.success() && human.stderr.is_empty(),
+        "{human:?}"
+    );
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(text.contains("TEMPLATES"), "{text}");
+    for name in ["report", "review", "compare", "board"] {
+        assert!(text.contains(name), "{text}");
+    }
+    // Reading the catalog creates no local state.
+    assert!(!pilot.root.join("selected/colab").exists());
+}
+#[test]
+fn create_from_a_template_stores_its_layout_and_a_source_with_fresh_ids() {
+    let pilot = Pilot::new(None);
+    let mut sources = Vec::new();
+    for (name, kind) in [
+        ("report", "column"),
+        ("review", "column"),
+        ("board", "full"),
+    ] {
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            name,
+            "--template",
+            name,
+            "--strict",
+            "--json",
+        ]);
+        assert_eq!(created["template"], name, "{created}");
+        assert_eq!(created["layout"], kind, "{created}");
+        assert_eq!(created["read"], json!(["layout", "components"]));
+        assert_eq!(created["warnings"], json!([]), "{created}");
+        let id = created["pageId"].as_str().unwrap();
+        let shown = pilot.call(&["show", id, "--json"]);
+        assert_eq!(shown["page"]["layout"], kind);
+        let read = pilot.call(&["page", "read", id, "--json"]);
+        let source = read["source"].as_str().unwrap().to_owned();
+        assert!(!source.contains("{{"), "{source}");
+        assert!(source.contains("tmt colab skill components"), "{source}");
+        sources.push(source);
+    }
+    // A second page from the same template gets its own IDs: an ID is unique on its page.
+    let again = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "again",
+        "--template",
+        "review",
+        "--json",
+    ]);
+    let read = pilot.call(&["page", "read", again["pageId"].as_str().unwrap(), "--json"]);
+    let ids = |source: &str| -> Vec<String> {
+        source
+            .split("data-id=\"")
+            .skip(1)
+            .map(|rest| rest.split('"').next().unwrap().to_owned())
+            .collect()
+    };
+    let first = ids(&sources[1]);
+    let second = ids(read["source"].as_str().unwrap());
+    assert_eq!(first.len(), 4);
+    assert!(
+        first.iter().all(|id| !second.contains(id)),
+        "{first:?} {second:?}"
+    );
+    // The human result names the template next to the layout and what to read.
+    let human = pilot
+        .command()
+        .args([
+            "page",
+            "create",
+            "--title",
+            "Human",
+            "--template",
+            "compare",
+        ])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(text.contains("template"), "{text}");
+    assert!(text.contains("compare"), "{text}");
+    assert!(text.contains("column (max 1280 px)"), "{text}");
+}
+#[test]
+fn a_template_excludes_the_layout_and_source_options_and_unknown_names() {
+    let pilot = Pilot::new(None);
+    for extra in [
+        vec!["--layout", "column"],
+        vec!["--reason", "why"],
+        vec!["--file", "page.html"],
+    ] {
+        let mut command = vec!["page", "create", "--title", "Plan", "--template", "report"];
+        command.extend(extra.iter().copied());
+        let output = pilot.command().args(&command).output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("cannot be used with"),
+            "{output:?}"
+        );
+    }
+    let unknown = pilot
+        .command()
+        .args(["page", "create", "--title", "Plan", "--template", "memo"])
+        .output()
+        .unwrap();
+    assert_eq!(unknown.status.code(), Some(1), "{unknown:?}");
+    let message = String::from_utf8_lossy(&unknown.stderr);
+    assert!(
+        message.contains("report") && message.contains("board"),
+        "{message}"
+    );
+    // A refused create leaves nothing behind.
+    assert!(!pilot.root.join("selected/colab").exists());
 }
 #[test]
 fn a_page_without_layout_metadata_reads_as_freeform() {

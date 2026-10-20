@@ -115,7 +115,8 @@ pub fn choice(args: &ArgMatches) -> Result<PageLayout> {
         None => Err(input(
             "Choose a layout for this page: --layout column (a text column up to 1280 px, most pages), \
              --layout full (blocks may run edge to edge) or --layout canvas --reason \"<why>\" \
-             (the page draws its own frame). Read before writing: tmt colab skill layout.",
+             (the page draws its own frame). Or start from a template that sets both: \
+             --template NAME (tmt colab template ls). Read before writing: tmt colab skill layout.",
         )),
     }
 }

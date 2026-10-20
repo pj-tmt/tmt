@@ -1,0 +1,34 @@
+<!-- layout: full. Colab frames the page like a column; a block marked data-width="full" runs edge to edge and its text still starts on the column. See tmt colab skill layout, sections The frame and Two declarations -->
+<!-- style: the base look, from tmt colab skill page-style. Keep it, and change colours and type there, never the frame. See tmt colab skill page-style -->
+{{style}}
+<!-- style: colours only. A full block gets its horizontal padding from Colab, so never add any to it. See tmt colab skill layout, section What CSS may change -->
+<style>
+  .band { background: color-mix(in srgb, currentColor 8%, transparent); }
+  .lanes { display: flex; flex-wrap: wrap; }
+  .lanes > div { flex: 1 1 240px; padding-right: 16px; }
+</style>
+<!-- block: banner. data-width="full" runs the block edge to edge; the board's title and one line of status. See tmt colab skill layout, section Two declarations -->
+<section class="band" data-width="full">
+  <h1>Board title</h1>
+  <p>One line on where things stand.</p>
+</section>
+<!-- block: lanes. Items by state, each a mark and a word, never colour alone. See tmt colab skill components, section State -->
+<section class="lanes" data-width="full">
+  <div>
+    <h2>● Running</h2>
+    <p>An item in progress</p>
+  </div>
+  <div>
+    <h2><span class="waiting">◆</span> Waiting</h2>
+    <p>An item that needs the reader</p>
+  </div>
+  <div>
+    <h2>✓ Done</h2>
+    <p>A finished item</p>
+  </div>
+</section>
+<!-- component: section. A note that stays on the column. See tmt colab skill components, section Section -->
+<section data-gap="loose">
+  <h2>Notes</h2>
+  <p>What the reader should know about this board.</p>
+</section>

@@ -52,9 +52,9 @@ browser they intend to use, compare the four words with the terminal and confirm
 there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
-Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file. Layout is
-required: `--layout column` (most pages), `full`, or `canvas --reason TEXT`;
-`page layout PAGE KIND` changes it:
+Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file. Choose
+`--layout column` (most pages), `full` or `canvas --reason TEXT`, or `--template NAME`
+(`template ls`); `page layout PAGE KIND` changes it:
 
 ```sh
 tmt colab page create --title "Weekly plan" --layout column --file page.html --json
@@ -109,7 +109,7 @@ zero for no-op); title and discussion stay. On `COLAB_STALE_BASE`, reread, merge
 the new token; never blindly retry. After a timeout or uncertainty, read back and
 compare before writing; for uncertain creates inspect `ls`, never duplicate pages.
 
-Page source, updates and history have size limits
+Pages have size limits
 ([limits contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)).
 `page read` reports `usage`. On `COLAB_CAPACITY`, follow "When the page is full" in the
 editing reference; never delete the original to clear a limit.
