@@ -83,3 +83,35 @@ for (const width of [1440, 390])
         if (process.env.COLAB_CAPTURE_DIR)
           await page.screenshot({ path: capturePath(`markdown-${surface}-${width}-${theme}.png`) });
       });
+
+test('a page link opens in the app without reloading; a modified click stays the browser’s', async ({
+  page,
+}) => {
+  const window = await open(page, 'chat', 1440, 'light');
+  const link = window.getByTestId('ask-reply').locator('a.markdown-link');
+  await expect(link).toHaveAttribute('href', '/p/deadbeef');
+  await page.evaluate(() => {
+    Object.assign(globalThis, { appMarker: 'still here' });
+    // A click the app handled is already prevented when it bubbles to the document. The listener
+    // records that, then cancels the browser's own action so a modified click opens nothing.
+    document.addEventListener('click', (event) => {
+      Object.assign(globalThis, { clickPrevented: event.defaultPrevented });
+      event.preventDefault();
+    });
+  });
+  await link.click({ modifiers: ['Shift'] });
+  expect(
+    await page.evaluate(() => (globalThis as { clickPrevented?: boolean }).clickPrevented),
+  ).toBe(false);
+  await link.click();
+  expect(
+    await page.evaluate(() => (globalThis as { clickPrevented?: boolean }).clickPrevented),
+  ).toBe(true);
+  // The document was not replaced: the marker survives and the route moved to the short link.
+  await expect
+    .poll(() => page.evaluate(() => (globalThis as { appMarker?: string }).appMarker))
+    .toBe('still here');
+  await expect
+    .poll(() => page.evaluate(() => location.pathname + location.hash))
+    .toContain('deadbeef');
+});

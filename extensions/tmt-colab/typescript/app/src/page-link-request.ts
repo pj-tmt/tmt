@@ -24,6 +24,25 @@ export function pageLinkRequest(value: unknown, renderId: string): value is Page
   );
 }
 
+/** The app route of a `/p/<prefix>[#anchor]` link: undefined for any other path, `refused` for a
+ * link of that form whose anchor cannot be read. */
+export function shortLinkRoute(
+  pathname: string,
+  hash: string,
+): { prefix: string; route: string; anchor?: string } | 'refused' | undefined {
+  const short = pathname.match(/^\/p\/([0-9a-f-]+)$/);
+  if (!short || !validPagePrefix(short[1])) return undefined;
+  let anchor: string | undefined;
+  try {
+    anchor = hash ? decodeURIComponent(hash.slice(1)) : undefined;
+  } catch {
+    return 'refused';
+  }
+  if (anchor?.startsWith('anchor=')) anchor = anchor.slice(7);
+  if (anchor !== undefined && !validShellAnchor(anchor)) return 'refused';
+  return { prefix: short[1], route: `/short/${short[1]}`, ...(anchor ? { anchor } : {}) };
+}
+
 export type PageLinkTarget =
   | { kind: 'refused' }
   | { kind: 'external'; href: string }
@@ -48,19 +67,13 @@ export function classifyPageLink(href: string, base: string, space?: string): Pa
   if (url.username || url.password) return { kind: 'refused' };
   if (space !== undefined && url.origin === owner.origin) {
     if (url.search) return { kind: 'refused' };
-    const short = url.pathname.match(/^\/p\/([0-9a-f-]+)$/);
+    const short = shortLinkRoute(url.pathname, url.hash);
     let prefix: string | undefined;
     let route: string | undefined;
     let anchor: string | undefined;
-    if (short && validPagePrefix(short[1])) {
-      prefix = short[1];
-      route = `/short/${prefix}`;
-      try {
-        anchor = url.hash ? decodeURIComponent(url.hash.slice(1)) : undefined;
-      } catch {
-        return { kind: 'refused' };
-      }
-      if (anchor?.startsWith('anchor=')) anchor = anchor.slice(7);
+    if (short === 'refused') return { kind: 'refused' };
+    if (short) {
+      ({ prefix, route, anchor } = short);
     } else if (url.pathname === owner.pathname) {
       const fields = new URLSearchParams(url.hash.slice(1));
       const keys = [...fields.keys()].sort().join(',');

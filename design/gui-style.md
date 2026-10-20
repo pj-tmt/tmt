@@ -453,7 +453,7 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 - A body is a small safe Markdown subset: paragraphs, bullet and numbered lists, block quotes,
   fenced code, `code`, **strong**, _emphasis_ and links, with 8px between blocks. Anything else
   stays the text the author wrote, and raw markup always renders as text. Fenced code scrolls
-  inside its own block and never widens the window. A link opens only a page of this space; an
+  inside its own block and never widens the window. A link opens only a page of this space, in the app; an
   outside URL shows as words followed by the URL, and any other target stays literal text.
   Basis: own.
 

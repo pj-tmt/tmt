@@ -175,3 +175,63 @@ it('keeps blank lines between blocks in the text so a copied body keeps its para
   const html = render('one\n\ntwo');
   expect(html.replace(/<[^>]+>/g, '')).toBe('one\n\ntwo');
 });
+
+it('lowercases the prefix of a page link so the anchor and the in-app route agree', () => {
+  expect(classifyHref('/p/DEADBEEF#Top', origin)).toEqual({
+    kind: 'page',
+    href: '/p/deadbeef#Top',
+  });
+  expect(classifyHref(`${origin}/p/DEADBEEF`, origin)).toEqual({
+    kind: 'page',
+    href: '/p/deadbeef',
+  });
+});
+
+// A commenter can post a body made of openers nothing closes; every viewer parses it. Each scan over
+// such a body must stay linear (each of these took 300-440 ms at 20 000 characters when an unmatched
+// opener rescanned to the end), so the bound is far above the linear cost and far below the old one.
+it('parses bodies of unmatched or nested openers in linear time', () => {
+  const limit = 80;
+  const bodies: Record<string, string> = {
+    'unmatched [': '['.repeat(MAX_SOURCE - 1),
+    'nested [ ]': `${'['.repeat(9000)}${']'.repeat(9000)}`,
+    'unmatched [ then code': `${'['.repeat(3000)}${'`` '.repeat(5600)}`,
+    'unmatched * openers': '*a '.repeat(6666),
+    'unmatched _ openers': '_a '.repeat(6666),
+    'unmatched ** openers': '**a '.repeat(5000),
+    'unmatched __ openers': '__a '.repeat(5000),
+    'links without a target end': '[a]('.repeat(4000),
+    'links with a far target end': `${'[a]('.repeat(4000)})`,
+    'backtick runs of every length': Array.from({ length: 190 }, (_, n) => '`'.repeat(n + 1)).join(
+      ' ',
+    ),
+  };
+  for (const [name, body] of Object.entries(bodies)) {
+    expect(body.length, name).toBeLessThanOrEqual(MAX_SOURCE);
+    // Best of three, so a busy machine cannot fail a linear parse.
+    const took = Math.min(
+      ...[0, 1, 2].map(() => {
+        const start = performance.now();
+        parse(body);
+        return performance.now() - start;
+      }),
+    );
+    expect(took, `${name}: ${took.toFixed(1)} ms`).toBeLessThan(limit);
+  }
+});
+
+it('still pairs other delimiters and links after an earlier opener found no closer', () => {
+  // The first * has no closer outside the code span; the later pairs still form.
+  const nodes = paragraph(parse('a *b c `x*y` and `z` then _d_ and [h](/p/deadbeef)')[0]).children;
+  expect(nodes.map((node) => node.kind)).toEqual([
+    'text',
+    'code',
+    'text',
+    'code',
+    'text',
+    'emphasis',
+    'text',
+    'link',
+  ]);
+  expect(words(nodes)).toBe('a *b c x*y and z then d and h');
+});

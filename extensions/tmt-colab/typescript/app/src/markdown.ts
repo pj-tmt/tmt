@@ -47,8 +47,9 @@ export function classifyHref(raw: string, origin: string): HrefKind {
   if (raw.startsWith('//')) return { kind: 'none' };
   const relative = /^\/p\/([0-9a-fA-F-]+)(#[A-Za-z0-9_-]{1,64})?$/.exec(raw);
   if (relative) {
-    return validPagePrefix(relative[1].toLowerCase())
-      ? { kind: 'page', href: raw }
+    const prefix = relative[1].toLowerCase();
+    return validPagePrefix(prefix)
+      ? { kind: 'page', href: `/p/${prefix}${relative[2] ?? ''}` }
       : { kind: 'none' };
   }
   if (!/^https?:\/\//i.test(raw)) return { kind: 'none' };
@@ -61,7 +62,7 @@ export function classifyHref(raw: string, origin: string): HrefKind {
   if (url.username || url.password) return { kind: 'none' };
   const same = /^\/p\/([0-9a-fA-F-]+)$/.exec(url.pathname);
   if (url.origin === origin && same && validPagePrefix(same[1].toLowerCase()))
-    return { kind: 'page', href: `${url.pathname}${url.hash}` };
+    return { kind: 'page', href: `/p/${same[1].toLowerCase()}${url.hash}` };
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.protocol === 'https:' || (url.protocol === 'http:' && local))
     return { kind: 'outside', href: url.href };
@@ -198,24 +199,92 @@ const ESCAPABLE = /[\\`*_{}[\]()#+\-.!>~|<]/;
 const alnum = (char: string | undefined) => char !== undefined && /[\p{L}\p{N}]/u.test(char);
 const space = (char: string | undefined) => char === undefined || /\s/u.test(char);
 
-/** The index just past the closing bracket of a `[` at `from`, or -1. */
-function closeBracket(source: string, from: number): number {
-  let nesting = 0;
-  for (let i = from; i < source.length; i++) {
+/**
+ * What one `inline` call has learned, so no scan over its text is repeated: a search that found
+ * nothing from a position finds nothing from any later one, and the brackets are matched once. Every
+ * scan over a body is therefore linear, however many unmatched openers it holds.
+ */
+interface Scan {
+  /** The position from which a backtick run of this length found no closing run. */
+  noSpan: Map<number, number>;
+  /** The position from which this emphasis delimiter found no closer. */
+  noCloser: Map<string, number>;
+  /** Each `[` that has a `]`, mapped to the index just past it; matched on first use. */
+  brackets?: Map<number, number>;
+}
+
+const TICKS = /`+/y;
+/** The length of the backtick run that starts at `at`, which must hold a backtick. */
+function tickRun(source: string, at: number): number {
+  TICKS.lastIndex = at;
+  return TICKS.exec(source)![0].length;
+}
+
+/** The index of the run of exactly `length` backticks that closes a span whose opening run ends at
+ * `from`, or -1. */
+function spanClose(source: string, from: number, length: number, scan: Scan): number {
+  const failed = scan.noSpan.get(length);
+  if (failed !== undefined && from >= failed) return -1;
+  const ticks = '`'.repeat(length);
+  let close = source.indexOf(ticks, from);
+  // A longer run is a different delimiter.
+  while (close >= 0 && source[close + length] === '`')
+    close = source.indexOf(ticks, close + tickRun(source, close));
+  if (close < 0) scan.noSpan.set(length, from);
+  return close;
+}
+
+/** Each `[` that has a matching `]` (nested pairs count, escapes and code spans do not), in one pass. */
+function matchBrackets(source: string, scan: Scan): Map<number, number> {
+  const ends = new Map<number, number>();
+  const open: number[] = [];
+  for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
     if (char === '\\') i++;
     else if (char === '`') {
-      const run = /^`+/.exec(source.slice(i))![0].length;
-      const close = source.indexOf('`'.repeat(run), i + run);
-      if (close >= 0) i = close + run - 1;
-      else i += run - 1;
-    } else if (char === '[') nesting++;
-    else if (char === ']' && --nesting === 0) return i + 1;
+      const run = tickRun(source, i);
+      const close = spanClose(source, i + run, run, scan);
+      i = (close >= 0 ? close + run : i + run) - 1;
+    } else if (char === '[') open.push(i);
+    else if (char === ']' && open.length > 0) ends.set(open.pop()!, i + 1);
   }
+  return ends;
+}
+
+/** The index of the delimiter that closes an emphasis whose text starts at `from`, or -1. */
+function emphasisClose(
+  source: string,
+  from: number,
+  char: string,
+  width: number,
+  scan: Scan,
+): number {
+  const delimiter = char.repeat(width);
+  const failed = scan.noCloser.get(delimiter);
+  if (failed !== undefined && from >= failed) return -1;
+  let j = from;
+  while (j < source.length) {
+    if (source[j] === '\\') j += 2;
+    else if (source[j] === '`') {
+      const run = tickRun(source, j);
+      const close = spanClose(source, j + run, run, scan);
+      j = close >= 0 ? close + run : j + run;
+    } else if (
+      source.startsWith(delimiter, j) &&
+      j > from &&
+      !space(source[j - 1]) &&
+      (char === '*' || !alnum(source[j + width])) &&
+      !(width === 1 && source[j + 1] === char)
+    )
+      return j;
+    else j++;
+  }
+  scan.noCloser.set(delimiter, from);
   return -1;
 }
 
 function inline(source: string, depth: number, budget: Budget, origin: string, linked = false) {
+  const scan: Scan = { noSpan: new Map(), noCloser: new Map() };
   const out: Inline[] = [];
   let text = '';
   const flush = () => {
@@ -233,14 +302,8 @@ function inline(source: string, depth: number, budget: Budget, origin: string, l
       continue;
     }
     if (char === '`') {
-      const run = /^`+/.exec(source.slice(i))![0].length;
-      const ticks = '`'.repeat(run);
-      let close = source.indexOf(ticks, i + run);
-      // A longer run is a different delimiter.
-      while (close >= 0 && source[close + run] === '`') {
-        const longer = /^`+/.exec(source.slice(close))![0].length;
-        close = source.indexOf(ticks, close + longer);
-      }
+      const run = tickRun(source, i);
+      const close = spanClose(source, i + run, run, scan);
       if (close >= 0) {
         let value = source.slice(i + run, close).replace(/\n/g, ' ');
         if (value.length > 2 && value.startsWith(' ') && value.endsWith(' '))
@@ -250,25 +313,27 @@ function inline(source: string, depth: number, budget: Budget, origin: string, l
         out.push({ kind: 'code', value });
         i = close + run;
       } else {
-        text += ticks;
+        text += '`'.repeat(run);
         i += run;
       }
       continue;
     }
     if (char === '[' && !linked && depth <= MAX_DEPTH) {
-      const end = closeBracket(source, i);
+      const end = (scan.brackets ??= matchBrackets(source, scan)).get(i) ?? -1;
       if (end > 0 && source[end] === '(') {
-        const stop = source.indexOf(')', end + 1);
-        const target = stop > 0 ? source.slice(end + 1, stop) : '';
+        // A target is at most MAX_HREF long, so the search for its `)` never reads further.
+        const reach = source.slice(end + 1, end + 2 + MAX_HREF);
+        const length = reach.indexOf(')');
+        const target = length >= 0 ? reach.slice(0, length) : '';
         const kind = classifyHref(target, origin);
-        if (stop > 0 && kind.kind !== 'none') {
+        if (length >= 0 && kind.kind !== 'none') {
           const label = inline(source.slice(i + 1, end - 1), depth + 1, budget, origin, true);
           flush();
           spend(budget);
           if (kind.kind === 'page') out.push({ kind: 'link', href: kind.href, children: label });
           // Outside links stay inert until the app confirms them (#4083): the words, then the URL.
           else out.push(...label, { kind: 'text', value: ` (${target})` });
-          i = stop + 1;
+          i = end + 1 + length + 1;
           continue;
         }
       }
@@ -280,36 +345,16 @@ function inline(source: string, depth: number, budget: Budget, origin: string, l
         !space(source[i + width]) &&
         (char === '*' || !alnum(source[i - 1])) &&
         !(width === 1 && source[i + 1] === char);
-      if (opens) {
-        let j = i + width;
-        let close = -1;
-        while (j < source.length) {
-          if (source[j] === '\\') j += 2;
-          else if (source[j] === '`') {
-            const run = /^`+/.exec(source.slice(j))![0].length;
-            const end = source.indexOf('`'.repeat(run), j + run);
-            j = end >= 0 ? end + run : j + run;
-          } else if (
-            source.startsWith(delimiter, j) &&
-            j > i + width &&
-            !space(source[j - 1]) &&
-            (char === '*' || !alnum(source[j + width])) &&
-            !(width === 1 && source[j + 1] === char)
-          ) {
-            close = j;
-            break;
-          } else j++;
-        }
-        if (close > 0) {
-          flush();
-          spend(budget);
-          out.push({
-            kind: width === 2 ? 'strong' : 'emphasis',
-            children: inline(source.slice(i + width, close), depth + 1, budget, origin, linked),
-          });
-          i = close + width;
-          continue;
-        }
+      const close = opens ? emphasisClose(source, i + width, char, width, scan) : -1;
+      if (close > 0) {
+        flush();
+        spend(budget);
+        out.push({
+          kind: width === 2 ? 'strong' : 'emphasis',
+          children: inline(source.slice(i + width, close), depth + 1, budget, origin, linked),
+        });
+        i = close + width;
+        continue;
       }
       text += delimiter;
       i += width;

@@ -370,9 +370,12 @@ An agent reply has one look, running or finished: no driver edge, colour or word
 running turn shows only the chip's working state (#4111). Stable turn keys preserve focus.
 Comment, Chat and reply bodies render through `MarkdownText` (#4112): `markdown.ts` parses a safe
 subset into a tree (never HTML), capped at 20 000 characters, depth 3 and 4 000 nodes, and a body
-over a cap stays plain paragraphs. Text leaves keep their mention chips. `classifyHref` admits only
-`/p/<page prefix>` links of this space as links; outside `https:` URLs stay inert words with the
-URL until outside links are confirmed (#4083), and every other target stays literal text.
+over a cap stays plain paragraphs. Every scan over a body is linear (a search that found nothing from
+a position is not repeated; brackets are matched once), so a body of unmatched openers cannot stall a
+reader. Text leaves keep their mention chips. `classifyHref` admits only `/p/<page prefix>` links of
+this space as links; a plain click routes in the app through `shortLinkRoute` like a page link in a
+page (#4091), and a modified click stays the browser's. Outside `https:` URLs stay inert words with
+the URL until outside links are confirmed (#4083), and every other target stays literal text.
 The data flow is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual
 rule is in [GUI style](../../../../design/gui-style.md#conversation-turn).
 
