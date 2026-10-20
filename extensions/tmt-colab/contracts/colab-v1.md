@@ -1800,7 +1800,11 @@ anything is pruned.
   A fold whose `authorDevice` is a revoked device is admitted only when its envelope hash is in that
   list; an unlisted fold is refused (`INVALID`), whatever `membershipRevision` it cites, because a
   stolen key can backdate that revision and, once a prefix is pruned, no reader can recheck the folded
-  state against the updates it replaced. Unseen offline folds beyond the list are rejected like unseen
+  state against the updates it replaced. The list holds only retained folds: a fold superseded by a
+  later paired checkpoint or fold of the same stream and namespace is pruned and not listed. A revoke
+  that would list more than 512 is not signed; the owner first re-folds those streams under another
+  owner device, which supersedes the revoked signer's folds, and then revokes, so a fold is never left
+  unlisted after its prefix was pruned. Unseen offline folds beyond the list are rejected like unseen
   updates beyond a cut. A revoke cut for the covered stream may name a fold as its checkpoint
   (`checkpointEnvelopeHash` the fold's hash, `checkpointSeq` n).
 - **Concurrency.** A fold does not advance the covered chain: the covered device's update n+1 still
