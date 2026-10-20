@@ -80,7 +80,7 @@ pub(super) struct State {
     pub quote_hit: RefCell<Option<QuoteHit>>,
     pub chat_quote_hits: RefCell<Vec<ChatQuoteHit>>,
     pub(super) paste_hits: RefCell<Vec<paste::Hit>>,
-    pub(super) paste_preview: Option<paste::Preview>,
+    pub(super) paste_preview: RefCell<Option<paste::Preview>>,
 }
 
 impl State {
@@ -89,7 +89,7 @@ impl State {
         *self.quote_hit.borrow_mut() = None;
         self.chat_quote_hits.borrow_mut().clear();
         self.paste_hits.borrow_mut().clear();
-        if let Some(preview) = &self.paste_preview {
+        if let Some(preview) = self.paste_preview.borrow().as_ref() {
             preview.invalidate();
         }
     }
@@ -351,7 +351,7 @@ impl App {
         })
     }
     pub(super) fn remember_draft(&mut self) {
-        self.composer.paste_preview = None;
+        self.composer.paste_preview.get_mut().take();
         if let Some(input) = self.input.as_ref()
             && let Some(key) = input.draft_key.clone()
         {

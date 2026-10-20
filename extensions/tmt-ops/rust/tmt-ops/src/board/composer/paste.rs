@@ -8,7 +8,10 @@ use ratatui::{
     style::Modifier,
     text::Line,
 };
-use std::{cell::RefCell, ops::Range};
+use std::{
+    cell::{Ref, RefCell},
+    ops::Range,
+};
 use tmt_cli_style::{Depth, Role};
 use tmt_tui::components::{Editor, Modal, Outline, Placement, ScrollState, strip};
 use unicode_width::UnicodeWidthStr;
@@ -122,7 +125,7 @@ fn display(label: &str, width: usize, ascii: bool) -> (String, usize) {
 
 fn preview_area(bounds: Rect, anchor: Rect, lines: usize) -> Option<Rect> {
     let width = bounds.right().saturating_sub(anchor.x).min(64);
-    if width < 4 || bounds.height < 4 || !bounds.contains((anchor.x, anchor.y).into()) {
+    if width < 5 || bounds.height < 4 || !bounds.contains((anchor.x, anchor.y).into()) {
         return None;
     }
     let wanted =
@@ -227,6 +230,14 @@ impl App {
         if !self.paste_hit_is_current(&hit) {
             return Effect::None;
         }
+        let fits = self
+            .conversation
+            .borrow()
+            .pane
+            .is_some_and(|bounds| preview_area(bounds, hit.area, 1).is_some());
+        if !fits {
+            return self.say("Not enough room for paste preview; enlarge the conversation pane.");
+        }
         if self.input.is_none() {
             self.focus_composer();
         }
@@ -240,7 +251,7 @@ impl App {
         let Some(source) = input.text.as_str().get(hit.source.clone()) else {
             return Effect::None;
         };
-        self.composer.paste_preview = Some(Preview {
+        *self.composer.paste_preview.get_mut() = Some(Preview {
             key: hit.key,
             id: hit.id,
             text: source.into(),
@@ -296,17 +307,21 @@ impl App {
         Some(Effect::None)
     }
 
-    fn current_paste_preview(&self) -> Option<&Preview> {
-        let preview = self.composer.paste_preview.as_ref()?;
+    fn current_paste_preview(&self) -> Option<Ref<'_, Preview>> {
         let projection = self.composer_projection()?;
-        (projection.key.as_ref() == Some(&preview.key)
-            && projection.text.is_some_and(|text| {
-                text.folds().iter().any(|fold| {
-                    fold.id == preview.id
-                        && text.as_str().get(fold.source.clone()) == Some(preview.text.as_str())
-                })
-            }))
-        .then_some(preview)
+        Ref::filter_map(self.composer.paste_preview.borrow(), |preview| {
+            preview.as_ref().filter(|preview| {
+                projection.key.as_ref() == Some(&preview.key)
+                    && projection.text.is_some_and(|text| {
+                        text.folds().iter().any(|fold| {
+                            fold.id == preview.id
+                                && text.as_str().get(fold.source.clone())
+                                    == Some(preview.text.as_str())
+                        })
+                    })
+            })
+        })
+        .ok()
     }
 
     pub(in crate::board) fn paste_preview_shown(&self) -> bool {
@@ -316,7 +331,7 @@ impl App {
     pub(in crate::board) fn paste_preview_event(&mut self, event: &Event) -> Effect {
         if matches!(event, Event::Key(key) if key.kind != KeyEventKind::Release && matches!(key.code, KeyCode::Esc | KeyCode::Char('q')))
         {
-            self.composer.paste_preview = None;
+            self.composer.paste_preview.get_mut().take();
         } else if let Some(preview) = self.current_paste_preview() {
             preview.scroll.borrow_mut().input(event);
         }
@@ -335,6 +350,8 @@ impl App {
             .find(|hit| hit.key == preview.key && hit.id == preview.id)
             .map(|hit| hit.area);
         let Some(anchor) = anchor else {
+            drop(preview);
+            self.composer.paste_preview.borrow_mut().take();
             return;
         };
         let bounds = self
@@ -350,6 +367,8 @@ impl App {
             .saturating_sub(4);
         let layout = preview.text.layout(width);
         let Some(outer) = preview_area(bounds, anchor, layout.lines.len()) else {
+            drop(preview);
+            self.composer.paste_preview.borrow_mut().take();
             return;
         };
         let (chars, lines) = counts(preview.text.as_str());

@@ -71,7 +71,9 @@ impl App {
             Peek::Help => self.help = false,
             Peek::Quota => self.quota_details = None,
             Peek::Monitor => self.monitor_details = None,
-            Peek::Paste => self.composer.paste_preview = None,
+            Peek::Paste => {
+                self.composer.paste_preview.get_mut().take();
+            }
         }
         true
     }

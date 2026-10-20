@@ -1068,6 +1068,7 @@ fn session(
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
                 capture_lost = true;
+                app.composer.paste_preview.get_mut().take();
                 if let Some(discovery) = &mut app.discovery {
                     discovery.changed();
                 }

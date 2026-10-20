@@ -366,3 +366,37 @@ pub(in crate::board) fn capture_metadata(app: &App) -> serde_json::Value {
     });
     serde_json::json!({"chips":hits,"preview":preview})
 }
+
+#[test]
+fn too_small_preview_and_shrinking_layout_never_capture_invisible_input() {
+    let mut app = crate::board::app::workspace::tests::board();
+    key(&mut app, KeyCode::Enter);
+    let raw = "x".repeat(1123);
+    app.paste(&raw);
+    draw(&mut app, 80, 8);
+    app.preview_paste_at_cursor();
+    assert!(
+        !app.paste_preview_shown(),
+        "no invisible modal when the pane cannot fit four rows"
+    );
+    key(&mut app, KeyCode::Char('z'));
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), format!("{raw}z"));
+    key(&mut app, KeyCode::Backspace);
+    draw(&mut app, 100, 36);
+    app.preview_paste_at_cursor();
+    assert!(app.paste_preview_shown());
+    draw(&mut app, 100, 36);
+    draw(&mut app, 80, 8);
+    assert!(
+        !app.paste_preview_shown(),
+        "a preview that can no longer paint closes"
+    );
+    key(&mut app, KeyCode::Char('z'));
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), format!("{raw}z"));
+    draw(&mut app, 100, 36);
+    assert!(
+        !app.paste_preview_shown(),
+        "enlarging the pane never resurrects a dismissed preview"
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
+}
