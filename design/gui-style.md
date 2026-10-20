@@ -270,8 +270,7 @@ A square, opaque, shadow-free sheet with the shared thin edge.
 ### Chip
 
 A one-line label whose content is always vertically centered (fixed height,
-inline flex). Kinds: **status** (mark plus word), **driver** (`claude`,
-`codex` in the driver color), **filter** (a toggle button, accent when on) and
+inline flex). Kinds: **status** (mark plus word), **filter** (a toggle button, accent when on) and
 **count** (`◆ 2 open`, a button that opens its list). Static chips are square
 outlines; interactive ones are buttons with a focus ring. Height 20 px, filter
 24 px. Basis: own.
@@ -447,15 +446,11 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
   agent messages use a whole-message sheet block without borders or bubbles.
   Every author line includes a person/agent icon, name and time; agent messages
   carry one small outlined `AGENT` tag, 6px after the name and before the time.
-  Chat retains its existing rows and trusted driver rail treatment.
-- In Chat, only the current verified `runningDriver`, matched by machine and agent,
-  selects driver treatment: `claude` uses `review`, `codex` uses `link`. Present
-  metadata adds a square filled Bot avatar, bold name and lowercase driver tag;
-  the rail uses the same role. No shadow.
-- Loading, failed, absent or other values use neutral agent treatment, without a
-  driver tag or explanation. Names, body content and remembered `driver` cannot
-  select a treatment. Observation refreshes update treatment with stable turn
-  keys, preserving the mounted turn and focus; no driver history is persisted.
+  Chat uses the same look.
+- An agent reply has one look in Chat and in a thread, running or finished: no
+  edge or colour per driver and no driver word. A running turn shows only the
+  chip's own working state. The verified `runningDriver` never selects a
+  treatment. No shadow.
 - Literal markup in a body always renders as text. Basis: own.
 
 ### Message attachments

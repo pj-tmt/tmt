@@ -169,7 +169,7 @@ body:has(.needs-you-header-menu) {
 /* Menu rows stay on one ellipsized line, including inline agent attribution. */
 .needs-you-header-row
   .agent-chip[data-variant='inline']
-  :is(.agent-chip-name, .agent-chip-machine, .agent-chip-driver) {
+  :is(.agent-chip-name, .agent-chip-machine) {
   overflow-wrap: normal;
   white-space: nowrap;
 }
@@ -1282,9 +1282,6 @@ body:has(.needs-you-header-menu) {
   background: transparent;
   color: var(--tmt-ui-color-text);
 }
-.comment-thread .conversation-author .agent-chip-driver {
-  display: none;
-}
 .comment-thread .conversation-main .comment-byline {
   font: var(--tmt-ui-caption-size) / var(--tmt-ui-host-field-line-height) var(--f-mono);
   color: var(--tmt-ui-color-secondary);
@@ -1501,7 +1498,7 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
   font-size: 12px;
 }
-.proposal-card .conversation-turn:not([data-running-driver]) .conversation-avatar {
+.proposal-card .conversation-turn .conversation-avatar {
   color: var(--c-text);
 }
 .proposal-body {
@@ -1582,15 +1579,6 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
 }
 
-.conversation-turn[data-running-driver='claude'] {
-  --conversation-driver-color: var(--tmt-ui-color-review);
-}
-.conversation-turn[data-running-driver='codex'] {
-  --conversation-driver-color: var(--tmt-ui-color-link);
-}
-.conversation-turn[data-running-driver] {
-  border-left-color: var(--conversation-driver-color);
-}
 .conversation-avatar {
   display: inline-flex;
   width: 24px;
@@ -1599,7 +1587,6 @@ body:has(.needs-you-header-menu) {
   justify-content: center;
   vertical-align: middle;
   margin-right: 6px;
-  background: var(--conversation-driver-color);
   color: var(--c-paper);
 }
 

@@ -39,11 +39,10 @@ it('marks a working agent with a static dot and its words, never a spinner', () 
   }
 });
 
-it('keeps the machine and the driver as muted suffixes and the state as data', () => {
+it('keeps the machine as a muted suffix and the state as data', () => {
   const markup = render({
     name: '@Agent 1',
     machine: 'My machine',
-    driver: 'claude',
     state: 'offline',
     variant: 'chip',
     title: 'description',
@@ -52,7 +51,7 @@ it('keeps the machine and the driver as muted suffixes and the state as data', (
   expect(markup).toContain('data-state="offline"');
   expect(markup).toContain('title="description"');
   expect(markup).toContain('<span class="agent-chip-machine"> · My machine</span>');
-  expect(markup).toContain('<span class="agent-chip-driver"> · claude</span>');
+  expect(markup).not.toContain('agent-chip-driver');
 });
 
 it('renders a trailing control after the name', () => {
@@ -105,7 +104,7 @@ it('all shared chip forms reuse the page activity observation without another re
         'div',
         null,
         createElement(AgentChip, { name: '@Atlas', variant: 'chip' }),
-        createElement(AgentChip, { name: 'Atlas', driver: 'codex' }),
+        createElement(AgentChip, { name: 'Atlas' }),
         createElement(AgentList, { names: ['Atlas', 'Other'] }),
         agentSentence('Waiting for {agent}', 'Atlas'),
       ),

@@ -179,9 +179,9 @@ remembered `driver`. `LiveAsk.observeDestinations` carries it through admitted
 machine/agent identity. One page-scoped read-only `useAgentPresentation` observes
 page/binding, admission and new-operation changes, ignores obsolete settlements,
 and supplies the shared Chat/thread `AskPanel` through `AgentPresentation`.
-Loading, failures and missing fields are neutral; the current observation updates
-existing turns without remounting them. No polling, Ask admission, persistence or
-recovery is added. Remote's served SDK exposes the whitelisted field. Real-door
+No surface shows the driver: a reply looks the same with or without it (#4111), and
+the observation also supplies the agent names the composers and mentions use. No polling,
+Ask admission, persistence or recovery is added. Remote's served SDK exposes the whitelisted field. Real-door
 Ask acceptance verifies present/absent treatment using Core-admitted provider hooks
 and ordinary recipients; fixture observations alone do not prove that boundary.
 

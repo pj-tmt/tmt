@@ -12,7 +12,7 @@ export const AgentChipActivity = createContext<readonly ActivityAgent[]>([]);
 export type AgentChipState = 'checking' | 'not-found' | 'offline' | 'online' | 'unknown';
 
 /**
- * The one place an agent is shown: icon, name, then muted machine and driver. `chip` is the
+ * The one place an agent is shown: icon, name, then the muted machine. `chip` is the
  * bordered form for what the reader edits (a composer mention, a question recipient) and takes a
  * trailing control as children; `inline` sits inside a sentence, a menu row or a byline. While the
  * agent works the icon carries a small status dot and the name gains a hidden ", working"; the chip
@@ -21,7 +21,6 @@ export type AgentChipState = 'checking' | 'not-found' | 'offline' | 'online' | '
 export function AgentChip({
   name,
   machine,
-  driver,
   state,
   activity,
   variant = 'inline',
@@ -30,7 +29,6 @@ export function AgentChip({
 }: {
   name: string;
   machine?: string;
-  driver?: string;
   state?: AgentChipState;
   activity?: AgentActivity;
   variant?: 'inline' | 'chip';
@@ -60,7 +58,6 @@ export function AgentChip({
       <span className="agent-chip-name">{name}</span>
       {working && <span className="agent-chip-state">, {text.agentWorking}</span>}
       {machine && <span className="agent-chip-machine"> · {machine}</span>}
-      {driver && <span className="agent-chip-driver"> · {driver}</span>}
       {children}
     </span>
   );

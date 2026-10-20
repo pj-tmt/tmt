@@ -23,7 +23,6 @@ import { agentSentence } from './components/agent-chip.js';
 import { MessageText } from './components/message-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { conversationRecordKey } from './conversation-record-key.js';
-import { AgentPresentation, runningDriverFor } from './agent-directory.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -116,7 +115,6 @@ export function AskPanel({
   retryInput?: AskRetryInput;
 }) {
   const chat = useContext(ConversationPresentation) === 'chat';
-  const agents = useContext(AgentPresentation);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const busy = useRef(new Set<string>());
@@ -330,7 +328,6 @@ export function AskPanel({
       <ConversationTurn
         role="agent"
         data-conversation-record={conversationRecordKey('reply', record.writer, record.operationId)}
-        runningDriver={runningDriverFor(agents, record.machine, record.agent)}
         author={record.agentName || text.askAgentLabel}
         at={record.issuedAt}
         authorTitle={record.agent}
