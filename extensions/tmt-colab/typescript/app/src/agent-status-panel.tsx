@@ -1,4 +1,5 @@
-import { Circle, CircleDot, CircleHelp } from 'lucide-react';
+import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
+import { Circle, CircleDot, CircleHelp, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentChip } from './components/agent-chip.js';
 import type { AskBinding } from './ask-panel.js';
@@ -88,6 +89,9 @@ export function AgentStatusPanel({
   const observation = current?.observation;
   const last = current?.last;
   const loading = current?.state === 'loading';
+  // A check that ends within the busy-mark delay changes nothing: its rows keep what they showed.
+  const checking = useBusyMark(loading);
+  const held = last ? text.agentStatusRead : '\u00a0';
   const stale = !!last && observation?.kind !== 'ready';
   const failure = observation?.kind === 'unavailable' ? observation : undefined;
   const channelUnavailable = failure?.code === 'REMOTE_SEQUENCE_UNAVAILABLE';
@@ -103,7 +107,9 @@ export function AgentStatusPanel({
             : text.agentStatusUnavailable
       : text.agentStatusUnavailable;
   const session = loading
-    ? text.agentStatusChecking
+    ? checking
+      ? text.agentStatusChecking
+      : held
     : observation?.kind === 'ready'
       ? text.agentStatusRead
       : channelUnavailable ||
@@ -115,7 +121,9 @@ export function AgentStatusPanel({
           ? text.agentStatusRead
           : text.agentStatusUnavailable;
   const directory = loading
-    ? text.agentStatusChecking
+    ? checking
+      ? text.agentStatusChecking
+      : held
     : observation?.kind === 'ready'
       ? text.agentStatusRead
       : failure?.phase === 'directory'
@@ -140,15 +148,17 @@ export function AgentStatusPanel({
           <code className="tmt-ui-code">{failure.code}</code>
         </p>
       )}
-      <button
+      <BrowserAction
         type="button"
-        disabled={!admitted || !binding?.observeDestinations || loading}
-        onClick={(event) => {
+        variant="text"
+        label={text.agentStatusRecheck}
+        busy={loading}
+        busyMark={<LoaderCircle />}
+        disabled={!admitted || !binding?.observeDestinations}
+        onActivate={(event) => {
           if (event.isTrusted) read();
         }}
-      >
-        {text.agentStatusRecheck}
-      </button>
+      />
       {last && (
         <p className="agent-status-checked">
           {text.agentStatusLastCheck}:{' '}

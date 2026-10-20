@@ -211,6 +211,42 @@ test('a read that finishes after the disclosure changed drops bytes and shows re
   await expect(row.getByRole('alert')).toHaveText(text.attachmentReason.changed);
 });
 
+test('a slow Preview keeps its label, fences the row without greying it and shows one mark after 400 ms', async ({
+  page,
+}) => {
+  const start = new Date('2026-10-20T00:00:00Z');
+  await page.clock.install({ time: start });
+  await mount(page);
+  const panel = await openFiles(page);
+  await attach(panel, page, [{ name: 'slow.png', mimeType: 'image/png', buffer: PNG }]);
+  await add(panel).click();
+  const row = panel.getByTestId('file-row');
+  await expect(row).toHaveCount(1);
+  await page.clock.pauseAt(new Date(start.getTime() + 60_000));
+  const preview = row.getByRole('button', { name: text.attachmentPreview, exact: true });
+  const download = row.getByRole('button', { name: text.attachmentDownload, exact: true });
+  const remove = row.getByRole('button', { name: text.attachRemove, exact: true });
+  const marks = row.locator('.tmt-ui-action-mark[data-busy="true"] svg');
+  await preview.click();
+  await expect
+    .poll(async () => (await actions(page)).includes('attach:open:slow.png:document'))
+    .toBe(true);
+  for (const action of [preview, download, remove]) {
+    await expect(action).toHaveAttribute('aria-busy', 'true');
+    expect(await action.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+  }
+  await expect(row.getByText(text.attachmentOpening)).toHaveCount(0);
+  await page.clock.runFor(399);
+  await expect(marks).toHaveCount(0);
+  await page.clock.runFor(1);
+  await expect(marks).toHaveCount(1);
+  await expect(preview.locator('.tmt-ui-action-mark svg')).toHaveCount(1);
+  await page.evaluate(async (path) => (await import(path)).releaseOpen(), fixture);
+  await expect(page.getByTestId('file-preview').locator('img')).toBeVisible();
+  await page.clock.runFor(1000);
+  await expect(marks).toHaveCount(0);
+});
+
 test('removing the last page file during a read preserves visible retry feedback', async ({
   page,
 }) => {

@@ -12,6 +12,7 @@ export function ProposalCard({
   thread,
   outcome,
   disabled,
+  sending = false,
   readOnly = false,
   canDecide,
   statusError,
@@ -30,6 +31,8 @@ export function ProposalCard({
   thread: ThreadView;
   outcome?: ProposalOutcome;
   disabled: boolean;
+  /** A reply composer on this card is sending: its actions are fenced, not greyed. */
+  sending?: boolean;
   readOnly?: boolean;
   canDecide: boolean;
   statusError?: boolean;
@@ -57,7 +60,7 @@ export function ProposalCard({
   const followUpControl = useRef<HTMLSpanElement>(null);
   const focused = useRef<HTMLElement | null>(null);
   const returning = useRef(false);
-  const busy = outcome?.state === 'deciding' || outcome?.state === 'notifying';
+  const busy = sending || outcome?.state === 'deciding' || outcome?.state === 'notifying';
   const decision = thread.decision?.decision;
   useLayoutEffect(() => {
     const node = card.current;
@@ -77,7 +80,8 @@ export function ProposalCard({
       return;
     }
     const next = followUpControl.current?.querySelector('button');
-    if (next && !next.disabled) {
+    // Focus waits for the control to be usable again: not disabled and not busy.
+    if (next && !next.disabled && !next.hasAttribute('aria-busy')) {
       returning.current = false;
       next.focus({ preventScroll: true });
     }
@@ -143,7 +147,8 @@ export function ProposalCard({
             type="button"
             variant="text"
             label={text.threadReopen}
-            disabled={disabled || busy}
+            busy={busy}
+            disabled={disabled}
             onActivate={(event) => {
               if (event.isTrusted) resolve();
             }}
@@ -188,7 +193,8 @@ export function ProposalCard({
               type="button"
               variant="text"
               label={text.proposalFollowUp}
-              disabled={disabled || busy}
+              busy={busy}
+              disabled={disabled}
               onActivate={(e) => {
                 if (e.isTrusted) followUp();
               }}
@@ -200,7 +206,8 @@ export function ProposalCard({
                 type="button"
                 variant="text"
                 label={thread.resolved ? text.threadReopen : text.threadResolve}
-                disabled={disabled || busy}
+                busy={busy}
+                disabled={disabled}
                 onActivate={(e) => {
                   if (e.isTrusted) resolve();
                 }}

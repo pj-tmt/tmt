@@ -760,7 +760,8 @@ export function ThreadWindow({
                 type="button"
                 variant="text"
                 label={text.commentReattach}
-                disabled={blocked || busy || !selection}
+                busy={busy}
+                disabled={blocked || !selection}
                 onActivate={(event) => {
                   if (event.isTrusted && selection) setReattach(structuredClone(selection));
                 }}

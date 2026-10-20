@@ -1,4 +1,5 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
+import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { AgentChip, agentSentence } from './components/agent-chip.js';
 import { NeedsYouBar } from './components/needs-you-bar.js';
@@ -181,16 +182,26 @@ export function useReadingLayer({
     const readOnly = !!view.archived || !snapshot.binding?.discussion;
     const at = read && state.at ? Number(state.at) : NaN;
     const time = Number.isFinite(at) ? compactRelativeTime(at, now) : text.readingTimeUnknown;
-    const busy = !writable || !attached || outcome?.state === 'working';
+    const working = outcome?.state === 'working';
+    const unavailable = !writable || !attached;
     // Mark read acts only when the discussion, status and passage are all live; until then it is
     // disabled and says so, so a click is never ignored.
     const markReady = actions.ready(reading);
-    const activate = (label: string, action: () => void, disabled = busy) => (
+    // Work in flight fences every action without greying it; only Mark read carries the mark, in a
+    // slot every action reserves.
+    const activate = (
+      label: string,
+      action: () => void,
+      disabled = unavailable,
+      marked = false,
+    ) => (
       <BrowserAction
         key={label}
         type="button"
         variant="text"
         label={label}
+        busy={working}
+        busyMark={marked ? <LoaderCircle /> : <span />}
         disabled={disabled}
         onActivate={(event) => {
           if (event.isTrusted) action();
@@ -232,13 +243,14 @@ export function useReadingLayer({
             readOnly ? undefined : (
               <>
                 {!read &&
-                  activate(text.readingMark, () => void actions.mark(reading), busy || !markReady)}
+                  activate(
+                    text.readingMark,
+                    () => void actions.mark(reading),
+                    unavailable || !markReady,
+                    true,
+                  )}
                 {!read && <ReadingConnecting waiting={writable && attached && !markReady} />}
-                {activate(
-                  text.readingNext,
-                  () => next(reading.id),
-                  !attached || !hasNext || outcome?.state === 'working',
-                )}
+                {activate(text.readingNext, () => next(reading.id), !attached || !hasNext)}
                 {warning && (
                   <button
                     type="button"
@@ -271,7 +283,6 @@ export function useReadingLayer({
             {reason}
           </p>
         )}
-        {!read && outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
         {!read && outcome?.state === 'failed' && (
           <p role="alert">
             {outcome.step === 'closing' ? text.readingCommentKept : text.readingFailed}

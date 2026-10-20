@@ -1,4 +1,5 @@
 import { BrowserAction, BrowserList, BrowserListRow } from '@tmt/browser-ui/react';
+import { LoaderCircle } from 'lucide-react';
 import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { attachment } from '@tmt/colab-client';
 import { AttachmentDraft } from './attachment-draft.js';
@@ -60,7 +61,11 @@ export function FilesList({
         const raster = isRaster(d),
           image = shown[d.attachmentId],
           opening = busy === d.attachmentId,
-          idle = !busy && !removing;
+          dropping = removing === d.attachmentId,
+          // Work in flight on any file fences every action, without a grey: only the one at work
+          // carries the mark, in a slot every action reserves.
+          working = !!busy || !!removing,
+          mark = (active: boolean) => (active ? <LoaderCircle /> : <span />);
         return (
           <Fragment key={d.attachmentId}>
             <BrowserListRow
@@ -74,8 +79,6 @@ export function FilesList({
                   <span role="alert">{text.attachmentReason[failed.get(d.attachmentId)!]}</span>
                 ) : removeFailed.has(d.attachmentId) ? (
                   <span role="alert">{text.filesRemoveFailed}</span>
-                ) : removing === d.attachmentId ? (
-                  text.filesRemoving
                 ) : epoch !== undefined && d.epoch !== epoch ? (
                   text.filesResealing
                 ) : null
@@ -97,9 +100,10 @@ export function FilesList({
                       <BrowserAction
                         type="button"
                         variant="text"
-                        label={opening ? text.attachmentOpening : text.attachmentPreview}
-                        busy={opening}
-                        disabled={!idle || !binding}
+                        label={text.attachmentPreview}
+                        busy={working}
+                        busyMark={mark(opening)}
+                        disabled={!binding}
                         onActivate={(event) => {
                           if (event.isTrusted) void opener.preview(d);
                         }}
@@ -108,9 +112,10 @@ export function FilesList({
                   <BrowserAction
                     type="button"
                     variant="text"
-                    label={!raster && opening ? text.attachmentOpening : text.attachmentDownload}
-                    busy={!raster && opening}
-                    disabled={!idle || !binding}
+                    label={text.attachmentDownload}
+                    busy={working}
+                    busyMark={mark(opening && !raster)}
+                    disabled={!binding}
                     onActivate={(event) => {
                       if (event.isTrusted) void opener.download(d);
                     }}
@@ -120,7 +125,9 @@ export function FilesList({
                       type="button"
                       variant="text"
                       label={text.attachRemove}
-                      disabled={!idle || disabled}
+                      busy={working}
+                      busyMark={mark(dropping)}
+                      disabled={disabled}
                       onActivate={(event) => {
                         if (event.isTrusted) void drop(d.attachmentId);
                       }}
@@ -222,8 +229,9 @@ export function FilesPanel({
               <BrowserAction
                 type="button"
                 variant="text"
-                label={adding ? text.filesAdding : text.filesAdd}
+                label={text.filesAdd}
                 busy={adding}
+                busyMark={<LoaderCircle />}
                 disabled={!attachable || draft.uploading}
                 onActivate={(event) => {
                   if (event.isTrusted) void add();

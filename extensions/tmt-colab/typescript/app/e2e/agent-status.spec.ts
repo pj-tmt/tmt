@@ -124,6 +124,39 @@ test('empty successful directory and unavailable page are distinct', async ({ pa
   expect((await proof(page)).checks).toBe(2);
 });
 
+for (const kind of ['fast', 'slow'] as const)
+  test(`a Recheck that takes ${kind === 'fast' ? 'under' : 'over'} 400 ms ${kind === 'fast' ? 'changes nothing' : 'shows Checking… and one mark'}`, async ({
+    page,
+  }) => {
+    const start = new Date('2026-10-20T00:00:00Z');
+    await page.clock.install({ time: start });
+    await page.goto(fixture);
+    await command(page, 'mountAdmissionProbe');
+    const panel = page.getByRole('region', { name: 'Agents', exact: true });
+    await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
+    await command(page, 'setMode', 'pending');
+    await page.clock.pauseAt(new Date(start.getTime() + 60_000));
+    const recheck = panel.getByRole('button', { name: 'Recheck status' });
+    const marks = panel.locator('.tmt-ui-action-mark[data-busy="true"] svg');
+    await recheck.click();
+    // Fenced, not greyed, and the rows keep what they showed.
+    await expect(recheck).toHaveAttribute('aria-busy', 'true');
+    expect(await recheck.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+    await page.clock.runFor(399);
+    await expect(panel.getByText('Checking…')).toHaveCount(0);
+    await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+    await expect(marks).toHaveCount(0);
+    if (kind === 'slow') {
+      await page.clock.runFor(1);
+      await expect(panel.getByText('Checking…')).toHaveCount(2);
+      await expect(marks).toHaveCount(1);
+    }
+    await command(page, 'resolvePrevious');
+    await page.clock.runFor(1000);
+    await expect(panel.getByText('Checking…')).toHaveCount(0);
+    await expect(recheck).not.toHaveAttribute('aria-busy', 'true');
+    await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
+  });
 test('same-client admission restoration cannot resurrect cached rows or late results', async ({
   page,
 }) => {

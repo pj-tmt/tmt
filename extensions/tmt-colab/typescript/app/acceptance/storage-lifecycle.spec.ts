@@ -188,7 +188,7 @@ test('principals: owner, a second paired device and a read-only link read; a rev
     await panel.getByRole('button', { name: text.filesAdd, exact: true }).click();
     await expect(panel.getByTestId('file-row')).toHaveCount(1, { timeout: 30_000 });
 
-    await expect(panel.getByText(text.filesAdding)).toHaveCount(0, { timeout: 30_000 });
+    await expect(panel.locator('button[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
     await captureResponsive(first, 'files');
     // The capture restored desktop width; wait for the media-query subscriber before
     // pageAction chooses between the compact More menu and Source and export.

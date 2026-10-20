@@ -76,6 +76,15 @@ export function finishStatusNotice() {
 }
 /** The next status action fails before it is published, like a lost connection. */
 let sourceSaves = 0;
+/** The next Source save waits for `releaseEdit`, as a slow Save does. */
+let editGate: { held?: Promise<void>; release?(): void } = {};
+export function holdEdit() {
+  editGate.held = new Promise<void>((resolve) => (editGate.release = resolve));
+}
+export function releaseEdit() {
+  editGate.release?.();
+  editGate = {};
+}
 let pageLoads = 0;
 /** Page snapshots the route or a reopen asked the transport for. */
 export function pageLoadCount() {
@@ -773,6 +782,7 @@ export async function mount(
     },
     async edit() {
       sourceSaves++;
+      await editGate.held;
       return { merged: false };
     },
     async export() {

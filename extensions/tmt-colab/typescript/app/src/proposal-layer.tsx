@@ -154,7 +154,8 @@ export function useProposalLayer({
             : undefined
         }
         detached={detached}
-        disabled={discussionBlocked || proposalSending || !snapshot.binding?.discussion}
+        sending={proposalSending}
+        disabled={discussionBlocked || !snapshot.binding?.discussion}
         canDecide={!!status?.controllable && !!snapshot.binding?.discussion?.decideProposal}
         decide={(decision) => void proposalActions.decide(id, decision)}
         followUp={() => followUpProposal(thread, location)}

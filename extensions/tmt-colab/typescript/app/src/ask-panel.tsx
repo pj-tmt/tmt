@@ -1,8 +1,8 @@
 import { AgentActivityLine } from './components/agent-activity.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
 import type { AnswerBatchContext, CommentContext } from './thread-store.js';
-import { BrowserIconAction } from '@tmt/browser-ui/react';
-import { CircleAlert, Clock, Pause, RotateCw } from 'lucide-react';
+import { BrowserIconAction, useBusyMark } from '@tmt/browser-ui/react';
+import { CircleAlert, Clock, LoaderCircle, Pause, RotateCw } from 'lucide-react';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { sameMessageIds, type LedgerState } from './ask-records.js';
@@ -81,6 +81,17 @@ const refusals: Record<string, string> = {
   REMOTE_STATE_UNAVAILABLE: text.askStateUnavailable,
   REMOTE_CORE_UNAVAILABLE: text.askCoreUnavailable,
 };
+
+/** A dispatching ask is a sent message in flight: its mark has no words and follows the shared
+ * busy-mark delay, as a sent message's does, so a fast dispatch changes nothing visible. */
+function DispatchingMark() {
+  const marked = useBusyMark(true);
+  return (
+    <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
+      <LoaderCircle />
+    </span>
+  );
+}
 
 /** Only admitted sync records enter this view. Responses to Send/retry/abandon
  * never create a page row or reply; the signed own stream remains its owner. */
@@ -221,7 +232,7 @@ export function AskPanel({
             {record.state === 'accepted' && !record.resultUnavailable ? (
               <AgentActivityLine record={record} />
             ) : record.state === 'dispatching' ? (
-              text.agentSending
+              <DispatchingMark />
             ) : (
               <>
                 {records.length > 1 && !waitingForAgent

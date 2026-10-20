@@ -191,7 +191,10 @@ test('a lost reply is settled by one status request and the save lands exactly o
     expect(dropped).toBe(1);
     // Exactly one status request, and the save itself is never sent a second time.
     await expect.poll(() => sent).toEqual(['save', 'savestatus']);
-    await expect(page.getByRole('button', { name: text.saving, exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: text.save, exact: true })).not.toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
     const page2 = JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])) as {
       source: string;
     };
