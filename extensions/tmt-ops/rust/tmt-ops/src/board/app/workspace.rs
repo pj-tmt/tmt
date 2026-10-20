@@ -1102,6 +1102,31 @@ impl App {
             return Effect::None;
         }
         self.workspace.filter = filter;
+        // The flat list has no squad rows: a selected squad hands over to its
+        // lead, else to its first agent, else to the first row.
+        if self.flat_agents()
+            && let Some(OpsTarget::Squad(room)) = self.workspace.selected.clone()
+        {
+            let lead = self.workspace_snapshot().and_then(|snapshot| {
+                snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| squad.room_id == room)
+                    .and_then(|squad| squad.lead.clone())
+            });
+            let rows = self.workspace_rows();
+            let member_of = |lead: Option<&String>| {
+                rows.iter().find(|row| {
+                    matches!(&row.target, OpsTarget::Member { room_id, identity_id }
+                        if room_id.as_ref() == Some(&room)
+                            && lead.is_none_or(|lead| lead == identity_id))
+                })
+            };
+            if let Some(row) = member_of(lead.as_ref()).or_else(|| member_of(None)) {
+                self.workspace.selected = Some(row.target.clone());
+            }
+        }
         self.workspace_reconcile();
         self.invalidate_frame_geometry();
         self.follow = true;

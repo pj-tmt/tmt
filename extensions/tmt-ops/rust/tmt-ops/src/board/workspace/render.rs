@@ -171,7 +171,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     id: Boundary::AgentsUsage,
                     hit: Rect::new(
                         area.x,
-                        usage.bottom() + 2,
+                        usage.bottom(),
                         placement.list.map_or(0, |list| list.width),
                         1,
                     ),
@@ -593,7 +593,13 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
             let (matched, total) = app
                 .workspace
                 .search_counts(&snapshot.roster, &snapshot.preferences);
-            format!("{matched} of {total}")
+            // A partial observation counts approximately, as the shell counts do.
+            let mark = if snapshot.roster.observation == super::OpsObservation::Complete {
+                ""
+            } else {
+                "~"
+            };
+            format!("{mark}{matched} of {mark}{total}")
         });
     for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),

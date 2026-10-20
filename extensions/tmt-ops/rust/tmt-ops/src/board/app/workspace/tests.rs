@@ -4388,7 +4388,10 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         .iter()
         .find(|line| line.contains("/  worker"))
         .expect("shared search field");
-    assert!(filter.starts_with("── "), "the controls sit on the section rule: {filter}");
+    assert!(
+        filter.starts_with("── "),
+        "the controls sit on the section rule: {filter}"
+    );
     assert!(
         filter.contains("1 of 1") && filter.contains('×'),
         "{filter}"

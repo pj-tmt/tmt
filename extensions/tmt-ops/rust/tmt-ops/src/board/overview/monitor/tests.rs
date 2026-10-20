@@ -108,7 +108,8 @@ fn agents_use_available_height_before_reporting_overflow() {
                 .iter()
                 .position(|line| line.starts_with(" ↓ "))
                 .unwrap();
-            assert_eq!(indicator, usize::from(height - 2));
+            // Two footer rows follow the list.
+            assert_eq!(indicator, usize::from(height - 3));
             assert!(
                 lines[usize::from(rows[0].y)..indicator]
                     .iter()
@@ -140,13 +141,13 @@ fn agents_omit_the_waiting_note_when_none_are_waiting() {
             row.iter()
                 .map(|cell| cell.symbol())
                 .collect::<String>()
-                .starts_with("── Agents ")
+                .contains("3 agents")
         })
         .unwrap()
         .iter()
         .map(|cell| cell.symbol())
         .collect();
-    assert!(line.ends_with("3 agents ──"));
+    assert!(line.trim_end().ends_with("3 agents"));
     assert!(!line.contains("waiting first") && !line.contains('◆'));
 }
 
@@ -156,11 +157,8 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
     let mut app = board();
     for view in [AgentsFilter::All, AgentsFilter::Agents] {
         app.workspace.filter = view;
-        let expected = if view == AgentsFilter::All {
-            ["1 of 1", "0 of 1"]
-        } else {
-            ["1 of 3", "0 of 3"]
-        };
+        // Both views count agents against the admitted total.
+        let expected = ["1 of 3", "0 of 3"];
         for (query, expected) in ["worker", "no-such-agent"].into_iter().zip(expected) {
             app.search = query.into();
             app.overview_rows.borrow_mut().clear();
@@ -184,6 +182,12 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
             assert!(!lines[filter + 2].contains("waiting first"));
         }
     }
+}
+/// The squads tree with its first squad selected, as the Squads chip leaves it for a squad.
+fn select_squad(app: &mut App) {
+    app.agents_filter(AgentsFilter::All);
+    app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
+    app.workspace_reconcile();
 }
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
@@ -501,7 +505,7 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
     let mut app = board();
     app.agents_filter(crate::board::workspace::AgentsFilter::All);
     let squads = text(&paint(&mut app, 103, 51));
-    for required in ["Squads", "TEAM", "TOK 1h", "NOW", "/  Search", "f view"] {
+    for required in ["Squads", "SQUAD / AGENT", "TOK 1h", "MODEL", "/  Search"] {
         assert!(squads.contains(required), "{required}");
     }
     app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
@@ -646,7 +650,7 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
 #[test]
 fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
     let mut app = board();
-    app.agents_filter(crate::board::workspace::AgentsFilter::All);
+    select_squad(&mut app);
     assert!(matches!(app.workspace.selected, Some(OpsTarget::Squad(_))));
     press(&mut app, KeyCode::Char('f'));
     assert_eq!(app.workspace.filter, AgentsFilter::Agents);
@@ -700,7 +704,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
 #[test]
 fn squad_message_target_is_only_its_current_observed_lead() {
     let mut app = board();
-    app.agents_filter(crate::board::workspace::AgentsFilter::All);
+    select_squad(&mut app);
     assert!(
         app.workspace_message_target().is_none(),
         "no lead means no recipient"
@@ -772,7 +776,11 @@ fn hidden_empty_lists_are_filtered_and_missing_sources_never_claim_a_fresh_empty
     app.overview_rows.borrow_mut().clear();
     app.agents_filter(crate::board::workspace::AgentsFilter::All);
     let squads = text(&paint(&mut app, 103, 51));
-    assert!(squads.contains("No matching squads"));
+    // The hidden squad leaves the tree; the common pool stays.
+    assert!(
+        !squads.contains("product") && squads.contains("Common pool"),
+        "{squads}"
+    );
     assert!(!squads.contains("No squads yet."));
     app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
     assert!(text(&paint(&mut app, 103, 51)).contains("No matching agents"));
@@ -798,7 +806,7 @@ fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
     app.workspace_reconcile();
     app.agents_filter(crate::board::workspace::AgentsFilter::All);
     let squads = text(&paint(&mut app, 103, 51));
-    assert!(squads.contains("1 of 8"), "{squads}");
+    assert!(squads.contains("4 of 28"), "{squads}");
     app.search = "agent-00000".into();
     app.workspace_reconcile();
     app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
