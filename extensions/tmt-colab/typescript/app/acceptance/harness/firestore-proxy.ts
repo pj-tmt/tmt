@@ -13,10 +13,10 @@ interface Reply {
   body: Buffer;
 }
 
-/** Finite demo-emulator REST traffic never shares a keep-alive socket with Listen polling. */
-export function finiteFirestore(input: Input): Promise<Reply> {
+/** Finite fixture HTTP responses use fresh connections, separate from pooled or long-poll traffic. */
+export function finiteLoopbackResponse(input: Input): Promise<Reply> {
   if (input.url.protocol !== 'http:' || input.url.hostname !== '127.0.0.1')
-    return Promise.reject(new Error('finite Firestore proxy requires the loopback emulator'));
+    return Promise.reject(new Error('finite proxy requires a loopback HTTP server'));
   return new Promise((resolve, reject) => {
     const request = http.request(
       input.url,
