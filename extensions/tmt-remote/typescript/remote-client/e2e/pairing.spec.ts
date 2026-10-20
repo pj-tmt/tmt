@@ -4765,6 +4765,8 @@ test('legacy pair redirect retains the auto fragment and erases it before every 
       'results.read',
       'status.read',
     ]);
+    // Join the initial-resource observation before history navigation replaces its document.
+    await page.unrouteAll({ behavior: 'wait' });
     await page.goBack();
     expect(page.url()).not.toContain('#');
     await page.goForward();
