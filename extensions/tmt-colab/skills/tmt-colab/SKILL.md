@@ -140,12 +140,7 @@ request with the incoming command from the wake notice, for example:
 tmt x show REQUEST --incoming --identity YOUR_IDENTITY --json
 ```
 
-Read [links](references/links.md) (`tmt colab skill links`) for page links and ID resolution.
-
-In authored HTML, use plain `a[href]` links to `/p/PAGE_PREFIX` (optionally `#element-id`) or an
-outside HTTPS URL. The app owns activation: same-space links open in-app, outside links show their
-full URL for confirmation, and same-page fragments scroll locally. Direct scripted frame navigation
-still stops the preview. See [components](references/components.md) for the markup.
+Read [links](references/links.md) (`tmt colab skill links`) and [HTML links](references/components.md#links).
 
 Sharing/deletion require `--yes`; keep full IDs and frozen operation/revision
 values for explicit retries.

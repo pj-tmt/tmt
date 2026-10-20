@@ -630,11 +630,6 @@ Hosted links reuse Remote's SDK, joined interests and Colab admission/own sealin
   network. Everything the frame reports is a cosmetic claim; only parent controls admit
   discussion or sends, and highlights carry only IDs, quote selectors and bounded paint ordinals, never bodies or labels.
   This contains author code; page self-navigation can still leak a request. Theme projection and the cosmetic port are in [page-chrome](.agents/skills/tmt-colab/references/page-chrome.md).
-  Link activation is a bounded parent-owned exception: current-render requests remain untrusted;
-  same-space navigation requires recent browser user activation or trusted confirmation, and outside
-  URLs always require confirmation with the full frozen URL. No frame privilege or network policy
-  is widened; [the renderer contract](extensions/tmt-colab/contracts/colab-v1.md#renderer-and-live-anchors)
-  owns the admission and disclosure rules.
 - **Attachments.** [Grammar](extensions/tmt-colab/contracts/attachment-v1.md) and [staging](extensions/tmt-colab/contracts/colab-v1.md#native-attach-command-2291) use crypto, authenticated cuts, fold metadata and Saves.
   The mount-owned object adapter joins generation-scoped callbacks, original uploads, committed reads and detached history; root-local reads need an established channel.
   Remote owns backend/quota/origin; Colab owns crypto/admission. Remote declares Colab Local; snapshot/retained-reference persistence (#2299) remains planned in the [storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md).
