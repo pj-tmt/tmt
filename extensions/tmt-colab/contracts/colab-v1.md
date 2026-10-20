@@ -1836,20 +1836,28 @@ anything is pruned.
   the caller's deadline; streams not reached are counted and the next run continues. A fold is
   published only after the source-equality guard above, once per run for all of its folds. A stream is
   left as it is, and named with its reason in the report, when it is a bridge, link or commenter
-  device or has no admitted owner chain (`not-owner-device`); when it is a device this machine
-  publishes, on a page the cloud publisher has started (`published`, below); when its merge would
-  exceed one object (`too-large`); or when its changes did not merge into exactly the same page
-  (`refused`). The writer treats a page as published when it has any cloud publication or cloud page
-  row, because the publisher's per-page state cannot be read reliably. The report gains `folded`
-  (each `{stream, through, mergedObjects}`), `left` (each `{stream, why}`) and `unfolded` (a count);
-  the keys are absent when empty.
-- **Cloud.** The cloud channel carries no anchor, so a cloud reader would refuse a stream whose
-  checkpoint is a fold. The cloud publisher therefore never starts from one: a page whose next
-  checkpoint to publish is a fold stops with a visible line that names the command and the way out
-  (update Colab when a release adds combined changes, then restart it), and edits continue locally.
-  This holds for a page that was never published, compacted, and then activated.
-  [#4049](https://github.com/pj-tmt/tmt/issues/4049) lifts the stop by carrying the anchor. User
-  text never carries the issue number.
+  device or has no admitted owner chain (`not-owner-device`); when its merge would exceed one
+  object (`too-large`); or when its changes did not merge into exactly the same page (`refused`).
+  The report gains `folded` (each `{stream, through, mergedObjects}`), `left` (each `{stream, why}`)
+  and `unfolded` (a count); the keys are absent when empty.
+- **Cloud.** The publisher creates the exact signed anchor as a `log` document at the covered
+  stream's original sequence, before the paired namespace folds in `checkpoints` chunks. The
+  document's `uid` names the authenticated publisher, not the signing device. Existing Rules
+  check identity, shape and continuity (the space owner can bootstrap the anchor without its
+  predecessor); readers independently verify authority and signatures. The signer and covered
+  device's chains precede the objects, even when the signer has no data stream to publish.
+  The chosen fold batch carries its signer proofs, so a concurrent newer fold cannot substitute them.
+  Publication advances only after the anchor and both complete namespace originals are confirmed;
+  an uncertain result is reconciled by exact ID, never by resealing or choosing different bytes.
+  The hosted reader validates complete chunks and their object IDs, admits the anchor-only frame,
+  then the fold pair under the covered stream, then its contiguous n+1 tail. It applies nothing
+  from the anchor. Missing or invalid anchors, chains or pairs refuse without applying their data.
+  Existing discovery supplies the anchor on first load; a newly discovered fold on a later wake
+  can use a bounded, budget-charged exact-ID log read. Neither Rules nor declaration changes.
+  Native cloud inbound still has no verified checkpoint bootstrap, for ordinary checkpoints or
+  folds ([#4113](https://github.com/pj-tmt/tmt/issues/4113)); a pruned prefix stops that writer
+  visibly rather than applying a partial prefix, directing the reader to keep editing on the
+  machine that created the page. This limit does not prevent publication or a hosted reader opening it.
 
 Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
 admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer

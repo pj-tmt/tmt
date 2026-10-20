@@ -131,10 +131,11 @@ impl Puller {
             let head = inbound.head(page, stream)?;
             let originals = match self.reader.tail(page, stream, head)? {
                 Tail::CatchUpRequired => {
+                    // Native checkpoint bootstrap is deferred to #4113.
                     self.stopped.insert(key);
                     report(&super::writer_line(
                         &page.page,
-                        "it is too far behind; open a fresh copy of the page to catch up.",
+                        "this machine cannot open this page's cloud copy yet. Keep editing it on the machine that created it.",
                     ));
                     continue;
                 }

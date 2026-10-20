@@ -28,7 +28,7 @@ pub fn command() -> Command {
             note: "Combine the changes and report the page's usage before and after",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Merges the changes this device wrote to the page, after its last checkpoints, into new checkpoints, and does the same for the changes of the other devices you own (a browser paired through Remote, another machine's agent), signed by this device, then drops the merged changes, so they stop counting against the most a page keeps (200 changes, 4 MiB). Through serve when running, or under its lifecycle lock when stopped. The page's source is the same before and after, or nothing is written; running it again finds nothing to combine. A run combines a bounded number of devices; when it names devices it did not reach, run it again. Changes it cannot combine stay as they are and the result names the device and why: a bridge, link or commenter device can only combine its own, and a device this machine publishes to the cloud is left until cloud sync can carry combined changes. The merged changes' per-edit attribution is replaced by the checkpoint, which names the device that signed it and the range it covers. Archived or deleted pages cannot be compacted.",
+        details: "Merges the changes this device wrote to the page, after its last checkpoints, into new checkpoints, and does the same for the changes of the other devices you own (a browser paired through Remote, another machine's agent), signed by this device, then drops the merged changes, so they stop counting against the most a page keeps (200 changes, 4 MiB). Through serve when running, or under its lifecycle lock when stopped. The page's source is the same before and after, or nothing is written; running it again finds nothing to combine. A run combines a bounded number of devices; when it names devices it did not reach, run it again. Changes it cannot combine stay as they are and the result names the device and why: a bridge, link or commenter device can only combine its own. The merged changes' per-edit attribution is replaced by the checkpoint, which names the device that signed it and the range it covers. Archived or deleted pages cannot be compacted.",
     })
     .arg(crate::cli_grammar::page())
 }
@@ -144,9 +144,6 @@ fn why(why: Why) -> &'static str {
     match why {
         Why::NotOwnerDevice => {
             "only that device can combine its own changes (it is a bridge, link or commenter device)"
-        }
-        Why::Published => {
-            "this machine publishes the page to the cloud, and cloud sync cannot carry combined changes yet"
         }
         Why::TooLarge => "its combined changes would be too large for one checkpoint",
         Why::Refused => "combining them would have changed the page, so nothing was written",

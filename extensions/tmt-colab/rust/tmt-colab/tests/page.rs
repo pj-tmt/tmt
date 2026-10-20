@@ -2048,7 +2048,7 @@ fn revoking_the_device_that_signed_a_fold_lists_the_fold_it_signed() {
 }
 
 #[test]
-fn a_device_this_machine_publishes_is_left_alone_only_on_a_page_the_cloud_has_published() {
+fn a_device_this_machine_publishes_can_be_folded_after_publication() {
     let mut f = Fixture::new();
     let mut paired = f.owner_device(FOLDED, 21);
     f.write("old 🐈\r\n<p>local</p>");
@@ -2064,7 +2064,7 @@ fn a_device_this_machine_publishes_is_left_alone_only_on_a_page_the_cloud_has_pu
     // The page has never been published: nothing says the cloud will read it as a fold, so it folds.
     let report = request_compaction(&mut f);
     assert_eq!(report.folded.len(), 1);
-    // After a publication started, a local device's next fold waits, and the report says why.
+    // Publication evidence does not prevent the next fold: its anchor travels to the cloud.
     paired.type_text(&mut f, "[c]");
     f.sql()
         .execute(
@@ -2073,12 +2073,9 @@ fn a_device_this_machine_publishes_is_left_alone_only_on_a_page_the_cloud_has_pu
         )
         .unwrap();
     let report = request_compaction(&mut f);
-    assert!(!report.compacted);
-    assert_eq!(report.skipped, Some(page::compact::Skipped::NotCombined));
-    assert!(report.left.contains(&page::owner_fold::Left {
-        stream: FOLDED.into(),
-        why: page::owner_fold::Why::Published
-    }));
+    assert!(report.compacted);
+    assert_eq!(report.folded.len(), 1);
+    assert!(!report.left.iter().any(|left| left.stream == FOLDED));
     assert!(f.read().source.contains("[c]"));
 }
 

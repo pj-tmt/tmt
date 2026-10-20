@@ -482,17 +482,6 @@ impl OwnerTransaction<'_> {
         }
         Ok(hashes)
     }
-    /// Whether this machine's cloud publisher has started to publish `page`: it tracks a stream of
-    /// it, or the cloud confirmed its owner row. A page with neither may still be published the
-    /// next time it is active, so this is evidence, never a promise.
-    pub(crate) fn publication_evidence(&self, page: &str) -> Result<bool> {
-        Ok(self.tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM cloud_publications WHERE page=?1)
-                 OR EXISTS(SELECT 1 FROM cloud_page_rows WHERE page=?1)",
-            params![page],
-            |r| r.get(0),
-        )?)
-    }
     pub(crate) fn cut_objects(&self, cut: &Cut) -> Result<Vec<StoredObject>> {
         let mut out = Vec::new();
         if cut.checkpoint_seq != 0 {

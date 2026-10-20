@@ -100,7 +100,7 @@ export async function hostedCheckpoint(
 ): Promise<HostedOriginal> {
   const rows = await ordered(documents, 'checkpoints', scope, 513);
   const bytes = pieces(rows);
-  const result = await original(bytes, scope, 'checkpoint');
+  const result = await original(bytes, scope, ['checkpoint', 'fold']);
   requireValue(result.header.objectId === string(rows[0], 'object'));
   return result;
 }
@@ -127,7 +127,11 @@ export async function hostedCheckpointSet(
     orderedRows(rows, 'checkpoints', 513);
     originals.push({
       id,
-      value: await original(pieces(rows), scope, expected ? ['html', 'checkpoint'] : 'checkpoint'),
+      value: await original(
+        pieces(rows),
+        scope,
+        expected ? ['html', 'checkpoint', 'fold'] : ['checkpoint', 'fold'],
+      ),
     });
   }
   // Only the verified descriptor may select a baseline; duplicate originals under aliases refuse.
@@ -142,7 +146,8 @@ export async function hostedCheckpointSet(
   for (const entry of originals) {
     if (entry === matches[0]) continue;
     requireValue(
-      entry.value.header.context.kind === 'checkpoint' && entry.value.header.objectId === entry.id,
+      ['checkpoint', 'fold'].includes(entry.value.header.context.kind) &&
+        entry.value.header.objectId === entry.id,
     );
   }
   return originals.map(({ value }) => value);
@@ -316,7 +321,7 @@ function pieces(rows: readonly Fields[]): Uint8Array {
 async function original(
   bytes: Uint8Array,
   scope: HostedScope,
-  kind: 'update' | 'checkpoint' | readonly ('html' | 'checkpoint')[],
+  kind: 'update' | 'checkpoint' | readonly ('html' | 'checkpoint' | 'fold')[],
 ): Promise<HostedOriginal> {
   const envelope = Envelope.fromJson(bytes),
     header = decodeHeader(envelope.header());

@@ -93,17 +93,27 @@ impl Local for Fake {
                     seq: *seq,
                     hash: *hash,
                 },
-                Confirm::Checkpoint { .. } => unreachable!(),
+                Confirm::Checkpoint {
+                    stream,
+                    seq,
+                    content,
+                    own,
+                } => Confirm::Checkpoint {
+                    stream: stream.clone(),
+                    seq: *seq,
+                    content: *content,
+                    own: *own,
+                },
             },
         });
         self.read();
         Ok(next)
     }
     fn confirm(&mut self, _: &PageRef, confirm: &Confirm) -> Result<(), Fault> {
-        let Confirm::Update { seq, .. } = confirm else {
-            unreachable!()
-        };
-        self.confirmed.push(format!("update-{seq}"));
+        self.confirmed.push(match confirm {
+            Confirm::Update { seq, .. } => format!("update-{seq}"),
+            Confirm::Checkpoint { seq, .. } => format!("checkpoint-{seq}"),
+        });
         self.queue.pop_front();
         Ok(())
     }
@@ -540,4 +550,79 @@ fn a_refused_retirement_other_than_absence_stops_nothing_it_did_not_finish() {
         "and it is retried"
     );
     assert_eq!(local.retired, [LINK]);
+}
+
+#[test]
+fn a_fold_batch_confirms_only_after_anchor_and_both_namespaces_across_restart() {
+    let mut peer = peer();
+    let firestore = Firestore::default();
+    let answer = firestore.clone();
+    let mut lose = true;
+    let _remote = ScriptedRemote::serve(peer.remote.take().unwrap(), move |call, id| {
+        if let sync::Call::Publish {
+            mutation: sync::Mutation::Create { document },
+            ..
+        } = call
+            && document.target.id == "own"
+            && lose
+        {
+            answer.faults.lock().unwrap().unknown_without_store = true;
+            lose = false;
+        }
+        answer.answer(call, id)
+    });
+    let client = peer.channels.client.lock().unwrap().clone().unwrap();
+    let mut publisher = Publisher::new(client.clone(), BINDING.into());
+    let mut local = Fake {
+        queue: VecDeque::from([Data {
+            documents: vec![
+                document("log", "anchor", &[("seq", "2")]),
+                document("checkpoints", "content", &[("seq", "1")]),
+                document("checkpoints", "own", &[("seq", "1")]),
+            ],
+            confirm: Confirm::Checkpoint {
+                stream: "w".into(),
+                seq: 2,
+                content: [1; 32],
+                own: [2; 32],
+            },
+        }]),
+        ..Fake::default()
+    };
+    assert_eq!(publisher.pass(&mut local, &page()), Err(Fault::Retry));
+    assert!(local.confirmed.is_empty());
+    for (resource, id) in [("log", "anchor"), ("checkpoints", "content")] {
+        assert!(
+            firestore
+                .docs
+                .lock()
+                .unwrap()
+                .contains_key(&(resource.into(), id.into()))
+        );
+    }
+    assert!(
+        !firestore
+            .docs
+            .lock()
+            .unwrap()
+            .contains_key(&("checkpoints".into(), "own".into()))
+    );
+    let mut restarted = Publisher::new(client, BINDING.into());
+    assert_eq!(restarted.pass(&mut local, &page()), Ok(false));
+    assert_eq!(local.confirmed, ["checkpoint-2"]);
+    assert!(local.queue.is_empty());
+    let creates: Vec<_> = firestore
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(kind, _, _)| *kind == "create")
+        .map(|(_, resource, id)| (resource.clone(), id.clone()))
+        .collect();
+    let batch = vec![
+        ("log".to_string(), "anchor".to_string()),
+        ("checkpoints".into(), "content".into()),
+        ("checkpoints".into(), "own".into()),
+    ];
+    assert_eq!(creates, [batch.clone(), batch].concat());
 }
