@@ -13,7 +13,7 @@ fn t_switches_between_talk_and_measure_and_measure_shows_the_lower_modules() {
     app.shell.tab = OpsTab::Agents;
     assert_eq!(app.right_tab, RightTab::Talk);
     let talk = paint(&app, 160, 40).join("\n");
-    assert!(!talk.contains("Who talks to whom"), "{talk}");
+    assert!(!talk.contains("Digest by agent"), "{talk}");
     assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
     assert_eq!(app.right_tab, RightTab::Measure);
     let measure = paint(&app, 160, 40).join("\n");

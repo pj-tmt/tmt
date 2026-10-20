@@ -5,9 +5,7 @@ use crate::board::{
 };
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
-use tmt_tui::components::strip;
 
-const CELLS: u16 = 2;
 const DIGEST_ROWS: u16 = 5;
 
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
@@ -95,7 +93,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             squad,
         );
         y += 1;
-    } else if bottom.saturating_sub(y) >= CELLS && area.width >= 40 {
+    } else if bottom.saturating_sub(y) >= crate::board::stat_tiles::ROWS && area.width >= 40 {
         let tokens = match selected_squad {
             Some(squad) => app.overview_squad_usage(squad),
             None => snapshot
@@ -123,31 +121,40 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             },
         );
         let summary = &scene.summary;
-        let cells = [
-            ("TOK 1h", tokens),
-            (
-                "STATE",
-                format!("{} working · {} wait", summary.working, summary.needs_you),
-            ),
-            ("DIGEST", digest::rows(app, summary)[2].key.clone()),
-            ("TIMERS", format!("{} jobs", timers.total())),
+        // The same tile row as an agent's cells.
+        let text = |value: String| Line::styled(value, look.role(Role::Text));
+        let tiles = [
+            crate::board::stat_tiles::Tile {
+                label: "TOK 1h",
+                value: text(tokens),
+                detail: Line::default(),
+            },
+            crate::board::stat_tiles::Tile {
+                label: "STATE",
+                value: text(format!(
+                    "{} working · {} wait",
+                    summary.working, summary.needs_you
+                )),
+                detail: Line::default(),
+            },
+            crate::board::stat_tiles::Tile {
+                label: "DIGEST",
+                value: text(digest::rows(app, summary)[2].key.clone()),
+                detail: Line::default(),
+            },
+            crate::board::stat_tiles::Tile {
+                label: "TIMERS",
+                value: text(format!("{} jobs", timers.total())),
+                detail: Line::default(),
+            },
         ];
-        let width = area.width / cells.len() as u16;
-        for (index, (label, value)) in cells.iter().enumerate() {
-            let x = area.x + index as u16 * width;
-            let slot = |row: u16| Rect::new(x, y + row, width.saturating_sub(1), 1);
-            strip::paint_left(
-                frame.buffer_mut(),
-                slot(0),
-                Line::styled(*label, look.role(Role::Muted)),
-            );
-            strip::paint_left(
-                frame.buffer_mut(),
-                slot(1),
-                Line::styled(value.clone(), look.role(Role::Text)),
-            );
-        }
-        y += CELLS + 1;
+        crate::board::stat_tiles::paint(
+            frame.buffer_mut(),
+            Rect::new(area.x, y, area.width, crate::board::stat_tiles::ROWS),
+            &tiles,
+            look,
+        );
+        y += crate::board::stat_tiles::ROWS + 1;
     }
     // Timers: the three soonest, `c` opens all of them.
     if bottom.saturating_sub(y) >= timers.height as u16 {
@@ -178,7 +185,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         }
         y += DIGEST_ROWS + 2;
     }
-    // Who talks to whom (#4016 keeps the matrix rules) takes what is left.
+    // The Digest table by agent takes what is left; #4016 adds the real matrix later.
     if bottom.saturating_sub(y) >= 8 {
         let height = bottom.saturating_sub(y + 1);
         let matrix = matrix::Matrix::project(app, height);
@@ -191,7 +198,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         rule(
             frame,
             y,
-            "Who talks to whom",
+            "Digest by agent",
             Line::styled(
                 if drawn {
                     matrix.note
