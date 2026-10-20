@@ -6,9 +6,13 @@
    The `!important` declarations sit in a layer declared before any author style, so an author's
    `!important` cannot win. Colours, type and the layout inside a block stay the author's.
    A block is an element child of <body> that the frame did not add itself.
-   Numbers: column 1280 px, gutter 16 px, gap 16 px (tight 8, loose 40). */
+   Numbers: column 1280 px, gutter 16 px, gap 16 px (tight 8, loose 40). The column and the gutter are
+   the two custom properties below: the rules here and the renderer's chip placement (renderer.html
+   reads them from the frame's root) take them from this one place. */
 @layer colab-frame {
   html:is([data-colab-layout='column'], [data-colab-layout='full']) {
+    --colab-column: 1280px !important;
+    --colab-gutter: 16px !important;
     margin-inline: 0 !important;
     padding-inline: 0 !important;
     border-inline: 0 !important;
@@ -46,7 +50,7 @@
         box-sizing: border-box !important;
         flex: none !important;
         align-self: center !important;
-        width: min(1280px, 100% - 32px) !important;
+        width: min(var(--colab-column), 100% - 2 * var(--colab-gutter)) !important;
         min-width: 0 !important;
         max-width: none !important;
         margin: 0 !important;
@@ -55,7 +59,7 @@
         &[data-width='full'] {
           align-self: stretch !important;
           width: auto !important;
-          padding-inline: max(16px, (100% - 1280px) / 2) !important;
+          padding-inline: max(var(--colab-gutter), (100% - var(--colab-column)) / 2) !important;
           border-inline: 0 !important;
         }
 
