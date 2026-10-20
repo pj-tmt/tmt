@@ -1018,6 +1018,26 @@
           "tests": ["typescript/test/tooling/release-mode.test.ts"]
         }
       ]
+    },
+    "4098": {
+      "release": {
+        "workflow": "release.yml",
+        "job": "cut",
+        "step": "name:Draft immutable source cuts and dispatch their native gates"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/release-cut-live.test.ts"]
+        }
+      ]
     }
   }
 }

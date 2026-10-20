@@ -91,5 +91,7 @@ export function planReleaseCuts(input: {
   date?: string;
   /** Owner-dispatched product versions; native publication authorization remains independent. */
   versions?: Record<string, string>;
+  /** Revalidate one product using the full captured metadata and unchanged planner logic. */
+  product?: string;
 }): Promise<CutPlan>;
 export function renderCutSummary(plan: CutPlan): string;

@@ -183,8 +183,9 @@ catalog acquisition, draft creation and native dispatch. Capture main and one
 consistent complete catalogue once, export the tracked tree, fetch locked dependencies
 with the pinned acquisition toolchain, then read the map and offline Cargo graph at
 that cut. The workflow's single-flight `release-cut` concurrency group serializes
-allocators. Replanning uses the captured view plus returned draft creations; no
-per-row catalogue read occurs. An exact-ID read still verifies each created draft's
+allocators. One full initial plan is followed by current-product revalidation against
+the captured view plus returned draft creations; the original proposal must match
+exactly. No per-row catalogue read occurs. An exact-ID read still verifies each created draft's
 persisted identity, target and body before dispatch. Incomplete metadata or history
 fails closed. First releases need a map-owned reviewed bootstrap boundary and seed. Cut, injection and Project evidence share native policy's component-to-product mapping. Notes link exactly the releasable first-parent commits in the published
 ancestor range through the shared component attribution (a non-conventional subject on a
@@ -194,7 +195,24 @@ are developer dependencies, not runtime owners.
 
 The cut remains O(P): a quiet P-page read costs P+2 requests, with three attempts
 sharing 60 requests / 90 seconds and a maximum of 58 pages (5,800 releases).
-The live coordinator retains its separate 180-request / 180-second shared budget.
+The live coordinator shares 180 requests / 360 seconds, reserving the last three
+reads / 30 seconds for dispatch reconciliation (normal work stops at 177 calls /
+330 seconds). MEASURED in #4098: 67 seconds to the first draft, then 29/28/28/27
+seconds between drafts; total step wall 181 seconds. MODELED six-row provision:
+67 + 6×28 = 235 seconds, plus 95 seconds margin and 30 seconds read-back reserve.
+These are sizing inputs, not measured planner time or a demonstrated speedup.
+Structured stderr lines report command/phase durations and every row outcome; no
+wall-time saving is claimed until a real cut emits those timings. Create and
+dispatch are never retried inside the cut. A dispatch transport timeout or HTTP
+5xx remains uncertain: bounded GETs must prove the unchanged exact draft and
+exactly one native workflow-dispatch run on main for that tag created between
+the POST start floored to the second and the run read; creation may finish after
+the client aborts, and GitHub timestamps have whole-second precision. Reconciled
+uncertainty records the run ID and exits zero; missing, ambiguous, truncated or
+changed evidence exits nonzero for owner-authorized recovery, preserving the
+draft. The shared three-read reserve covers one full reconciliation (draft and
+run listing) plus one read; after those two reads, a second uncertain dispatch
+stays unreconciled and exits nonzero.
 **File the allocation-index work before the catalogue reaches 3,000 releases.**
 No recent-window truncation is safe yet: old held/tagless drafts still reserve
 versions. A future early-terminating scan must prove equivalence for allocated

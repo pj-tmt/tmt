@@ -287,6 +287,63 @@ function planningFixture() {
   return { metadata, git, map, date: '2026-10-03' };
 }
 describe('immutable plans and independent cuts', () => {
+  it.each(['normal', 'held-tagless', 'failed', 'non-main', 'explicit-version', 'predecessor'])(
+    '#4098 current-product plan equals full re-plan for %s',
+    async (control) => {
+      const f = planningFixture();
+      if (control === 'held-tagless' || control === 'failed' || control === 'non-main') {
+        f.metadata.releases!.push({
+          tag_name: 'v5.0.0-alpha.900',
+          draft: true,
+          target_commitish: sha(control === 'non-main' ? 9 : 0),
+          assets: [
+            { name: control === 'failed' ? 'verification-failed.json' : 'publication-held.json' },
+          ],
+        });
+      }
+      if (control === 'non-main') {
+        const original = f.git.getMockImplementation()!;
+        f.git.mockImplementation((args) => {
+          if (args[0] === 'merge-base' && args[2] === sha(9))
+            throw new Error('non-main', { cause: { status: 1 } });
+          return original(args);
+        });
+      }
+      if (control === 'predecessor') {
+        f.map = parseComponentMap(
+          JSON.stringify({
+            components: { ...definitions, ops: { ...definitions.ops, predecessor: 'squad' } },
+          })
+        );
+        f.metadata.releases = f.metadata.releases!.filter(
+          (r) => !r.tag_name.startsWith('tmt-ops-')
+        );
+        f.metadata.releases.push({ tag_name: 'tmt-squad-v0.1.0-alpha.17', draft: false });
+      }
+      const versions: Record<string, string> =
+        control === 'explicit-version' ? { cli: '5.0.0-alpha.901' } : {};
+      const full = await planReleaseCuts({ ...f, versions });
+      for (const row of full.components) {
+        const selected = await planReleaseCuts({ ...f, versions, product: row.product });
+        expect(selected).toEqual({ ...full, components: [row] }); // Entire row: proposals, notes, declarations, versions and outcome.
+        expect(selected.components).toHaveLength(1);
+      }
+      // A prior returned allocation in another product must preserve the same next-row result.
+      const own = full.components.find((r) => r.product === 'cli');
+      if (own?.tag)
+        f.metadata.releases!.push({
+          tag_name: own.tag,
+          draft: true,
+          target_commitish: f.metadata.cut,
+        });
+      const updated = await planReleaseCuts({ ...f, versions });
+      expect(await planReleaseCuts({ ...f, versions, product: 'ops' })).toEqual({
+        ...updated,
+        components: updated.components.filter((r) => r.product === 'ops'),
+      });
+    }
+  );
+
   it('accepts an owner-selected advancing stable/core version without authorizing publication', async () => {
     const fixture = planningFixture();
     for (const version of ['5.0.0', '5.1.0-alpha.0', '6.0.0']) {
