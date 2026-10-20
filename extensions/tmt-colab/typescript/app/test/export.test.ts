@@ -73,6 +73,27 @@ it('exports a shell as canonical shell.json with its type, without a fabricated 
   expect(() => bundle.blob('page.html')).toThrow();
 });
 
+it('exports a page with work as work.json right after its HTML, byte for byte like native', async () => {
+  const bundle = await prepareExport({ ...input(), work: structuredClone(fixture.work) });
+  expect(bundle.files.map(({ name }) => name).slice(0, 4)).toEqual([
+    'page.html',
+    'work.json',
+    'conversations.json',
+    'conversations.md',
+  ]);
+  const work = await bytes(bundle.blob('work.json'));
+  const manifest = await bytes(bundle.blob('manifest.json'));
+  expect(work).toEqual(utf8(fixture.workJson));
+  expect(manifest).toEqual(utf8(fixture.manifestWorkUtf8));
+  expect(sha(manifest)).toBe(fixture.manifestWorkSha256);
+  expect(bundle.files[1]).toEqual({ name: 'work.json', sizeBytes: work.length, sha256: sha(work) });
+  // The input is copied before any await: a later change to it cannot alter the bundle.
+  const view = { ...input(), work: structuredClone(fixture.work) };
+  const pending = prepareExport(view);
+  view.work.tasks['T-1'].title = 'Changed after the call';
+  expect(await bytes((await pending).blob('work.json'))).toEqual(utf8(fixture.workJson));
+});
+
 it('matches the shared native bundle byte for byte, including exact order and large decimals', async () => {
   const bundle = await prepareExport(input());
   const html = await bytes(bundle.blob('page.html'));

@@ -2574,10 +2574,34 @@ Derived values are computed from the tasks and never stored or edited. The stage
 `discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
 is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
 once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser
-folds the value and validates it and shows nothing new; the work-in-progress limit, the
-`tmt colab task` and `tmt colab summary` commands and the list columns follow in the next change.
-Page export does not include work yet. Native and browser consume the shared `work-v1.json`
-vectors.
+folds the value and validates it and shows nothing new. Page export includes it as `work.json`
+(see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
+`work-v1.json` vectors.
+
+`tmt colab task ls|add|set|state|assign|rm PAGE ...` and `tmt colab summary set|clear PAGE` run
+the actions above, one command per action, and never open a browser. A write applies to the
+revision it just read, or to `--expected-revision`; `task add` returns the new `taskId`. `task ls
+--json` returns `{spaceId,pageId,title,work,derived,epoch,membershipHead,revision}`; a page with no
+work returns the empty value. A shell page is refused with `COLAB_INPUT_INVALID`. `tmt colab ls`
+shows `work` (`stage`, `done`, `total`, `working`, `signoff`) on each page that has work, and one
+line under its row.
+
+An agent _holds_ a task while it is assigned to that agent (`assignee.kind` `agent`, by name) and the
+task is `todo` or `in-progress`. The work-in-progress limit bounds the tasks an agent holds across
+every non-archived page of the space: 1 by default, `tmt colab settings wip-limit N` for the space
+and `wip-limit AGENT N|default` for one agent, stored in `settings.json` as
+`{"wip":{"default":N,"agents":{NAME:N}}}` with N from 1 to 1000. It is an admission rule of the
+write command, not a rule of the stored value. The command refuses a change that adds a held task
+(`task.add` or `task.assign` to an agent, or `task.state` moving an assigned agent's task into `todo`
+or `in-progress`) when the agent would then hold more than its limit, as `COLAB_WIP_LIMIT`
+naming the agent and every task it would hold, with nothing written. Every other change is
+admitted, so lowering the limit, a write from another device or a person's tasks never invalidate
+published state or block finishing, unassigning or removing a task. The count reads each page's work
+through a derived file keyed by the page's own progress (`work-index.json` beside the settings: the
+epoch and the content counts, not the membership head, so another page's creation or sharing
+refolds nothing), which holds nothing the pages do not and may be deleted; a revocation alone can
+leave an entry stale until the page's next write. Two commands racing on different pages may
+both be admitted: the limit is a working agreement, not a lock.
 
 ### Answer blocks
 
@@ -5472,29 +5496,32 @@ claim of globally current membership.
 
 For a [shell page](#shell-pages-3648), `shell.json` replaces `page.html` and
 contains the canonical shell value, including summary attribution. The manifest
-also carries `pageType:"shell"`; ordinary HTML exports omit it. All other
-snapshot, privacy, file-publication and failure rules are unchanged.
+also carries `pageType:"shell"`; ordinary HTML exports omit it. An ordinary page
+that has [work](#work-4050) also exports `work.json` right after `page.html`: the
+canonical `meta.work` value (sorted ASCII keys, compact separators, raw UTF-8), so
+a copy never loses its tasks or summary; a page without work has no such file.
+All other snapshot, privacy, file-publication and failure rules are unchanged.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field               | Value / meaning                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`            | `tmt-colab-page-export`                                                                                                                 |
-| `version`           | JSON integer `1`                                                                                                                        |
-| `spaceId`           | Pinned space ID                                                                                                                         |
-| `pageId`            | Exported page UUID                                                                                                                      |
-| `title`             | Exact admitted title                                                                                                                    |
-| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                           |
-| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                     |
-| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                       |
-| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                        |
-| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                           |
-| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                    |
-| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                               |
-| `plaintext`         | `true`                                                                                                                                  |
-| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                   |
-| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                       |
-| `files`             | `page.html` (or `shell.json`), `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                                                                                     |
+| `version`           | JSON integer `1`                                                                                                                                                            |
+| `spaceId`           | Pinned space ID                                                                                                                                                             |
+| `pageId`            | Exported page UUID                                                                                                                                                          |
+| `title`             | Exact admitted title                                                                                                                                                        |
+| `pageType`          | `"shell"` for a shell export; omitted for ordinary HTML pages                                                                                                               |
+| `originalAuthor`    | Optional bounded creation display label, omitted when unknown; never identity proof                                                                                         |
+| `publisherAgent`    | Optional latest CLI publisher display label, omitted when unknown                                                                                                           |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                                                                            |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                                                                               |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                                                                        |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                                                                                   |
+| `plaintext`         | `true`                                                                                                                                                                      |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                                                                       |
+| `attachments`       | Always present, possibly empty: one row per attachment, see below                                                                                                           |
+| `files`             | `page.html` (or `shell.json`), `work.json` when the page has work, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
 
 Export copies the optional creation preference from the same captured admitted view
 before asynchronous work; it does not acquire or infer a new recipient.

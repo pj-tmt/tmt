@@ -508,16 +508,41 @@ def vector():
 
     attachments, attachment_bytes = attachment_entries()
 
-    files = [info("page.html", html), info("conversations.json", json_text.encode("utf-8")),
-             info("conversations.md", markdown.encode("utf-8"))]
-    manifest = compact({
-        "format": "tmt-colab-page-export", "version": 1, "spaceId": SPACE, "pageId": uid(1), "title": title,
-        "originalAuthor": "original-author", "publisherAgent": "latest-publisher",
-        "creationRecipient": {"machineId": uid(5), "agentId": uid(6)},
-        "exportedAtMs": 1700000000123, "membershipHead": head, "epoch": EPOCH, "plaintext": True,
-        "discussions": {"included": True, "scope": "current-epoch", "format": "tmt-colab-conversations",
-                        "version": 1},
-        "attachments": attachments, "files": files})
+    def manifest_of(files):
+        return compact({
+            "format": "tmt-colab-page-export", "version": 1, "spaceId": SPACE, "pageId": uid(1), "title": title,
+            "originalAuthor": "original-author", "publisherAgent": "latest-publisher",
+            "creationRecipient": {"machineId": uid(5), "agentId": uid(6)},
+            "exportedAtMs": 1700000000123, "membershipHead": head, "epoch": EPOCH, "plaintext": True,
+            "discussions": {"included": True, "scope": "current-epoch", "format": "tmt-colab-conversations",
+                            "version": 1},
+            "attachments": attachments, "files": files})
+
+    conversation_files = [info("conversations.json", json_text.encode("utf-8")),
+                          info("conversations.md", markdown.encode("utf-8"))]
+    manifest = manifest_of([info("page.html", html)] + conversation_files)
+    # A page with work also exports `work.json` right after its HTML: the work value with sorted
+    # keys, compact separators and raw UTF-8 (the contract's canonical form).
+    work = {
+        "version": 1, "next": 4,
+        "summary": {"line1": "Release λ", "line2": "Test the guide next",
+                    "attribution": {"writerId": uid(7), "timeMs": 1700000000000,
+                                    "displayAgent": {"name": "ada", "id": uid(8)}}},
+        "tasks": {
+            "T-1": {"title": "Write the guide 😀", "state": "in-progress",
+                    "detail": "Line one\nLine two & <b>exact</b>",
+                    "assignee": {"kind": "agent", "name": "ada", "id": uid(8)},
+                    "acceptance": [{"kind": "test", "name": "guide builds"},
+                                   {"kind": "check", "command": "pnpm docs:check", "result": "ok"},
+                                   {"kind": "person", "who": "lead"}]},
+            "T-2": {"title": "Wait for the API", "state": "blocked", "reason": "Waiting for the API",
+                    "assignee": {"kind": "person", "name": "ben"}},
+            "T-3": {"title": "Review", "state": "in-review", "needsSignoff": True, "externalId": "GH-4050"},
+        },
+        "order": ["T-1", "T-2", "T-3"]}
+    work_json = json.dumps(work, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    manifest_work = manifest_of([info("page.html", html), info("work.json", work_json.encode("utf-8"))]
+                                + conversation_files)
     return {
         "provenance": "Independent Python stdlib (UTF-8, hashlib SHA-256, compact JSON) with cryptography Ed25519 "
                       "over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters "
@@ -531,6 +556,10 @@ def vector():
         "conversationsMarkdown": markdown,
         "manifestUtf8": manifest,
         "manifestSha256": hashlib.sha256(manifest.encode("utf-8")).hexdigest(),
+        "work": work,
+        "workJson": work_json,
+        "manifestWorkUtf8": manifest_work,
+        "manifestWorkSha256": hashlib.sha256(manifest_work.encode("utf-8")).hexdigest(),
     }
 
 
