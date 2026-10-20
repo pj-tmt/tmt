@@ -1,8 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { capturePath } from './captures.js';
 
 // #3927: the layout and component references teach markup for a `column` page. Every sample must
 // render there: each top-level block on the column, and nothing wider than the window.
+// #3928: every page template renders the same way in the layout it sets, with its blocks on the
+// frame; its captures are the design review of the starting pages.
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
   page.evaluate(
@@ -11,7 +14,9 @@ const run = (page: Page, method: string, argument?: unknown) =>
   );
 const frame = (page: Page) => page.frameLocator('#ask-page-fixture iframe');
 
-const samples = ['layout', 'components'].flatMap((name) => {
+type Sample = { name: string; source: string; layout: 'column' | 'full'; capture?: string };
+
+const references: Sample[] = ['layout', 'components'].flatMap((name) => {
   const text = readFileSync(
     new URL(`../../../skills/tmt-colab/references/${name}.md`, import.meta.url),
     'utf8',
@@ -19,21 +24,56 @@ const samples = ['layout', 'components'].flatMap((name) => {
   return text
     .split('```html\n')
     .slice(1)
-    .map((block, index) => ({ name: `${name}.md #${index + 1}`, source: block.split('```')[0] }));
+    .map((block, index) => ({
+      name: `${name}.md #${index + 1}`,
+      source: block.split('```')[0],
+      layout: 'column' as const,
+    }));
 });
 
+// A template names its layout on its first line; `page create --template` sets that layout and
+// puts a fresh UUID where each `{{uuid:NAME}}` stands (cli_template.rs checks both).
+const templateDirectory = new URL('../../../rust/tmt-colab/templates/', import.meta.url);
+const templates: Sample[] = readdirSync(templateDirectory)
+  .filter((file) => file.endsWith('.html'))
+  .sort()
+  .map((file) => {
+    const text = readFileSync(new URL(file, templateDirectory), 'utf8');
+    const names = [...new Set([...text.matchAll(/\{\{uuid:([a-z-]+)\}\}/g)].map((m) => m[1]))];
+    const source = names.reduce(
+      (rendered, name, index) =>
+        rendered.replaceAll(`{{uuid:${name}}}`, `00000000-0000-4000-8000-00000000010${index}`),
+      text,
+    );
+    const layout = /^<!-- layout: (column|full)\./.exec(text)?.[1] as 'column' | 'full';
+    const name = file.replace(/\.html$/, '');
+    return { name: `template ${name}`, source, layout, capture: name };
+  });
+
+const samples = [...references, ...templates];
+
 test('the references carry their samples', () => {
-  expect(samples.length).toBeGreaterThanOrEqual(11);
+  expect(references.length).toBeGreaterThanOrEqual(11);
+});
+
+test('the templates are the four documented starting pages', () => {
+  expect(templates.map((t) => [t.capture, t.layout])).toEqual([
+    ['board', 'full'],
+    ['compare', 'column'],
+    ['report', 'column'],
+    ['review', 'column'],
+  ]);
+  for (const { source } of templates) expect(source).not.toContain('{{');
 });
 
 for (const width of [1440, 390])
-  for (const { name, source } of samples)
-    test(`${name} lays out on the column at ${width}`, async ({ page }) => {
+  for (const { name, source, layout, capture } of samples)
+    test(`${name} lays out on the ${layout} frame at ${width}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
-      await run(page, 'mount', { statusAgents: true, layout: 'column' });
+      await run(page, 'mount', { statusAgents: true, layout });
       await run(page, 'authored', source);
-      await expect(frame(page).locator('html')).toHaveAttribute('data-colab-layout', 'column');
+      await expect(frame(page).locator('html')).toHaveAttribute('data-colab-layout', layout);
       const blocks = await frame(page)
         .locator('body')
         .evaluate((body) => {
@@ -82,4 +122,9 @@ for (const width of [1440, 390])
         .locator('html')
         .evaluate((html) => html.scrollWidth - innerWidth);
       expect(overflow).toBeLessThanOrEqual(0);
+      if (capture)
+        await page.screenshot({
+          path: capturePath(`3928-template-${capture}-${width}.png`),
+          fullPage: true,
+        });
     });

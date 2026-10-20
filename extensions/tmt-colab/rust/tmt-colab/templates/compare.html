@@ -1,0 +1,27 @@
+<!-- layout: column. Colab sets the column width and the gaps: never set max-width or margin on a block. See tmt colab skill layout, section The frame -->
+<!-- component: summary. What is compared and what the reader should conclude. See tmt colab skill components, section Summary -->
+<section>
+  <h2>Summary</h2>
+  <p>Say what is compared and which side you recommend.</p>
+</section>
+<!-- style: the layout inside a block is yours, but the block's own width and gap are not. See tmt colab skill layout, section What CSS may change -->
+<style>
+  .compare { display: flex; flex-wrap: wrap; }
+  .compare > div { flex: 1 1 280px; padding-right: 16px; }
+</style>
+<!-- component: compare. Two sides that stack on a narrow window; the flex layout is inside the block. See tmt colab skill components, section Compare -->
+<section class="compare">
+  <div>
+    <h3>Now</h3>
+    <p>Today's behaviour.</p>
+  </div>
+  <div>
+    <h3>After</h3>
+    <p>The proposed behaviour.</p>
+  </div>
+</section>
+<!-- component: section. The decision the comparison leads to. See tmt colab skill components, section Section -->
+<section>
+  <h2>Recommendation</h2>
+  <p>◆ Waiting for the reader's decision</p>
+</section>
