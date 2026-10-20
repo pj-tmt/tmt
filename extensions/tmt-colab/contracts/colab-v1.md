@@ -2270,6 +2270,41 @@ The parent sets no deadline on the `colab.render.bound` acknowledgement, which f
 document's own `load`: a very large page binds late and shows its loading state meanwhile, and only
 navigation or the page being left ends the frame (#3982).
 
+**Page links (#4083).** The bootstrap installs ordinary link interception before author HTML
+executes. A trusted primary, keyboard, modified or middle activation of `a[href]` prevents the
+frame's default navigation. A literal same-page `#id` scrolls locally through the existing bounded
+anchor path without setting location. Other links post exactly
+`{type:"colab.render.link",renderId,href,newTab}` to the parent; `href` is at most 8 KiB UTF-8 and
+`newTab` is boolean. The parent requires the current ready frame's `event.source`, exact
+fields/types/bounds and render ID. Invalid, stale or disposed requests do nothing. A render ID and
+a bootstrap claim never authenticate a gesture or author content.
+
+The trusted URL classifier uses the app's base, never an authored `base` element. Only a same-origin
+`/p/SHORT` with a valid page prefix, or an exact same-space owner link, can select app navigation.
+Only the page ID/prefix and one bounded cosmetic element fragment survive; extra/duplicate query
+or capability fields, credentials, controls and invalid routes are refused. Short-link resolution
+retains its cosmetic anchor through normal page admission. This adds no cross-space read authority.
+Outside URLs allow HTTPS or HTTP on literal `localhost`, `127.0.0.1` or `[::1]`; other schemes are
+refused with a trusted notice, without echoing their payload.
+
+A same-space request navigates directly only when the parent observes
+`navigator.userActivation.isActive` at receipt. Activation proves recent interaction, not which
+link the person used. Without activation, even a forged current-render request requires the same
+trusted Open/Cancel confirmation. At most one internal navigation is allowed per render lifetime;
+modified/middle intent opens a new app tab, and plain intent uses the existing router owner.
+This is the only exception to renderer requests being unable to select a page or navigate.
+
+Every outside URL requires confirmation, regardless of activation. A trusted bar below the header
+shows its complete frozen URL as inert selectable text, with Open, Copy link and Cancel. One
+pending request is retained; later frame requests cannot replace its destination. Escape or an
+outside press cancels. Replacing/stopping/leaving the render clears the request. Only a trusted
+parent Open activation opens the admitted frozen URL, using
+`window.open(url,"_blank","noopener,noreferrer")` for a new tab. Open clears the request; there is no
+automatic retry. A null return does not prove popup blocking, so the bar always offers Copy link
+and says "If no tab opens, copy the link instead." Copy retains the bar. No destination is fetched
+merely because a request or confirmation exists. Scripted location changes, forms and any missed
+navigation retain the existing teardown and self-navigation limitation; sandbox/CSP are unchanged.
+
 The parent derives the effective theme from its explicit root `data-theme` choice,
 otherwise the current OS preference. Only user theme activation records a choice;
 without one, OS changes remain live. Before author code runs, the bootstrap projects
@@ -2371,7 +2406,7 @@ one hover outline, a completed text selection or a text-bearing click captured t
 the same bounded quote owner opens the existing anchored discussion. Textless clicks
 show a temporary polite hint and create nothing. Source replacement reprojects mode;
 page changes reset it. Readers have no toggle. Toggling never prepares or sends an Ask.
-Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. Author requests cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
+Escape consumes one level: a nested menu or mention list, then the active drawer (Chat draft retained and busy sends uninterrupted), then the anchored window (draft retained), then selection mode. The frame sends only `type:"colab.render.key",renderId,key` with the closed key set `Escape|@`, a current-render cosmetic notification to the same parent ladder; it grants no write authority. A separate seven-key `K` branch carries only `type`, `renderId`, `key`, and boolean `ctrlKey`, `metaKey`, `altKey`, `shiftKey`; the parent requires the current ready frame, exact keys and platform modifier with Alt/Shift false, and may only open its inert quick switcher. This key request cannot choose a page, navigate, close another overlay or send; selection requires a trusted parent action. Page-link requests have only the bounded activation/confirmation exception above. Outside the composer, the C editing/IME/repeat/modifier guards apply to Escape too. The bottom-right toggle stays at its content inset; horizontally overlapping anchored windows fit above its reserved strip instead of moving it into the header.
 Alt+Enter still explicitly requests the annotation view with exactly
 `type:"colab.render.annotate",renderId`; it cannot send. A trusted parent action captures
 the quote. Page-wide comments have null anchors.
@@ -3888,9 +3923,10 @@ for them. Public recovery admits through the SDK before loading protected app as
 in place, retaining the visible short URL. Mounted legacy entry canonicalizes only
 after verified discovery and carries its owner reading or anchor hint over. Internal mount and
 space pins remain separate from visible location; reload and history use short paths, with at
-most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or, on a full page
-route only, `#anchor=<shellAnchor>`. A plain `#<shellAnchor>` names the same element, and the location then
-keeps it as `#anchor=<shellAnchor>`. A fragment that names no display target is ignored: the page
+most one display-only fragment target: `#t=<threadId>`, `#read=<readingId>` or
+`#anchor=<elementId>`; short-page resolution retains the anchor until the full page opens.
+A plain `#<elementId>` names the same element, and the location then
+keeps it as `#anchor=<elementId>`. A fragment that names no display target is ignored: the page
 opens at the top and the location drops the fragment. Only a fragment that carries `space`, `path`
 or `seed` refuses.
 Reader entry uses only existing public reader assets and never obtains owner authority.

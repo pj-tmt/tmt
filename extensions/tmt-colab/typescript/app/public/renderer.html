@@ -231,16 +231,40 @@
             if (
               !event.isTrusted ||
               event.defaultPrevented ||
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
+              event.altKey ||
+              (event.type === 'click' && event.button !== 0) ||
+              (event.type === 'auxclick' && event.button !== 1) ||
+              (event.type === 'keydown' &&
+                (event.key !== 'Enter' ||
+                  event.repeat ||
+                  event.isComposing ||
+                  !(event.metaKey || event.ctrlKey || event.shiftKey)))
             )
               return;
             const link = event.target instanceof Element ? event.target.closest('a[href]') : null,
               href = link?.getAttribute('href');
-            if (!href?.startsWith('#') || href.length > 1024) return;
+            if (href === null || href === undefined) return;
+            // Never let an ordinary link navigate this isolated document, including a refused URL.
+            event.preventDefault();
+            if (!href.startsWith('#')) {
+              if (utf8.encode(href).length > 8 * 1024) return;
+              parent.postMessage(
+                {
+                  type: 'colab.render.link',
+                  renderId,
+                  href,
+                  newTab:
+                    event.button === 1 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    link.getAttribute('target') === '_blank',
+                },
+                '*',
+              );
+              return;
+            }
+            if (href.length > 1024) return;
             let id;
             try {
               id = decodeURIComponent(href.slice(1));
@@ -252,10 +276,15 @@
               : document.body;
             if (!target) return;
             const top = Math.max(0, target.getBoundingClientRect().top + scrollY);
-            event.preventDefault();
             if (innerScroll) target.scrollIntoView();
             parent.postMessage({ type: 'colab.render.anchor', renderId, top }, '*');
           }
+          // Registered before author HTML runs. These messages remain untrusted parent inputs.
+          // Existing annotation/highlight selection gets first refusal of a plain click.
+          document.addEventListener('click', chooseTarget, true);
+          document.addEventListener('click', anchor, true);
+          document.addEventListener('auxclick', anchor, true);
+          document.addEventListener('keydown', anchor, true);
           let layer, markers;
           const anchorRanges = new Map();
           const readingRanges = new Map();
@@ -1555,9 +1584,7 @@
               document.addEventListener('pointerup', finishSelection, true);
               document.addEventListener('pointercancel', cancelSelection, true);
               document.addEventListener('keyup', finishKeyboardSelection, true);
-              document.addEventListener('click', chooseTarget, true);
               document.addEventListener('pointermove', hoverTarget, true);
-              document.addEventListener('click', anchor, true);
               sizeObserver.observe(document.documentElement);
               sizeObserver.observe(document.body);
               paintObserver.observe(document.documentElement, {
@@ -1698,6 +1725,8 @@
               document.removeEventListener('click', chooseTarget, true);
               document.removeEventListener('pointermove', hoverTarget, true);
               document.removeEventListener('click', anchor, true);
+              document.removeEventListener('auxclick', anchor, true);
+              document.removeEventListener('keydown', anchor, true);
               document.removeEventListener('keydown', annotate);
               removeEventListener('resize', clearTarget);
               removeEventListener('scroll', clearTarget);

@@ -1,4 +1,5 @@
 import { entryMount, publicEntry } from './entry.js';
+import { pageLinkRequest, type PageLinkRequest } from './page-link-request.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
@@ -149,6 +150,8 @@ export async function mountRenderer(
   options: {
     signal: AbortSignal;
     onState(state: RenderState): void;
+    /** Untrusted link request; activation proves recent interaction, never which link. */
+    onLink?(request: PageLinkRequest, active: boolean): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -383,6 +386,10 @@ export async function mountRenderer(
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     const value = data as Record<string, unknown>;
+    if (ready && pageLinkRequest(value, snapshot.renderId)) {
+      options.onLink?.(value, navigator.userActivation?.isActive === true);
+      return;
+    }
     if (ready && value.renderId === snapshot.renderId && Object.keys(value).length === 3) {
       if (
         value.type === 'colab.render.height' &&
