@@ -413,6 +413,7 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
                     | Role::Keycap
                     | Role::KeycapSelected
                     | Role::Attachment
+                    | Role::Conversation
             )
         }) {
             let floor = if matches!(role, Role::Muted | Role::Dim) {
@@ -445,6 +446,12 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         assert!(
             ratio >= 4.5,
             "{mode} text on selection {selection}: {ratio:.2}:1 < 4.5:1"
+        );
+        let conversation = tokens["color"]["conversation"][mode].as_str().unwrap();
+        let ratio = contrast(color(Role::Text), conversation);
+        assert!(
+            ratio >= 4.5,
+            "{mode} text on conversation {conversation}: {ratio:.2}:1 < 4.5:1"
         );
         let track = tokens["color"]["track"][mode].as_str().unwrap();
         let ratio = contrast(color(Role::Text), track);

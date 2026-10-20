@@ -158,6 +158,17 @@ impl Look {
         }
     }
 
+    /// The row of the agent whose conversation has focus: its own faint tint, or reverse video where
+    /// the terminal has no background colours. The name is bold on top of this (see `tree_row`).
+    pub fn conversation(&self) -> Style {
+        let style = self.role(Role::Text).patch(self.role(Role::Conversation));
+        if style.bg.is_none() {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        }
+    }
+
     /// A selected reverse row has one foreground; its semantic spans use bold.
     /// Real selection backgrounds and unselected spans keep their exact style.
     pub fn row_span(&self, selected: bool, style: Style, emphasize: bool) -> Style {
@@ -189,6 +200,7 @@ impl Look {
         let Some(selection) = self.role(Role::Selection).bg else {
             return;
         };
+        let conversation = self.role(Role::Conversation).bg;
         let Some(text) = self.role(Role::Text).fg else {
             return;
         };
@@ -207,7 +219,7 @@ impl Look {
         let origin = buffer.area;
         for (index, cell) in buffer.content.iter_mut().enumerate() {
             // A reversed cell shows its foreground as the background: not a word.
-            if cell.bg != selection
+            if (cell.bg != selection && Some(cell.bg) != conversation)
                 || cell.fg == Color::Reset
                 || cell.modifier.contains(Modifier::REVERSED)
             {

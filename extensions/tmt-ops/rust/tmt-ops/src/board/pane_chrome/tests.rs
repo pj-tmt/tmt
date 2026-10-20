@@ -174,7 +174,7 @@ fn long_focused_titles_keep_the_back_hint_and_do_not_paint_a_bottom_frame() {
 }
 
 #[test]
-fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_receives_focus() {
+fn real_tree_retains_selected_uuid_and_cursor_but_tints_the_row_when_content_receives_focus() {
     use crate::board::app::HitTarget;
     for width in [100, 160] {
         for depth in [Depth::TrueColor, Depth::None] {
@@ -204,8 +204,15 @@ fn real_tree_retains_selected_uuid_and_cursor_but_dims_the_row_when_content_rece
                 .unwrap();
             let cell = &terminal.backend().buffer()[(hit.x + 3, hit.y)];
             assert_eq!(cell.symbol(), "└");
-            assert_eq!(cell.bg, cursor.bg);
-            assert_eq!(cell.modifier, cursor.modifier);
+            // Content focus moves the row to the conversation tint (reverse video where there is
+            // no background colour); only the agent's name is bold.
+            match app.look().role(tmt_cli_style::Role::Conversation).bg {
+                Some(tint) => {
+                    assert_eq!(cell.bg, tint);
+                    assert_ne!(cell.bg, cursor.bg);
+                }
+                None => assert!(cell.modifier.contains(Modifier::REVERSED)),
+            }
             assert!(!cell.modifier.contains(Modifier::BOLD));
             assert_eq!(app.workspace.selected, selected);
         }

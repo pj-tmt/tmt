@@ -48,10 +48,12 @@ pub enum Role {
     Attachment,
     /// Attachment labels and preview frames.
     AttachmentInk,
+    /// The row of the agent whose conversation has focus, as a background.
+    Conversation,
 }
 
 impl Role {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -69,6 +71,7 @@ impl Role {
         Self::Code,
         Self::Attachment,
         Self::AttachmentInk,
+        Self::Conversation,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -91,6 +94,7 @@ impl Role {
             Self::Code => "code",
             Self::Attachment => "attachment",
             Self::AttachmentInk => "attachment-ink",
+            Self::Conversation => "conversation",
         }
     }
 
@@ -312,7 +316,7 @@ impl Base {
             Role::Code => Paint::Ansi(AnsiColor::White),
             Role::AttachmentInk => Paint::Ansi(AnsiColor::BrightWhite),
             Role::Attachment => Paint::Ansi(AnsiColor::Blue),
-            Role::Selection => Paint::Reverse,
+            Role::Selection | Role::Conversation => Paint::Reverse,
             Role::Track => Paint::Dimmed,
             Role::Keycap => Paint::Ansi(AnsiColor::Black),
             Role::KeycapSelected => Paint::Ansi(AnsiColor::BrightBlack),
@@ -338,6 +342,7 @@ impl Base {
             Role::Code => ((0xA9, 0xB1, 0xD6), (0x3B, 0x42, 0x61)),
             Role::Attachment => ((0x2C, 0x36, 0x50), (0xDC, 0xE7, 0xFC)),
             Role::AttachmentInk => ((0xC0, 0xD4, 0xFF), (0x1D, 0x3E, 0x73)),
+            Role::Conversation => ((0x2B, 0x35, 0x50), (0xDC, 0xE4, 0xF7)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)
@@ -353,9 +358,11 @@ impl Base {
             | Role::Blocked
             | Role::Unread
             | Role::AttachmentInk => Paint::Bold,
-            Role::Selection | Role::Keycap | Role::KeycapSelected | Role::Attachment => {
-                Paint::Reverse
-            }
+            Role::Selection
+            | Role::Keycap
+            | Role::KeycapSelected
+            | Role::Attachment
+            | Role::Conversation => Paint::Reverse,
         }
     }
 
@@ -478,7 +485,8 @@ impl Theme {
                 | Role::Track
                 | Role::Keycap
                 | Role::KeycapSelected
-                | Role::Attachment,
+                | Role::Attachment
+                | Role::Conversation,
                 Some(color),
             ) => style.bg_color(Some(color)),
             (_, color) => style.fg_color(color),

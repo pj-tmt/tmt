@@ -128,6 +128,7 @@ identities across memberships and include collapsed matching children, without
 building or sorting display rows. Binding resolution shares the existing immutable
 row scope and releases it before any input or model change. Explicit authored keys
 win; App retains the only search query and editing state.
+While focus is in a conversation, the selected agent's row (Agents tab tree and Overview agents list) takes the `conversation` tint and a bold name instead of the plain selection, with state colours unchanged; without background colours it is reverse video plus the bold name (`Look::conversation`, `tree_row::Row::in_conversation`).
 `overview::monitor` caches canonical rows and the scoped numeric summary; acquired
 roster, preferences, label and meter/job updates invalidate it. Waiting membership
 occurrences are admitted before UUID deduplication, so an unobserved or nonwaiting

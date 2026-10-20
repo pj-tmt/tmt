@@ -496,6 +496,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,
+                    in_conversation: selected
+                        && matches!(row.target, OpsTarget::Member { .. })
+                        && app.focused() == Pane::Replies,
                     query: &app.workspace.query,
                 },
                 look,

@@ -152,10 +152,16 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             line = crate::board::search_field::highlight_line(line, &app.workspace.query);
             let remaining = usize::from(slot.width).saturating_sub(line.width());
             line.spans.push(Span::raw(" ".repeat(remaining)));
-            let selected =
-                Some(&row.target) == app.workspace.selected.as_ref() && app.focused() == Pane::Rows;
-            if selected {
-                line.style = look.selection();
+            let chosen = Some(&row.target) == app.workspace.selected.as_ref();
+            let selected = chosen && app.focused() == Pane::Rows;
+            // Focus in this agent's conversation: its row has its own tint and a bold name.
+            let in_conversation = agents && chosen && app.focused() == Pane::Replies;
+            if selected || in_conversation {
+                line.style = if in_conversation {
+                    look.conversation()
+                } else {
+                    look.selection()
+                };
                 let mut x = 0;
                 for span in &mut line.spans {
                     // An agent's STATE words keep their own colours, as in the tree.
@@ -164,6 +170,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         .contains(&x);
                     span.style = look.row_span(true, span.style, keep);
                     x += unicode_width::UnicodeWidthStr::width(span.content.as_ref());
+                }
+                if in_conversation && let Some(name) = line.spans.get_mut(AGENT_NAME_SPAN) {
+                    name.style = name.style.add_modifier(ratatui::style::Modifier::BOLD);
                 }
             }
             strip::paint_left(frame.buffer_mut(), slot, line);
@@ -288,6 +297,9 @@ fn state_spans(app: &App, row: &OpsTreeRow, look: Look, width: u16) -> Vec<Span<
         },
     )
 }
+
+/// The agent's name among the spans of `agent_line`: gutter, pin, lead mark, name.
+const AGENT_NAME_SPAN: usize = 3;
 
 fn agent_line(
     app: &App,
