@@ -123,7 +123,9 @@ test('the header opens the next unanswered question without changing its retaine
   await panel.getByRole('button', { name: /^Send/ }).click();
   await expect(panel.locator('.question-line').first()).toContainText('Answered: One column');
   await expect(trigger).toBeVisible();
-  // Group Send includes every prepared answer: start the retained draft only after Q1 is stored.
+  // Answer text arrives before the Send footer and disclosure settle; wait for collapse before
+  // clicking Q2. Group Send includes every prepared answer, so only now start its retained draft.
+  await expect(panel.locator('.question-line').first()).toHaveAttribute('aria-expanded', 'false');
   await panel.locator('.question-line').nth(1).click();
   await panel.getByLabel('Your answer', { exact: true }).fill('Keep this unsent draft.');
   await panel.locator('.question-line').first().click();
