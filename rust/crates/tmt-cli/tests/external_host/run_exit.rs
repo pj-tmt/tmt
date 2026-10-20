@@ -159,3 +159,44 @@ fn an_exit_with_unreadable_storage_names_the_cause() {
     assert!(!stderr.contains(REPLACED), "{stderr}");
     assert_eq!(row(&fixture), baseline);
 }
+
+/// The worker row's activity state as `tmt ls --json` shows it.
+fn listed_activity(fixture: &Fixture) -> Value {
+    worker(&fixture.json(&["ls", "--json"]))["session"]["activity"]["state"].clone()
+}
+
+/// After an exit the old binary could not record, a reader that knows the
+/// schema shows the row as ended once both of its processes are gone: the
+/// runtime state comes from fresh process evidence, not from the stale row,
+/// and the read leaves the stored session observations as they were.
+#[test]
+fn a_reader_shows_an_unrecorded_exit_as_ended_once_its_processes_are_gone() {
+    let (fixture, run, _) = admitted_run("exit-read");
+    assert_ne!(listed_activity(&fixture), "ended");
+    let next = last_migration(&fixture) + 1;
+    let future = format!(
+        "INSERT INTO _migrations (version, name, applied_at) \
+         VALUES ({next}, 'a future migration', '2026-10-20T00:00:00.000Z')"
+    );
+    mutate(&fixture, &future);
+    let (code, stderr) = run.finish();
+    assert_eq!(code, Some(7), "{stderr}");
+    assert_eq!(stderr.matches(NEWER).count(), 1, "{stderr}");
+    // Simulates the newer binary as the reader: it knows every recorded
+    // migration. This is not a two-version compatibility test.
+    mutate(
+        &fixture,
+        &format!("DELETE FROM _migrations WHERE version = {next}"),
+    );
+    let stale = row(&fixture);
+    assert_eq!(
+        stale.as_ref().map(|row| row.state.as_str()),
+        Some("running")
+    );
+    let listed = worker(&fixture.json(&["ls", "--json"])).clone();
+    assert_eq!(listed["session"]["activity"]["state"], "ended", "{listed}");
+    // Supplementary: a plain command never has a running driver; binding
+    // presentation tests own the Running-versus-Ended proof of this key.
+    assert!(listed.get("runningDriver").is_none(), "{listed}");
+    assert_eq!(row(&fixture), stale);
+}
