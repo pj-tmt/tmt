@@ -392,6 +392,7 @@ Receipt-frozen [CLI minima](contracts/extension-api.md#optional-cross-extension-
 discovery, receipts, skills, repair and handoff; [release procedures](.agents/skills/tmt-release/SKILL.md) own verification and publication.
 
 Digest owns [history, pricing and valuation](extensions/tmt-digest/contracts/digest-v1.md); tick collects, status reads.
+Prices are one [public file](extensions/tmt-digest/contracts/digest-v1.md#pricing-file), embedded as the built-in table and refetched anonymously by status only.
 The [usage report](extensions/tmt-digest/contracts/usage-v1.md) joins Core's rollup, limits and `x flow --bucket` per run; it stores nothing.
 
 ## Ops extension

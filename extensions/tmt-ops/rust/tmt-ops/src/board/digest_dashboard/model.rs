@@ -174,16 +174,20 @@ fn valuation_details(member: &crate::labels::digest::Member) -> Vec<String> {
     fields
 }
 
-/// The supplier's offline list-price table, read-only. Source addresses are
-/// plain text; the board never opens them.
+/// The supplier's list-price table and where it came from, read-only. Source
+/// addresses are plain text; the board never opens them.
 fn pricing_details(status: &crate::labels::digest::Status) -> Vec<String> {
     let Some(pricing) = &status.pricing else {
         return Vec::new();
     };
-    let mut fields = vec![format!(
+    let mut line = format!(
         "Prices as of {} · table {} · {} (uncached input, list price)",
         pricing.as_of, pricing.version, pricing.basis
-    )];
+    );
+    if let Some(origin) = pricing.origin {
+        line.push_str(&format!(" · source: {origin}"));
+    }
+    let mut fields = vec![line];
     fields.extend(pricing.models.iter().map(|model| {
         format!(
             "{}: {} per 1M input tokens · {}",

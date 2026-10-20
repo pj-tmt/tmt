@@ -1,5 +1,7 @@
 //! Read-only status through an isolated public Core process, with frozen DTO evidence.
 
+mod support;
+
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -32,9 +34,13 @@ case "$*" in
  'config show --json') cat config.json ;;
  'identity ls --json') cat inventory.json ;;
  'api')
-   n=$(grep -c '^api$' calls)
-   cat > "request.$n.json"
-   if grep -q '"operation":"storage.root"' "request.$n.json"; then cat storage.json; exit 0; fi
+   cat > request.next.json
+   if grep -q '"operation":"storage.root"' request.next.json; then
+     mv request.next.json "storage-request.$(($(ls storage-request.* 2>/dev/null | wc -l) + 1)).json"
+     cat storage.json; exit 0
+   fi
+   n=$(($(grep -c '^api$' calls) - $(ls storage-request.* 2>/dev/null | wc -l)))
+   mv request.next.json "request.$n.json"
    if test -f stats-fail; then
      printf '%s\n' '{"error":{"code":"STORAGE_NOT_WRITABLE","message":"unavailable"}}'
      exit 1
@@ -71,7 +77,11 @@ esac
         self.run_args(&["status", "--json"])
     }
     fn run_args(&self, words: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tmt-digest"))
+        self.command(words).output().unwrap()
+    }
+    fn command(&self, words: &[&str]) -> Command {
+        let mut command = support::digest();
+        command
             .args(words)
             .current_dir(&self.0)
             .env("HOME", &self.0)
@@ -81,9 +91,8 @@ esac
             .env("TMT_EXECUTABLE", self.0.join("core"))
             .env("TMT_AGENT", "1")
             .env("BROWSER", "/usr/bin/true")
-            .env("NO_COLOR", "1")
-            .output()
-            .unwrap()
+            .env("NO_COLOR", "1");
+        command
     }
     fn status(&self) -> Value {
         let before = fs::read(self.0.join("digest.toml")).ok();
@@ -267,7 +276,7 @@ fn selected_savings_windows_read_private_history_without_changing_it() {
     let modified = fs::metadata(&file).unwrap().modified().unwrap();
     for (index, window) in ["24h", "7d", "lifetime"].into_iter().enumerate() {
         // Each process reuses the public discovery boundary and independent Core fixture.
-        fixture.write(&format!("stats.{}.json",index*2+1),json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":now,"oldestHeldAgeMs":null,"deliveredDigests":11}]}));
+        fixture.write(&format!("stats.{}.json",index+1),json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":now,"oldestHeldAgeMs":null,"deliveredDigests":11}]}));
         let output = fixture.run_args(&["status", "--json", "--window", window]);
         assert!(output.status.success(), "{:?}", output.stderr);
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -294,9 +303,9 @@ fn selected_savings_windows_read_private_history_without_changing_it() {
     assert_eq!(invalid.status.code(), Some(2));
 }
 
-#[test]
-fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
-    let fixture = Fixture::new();
+/// A private history that quotes 2700 avoided tokens at `gpt-6.1-sol`, with a full
+/// week of observed input minutes. Returns the newest minute, its directory and file.
+fn seed_history(fixture: &Fixture) -> (i64, PathBuf, PathBuf) {
     let through = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -340,10 +349,17 @@ fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
     tx.commit().unwrap();
     drop(database);
     fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    (through, directory, file)
+}
+
+#[test]
+fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
+    let fixture = Fixture::new();
+    let (through, directory, file) = seed_history(&fixture);
     let before = fs::read(&file).unwrap();
     let modified = fs::metadata(&file).unwrap().modified().unwrap();
     for (index, window) in ["24h", "7d", "lifetime"].into_iter().enumerate() {
-        fixture.write(&format!("stats.{}.json",index*2+1),json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":through,"oldestHeldAgeMs":null,"deliveredDigests":1}]}));
+        fixture.write(&format!("stats.{}.json",index+1),json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":through,"oldestHeldAgeMs":null,"deliveredDigests":1}]}));
         let output = fixture.run_args(&["status", "--json", "--window", window]);
         assert!(output.status.success(), "{:?}", output.stderr);
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -374,14 +390,92 @@ fn valuation_status_is_read_only_and_matches_day_week_and_lifetime_bounds() {
             .count(),
         6
     );
-    for index in 1..=6 {
-        let request: Value = serde_json::from_slice(
-            &fs::read(fixture.0.join(format!("request.{index}.json"))).unwrap(),
-        )
-        .unwrap();
-        assert!(matches!(
-            request["operation"].as_str(),
-            Some("digest.stats.show" | "storage.root")
-        ));
+    for (file, operation) in [
+        ("request", "digest.stats.show"),
+        ("storage-request", "storage.root"),
+    ] {
+        for index in 1..=3 {
+            let request: Value = serde_json::from_slice(
+                &fs::read(fixture.0.join(format!("{file}.{index}.json"))).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(request["operation"], operation);
+        }
     }
+}
+
+fn fetched_file() -> Vec<u8> {
+    let mut file: Value =
+        serde_json::from_str(include_str!("../../../pricing/pricing-v1.json")).unwrap();
+    file["version"] = json!("2026-11-01");
+    file["asOf"] = json!("2026-11-01");
+    file["models"][3]["usdMicrosPerMillionInputTokens"] = json!(3_000_000);
+    serde_json::to_vec(&file).unwrap()
+}
+
+#[test]
+fn status_quotes_with_a_fetched_price_file_and_says_where_it_came_from() {
+    let fixture = Fixture::new();
+    let (through, directory, _) = seed_history(&fixture);
+    fixture.write("stats.1.json", json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":through,"oldestHeldAgeMs":null,"deliveredDigests":1}]}));
+    fixture.write("stats.2.json", json!({"stats":[{"identityId":ID,"heldCount":0,"observedAtMs":through,"oldestHeldAgeMs":null,"deliveredDigests":1}]}));
+    let server = support::PriceServer::serve(support::Reply::Body(fetched_file()));
+    let run = || {
+        let output = fixture
+            .command(&["status", "--json", "--window", "24h"])
+            .env("TMT_DIGEST_PRICING_URL", &server.url)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{:?}", output.stderr);
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let first = run();
+    assert_eq!(first["pricing"]["origin"], "fetched");
+    assert_eq!(first["pricing"]["version"], "2026-11-01");
+    assert!(first["pricing"]["fetchedAtMs"].as_u64().unwrap() > 0);
+    let cost = &first["members"][0]["savings"]["cost"];
+    assert_eq!(cost["pricingVersion"], "2026-11-01");
+    assert_eq!(cost["usdMicrosPerMillionInputTokens"], 3_000_000);
+    assert_eq!(cost["usdMicros"], 8100);
+    // The second status is inside the 30 s spacing: no request, the private cache answers.
+    let second = run();
+    assert_eq!(second["pricing"]["origin"], "cached");
+    assert_eq!(second["members"][0]["savings"]["cost"], *cost);
+    assert_eq!(server.hits(), 1);
+    let cache = fixture.0.join("state/digest/pricing");
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&cache), 0o700);
+    assert_eq!(mode(&cache.join("fetched-v1.json")), 0o600);
+    assert_eq!(mode(&directory), 0o700);
+}
+
+#[test]
+fn a_stalled_price_server_never_holds_status_past_its_deadline() {
+    let fixture = Fixture::new();
+    let server = support::PriceServer::serve(support::Reply::Stall);
+    let started = std::time::Instant::now();
+    let output = fixture
+        .command(&["status", "--json"])
+        .env("TMT_DIGEST_PRICING_URL", &server.url)
+        .output()
+        .unwrap();
+    let waited = started.elapsed();
+    assert!(output.status.success(), "{:?}", output.stderr);
+    let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(document["pricing"]["origin"], "built-in");
+    assert_eq!(document["pricing"]["version"], "2026-10-14");
+    assert!(
+        waited < std::time::Duration::from_millis(4_500),
+        "{waited:?}"
+    );
+    assert_eq!(server.hits(), 1);
+}
+
+#[test]
+fn status_with_the_fetch_off_names_the_built_in_table_and_asks_for_nothing() {
+    let fixture = Fixture::new();
+    let document = fixture.status();
+    assert_eq!(document["pricing"]["origin"], "built-in");
+    assert!(document["pricing"].get("fetchedAtMs").is_none());
+    assert_eq!(document["pricing"]["models"].as_array().unwrap().len(), 4);
 }

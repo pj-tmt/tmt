@@ -172,6 +172,8 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
       XDG_CACHE_HOME: path.join(root, 'xdg-cache'),
       CODEX_HOME: path.join(home, '.codex'),
       TMPDIR: tmpdir,
+      // No test reaches the network by omission: Digest's anonymous price fetch is off.
+      TMT_DIGEST_PRICING_URL: 'off',
       // Ancestor discovery must not reach the host's default tmux server.
       // Native tests never start one; Docker owns real tmux scenarios.
       TMUX_TMPDIR: tmuxTmpdir,

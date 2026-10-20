@@ -2591,6 +2591,7 @@ dependencies = [
  "tmt-cli-style",
  "tmt-invoke",
  "toml_edit",
+ "ureq",
 ]
 
 [[package]]

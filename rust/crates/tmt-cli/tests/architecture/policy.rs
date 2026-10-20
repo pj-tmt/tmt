@@ -100,6 +100,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "rusqlite", // private Digest history; never the Core database
             "toml_edit",
             "nix",
+            // One anonymous, bounded GET of the public price file; no token, cookie or API.
+            "ureq",
         ],
         // The shared CLI style is a leaf: it may depend on no TMT crate, so any
         // CLI, core or extension, can render through it. ratatui is optional

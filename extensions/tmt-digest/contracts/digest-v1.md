@@ -90,7 +90,9 @@ condition establishes Core eligibility. This matches tick scheduling; the render
 does not infer a threshold from the held count.
 
 Status is read-only: it does not tick, claim/deliver messages, refresh provider
-transcripts, collect history or change settings. Failure of identity/settings
+transcripts, collect history or change settings. Its one outside effect is the
+anonymous price-file fetch and the private cache it writes ([Pricing file](#pricing-file)).
+Failure of identity/settings
 discovery fails the command rather than emitting an empty successful inventory.
 Unavailable stats keep the known identity/settings row and use null evidence.
 Consumers acquire status off their paint path; an absent/slow extension or failed
@@ -298,16 +300,16 @@ prices or tokens, future model evidence, and unsafe arithmetic produce null;
 known zero tokens produce zero only with a supported evidenced model. Quotes round
 to the nearest micro-dollar, half upward, using checked wide intermediates.
 
-The offline table is owned by `extensions/tmt-digest/rust/tmt-digest/src/pricing.rs`. A successful status
-document also contains additive root `pricing: {version, asOf, basis,
-models:[{modelId, usdMicrosPerMillionInputTokens, source}]}` metadata, acquired with
-the same status call. `basis` is `standard-base-input`; `source` is the official
-source URL and `asOf` is the verification date. Version `2026-10-14` includes only
-canonical `claude-opus-5-5`, `claude-sonnet-5-5`, `gpt-6-sol`, and `gpt-6.1-sol`.
-There are no aliases or fallback rates. This fixed assumption excludes cached
-input, cache writes, fast/regional/long-context modifiers, negotiated discounts,
-subscription allowances and historical price reconstruction. Status performs no
-network price lookup. Updating rates requires a new verified table version.
+A successful status document also contains additive root `pricing: {version, asOf,
+basis, origin, fetchedAtMs?, models:[{modelId, usdMicrosPerMillionInputTokens,
+source}]}`, acquired with the same status call. It names the one table every quote of
+that document used ([Pricing file](#pricing-file)). `basis` is `standard-base-input`;
+`source` is the official source URL and `asOf` is the verification date. Version
+`2026-10-14` includes only canonical `claude-opus-5-5`, `claude-sonnet-5-5`,
+`gpt-6-sol`, and `gpt-6.1-sol`. There are no aliases or fallback rates. This fixed
+assumption excludes cached input, cache writes, fast/regional/long-context
+modifiers, negotiated discounts, subscription allowances and historical price
+reconstruction. Updating rates requires a new verified file `version`.
 
 `percent` is null or `{basisPoints, estimatedInputTokensAvoided,
 observedInputTokens, fromMs, throughMs}`. It is available only for `24h` and `7d`;
@@ -336,6 +338,62 @@ consumer says the prices differ. A sum above 9007199254740991 micro-dollars is
 unavailable too. Ops implements this in `sum_costs`
 (`extensions/tmt-ops/rust/tmt-ops/src/labels/digest.rs`).
 Ops owns the separate display/toggle consumer; this producer adds no UI.
+
+### Pricing file
+
+The price table is one public file in the repository,
+[`pricing/pricing-v1.json`](../pricing/pricing-v1.json), with the shape of the
+status `pricing` object plus `schema`:
+
+```json
+{"schema":"tmt-digest-pricing-v1","version":"2026-10-14","asOf":"2026-10-14",
+ "basis":"standard-base-input",
+ "models":[{"modelId":"claude-opus-5-5","usdMicrosPerMillionInputTokens":4000000,
+            "source":"https://platform.claude.com/docs/en/about-claude/pricing"}]}
+```
+
+- **Built-in table.** Digest embeds these exact bytes; they are the built-in table
+  and keep no second copy in code. Each Digest release attaches the same file as
+  release asset `tmt-digest-pricing-v1.json`, and the release check proves it equals
+  the file at the tagged commit.
+- **Validation.** A file is used only if all of this holds, else it is dropped: at
+  most 16 KiB of UTF-8 JSON with exactly the keys above (none missing, extra or
+  repeated); `schema` equals `tmt-digest-pricing-v1`; `version` and `asOf` are real
+  `YYYY-MM-DD` dates; `basis` equals `standard-base-input`; 1–64 models with unique
+  `modelId` (`[A-Za-z0-9._-]`, at most 64 bytes), integer prices in `0..=9007199254740991`
+  and a `source` that is an `https://` address of at most 256 printable bytes.
+- **One version, one table.** Quotes with equal `pricingVersion` are summed, so a
+  version never changes its prices. A fetched or cached file whose `version` is
+  already known (the built-in table's, or the cache's) is used only if it equals
+  that table after parsing; a file with an older `version` than the built-in
+  table's is dropped, so a table never rolls back. A price change always takes a
+  new `version`.
+- **Fetch.** `tmt digest status` makes one anonymous HTTPS GET of
+  `https://raw.githubusercontent.com/pj-tmt/tmt/main/extensions/tmt-digest/pricing/pricing-v1.json`:
+  no token, cookie, authorization header, redirect, retry or GitHub API call, and
+  only `User-Agent: tmt-digest/<version>` as identification. The Ops board reads
+  status when it opens or reloads, so those are the fetch moments; the tick, the
+  usage report and every other command make no request.
+  The request runs while Core is read, has a 2-second deadline from DNS to the last
+  byte, accepts only a 200 answer of at most 16 KiB; status waits at most 2.5 seconds
+  for it. Attempts are at least 30 seconds apart, and a failed one counts, so a
+  dead network costs one wait per half minute.
+- **Fallback order.** The fetched file, then the cache, then the built-in table;
+  each is used only if it validates and follows the previous rule. A failed fetch
+  leaves the cache unchanged.
+- **Cache.** `digest/pricing/fetched-v1.json` under Core's data root: a private
+  directory and file (owner-only, no symlinks, at most 64 KiB), replaced atomically.
+  It holds the last valid fetched file, `fetchedAtMs` and the last `attemptedAtMs`.
+  It is untrusted on read: the file is validated again, and any doubt means no cache.
+- **Output.** `pricing.origin` is `fetched`, `cached` or `built-in`, and
+  `fetchedAtMs` (the fetch that produced the file) is present unless `built-in`.
+  Every quote of a document uses that document's table and says its version.
+- **Privacy and opt-out.** Only the machine's address, the fixed URL and the
+  User-Agent reach GitHub; no identity, model or usage data. Setting
+  `TMT_DIGEST_PRICING_URL=off` turns the fetch off (the cache and the built-in table
+  still serve). The variable may instead hold another `https://` address, or `http://`
+  to this machine, which tests use; any other value also turns the fetch off. There
+  is no `digest.toml` key for it.
 
 ## History
 

@@ -46,7 +46,7 @@ fn restart_deduplication_atomic_rollback_and_read_only_projection() {
     store.checkpoint(ID, start + 200, 7, 12).unwrap();
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + 200, Some(12))
+            .status_built_in(ID, Window::Lifetime, start + 200, Some(12))
             .unwrap(),
         json!({"method":METHOD,"window":"lifetime","fromMs":start,"throughMs":start+200,"estimatedInputTokensAvoided":2700,"avoidedSeparateDeliveries":2,"complete":true,"gap":null,"cost":null,"percent":null})
     );
@@ -64,7 +64,7 @@ fn restart_deduplication_atomic_rollback_and_read_only_projection() {
     let read = Store::open(&fixture.0, false).unwrap().unwrap();
     assert_eq!(read.cursor(ID).unwrap(), Some(7));
     assert_eq!(
-        read.status(ID, Window::Lifetime, start + 200, Some(12))
+        read.status_built_in(ID, Window::Lifetime, start + 200, Some(12))
             .unwrap()["estimatedInputTokensAvoided"],
         2700
     );
@@ -83,11 +83,15 @@ fn windows_distinguish_before_collection_known_zero_missing_context_and_counter_
     let start = 10 * DAY;
     store.baseline(ID, start, 5, 0).unwrap();
     assert_eq!(
-        store.status(ID, Window::Day, start, Some(0)).unwrap()["gap"],
+        store
+            .status_built_in(ID, Window::Day, start, Some(0))
+            .unwrap()["gap"],
         "before_collection"
     );
     store.checkpoint(ID, start + DAY, 6, 0).unwrap();
-    let empty = store.status(ID, Window::Day, start + DAY, Some(0)).unwrap();
+    let empty = store
+        .status_built_in(ID, Window::Day, start + DAY, Some(0))
+        .unwrap();
     assert_eq!(empty["estimatedInputTokensAvoided"], 0);
     assert_eq!(empty["complete"], true);
     store
@@ -99,40 +103,40 @@ fn windows_distinguish_before_collection_known_zero_missing_context_and_counter_
         .unwrap();
     store.checkpoint(ID, start + DAY + 20, 8, 1).unwrap();
     let unknown = store
-        .status(ID, Window::Day, start + DAY + 20, Some(1))
+        .status_built_in(ID, Window::Day, start + DAY + 20, Some(1))
         .unwrap();
     assert_eq!(unknown["estimatedInputTokensAvoided"], Value::Null);
     assert_eq!(unknown["avoidedSeparateDeliveries"], 1);
     assert_eq!(unknown["gap"], "missing_context");
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + DAY + 20, Some(2))
+            .status_built_in(ID, Window::Lifetime, start + DAY + 20, Some(2))
             .unwrap()["gap"],
         "uncollected_deliveries"
     );
     store.checkpoint(ID, start + DAY + 30, 10, 3).unwrap();
     assert_eq!(
         store
-            .status(ID, Window::Day, start + DAY + 30, Some(3))
+            .status_built_in(ID, Window::Day, start + DAY + 30, Some(3))
             .unwrap()["gap"],
         "missing_deliveries"
     );
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + DAY + 30, Some(3))
+            .status_built_in(ID, Window::Lifetime, start + DAY + 30, Some(3))
             .unwrap()["complete"],
         false
     );
     store.checkpoint(ID, start + 9 * DAY, 11, 3).unwrap();
     assert_eq!(
         store
-            .status(ID, Window::Week, start + 9 * DAY, Some(3))
+            .status_built_in(ID, Window::Week, start + 9 * DAY, Some(3))
             .unwrap()["estimatedInputTokensAvoided"],
         0
     );
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + 9 * DAY, Some(3))
+            .status_built_in(ID, Window::Lifetime, start + 9 * DAY, Some(3))
             .unwrap()["estimatedInputTokensAvoided"],
         Value::Null
     );
@@ -154,12 +158,14 @@ fn raw_retention_and_capacity_eviction_preserve_lifetime_totals() {
     }
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + 20, Some(1))
+            .status_built_in(ID, Window::Lifetime, start + 20, Some(1))
             .unwrap()["estimatedInputTokensAvoided"],
         9
     );
     assert_eq!(
-        store.status(ID, Window::Day, start + 20, Some(1)).unwrap()["complete"],
+        store
+            .status_built_in(ID, Window::Day, start + 20, Some(1))
+            .unwrap()["complete"],
         false
     );
     store
@@ -168,7 +174,7 @@ fn raw_retention_and_capacity_eviction_preserve_lifetime_totals() {
     store.maintain(start + RETENTION + DAY).unwrap();
     assert_eq!(
         store
-            .status(ID, Window::Day, start + RETENTION + DAY, Some(2))
+            .status_built_in(ID, Window::Day, start + RETENTION + DAY, Some(2))
             .unwrap()["complete"],
         false
     );
@@ -182,13 +188,13 @@ fn raw_retention_and_capacity_eviction_preserve_lifetime_totals() {
     );
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + RETENTION + DAY, Some(2))
+            .status_built_in(ID, Window::Lifetime, start + RETENTION + DAY, Some(2))
             .unwrap()["estimatedInputTokensAvoided"],
         9
     );
     assert_eq!(
         store
-            .status(ID, Window::Week, start + RETENTION + DAY, Some(2))
+            .status_built_in(ID, Window::Week, start + RETENTION + DAY, Some(2))
             .unwrap()["complete"],
         true
     );
@@ -203,7 +209,9 @@ fn clock_rollback_and_store_admission_never_create_zero_evidence() {
     store.record(ID, &event(2, 900, &[None]), 1001).unwrap();
     store.checkpoint(ID, 1001, 3, 1).unwrap();
     assert_eq!(
-        store.status(ID, Window::Lifetime, 1001, Some(1)).unwrap()["gap"],
+        store
+            .status_built_in(ID, Window::Lifetime, 1001, Some(1))
+            .unwrap()["gap"],
         "clock_discontinuity"
     );
     store.0.pragma_update(None, "user_version", 4).unwrap();
@@ -250,7 +258,9 @@ fn capacity_failure_rolls_back_event_cursor_and_lifetime_totals() {
         0
     );
     assert_eq!(
-        store.status(ID, Window::Lifetime, 1200, Some(0)).unwrap()["estimatedInputTokensAvoided"],
+        store
+            .status_built_in(ID, Window::Lifetime, 1200, Some(0))
+            .unwrap()["estimatedInputTokensAvoided"],
         0
     );
 }
@@ -295,7 +305,9 @@ fn public_history_overflow_collection_is_idempotent_and_never_delivers() {
     }
     assert_eq!(store.cursor(ID).unwrap(), Some(9));
     assert_eq!(
-        store.status(ID, Window::Lifetime, 1200, Some(11)).unwrap()["estimatedInputTokensAvoided"],
+        store
+            .status_built_in(ID, Window::Lifetime, 1200, Some(11))
+            .unwrap()["estimatedInputTokensAvoided"],
         2700
     );
     assert_eq!(
@@ -350,7 +362,7 @@ fn normative_status_vectors_cover_selected_windows_and_unknowns() {
         store.checkpoint(ID, through, 7, deliveries).unwrap();
         assert_eq!(
             store
-                .status(
+                .status_built_in(
                     ID,
                     Window::parse(given["window"].as_str().unwrap()).unwrap(),
                     through,
@@ -372,7 +384,9 @@ fn interrupted_reconciliation_exposes_no_total_beyond_its_coverage_watermark() {
     store
         .record(ID, &event(2, 1100, &[Some(100), Some(200)]), 1200)
         .unwrap();
-    let interrupted = store.status(ID, Window::Lifetime, 1200, None).unwrap();
+    let interrupted = store
+        .status_built_in(ID, Window::Lifetime, 1200, None)
+        .unwrap();
     assert_eq!(interrupted["throughMs"], 1000);
     assert_eq!(interrupted["estimatedInputTokensAvoided"], Value::Null);
     assert_eq!(interrupted["gap"], "uncollected_deliveries");
@@ -380,7 +394,9 @@ fn interrupted_reconciliation_exposes_no_total_beyond_its_coverage_watermark() {
     let mut resumed = fixture.store();
     resumed.checkpoint(ID, 1200, 3, 1).unwrap();
     assert_eq!(
-        resumed.status(ID, Window::Lifetime, 1200, Some(1)).unwrap()["estimatedInputTokensAvoided"],
+        resumed
+            .status_built_in(ID, Window::Lifetime, 1200, Some(1))
+            .unwrap()["estimatedInputTokensAvoided"],
         200
     );
 }

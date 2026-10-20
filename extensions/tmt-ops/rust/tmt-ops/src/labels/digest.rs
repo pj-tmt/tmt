@@ -76,6 +76,9 @@ pub struct Pricing {
     pub version: String,
     pub as_of: String,
     pub basis: String,
+    /// Where the supplier got the table; absent from older producers and for any
+    /// origin this version does not know.
+    pub origin: Option<&'static str>,
     pub models: Vec<PricedModel>,
 }
 
@@ -393,6 +396,9 @@ impl Pricing {
             version: text(value.get("version")?)?,
             as_of: text(value.get("asOf")?)?,
             basis: text(value.get("basis")?)?,
+            origin: ["fetched", "cached", "built-in"]
+                .into_iter()
+                .find(|origin| value.get("origin").and_then(Value::as_str) == Some(*origin)),
             models,
         })
     }

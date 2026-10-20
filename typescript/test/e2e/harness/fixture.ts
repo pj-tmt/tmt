@@ -316,6 +316,8 @@ exit ${'$'}status
         PATH: `${this.wrapperDir}${path.delimiter}${process.env.PATH ?? ''}`,
         TMT_E2E_SOCKET: this.socket,
         TMUX_TMPDIR: this.socketRoot,
+        // No scenario reaches the network by omission: Digest's price fetch is off.
+        TMT_DIGEST_PRICING_URL: 'off',
         TMT_HOME: this.globalDir,
         TMT_MOCK_MODE: options.mode ?? 'respond',
         TMT_MOCK_DELAY_MS: String(options.delayMs ?? 0),
