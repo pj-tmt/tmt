@@ -9,6 +9,7 @@ use unicode_width::UnicodeWidthStr;
 use super::app::{App, Compose, Input, RowTarget};
 
 mod chat_quotes;
+pub(super) mod paste;
 pub(super) use chat_quotes::ChatQuote;
 
 type DraftKey = (String, String);
@@ -78,6 +79,8 @@ pub(super) struct State {
     pub send_hit: RefCell<Option<SendHit>>,
     pub quote_hit: RefCell<Option<QuoteHit>>,
     pub chat_quote_hits: RefCell<Vec<ChatQuoteHit>>,
+    pub(super) paste_hits: RefCell<Vec<paste::Hit>>,
+    pub(super) paste_preview: Option<paste::Preview>,
 }
 
 impl State {
@@ -85,6 +88,10 @@ impl State {
         *self.send_hit.borrow_mut() = None;
         *self.quote_hit.borrow_mut() = None;
         self.chat_quote_hits.borrow_mut().clear();
+        self.paste_hits.borrow_mut().clear();
+        if let Some(preview) = &self.paste_preview {
+            preview.invalidate();
+        }
     }
     pub(super) fn has_drafts(&self) -> bool {
         !self.drafts.is_empty()
@@ -344,6 +351,7 @@ impl App {
         })
     }
     pub(super) fn remember_draft(&mut self) {
+        self.composer.paste_preview = None;
         if let Some(input) = self.input.as_ref()
             && let Some(key) = input.draft_key.clone()
         {

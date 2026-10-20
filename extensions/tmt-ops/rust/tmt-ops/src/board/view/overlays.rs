@@ -96,6 +96,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(details) = &app.monitor_details {
         details.render(frame, app, body);
     }
+    app.render_paste_preview(frame, body);
     if let Some(review) = &app.cron_review {
         review.render(frame, app, body);
     }

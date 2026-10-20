@@ -44,10 +44,18 @@ pub enum Role {
     KeycapSelected,
     /// Inline code and code blocks in rendered Markdown.
     Code,
+    /// Text in an inline pasted-text chip.
+    PasteText,
+    /// Background of an inline pasted-text chip.
+    PasteChip,
+    /// Border of a pasted-text preview.
+    PasteFrame,
+    /// Background of a pasted-text preview.
+    PastePreview,
 }
 
 impl Role {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 19] = [
         Self::Text,
         Self::Muted,
         Self::Dim,
@@ -63,6 +71,10 @@ impl Role {
         Self::Keycap,
         Self::KeycapSelected,
         Self::Code,
+        Self::PasteText,
+        Self::PasteChip,
+        Self::PasteFrame,
+        Self::PastePreview,
     ];
 
     /// The token's name in configuration and the design tokens.
@@ -83,6 +95,10 @@ impl Role {
             Self::Keycap => "keycap",
             Self::KeycapSelected => "keycap-selected",
             Self::Code => "code",
+            Self::PasteText => "paste-text",
+            Self::PasteChip => "paste-chip",
+            Self::PasteFrame => "paste-frame",
+            Self::PastePreview => "paste-preview",
         }
     }
 
@@ -302,6 +318,8 @@ impl Base {
             Role::Blocked => Paint::Ansi(AnsiColor::Red),
             Role::Link => Paint::Ansi(AnsiColor::Cyan),
             Role::Code => Paint::Ansi(AnsiColor::White),
+            Role::PasteText | Role::PasteFrame => Paint::Ansi(AnsiColor::BrightWhite),
+            Role::PasteChip | Role::PastePreview => Paint::Ansi(AnsiColor::Blue),
             Role::Selection => Paint::Reverse,
             Role::Track => Paint::Dimmed,
             Role::Keycap => Paint::Ansi(AnsiColor::Black),
@@ -326,6 +344,10 @@ impl Base {
             Role::Keycap => ((0x55, 0x55, 0x55), (0x55, 0x55, 0x55)),
             Role::KeycapSelected => ((0x70, 0x70, 0x70), (0x70, 0x70, 0x70)),
             Role::Code => ((0xA9, 0xB1, 0xD6), (0x3B, 0x42, 0x61)),
+            Role::PasteText => ((0xC0, 0xD4, 0xFF), (0x1D, 0x3E, 0x73)),
+            Role::PasteChip => ((0x2C, 0x36, 0x50), (0xDC, 0xE7, 0xFC)),
+            Role::PasteFrame => ((0x8F, 0xA8, 0xDC), (0x45, 0x68, 0x9C)),
+            Role::PastePreview => ((0x1E, 0x24, 0x33), (0xEF, 0xF3, 0xFC)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)
@@ -333,12 +355,19 @@ impl Base {
 
     fn mono(role: Role) -> Paint {
         match role {
-            Role::Text | Role::Working | Role::Link | Role::Code => Paint::Plain,
+            Role::Text | Role::Working | Role::Link | Role::Code | Role::PasteText => Paint::Plain,
             Role::Muted | Role::Dim | Role::Track => Paint::Dimmed,
-            Role::Accent | Role::Waiting | Role::Review | Role::Blocked | Role::Unread => {
-                Paint::Bold
-            }
-            Role::Selection | Role::Keycap | Role::KeycapSelected => Paint::Reverse,
+            Role::Accent
+            | Role::Waiting
+            | Role::Review
+            | Role::Blocked
+            | Role::Unread
+            | Role::PasteFrame => Paint::Bold,
+            Role::Selection
+            | Role::Keycap
+            | Role::KeycapSelected
+            | Role::PasteChip
+            | Role::PastePreview => Paint::Reverse,
         }
     }
 
@@ -456,9 +485,15 @@ impl Theme {
         let paint = self.paint(role, depth);
         let style = Style::new().effects(paint.effects(depth));
         match (role, paint.color(depth)) {
-            (Role::Selection | Role::Track | Role::Keycap | Role::KeycapSelected, Some(color)) => {
-                style.bg_color(Some(color))
-            }
+            (
+                Role::Selection
+                | Role::Track
+                | Role::Keycap
+                | Role::KeycapSelected
+                | Role::PasteChip
+                | Role::PastePreview,
+                Some(color),
+            ) => style.bg_color(Some(color)),
             (_, color) => style.fg_color(color),
         }
     }

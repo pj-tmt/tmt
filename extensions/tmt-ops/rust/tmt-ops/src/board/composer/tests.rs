@@ -820,7 +820,7 @@ fn degraded_layout_explains_the_painted_fallback_without_losing_the_editor_row()
 }
 
 #[test]
-fn paste_preview_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
+fn paste_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts() {
     use crate::board::app::{Effect, Request};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     for kib in [1, 10, 100] {
@@ -835,10 +835,11 @@ fn paste_preview_remove_and_refusal_preserve_exact_payload_and_other_uuid_drafts
         let exact = format!("before {payload}");
         assert_eq!(app.input.as_ref().unwrap().text.folds().len(), 1);
         assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() < 4);
+        // This row-only fixture has no painted conversation chip. Ctrl-P
+        // cannot expand source inline; popup routing is covered in paste::tests.
         app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
-        assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() > 8);
+        assert!(app.input.as_ref().unwrap().text.layout(80).lines.len() < 4);
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), exact);
-        app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         app.key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         assert_eq!(app.input.as_ref().unwrap().text.as_str(), "before ");
         assert!(app.input.as_ref().unwrap().text.folds().is_empty());

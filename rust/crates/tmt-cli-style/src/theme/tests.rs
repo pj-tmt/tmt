@@ -392,7 +392,12 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         for role in Role::ALL.into_iter().filter(|role| {
             !matches!(
                 role,
-                Role::Selection | Role::Track | Role::Keycap | Role::KeycapSelected
+                Role::Selection
+                    | Role::Track
+                    | Role::Keycap
+                    | Role::KeycapSelected
+                    | Role::PasteChip
+                    | Role::PastePreview
             )
         }) {
             let floor = if matches!(role, Role::Muted | Role::Dim) {
@@ -409,6 +414,17 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
                     color(role),
                 );
             }
+        }
+        for (ink, fill) in [
+            (Role::PasteText, Role::PasteChip),
+            (Role::Text, Role::PastePreview),
+            (Role::PasteFrame, Role::PastePreview),
+        ] {
+            let ratio = contrast(color(ink), color(fill));
+            assert!(
+                ratio >= 4.5,
+                "{mode} {ink:?} on {fill:?}: {ratio:.2}:1 < 4.5:1"
+            );
         }
         let selection = tokens["color"]["selection"][mode].as_str().unwrap();
         let ratio = contrast(color(Role::Text), selection);
