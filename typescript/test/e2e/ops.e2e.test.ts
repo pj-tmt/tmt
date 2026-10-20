@@ -1178,7 +1178,12 @@ renameSync(output+'.tmp',output);
       pointer(0, 'm', button.x + 1, button.y);
       await fixture.waitForCapture((current) => /hello there\s+×/.test(current), shell.pane);
 
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
+      // Leave the draft, then the search filter, before quitting.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => current.includes('Nothing sent.'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((current) => !current.includes('Esc clear filter'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture((current) => current.includes('QUOTE_BOARD_EXIT=0'), shell.pane);
     });
   });
