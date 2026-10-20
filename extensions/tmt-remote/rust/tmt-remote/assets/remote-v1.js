@@ -1334,7 +1334,9 @@ function remoteState(state, current = true) {
 }
 /** Both page owners and the menu identify the current Local row by the same door root. */
 function currentRemote(entry, address, pageUrl) {
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", pageUrl).href);
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
 //#region src/remote-menu.ts
