@@ -226,6 +226,10 @@ keeping the full notice readable with input and sending disabled by the current 
 retains the previous frame height during replacement and preserves the current
 window offset through that replacement, clamped by the new document's bounds.
 Later height reports do not replay an older offset over newer scrolling.
+An opened page is idle (#4089): the frame measures its height from the body and the root's scroll
+height and holds it until the body reads differently, so a last block whose bottom margin collapses
+through the body's cannot make the height alternate. An idle or scrolled page sends the app no frame
+message, which `large-page-idle.spec.ts` counts.
 The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns draft survival and stale-quote behavior.
 
