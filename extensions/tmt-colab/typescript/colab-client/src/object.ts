@@ -45,15 +45,22 @@ export interface Context {
   space: string;
   page: string;
   epoch: string;
-  kind: 'update' | 'checkpoint' | 'html' | 'asset';
+  kind: 'update' | 'checkpoint' | 'fold' | 'html' | 'asset';
   namespace: 'content' | 'own';
   authorDevice: string;
   membershipRevision: string;
   streamSeq: string;
   prevHash: Uint8Array;
 }
-export function header(context: Context, objectId: string): Bytes {
+/** The kind of an owner fold: a checkpoint an owner-member device signs for another owner-member
+ * device's stream (colab-v1, "Planned owner fold"). Its header has one extra trailing field, the
+ * covered device; every other kind keeps thirteen, so a reader that does not know the kind
+ * refuses the header by its field count. */
+export const FOLD = 'fold';
+export function header(context: Context, objectId: string, coveredDevice?: string): Bytes {
   exactKeys(context, CONTEXT);
+  requireValue((context.kind === FOLD) === (coveredDevice !== undefined));
+  if (coveredDevice !== undefined) generatedId(coveredDevice);
   spaceId(context.space);
   generatedId(context.page);
   generatedId(context.authorDevice);
@@ -64,7 +71,7 @@ export function header(context: Context, objectId: string): Bytes {
     prev = copy(context.prevHash, 32);
   requireValue(typeof objectId === 'string' && /^[0-9a-f]{64}$/.test(objectId));
   requireValue(
-    ['update', 'checkpoint'].includes(context.kind)
+    ['update', 'checkpoint', FOLD].includes(context.kind)
       ? seq > 0n
       : ['html', 'asset'].includes(context.kind) &&
           seq === 0n &&
@@ -86,12 +93,23 @@ export function header(context: Context, objectId: string): Bytes {
     text(context.membershipRevision),
     text(context.streamSeq),
     prev,
+    ...(coveredDevice === undefined ? [] : [text(coveredDevice)]),
   );
   requireValue(out.length <= 1024);
   return out;
 }
-export function decodeHeader(raw: Uint8Array): { context: Context; objectId: string } {
-  const f = fields(raw, 13);
+export function decodeHeader(raw: Uint8Array): {
+  context: Context;
+  objectId: string;
+  /** The device a `fold` covers; absent for every other kind. */
+  coveredDevice?: string;
+} {
+  let f: Uint8Array[];
+  try {
+    f = fields(raw, 14);
+  } catch {
+    f = fields(raw, 13);
+  }
   requireValue(
     decodeText(f[0]) === 'tmt-colab-object-v1' &&
       decodeText(f[1]) === '1' &&
@@ -109,8 +127,11 @@ export function decodeHeader(raw: Uint8Array): { context: Context; objectId: str
     prevHash: f[12],
   };
   const objectId = decodeText(f[8]);
-  requireValue(equal(header(context, objectId), raw));
-  return { context, objectId };
+  const coveredDevice = f.length === 14 ? decodeText(f[13]) : undefined;
+  requireValue(equal(header(context, objectId, coveredDevice), raw));
+  return coveredDevice === undefined
+    ? { context, objectId }
+    : { context, objectId, coveredDevice };
 }
 const ceiling = (h: Uint8Array) =>
   decodeHeader(h).context.kind === 'update' ? 256 * 1024 : MAX_PLAINTEXT;
@@ -202,11 +223,17 @@ export class Envelope {
     return new Envelope(h, ct, await sign(signer, await signatureInput(h, ct)));
   }
   /** Caller first admits current log, device chain, role, epoch and stream order. */
-  async open(expected: Context, secret: RootSecret, devicePublic: Uint8Array): Promise<Bytes> {
+  async open(
+    expected: Context,
+    secret: RootSecret,
+    devicePublic: Uint8Array,
+    /** The covered device of a `fold`, which only opens with it; refused for any other kind. */
+    coveredDevice?: string,
+  ): Promise<Bytes> {
     const h = copy(this.#header),
       ct = copy(this.#ciphertext),
       sig = copy(this.#signature);
-    requireValue(equal(h, header(expected, decodeHeader(h).objectId)));
+    requireValue(equal(h, header(expected, decodeHeader(h).objectId, coveredDevice)));
     const root = rootSecret(secret),
       publicKey = copy(devicePublic, 32);
     requireValue(await strictVerify(publicKey, sig, await signatureInput(h, ct)));
@@ -225,4 +252,34 @@ export class Envelope {
       ),
     );
   }
+}
+/** The anchor of a fold: the covered stream's `update` envelope at the fold's sequence, whose hash
+ * is the fold's previous hash and which the covered device itself signed, so the fold names a head
+ * that device really wrote and not one its signer asserts. It admits neither device. */
+export async function checkAnchor(
+  fold: Envelope,
+  anchor: Envelope,
+  coveredKey: Uint8Array,
+): Promise<void> {
+  const f = decodeHeader(fold.header()),
+    a = decodeHeader(anchor.header());
+  requireValue(
+    f.context.kind === FOLD &&
+      f.coveredDevice !== undefined &&
+      a.context.kind === 'update' &&
+      a.coveredDevice === undefined &&
+      a.context.authorDevice === f.coveredDevice &&
+      a.context.space === f.context.space &&
+      a.context.page === f.context.page &&
+      a.context.epoch === f.context.epoch &&
+      a.context.streamSeq === f.context.streamSeq &&
+      equal(await anchor.hash(), f.context.prevHash),
+  );
+  requireValue(
+    await strictVerify(
+      copy(coveredKey, 32),
+      anchor.signature(),
+      await signatureInput(anchor.header(), anchor.ciphertext()),
+    ),
+  );
 }

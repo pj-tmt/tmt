@@ -313,6 +313,39 @@ export class Admission {
         );
     });
   }
+  /** The cut a reduction signed for `stream` in this page's `epoch` and `namespace`: its own, or
+   * else the one a verified owner advance that sealed this exact epoch signed after `after` and
+   * before the reduction. Missing both bounds is a refusal, never a default. */
+  #signedCut(
+    statement: statement.Verified,
+    after: bigint,
+    epoch: string,
+    namespace: string,
+    stream: string,
+  ): payload.Cut | undefined {
+    const p = statement.payload;
+    if (p.operation !== 'device.revoke' && p.operation !== 'link.remove') return undefined;
+    const matches = (cut: payload.Cut) =>
+      cut.pageId === this.page &&
+      cut.epoch === epoch &&
+      cut.namespace === namespace &&
+      streamCut.decode(binary(cut.cut, 1024)).streamId === stream;
+    return (
+      p.value.cuts.find(matches) ??
+      this.#log
+        .filter(
+          (seal) => seal.head.revision > after && seal.head.revision < statement.head.revision,
+        )
+        .flatMap((seal) =>
+          seal.payload.operation === 'epoch.advance' &&
+          seal.payload.value.pageId === this.page &&
+          decimal(seal.payload.value.epoch) === decimal(epoch) + 1n
+            ? seal.payload.value.cuts
+            : [],
+        )
+        .find(matches)
+    );
+  }
   /** Owner-member provenance: the device chain was issued by the owner member
    * and verified at its membership revision, and the device is not revoked.
    * A bridge's own envelopes are admitted (`readAuthor`) but never have it, so a
@@ -389,27 +422,13 @@ export class Admission {
       )
         continue;
       requireValue(revision < statement.head.revision);
-      const matches = (cut: payload.Cut) =>
-        cut.pageId === this.page &&
-        cut.epoch === context.epoch &&
-        cut.namespace === context.namespace &&
-        streamCut.decode(binary(cut.cut, 1024)).streamId === context.authorDevice;
-      // Only a verified owner advance that sealed this exact epoch before the
-      // reduction can substitute its cut. Missing both bounds remains a refusal.
-      const wrapped =
-        p.value.cuts.find(matches) ??
-        this.#log
-          .filter(
-            (seal) => seal.head.revision > revision && seal.head.revision < statement.head.revision,
-          )
-          .flatMap((seal) =>
-            seal.payload.operation === 'epoch.advance' &&
-            seal.payload.value.pageId === this.page &&
-            decimal(seal.payload.value.epoch) === decimal(context.epoch) + 1n
-              ? seal.payload.value.cuts
-              : [],
-          )
-          .find(matches);
+      const wrapped = this.#signedCut(
+        statement,
+        revision,
+        context.epoch,
+        context.namespace,
+        context.authorDevice,
+      );
       requireValue(wrapped !== undefined);
       const cut = streamCut.decode(binary(wrapped.cut, 1024)),
         seq = decimal(context.streamSeq);
@@ -426,6 +445,58 @@ export class Admission {
     return bridge
       ? { key: bridge.signKey.slice(), ownerDevice: false }
       : { key: c!.signingKey.slice(), ownerDevice: c!.issuerKind === 'member' };
+  }
+  /** The pinned keys of an owner fold's signer and of the device whose stream it covers, once both
+   * are owner-member devices and the fold is bound by what the owner signed (colab-v1, "Planned
+   * owner fold"). It decides authority only; the anchor and the object's bytes are checked by the
+   * caller.
+   * - Both chains were issued by the owner member at or before the fold's revision. A bridge,
+   *   a link-issued device or a device with no chain is refused.
+   * - A signer that was ever revoked folds only what its `device.revoke` lists: an unlisted fold
+   *   is refused whatever revision it cites, because a stolen key can backdate that revision and
+   *   a pruned prefix cannot be rechecked. A listed one must still predate the revoke.
+   * - A covered device that was revoked is folded only up to the `tailHeadSeq` of the cut its
+   *   revoke signed, never past it. */
+  readFold(
+    context: Context,
+    covered: string,
+    envelopeHash: Uint8Array,
+  ): { signer: Uint8Array; covered: Uint8Array } {
+    const revision = decimal(context.membershipRevision);
+    if (!this.head || revision > this.head.revision)
+      throw new Error('Fresh membership catchup required');
+    requireValue(
+      context.kind === 'fold' &&
+        !this.#bridge(context.authorDevice, revision) &&
+        !this.#bridge(covered, revision),
+    );
+    const signer = this.#authors.get(context.authorDevice),
+      target = this.#authors.get(covered);
+    if (!signer || !target) throw new Error('Fresh membership catchup required');
+    for (const c of [signer, target])
+      requireValue(
+        c.issuerKind === 'member' &&
+          c.issuerId === this.head.ownerMember.id &&
+          decimal(c.membershipRevision) <= revision &&
+          c.issuedAt <= Date.now(),
+      );
+    const seq = decimal(context.streamSeq);
+    for (const statement of this.#log) {
+      const p = statement.payload;
+      if (p.operation !== 'device.revoke') continue;
+      if (p.value.deviceId === context.authorDevice)
+        requireValue(
+          revision < statement.head.revision && payload.listsFold(p.value, envelopeHash),
+        );
+      if (p.value.deviceId === covered) {
+        const cut = this.#signedCut(statement, 0n, context.epoch, context.namespace, covered);
+        requireValue(
+          cut !== undefined &&
+            seq <= decimal(streamCut.decode(binary(cut.cut, 1024)).tailHeadSeq, true),
+        );
+      }
+    }
+    return { signer: signer.signingKey.slice(), covered: target.signingKey.slice() };
   }
   author(device: string, revision: string): Uint8Array {
     const c = this.#authors.get(device);

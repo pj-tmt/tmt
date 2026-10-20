@@ -144,6 +144,7 @@ impl Descriptor {
         object::Header {
             context: self.context(),
             object_id: self.object_id.clone(),
+            covered_device: None,
         }
         .encode()?;
         self.source.input()?;
