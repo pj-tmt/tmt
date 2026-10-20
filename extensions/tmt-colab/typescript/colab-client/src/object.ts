@@ -129,9 +129,7 @@ export function decodeHeader(raw: Uint8Array): {
   const objectId = decodeText(f[8]);
   const coveredDevice = f.length === 14 ? decodeText(f[13]) : undefined;
   requireValue(equal(header(context, objectId, coveredDevice), raw));
-  return coveredDevice === undefined
-    ? { context, objectId }
-    : { context, objectId, coveredDevice };
+  return coveredDevice === undefined ? { context, objectId } : { context, objectId, coveredDevice };
 }
 const ceiling = (h: Uint8Array) =>
   decodeHeader(h).context.kind === 'update' ? 256 * 1024 : MAX_PLAINTEXT;
