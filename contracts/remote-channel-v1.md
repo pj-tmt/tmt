@@ -357,8 +357,6 @@ when the grant has none; a session also ends when remote stops. Opening a sessio
 never asks the owner to pair again. The client verifies the paired machine key before trusting it.
 Each open adds an independent session for the device, bound to the same grant and revision;
 opening never widens scope. The local per-device session limit defaults to off/unlimited.
-Unlimited sessions remain bounded by the 60 s unattached expiry, 12 h idle expiry, signed
-rate-limited opens and the listener.
 `tmt remote settings sessions-per-device <n>|off` sets a positive limit or disables it. An
 absent `sessionsPerDevice` key in Remote's `settings.json` means unlimited; explicit null (`off`) means
 unlimited. Both plain settings and JSON show the limit and its source (`default` or

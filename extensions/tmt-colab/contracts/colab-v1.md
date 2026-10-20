@@ -1856,8 +1856,8 @@ anything is pruned.
   can use a bounded, budget-charged exact-ID log read. Neither Rules nor declaration changes.
   Native cloud inbound still has no verified checkpoint bootstrap, for ordinary checkpoints or
   folds ([#4113](https://github.com/pj-tmt/tmt/issues/4113)); a pruned prefix stops that writer
-  visibly with the gap number rather than applying a partial prefix. Keep its original page on
-  its machine. This limit does not prevent publication or a hosted reader opening the page.
+  visibly rather than applying a partial prefix, directing the reader to keep editing on the
+  machine that created the page. This limit does not prevent publication or a hosted reader opening it.
 
 Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
 admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer

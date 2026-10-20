@@ -804,3 +804,36 @@ fn a_pending_fold_carries_its_signer_proof_independently_of_a_newer_preamble() {
         "the selected batch must carry its exact signer dependency, not infer it again from latest local state"
     );
 }
+
+#[test]
+fn a_fold_stored_under_a_different_covered_stream_stops_instead_of_retrying() {
+    let mut fixture = Fixture::new();
+    for stream in [DEVICE, FOREIGN] {
+        fixture.append(stream);
+        fixture.append(stream);
+        fixture.fold_pair(stream, 2);
+    }
+    // Corrupt only the local routing: a valid foreign-stream fold now occupies this
+    // device's checkpoint slot. Store-selected scope must not turn corruption into retry.
+    let db = rusqlite::Connection::open(fixture.layout.directory.join("space.db")).unwrap();
+    assert_eq!(
+        db.execute(
+            "UPDATE checkpoints SET payload=(SELECT payload FROM checkpoints WHERE stream=?1 AND namespace='content')
+             WHERE stream=?2 AND namespace='content'",
+            rusqlite::params![FOREIGN, DEVICE],
+        ).unwrap(),
+        1,
+    );
+    drop(db);
+    let page = fixture.page(1);
+    for _ in 0..2 {
+        assert_eq!(
+            fixture
+                .local
+                .next(&page)
+                .err()
+                .expect("corrupt routing must refuse"),
+            Fault::Stuck("A stored original could not be mapped for cloud sync.")
+        );
+    }
+}

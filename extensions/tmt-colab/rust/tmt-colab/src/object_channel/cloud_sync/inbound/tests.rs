@@ -410,7 +410,7 @@ fn a_sequence_the_cloud_no_longer_holds_stops_that_writer_with_a_line() {
     assert_eq!(
         rig.reports.lock().unwrap()[0],
         format!(
-            "Cloud sync stopped following one writer of page {PAGE}: this machine cannot load the cloud checkpoint yet (#4113). Keep the original page on its machine."
+            "Cloud sync stopped following one writer of page {PAGE}: this machine cannot open this page's cloud copy yet. Keep editing it on the machine that created it."
         )
     );
 }
@@ -570,5 +570,5 @@ fn a_folded_prefix_published_as_an_anchor_still_refuses_native_bootstrap_visibly
     assert_eq!(rig.head(A), None);
     let reports = rig.reports.lock().unwrap();
     assert_eq!(reports.len(), 1);
-    assert!(reports[0].contains("this machine cannot load the cloud checkpoint yet (#4113)"));
+    assert!(reports[0].contains("this machine cannot open this page's cloud copy yet"));
 }

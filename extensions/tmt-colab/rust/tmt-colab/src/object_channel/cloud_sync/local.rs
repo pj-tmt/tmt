@@ -166,7 +166,7 @@ impl StoreLocal {
             if let Some(covered) = &header.covered_device {
                 signers.insert(header.context.author_device.clone());
                 if covered != stream {
-                    return Err(Fault::Retry);
+                    return mapping(Err(documents::Invalid));
                 }
                 if !anchored {
                     let anchor = self
