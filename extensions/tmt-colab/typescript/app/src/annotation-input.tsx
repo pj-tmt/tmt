@@ -1,7 +1,7 @@
 import './annotation-composer.css';
 import type { ComposerConnectionPresentation } from './router.js';
 import { ConversationPresentation } from './components/conversation-presentation.js';
-import { useAttachmentDropTarget } from './attachment-drop.js';
+import { attachmentInputHandlers, useAttachmentDropTarget } from './attachment-drop.js';
 import { BrowserAction, BrowserIconAction, type BrowserActionProps } from '@tmt/browser-ui/react';
 import { ArrowRight } from 'lucide-react';
 import {
@@ -12,8 +12,6 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type ClipboardEvent,
-  type DragEvent,
 } from 'react';
 import { CreatorToggle, useCreatorDefault } from './creator-default.js';
 import { AttachmentDraft } from './attachment-draft.js';
@@ -427,13 +425,7 @@ export function AnnotationInput({
   const attachable =
     !archived && !!discussion?.attachments && !busy && !blocked && !recorded && !unsent;
   const drop = useAttachmentDropTarget(files, attachable);
-  const takeFiles = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
-    // Adding only makes an inert local chip; the trusted Send is the first effect.
-    if (!attachable || !list?.length) return false;
-    event.preventDefault();
-    void files.add([...list]);
-    return true;
-  };
+  const fileHandlers = attachmentInputHandlers(files, attachable, !!drop);
   const recipientHint = (
     <div
       id={statusId}
@@ -524,17 +516,7 @@ export function AnnotationInput({
       data-connection={connectionPresentation?.phase}
       data-testid="annotation-compose"
       ref={section}
-      onDragOver={(event) => {
-        if (attachable && event.dataTransfer.types.includes('Files')) event.preventDefault();
-      }}
-      onDrop={(event) => {
-        if (!drop) takeFiles(event.dataTransfer.files, event);
-      }}
-      onPaste={(event) => {
-        // A paste that carries text stays a text paste; only a files-only paste attaches.
-        if (!event.clipboardData.types.includes('text/plain'))
-          takeFiles(event.clipboardData.files, event);
-      }}
+      {...fileHandlers}
     >
       <MessageComposer
         activation={activation}

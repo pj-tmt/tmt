@@ -1,9 +1,18 @@
 import { BrowserAction, BrowserChips } from '@tmt/browser-ui/react';
-import { Fragment, useEffect, useRef, useState, type ReactNode, type SetStateAction } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
 import { QuestionLine } from './question-line.js';
 import { AgentChip, AgentList, agentSentence } from './agent-chip.js';
 import type { AnchorPosition } from '../renderer.js';
 import type { ComposerConnectionPresentation } from '../router.js';
+import { AnswerFiles } from '../answer-files.js';
 import { sendAnswers, askedMessageIds, type BatchAnswer } from '../answer-batch.js';
 import type { AskAgainInput } from '../ask-again.js';
 import type { AskBinding, PageAsk } from '../ask-panel.js';
@@ -98,6 +107,16 @@ export function QuestionGroupCard({
   onRecorded?(questionIds: readonly string[], contexts: readonly CommentContext[]): void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  // The attachment drafts live beside the text drafts and leave with the group.
+  const attachments = useRef(discussion?.attachments);
+  useEffect(() => {
+    attachments.current = discussion?.attachments;
+  }, [discussion?.attachments]);
+  const [answerFiles] = useState(() => new AnswerFiles(() => attachments.current));
+  useSyncExternalStore(answerFiles.subscribe, answerFiles.getSnapshot);
+  useEffect(() => () => answerFiles.dispose(), [answerFiles]);
+  const filesOf = (question: string) =>
+    discussion?.attachments ? answerFiles.draft(question) : undefined;
   const scopeMembers = group.split
     ? members.filter((question) => question.id === selected)
     : members;
@@ -212,7 +231,12 @@ export function QuestionGroupCard({
       title,
       edit.value,
     );
-    const eligible = !!body && (!answer || draft.changing || draft.failed) && !draft.pending;
+    // A file still uploading holds back this answer alone.
+    const eligible =
+      !!body &&
+      (!answer || draft.changing || draft.failed) &&
+      !draft.pending &&
+      !answerFiles.uploading(question.id);
     return { question, draft, threads, thread, answer, body, eligible };
   });
   // The Send row belongs to its physical answer block. A folded answered line
@@ -271,6 +295,7 @@ export function QuestionGroupCard({
         body: row.body!,
         selector: structuredClone(selector),
         ...(row.thread ? { thread: structuredClone(row.thread) } : {}),
+        files: filesOf(row.question.id),
       });
     }
     setFocusReply(undefined);
@@ -452,6 +477,7 @@ export function QuestionGroupCard({
             : undefined
         }
         retryInput={retryInput}
+        files={filesOf(question.id)}
       />
     );
   }

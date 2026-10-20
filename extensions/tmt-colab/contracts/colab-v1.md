@@ -2559,6 +2559,17 @@ Choosing answers, opening/closing rows, render, reload and sync publish nothing.
 answer is one plain-text comment, `Answer to “<question>”: <answer>`, followed by page
 title and the visible recipient text. Multiple choices retain authored order;
 Other uses `Other: <text>`. Partial Sends retain untouched and failed drafts.
+A short, a long and an Other answer carry files through the attachment tray of comments
+and Chat (`AttachButton`, `PendingAttachments`, paste and drop, the same limits and
+notices; choices have no tray). The parent group holds one attachment draft per question
+beside its text draft: files survive opening, closing and switching questions, and, like
+the text, not a reload. Adding a file only makes an inert local chip; the same trusted Send
+uploads each answer's files under that answer's own message ID and publishes them with its
+comment, so one answer's refused or lost upload fails that answer alone, before any comment,
+and its chips and text stay. A file in transfer holds back its own answer only. A recipient
+retry is an Ask over the recorded comments and uploads or publishes nothing. A verified
+answer shows its images once, in its answer block, the way a comment shows them; its
+comment in the Conversation keeps its text.
 Sending freezes the answer/selector/thread/recipient snapshot, holds its controls
 while the other compact rows remain available for reading. Long-answer Enter
 inserts a newline. Digits select choice tiles only from an opened answer panel or tile,
