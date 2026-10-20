@@ -4818,11 +4818,11 @@ The JSON result is exactly one of:
   `{kind:"review"|"question"|"reading"|"proposal", id, title, agent?, why?}`. `id` is the
   pending-target ID (a question's is its group's); `title` is 1–200 code points and `agent` at
   most 64; `why` appears on a reading only. A pending item the page no longer lists is left out.
-  `latest`, absent when the page has no live comment, is `{who, atMs, text}`: the newest
+  `latest`, absent when the page has no live comment, is `{who?, atMs, text}`: the newest
   non-deleted comment by its device clock, excluding the records the page controls write
   (answers, confirmations, reads), with whitespace folded to single spaces and at most 160 code
   points; `who` is the device label it was written under, display-only and never proof of
-  authorship. `needs` and `latest` come from the same fold and fingerprint as the rest.
+  authorship, and is absent when that label is empty once made inert. `needs` and `latest` come from the same fold and fingerprint as the rest.
 - `{pageId, state:"pending"}` when no fresh cached fold is available and it has
   not failed at the current fingerprint. The existing bounded summary refresher
   may schedule it; the request itself never waits for a decoder or starts another
