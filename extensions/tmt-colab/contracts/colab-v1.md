@@ -957,10 +957,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                               | Fold and authority                                                                   |
-| --------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient` | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                  | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                                                         | Fold and authority                                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `layout`, `layoutReason` | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                            | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -973,6 +973,21 @@ CLI label and so removes it the same way. Content folding and epoch baselines pr
 committed update bytes; no descriptor field or extra signature is added.
 
 `meta.originalAuthor`, when present, uses the same bounded label grammar. Initial page creation derives it from that request's already captured `publisherAgent`; there is no separate creator lookup or public creation selection. It is a publisher-asserted creation display snapshot, not authenticated proof of a person's identity. Supported native and browser source writes preserve it independently of the latest publisher; an unknown creation remains absent after later known writes. Legacy absence means Unknown author in trusted presentation, never a guessed or backfilled value. Fresh epoch baselines and content checkpoints preserve it. It never supplies authorization, an Ask recipient or an Ask default.
+
+`meta.layout`, when present, is `column`, `full` or `canvas`: how Colab frames the
+page (`column`: a text column of at most 1280 px; `full`: blocks may run edge to edge;
+`canvas`: the page draws its own frame, and Colab applies none). A page without the key is
+`freeform`, which is an absence, never a stored value: a page created before this key
+existed reads as `freeform` with no migration, and no create or write can choose it.
+`meta.layoutReason` is present exactly when `meta.layout` is `canvas`: one nonempty,
+trimmed line of at most 1024 UTF-8 bytes without control characters, saying why the page
+draws its own frame. A shell page has neither key. Both are display and framing hints,
+never authority. The browser frames from the verified, folded metadata, so a change made on
+another device or by the CLI reframes an open page without a new source. Source writes
+(CLI, patch, browser Save), checkpoints, compaction and epoch baselines preserve both keys
+in the committed update bytes; only `page create` and `page layout` set them, and a native
+or browser projection with an unknown kind, a reason on a non-canvas page, a canvas without
+a reason or a shell page with a layout is rejected.
 
 `meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
 canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted
@@ -1371,7 +1386,7 @@ and atomic epoch transitions remain caller-owned, later integration work.
 [Baseline vectors](vectors/baseline-v1.json) pin update-v1 bytes and commitment
 with a test-only fixed client ID; production uses a fresh identity. Their
 [independent oracle](vectors/baseline-reference.py) covers only the fresh
-`html`/`meta.title` plus optional `meta.publisherAgent`, `meta.originalAuthor` and `meta.creationRecipient` schema and requires no third-party libraries.
+`html`/`meta.title` plus optional `meta.publisherAgent`, `meta.originalAuthor`, `meta.creationRecipient`, `meta.layout` and `meta.layoutReason` schema and requires no third-party libraries.
 The complete two-key preference has two fixed-client lib0 object-key byte orders,
 each with its own exact-byte commitment; this does not relax the deterministic
 frozen export manifest.
@@ -2172,8 +2187,9 @@ colours, type and the layout inside a block stay free. An inline `style` attribu
 with `!important` still wins: the frame is a cosmetic projection like the theme and author
 code may tamper with it. `canvas`, `freeform` and an absent layout set nothing and add no
 stylesheet. The frame's own spacers are not blocks, and the parent draws its bands
-and question lines on the same column. No page carries a layout yet; the page metadata
-for it is tracked in #3926, and until then only test fixtures bind one.
+and question lines on the same column. The layout is the page's verified `meta.layout`; the
+browser binds the frame from the live view, so a change that arrives without a new source
+(a `page layout` from the CLI or another device) reframes the open page.
 
 For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
 without theme-attribute or OS-media palette overrides. The bootstrap overwrites an
@@ -3554,7 +3570,7 @@ facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounte
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
 first page's full link, or its relative path without a door), `shortLink` (its short owner link,
 `null` without a page or door), `next` (commands still
-needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
+needed: `tmt remote pair` unless paired, `tmt colab page create --title <title> --layout column` when there
 is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
 facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
 `pair` (`pair for page access: tmt remote pair`, or `if this browser is new, pair for page access: ...` when
@@ -4228,7 +4244,7 @@ The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text (the empty string for `page.projects` and `project.manage`, see [Projects](#projects-3747))
 and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent` and optional complete `creationRecipient` as defined
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`, optional complete `creationRecipient` and, for an HTML page, an optional `layout` `{kind,reason?}` (the `kind`, and for a `canvas` its `reason`, as `meta.layout` and `meta.layoutReason` define; a shell page has none) as defined
 in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
@@ -4630,8 +4646,15 @@ route never marks a reading read, and neither does opening an item from a shell.
 
 ## Root-local page creation
 
-`tmt colab page create --title <title> [--file <path|->] [--json]` creates a private
-page at epoch 1. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
+`tmt colab page create --title <title> --layout column|full|canvas [--reason <text>] [--file <path|->] [--json]` creates a private
+page at epoch 1. The layout choice is required: `--layout column`, `--layout full` or
+`--layout canvas --reason <text>` (`--reason` belongs to `canvas` only, and `canvas` needs
+it). Without a choice the command refuses before it initializes state or reads `--file`, naming
+the three choices and `tmt colab skill layout`; a reason that is empty, longer than 1024 bytes,
+or holds a control character, and a `--reason` on another kind, are refused the same way. Freeform
+is not a choice. On success the result adds `layout` (and `layoutReason` for a canvas) and
+`read: ["layout","components"]`, the skill topics to read before writing markup; the human
+result prints the layout and both `tmt colab skill` pointers. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
 `--file` means empty source; a file or stdin uses the page-write reader (2 MiB
 UTF-8, five-second stdin EOF deadline). A source over 192 KiB is published as ordered
 content updates of at most 192 KiB of text each (stream positions 1..n), so every reader admits them as
@@ -4649,6 +4672,22 @@ when needed, private `page.share`, epoch secret, eligible owner/device wraps,
 certified local-writer encrypted initial content and exact operation receipt in
 one transaction. An error rolls back that complete page transition; keyring and
 empty database initialization may remain. Deleted page IDs cannot be reused.
+
+`tmt colab page layout <page> column|full|canvas [--reason <text>] [--expected-revision <revision>] [--json]`
+changes only the page's layout: the source, title and attribution are the page's own, and
+the change publishes through the same atomic content batch as `page write`, through serve when
+running or under its lifecycle lock when stopped. The kind and reason follow the same rules as
+creation; moving to `column` or `full` removes the reason. Setting the layout the page already
+has publishes nothing and reports `changed: false`. `--expected-revision` refuses a page that
+moved since that revision. The JSON result is the write receipt plus `layout` and, for a
+canvas, `layoutReason`. A page that has no layout (freeform) can be given one this way; there
+is no command that returns a page to freeform.
+
+`ls` and `show` report each page's layout from its verified metadata: JSON `layout`
+(`column`, `full`, `canvas`, or `freeform` for a page without the key; `null` when the page's
+title cannot be read, as for an archived page) and, for a canvas, the whole `layoutReason`;
+the human views print `layout <kind>` and, for a canvas, `reason <text>` on one line, control
+characters escaped and nothing truncated.
 
 Already admitted, unexpired, unrevoked owner devices receive wraps through the
 existing recipient planner. Later owner-device registration supplies missing

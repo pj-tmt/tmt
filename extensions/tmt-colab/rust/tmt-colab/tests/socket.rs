@@ -3347,6 +3347,7 @@ fn prepare_write(
         key,
         PAGE,
         ContentEdit {
+            layout: None,
             source,
             publisher_agent: None,
             attachments: None,

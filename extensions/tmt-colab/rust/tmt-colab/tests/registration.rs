@@ -801,6 +801,7 @@ fn create_page(
                 operation_id: operation,
                 expected_revision: expected,
                 action: tmt_colab::transitions::OwnerAction::Create {
+                    layout: None,
                     creation_recipient: None,
                     page,
                     title: "Created title",
@@ -1056,6 +1057,7 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
                     operation_id: PAGE,
                     expected_revision: 0,
                     action: OwnerAction::Create {
+                        layout: None,
                         creation_recipient: hint,
                         page: PAGE,
                         title,
@@ -1329,6 +1331,7 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
                 &key,
                 PAGE,
                 ContentEdit {
+                    layout: None,
                     source: &base.source,
                     publisher_agent: None,
                     attachments: Some(change),

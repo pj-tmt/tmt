@@ -12,6 +12,21 @@ top-level blocks. You own the content: colours, type and the layout inside each 
 | `canvas`   | Sets nothing. The page lays itself out.                              | Interactive charts, games, tools that draw the page. |
 | `freeform` | Sets nothing. A page that existed before layouts is `freeform`.      | Nothing new.                                         |
 
+## Choose at creation
+
+`page create` requires a choice and refuses without one:
+
+```sh
+tmt colab page create --title "Weekly plan" --layout column --file page.html --json
+tmt colab page create --title "Board" --layout canvas --reason "Draws its own cards" --file page.html --json
+```
+
+`canvas` needs `--reason`, one line saying why the page draws its own frame; Colab shows it on the
+page's About panel. A page that has no layout yet (`freeform`) keeps its look until you give it one:
+`tmt colab page layout PAGE column` (or `full`, or `canvas --reason TEXT`) changes only the layout.
+Writes and patches keep it. `tmt colab show PAGE --json` reports `layout`. There is no way back
+to `freeform`.
+
 ## The frame
 
 A top-level block is an element child of `<body>`, other than `script`, `style`, `template`,

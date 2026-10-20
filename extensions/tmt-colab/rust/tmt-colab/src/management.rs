@@ -123,6 +123,8 @@ struct Create {
     page_type: Option<String>,
     #[serde(default, deserialize_with = "creation_recipient")]
     creation_recipient: Option<crate::decoder::CreationRecipient>,
+    #[serde(default, deserialize_with = "page_layout")]
+    layout: Option<crate::decoder::PageLayout>,
     page_id: String,
     title: String,
     source: String,
@@ -135,6 +137,15 @@ fn creation_recipient<'de, D: serde::Deserializer<'de>>(
     let value = crate::decoder::CreationRecipient::deserialize(d)?;
     if !value.valid() {
         return Err(serde::de::Error::custom("Invalid creation recipient"));
+    }
+    Ok(Some(value))
+}
+fn page_layout<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<crate::decoder::PageLayout>, D::Error> {
+    let value = crate::decoder::PageLayout::deserialize(d)?;
+    if !value.valid() {
+        return Err(serde::de::Error::custom("Invalid page layout"));
     }
     Ok(Some(value))
 }
@@ -581,6 +592,7 @@ fn apply(
             source: &v.source,
             publisher_agent: v.publisher_agent.as_deref(),
             creation_recipient: v.creation_recipient.as_ref(),
+            layout: v.layout.as_ref(),
         },
         Action::Advance => OwnerAction::EpochAdvance {
             page: &command.page,

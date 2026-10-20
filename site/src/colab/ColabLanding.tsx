@@ -368,7 +368,10 @@ const install = [
   },
   { label: "Add Colab", command: "tmt extension install colab --skills" },
   { label: "Open Colab", command: "tmt colab serve" },
-  { label: "Create a page", command: 'tmt colab page create --title "Launch plan"' },
+  {
+    label: "Create a page",
+    command: 'tmt colab page create --title "Launch plan" --layout column',
+  },
 ];
 
 export function ColabLanding() {

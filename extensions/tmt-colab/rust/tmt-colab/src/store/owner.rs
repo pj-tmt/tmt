@@ -100,7 +100,7 @@ impl std::fmt::Display for OwnerFault {
                 f,
                 "Page {page} is full: {detail}. Nothing was deleted. {export} it with `tmt colab export \
                  {page} --dir <dir>`, then create a new page from it with `tmt colab page create \
-                 --title <title> --file <dir>/page.html`.",
+                 --title <title> --layout column --file <dir>/page.html`.",
                 page = c.page,
                 detail = c.detail,
                 export = if c.compactable {

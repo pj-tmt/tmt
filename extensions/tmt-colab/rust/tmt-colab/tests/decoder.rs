@@ -99,6 +99,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
         "attribution":{"writerId":"10000000-0000-4000-8000-000000000001","timeMs":1000}
     }});
     let view = || BaselineInput {
+        layout: None,
         original_author: Some("Agent 1"),
         attachments: None,
         source: b"",
@@ -145,6 +146,7 @@ fn shell_baseline_preserves_structured_content_and_checks_its_commitment() {
 fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base() {
     use tmt_colab::decoder::{ContentBatch, ContentEdit, ShellEdit};
     let view = || BaselineInput {
+        layout: None,
         original_author: None,
         attachments: None,
         source: b"",
@@ -199,6 +201,7 @@ fn shell_actions_prepare_replayable_updates_without_changing_the_admitted_base()
                 batch(),
                 &before.projection,
                 ContentEdit {
+                    layout: None,
                     source: "erase",
                     publisher_agent: None,
                     attachments: None,
@@ -828,6 +831,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        layout: None,
         original_author: None,
         attachments: None,
         creation_recipient: None,
@@ -862,6 +866,12 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let recipient = vector.get("creationRecipient").map(|v| {
             serde_json::from_value::<tmt_colab::decoder::CreationRecipient>(v.clone()).unwrap()
         });
+        let layout = vector["layout"]
+            .as_str()
+            .map(|kind| tmt_colab::decoder::PageLayout {
+                kind: tmt_colab::decoder::LayoutKind::parse(kind).unwrap(),
+                reason: vector["layoutReason"].as_str().map(str::to_owned),
+            });
         let mut decoder = owner();
         let verified = decoder
             .verify_baseline(view(source.as_bytes(), title), &update, commitment, None)
@@ -893,6 +903,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    layout: layout.as_ref(),
                     original_author: vector["originalAuthor"].as_str(),
                     attachments: None,
                     creation_recipient: recipient.as_ref(),
@@ -924,6 +935,13 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
                     .map(|value| value.to_string(&txn)),
                 vector["publisherAgent"].as_str().map(str::to_owned)
             );
+            for key in ["layout", "layoutReason"] {
+                assert_eq!(
+                    meta.get(&txn, key).map(|value| value.to_string(&txn)),
+                    vector[key].as_str().map(str::to_owned),
+                    "{key}"
+                );
+            }
         }
         let change = |doc: &Doc, text: &str| {
             let html = doc.get_or_insert_text("html");
@@ -956,6 +974,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        layout: None,
         original_author: None,
         attachments: None,
         creation_recipient: None,
@@ -1165,6 +1184,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                layout: None,
                 original_author: Some("original-author"),
                 attachments: None,
                 creation_recipient: None,
@@ -1186,6 +1206,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
                 },
                 &base,
                 ContentEdit {
+                    layout: None,
                     source,
                     publisher_agent: publisher,
                     attachments: None,
@@ -1237,6 +1258,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
             decoder
                 .produce_baseline(
                     BaselineInput {
+                        layout: None,
                         original_author: Some(&invalid),
                         ..view(b"after", "Title")
                     },
@@ -1254,6 +1276,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
                     },
                     &base,
                     ContentEdit {
+                        layout: None,
                         source: "after",
                         publisher_agent: Some(&invalid),
                         attachments: None,
@@ -1274,6 +1297,7 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
     let made = decoder
         .produce_page(
             BaselineInput {
+                layout: None,
                 original_author: Some("original-author"),
                 ..view(source.as_bytes(), "T")
             },
@@ -1390,6 +1414,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    layout: None,
                     attachments: None,
                     creation_recipient: hint,
                     ..view(source.as_bytes(), "Title")
@@ -1434,6 +1459,7 @@ fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edi
                     },
                     &folded.projection,
                     ContentEdit {
+                        layout: None,
                         source: "later",
                         publisher_agent: publisher,
                         attachments: None,
@@ -1562,6 +1588,7 @@ fn content_batch_full_replacement_replays_without_reattributing_foreign_structs(
             },
             &before,
             ContentEdit {
+                layout: None,
                 source: &source,
                 publisher_agent: Some("New publisher"),
                 attachments: None,
@@ -1670,6 +1697,7 @@ fn content_batch_handles_unicode_deletion_noop_and_publisher_only_changes() {
                 },
                 &before,
                 ContentEdit {
+                    layout: None,
                     source: &source,
                     publisher_agent: None,
                     attachments: None,
@@ -1702,7 +1730,7 @@ fn content_batch_handles_unicode_deletion_noop_and_publisher_only_changes() {
             let made = owner().prepare_content_batch(
                 UpdateBatch { namespace: Namespace::Content, baseline: &baseline, updates: &[] },
                 &serde_json::json!({"html":source,"meta":if publisher.is_some() { serde_json::json!({"title":"T"}) } else { serde_json::json!({"title":"T","publisherAgent":"Publisher"}) }}),
-                ContentEdit { source: &source, publisher_agent: publisher, attachments: None }, None,
+                ContentEdit { source: &source, publisher_agent: publisher, layout: None, attachments: None }, None,
             ).unwrap();
             let ContentBatch::Updates(updates) = made.batch else {
                 panic!("publisher change is not a no-op")
@@ -1738,6 +1766,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             },
             &before,
             ContentEdit {
+                layout: None,
                 source: &source,
                 publisher_agent: None,
                 attachments: None,
@@ -1755,6 +1784,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             },
             &serde_json::json!({"html":"wrong","meta":{}}),
             ContentEdit {
+                layout: None,
                 source: "new",
                 publisher_agent: None,
                 attachments: None,
@@ -1775,6 +1805,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             },
             &before,
             ContentEdit {
+                layout: None,
                 source: "new",
                 publisher_agent: None,
                 attachments: None,
@@ -1794,6 +1825,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             },
             &before,
             ContentEdit {
+                layout: None,
                 source: "",
                 publisher_agent: None,
                 attachments: None,
@@ -1814,6 +1846,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             },
             &before,
             ContentEdit {
+                layout: None,
                 source: "new",
                 publisher_agent: None,
                 attachments: None,
@@ -1835,6 +1868,7 @@ fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
             },
             &before,
             ContentEdit {
+                layout: None,
                 source: "new",
                 publisher_agent: None,
                 attachments: None,
@@ -1858,6 +1892,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
         let baseline = decoder
             .produce_page(
                 BaselineInput {
+                    layout: None,
                     attachments: None,
                     creation_recipient: hint,
                     ..view(b"old", "T")
@@ -1888,6 +1923,7 @@ fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
                     },
                     &folded.projection,
                     ContentEdit {
+                        layout: None,
                         source,
                         publisher_agent: None,
                         attachments: None,

@@ -57,5 +57,26 @@
     "sourceDigest": "GoXZwmOSLtoevzAf9OTwj88lNOH7WkeFrsNFNzvOtf0",
     "commitment": "EuCiVeEyCdO889lZrhPyT2B_r14aMhJsGAkxLn9l15g",
     "alternateCommitment": "tuS7nAzUOwNG9MPMf_AZXbLgoldVorOXZHdpiEn_Vtk"
+  },
+  {
+    "source": "<p>Framed</p>",
+    "title": "Column page",
+    "clientId": 1159,
+    "publisherAgent": "layout-agent",
+    "layout": "column",
+    "update": "AQSHCQAEAQRodG1sDTxwPkZyYW1lZDwvcD4oAQRtZXRhBXRpdGxlAXcLQ29sdW1uIHBhZ2UoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcMbGF5b3V0LWFnZW50KAEEbWV0YQZsYXlvdXQBdwZjb2x1bW4A",
+    "sourceDigest": "h1mg8dQVFD2V_349S65PkerdMiQWQCHptRV6iHSi9yY",
+    "commitment": "_WtG-MjS0Jckol9aqKKd8lA4LrEm9YEaIpwlzqArBUA"
+  },
+  {
+    "source": "<p>Board</p>",
+    "title": "Canvas page",
+    "clientId": 1159,
+    "publisherAgent": "layout-agent",
+    "layout": "canvas",
+    "layoutReason": "A status board draws its own cards \ud83d\ude80",
+    "update": "AQWHCQAEAQRodG1sDDxwPkJvYXJkPC9wPigBBG1ldGEFdGl0bGUBdwtDYW52YXMgcGFnZSgBBG1ldGEOcHVibGlzaGVyQWdlbnQBdwxsYXlvdXQtYWdlbnQoAQRtZXRhBmxheW91dAF3BmNhbnZhcygBBG1ldGEMbGF5b3V0UmVhc29uAXcnQSBzdGF0dXMgYm9hcmQgZHJhd3MgaXRzIG93biBjYXJkcyDwn5qAAA",
+    "sourceDigest": "lJlfbxmYoldxe9Vo6J1v_l8EG38dBMvfn7i45olDoME",
+    "commitment": "aK3BMMr5Mgg8-qJOWOafdzYYf5D08bSwqaqNnyEwjV0"
   }
 ]

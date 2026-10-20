@@ -68,7 +68,18 @@ test('a hosted editor verifies native content, publishes own edit requests and o
       run(
         world,
         world.binaries.colab,
-        ['page', 'create', '--title', 'Hosted notes', '--file', '-', '--no-open', '--json'],
+        [
+          'page',
+          'create',
+          '--title',
+          'Hosted notes',
+          '--layout',
+          'column',
+          '--file',
+          '-',
+          '--no-open',
+          '--json',
+        ],
         '<main><h1>Native owner first version</h1></main>',
       ),
     ) as { pageId: string };

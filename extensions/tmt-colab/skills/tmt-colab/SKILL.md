@@ -52,10 +52,12 @@ browser they intend to use, compare the four words with the terminal and confirm
 there themselves. Wait for their confirmation; never answer for them.
 To send, pair with `--talk` or use the Remote settings toggle.
 
-Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file:
+Find an existing page with `tmt colab ls --json`, or create one from a UTF-8 file. Layout is
+required: `--layout column` (most pages), `full`, or `canvas --reason TEXT`;
+`page layout PAGE KIND` changes it:
 
 ```sh
-tmt colab page create --title "Weekly plan" --file page.html --json
+tmt colab page create --title "Weekly plan" --layout column --file page.html --json
 ```
 
 Use `--file -` for stdin; omit `--file` for an empty page. Returns
@@ -109,9 +111,8 @@ compare before writing; for uncertain creates inspect `ls`, never duplicate page
 
 Page source, updates and history have size limits
 ([limits contract](https://github.com/pj-tmt/tmt/blob/main/extensions/tmt-colab/contracts/colab-v1.md#decoder-isolation-compaction-and-limits)).
-`page read` reports `usage`. On `COLAB_CAPACITY`, read the named limit; if it offers
-`page compact PAGE`, run it, then write again. If still full, export the page and create a
-fresh one (see the editing reference); never delete the original to clear a limit.
+`page read` reports `usage`. On `COLAB_CAPACITY`, follow "When the page is full" in the
+editing reference; never delete the original to clear a limit.
 
 ## Page look
 

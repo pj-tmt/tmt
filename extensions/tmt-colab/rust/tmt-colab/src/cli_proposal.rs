@@ -200,6 +200,7 @@ fn place(
         ContentEdit {
             source: &source,
             publisher_agent: publisher.as_deref(),
+            layout: None,
             attachments: None,
         },
         Some(current.revision.as_str()),

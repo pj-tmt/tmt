@@ -119,7 +119,7 @@ test('one command starts the door; pairing opens a page; stopping it closes both
       paired: false,
       pages: 0,
       page: null,
-      next: ['tmt remote pair', 'tmt colab page create --title <title>'],
+      next: ['tmt remote pair', 'tmt colab page create --title <title> --layout column'],
     });
     const device = await pairBrowser(world, 'one-command');
     // The printed link itself opens as the paired device.
@@ -129,7 +129,19 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     // #2385: JSON emits the same short link in both link fields. Both open
     // through the real Remote door as the paired device without a hand-built URL.
     const printed2 = await world.tmt(
-      ['colab', 'page', 'create', '--title', 'Linked', '--file', '-', '--json', '--no-open'],
+      [
+        'colab',
+        'page',
+        'create',
+        '--title',
+        'Linked',
+        '--layout',
+        'column',
+        '--file',
+        '-',
+        '--json',
+        '--no-open',
+      ],
       { stdin: '<p id="body">Opened from the printed link.</p>' },
     );
     expect(printed2.code, printed2.stdout + printed2.stderr).toBe(0);

@@ -314,6 +314,41 @@ body:has(.needs-you-header-menu) {
     animation: none;
   }
 }
+/* About > Layout: one label/value row; at 390 the label sits above the value and the reason below it. */
+.page-layout-info dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 8px 0;
+  font: 400 13px/1.5 var(--tmt-ui-font-body);
+}
+.page-layout-info dt {
+  color: var(--c-muted);
+}
+.page-layout-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.page-layout-reason {
+  margin: 4px 0 0;
+  color: var(--c-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.page-layout-reason[data-expanded] {
+  display: block;
+  overflow: visible;
+}
+@media (max-width: 479px) {
+  .page-layout-info dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
 /* About > Page size: flat, tabular label/value rows that wrap at 390 with no horizontal scroll. */
 .page-size h3 {
   margin: 16px 0 8px;

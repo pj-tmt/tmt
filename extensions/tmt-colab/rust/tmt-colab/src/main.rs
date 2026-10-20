@@ -1,6 +1,7 @@
 mod cli_attachments;
 mod cli_compact;
 mod cli_grammar;
+mod cli_layout;
 mod cli_management;
 mod cli_page_check;
 mod cli_patch;
@@ -98,7 +99,7 @@ fn grammar() -> Command {
                 note: "Run the space; stop it with tmt colab stop",
             },
             Example {
-                command: "tmt colab page create --title Notes --file page.html",
+                command: "tmt colab page create --title Notes --layout column --file page.html",
                 note: "Create a page and print its link",
             },
             Example {
@@ -226,7 +227,7 @@ fn grammar() -> Command {
         summary: "Create, read and write local pages",
         examples: &[
             Example {
-                command: "tmt colab page create --title Notes --file page.html",
+                command: "tmt colab page create --title Notes --layout column --file page.html",
                 note: "Create a private page and print its link",
             },
             Example {
@@ -241,7 +242,7 @@ fn grammar() -> Command {
         name: "create",
         summary: "Create a private local page",
         examples: &[Example {
-            command: "tmt colab page create --title Notes --file page.html --json",
+            command: "tmt colab page create --title Notes --layout column --file page.html --json",
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
@@ -353,11 +354,13 @@ fn grammar() -> Command {
                     .subcommand_required(true)
                     .subcommand(
                         open_args(
-                            tmt_cli_style::command(&CREATE)
-                                .arg(cli_page_check::strict())
-                                .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
-                                .arg(Arg::new("file").long("file").value_name("path|-")
-                                    .value_parser(clap::value_parser!(std::path::PathBuf))),
+                            cli_layout::create_args(
+                                tmt_cli_style::command(&CREATE)
+                                    .arg(cli_page_check::strict())
+                                    .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
+                                    .arg(Arg::new("file").long("file").value_name("path|-")
+                                        .value_parser(clap::value_parser!(std::path::PathBuf))),
+                            ),
                         ),
                     )
                     .subcommand(cli_page_check::command())
@@ -383,7 +386,8 @@ fn grammar() -> Command {
                                     .help("Refuse unless the page is still at this revision from page read"),
                             ),
                     )
-                    .subcommand(cli_patch::command()),
+                    .subcommand(cli_patch::command())
+                    .subcommand(cli_layout::command()),
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
@@ -638,6 +642,7 @@ fn commit_source(
     source: &str,
     expected_revision: Option<&str>,
     base_source_sha256: Option<[u8; 32]>,
+    page_layout: Option<&tmt_colab::decoder::PageLayout>,
     decoder: &mut tmt_colab::decoder::Decoder,
 ) -> Result<tmt_colab::page::Receipt> {
     use tmt_colab::page::{self, PublishOptions};
@@ -662,6 +667,7 @@ fn commit_source(
             tmt_colab::decoder::ContentEdit {
                 source,
                 publisher_agent: publisher_agent.as_deref(),
+                layout: page_layout,
                 attachments: None,
             },
             PublishOptions {
@@ -795,6 +801,8 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::{decoder::Decoder, page::Fault};
     let (command, args) = args.subcommand().expect("required page command");
     if command == "create" {
+        // The layout is chosen before any state is initialized or any source is read.
+        let page_layout = cli_layout::choice(args)?;
         let source = args
             .get_one::<std::path::PathBuf>("file")
             .map(|path| page_source(path))
@@ -802,10 +810,13 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             .unwrap_or_default();
         // A new page has no attachments: every reference in its first source is unresolved.
         let warnings = cli_page_check::gate(&source, args, cli_page_check::Attachments::NewPage)?;
-        return cli_management::create_page(root, args, source, &warnings);
+        return cli_management::create_page(root, args, source, &page_layout, &warnings);
     }
     if command == "patch" {
         return cli_patch::run(root, args);
+    }
+    if command == "layout" {
+        return cli_layout::run(root, args);
     }
     if command == "compact" {
         return cli_compact::run(root, args);
@@ -862,6 +873,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         &source,
         args.get_one::<String>("expected-revision")
             .map(String::as_str),
+        None,
         None,
         &mut decoder,
     )?;

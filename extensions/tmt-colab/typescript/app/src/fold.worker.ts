@@ -153,6 +153,8 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'title' &&
         key !== 'publisherAgent' &&
         key !== 'originalAuthor' &&
+        key !== 'layout' &&
+        key !== 'layoutReason' &&
         key !== 'creationRecipient' &&
         key !== 'pageType' &&
         key !== 'shell' &&
@@ -165,6 +167,8 @@ function project(doc: Y.Doc, complete = true) {
     source: html.toString(),
     title: (meta.get('title') ?? '') as string,
     ...(meta.has('originalAuthor') ? { originalAuthor: meta.get('originalAuthor') as string } : {}),
+    ...(meta.has('layout') ? { layout: meta.get('layout') } : {}),
+    ...(meta.has('layoutReason') ? { layoutReason: meta.get('layoutReason') } : {}),
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
     ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
     ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),

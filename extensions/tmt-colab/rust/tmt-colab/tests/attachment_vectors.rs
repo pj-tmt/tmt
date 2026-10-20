@@ -68,6 +68,7 @@ fn descriptors_survive_real_decode_source_edits_checkpoints_and_baselines() {
                 },
                 &projection,
                 ContentEdit {
+                    layout: None,
                     source: "changed source",
                     publisher_agent: None,
                     attachments: None,
@@ -97,6 +98,7 @@ fn descriptors_survive_real_decode_source_edits_checkpoints_and_baselines() {
         let attachments: DocumentAttachments =
             serde_json::from_value(projection["meta"]["attachments"].clone()).unwrap();
         let view = || BaselineInput {
+            layout: None,
             original_author: None,
             source: b"changed source",
             title: "Storage",
@@ -204,6 +206,7 @@ fn typed_attachment_change_is_prepared_by_the_isolated_decoder() {
             },
             &current,
             ContentEdit {
+                layout: None,
                 source,
                 publisher_agent: None,
                 attachments: Some(change),

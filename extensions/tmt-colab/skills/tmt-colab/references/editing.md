@@ -71,12 +71,12 @@ it and write again. If the page is still full, export it and create a fresh one:
 
 ```sh
 tmt colab export PAGE --dir EXISTING_DIRECTORY --json
-tmt colab page create --title "Weekly plan" --file EXPORTED_DIRECTORY/page.html --json
+tmt colab page create --title "Weekly plan" --layout column --file EXPORTED_DIRECTORY/page.html --json
 ```
 
 Use the export directory the first command returns, not its parent. Exports are unencrypted and
 include discussions; keep them private. The new page has a new identity and inherits no
-discussions or sharing. Do not delete the original to clear a limit.
+discussions or sharing, and needs its own `--layout` (the export does not carry one). Do not delete the original to clear a limit.
 
 ## Design a page for agents
 

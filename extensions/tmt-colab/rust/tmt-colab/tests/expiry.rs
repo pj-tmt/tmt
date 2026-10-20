@@ -83,6 +83,7 @@ impl Fixture {
     }
     fn create(&mut self) {
         self.apply(OwnerAction::Create {
+            layout: None,
             creation_recipient: None,
             page: PAGE,
             title: "Expiry",
@@ -192,6 +193,7 @@ fn a_locally_forever_page_shows_its_confirmed_cloud_deadline_and_the_same_warnin
     let mut f = Fixture::new();
     f.create();
     f.apply(OwnerAction::Create {
+        layout: None,
         creation_recipient: None,
         page: OTHER,
         title: "Other",
@@ -254,6 +256,7 @@ fn a_page_never_confirmed_is_not_in_the_cloud_only_once_this_machine_has_a_cloud
     let mut f = Fixture::new();
     f.create();
     f.apply(OwnerAction::Create {
+        layout: None,
         creation_recipient: None,
         page: OTHER,
         title: "Other",
@@ -281,6 +284,7 @@ fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
         &f.key,
         PAGE,
         tmt_colab::decoder::ContentEdit {
+            layout: None,
             source: "<p>New</p>",
             publisher_agent: None,
             attachments: None,

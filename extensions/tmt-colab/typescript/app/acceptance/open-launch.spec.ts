@@ -52,7 +52,18 @@ test('page create opens the committed page through Remote with the same short-on
       run(
         world,
         world.binaries.colab,
-        ['page', 'create', '--title', 'Created launch', '--file', '-', '--open', '--json'],
+        [
+          'page',
+          'create',
+          '--title',
+          'Created launch',
+          '--layout',
+          'column',
+          '--file',
+          '-',
+          '--open',
+          '--json',
+        ],
         '<h1 id="proof">Created route content</h1>',
       ),
     ) as { opened: boolean; shortLink: string };

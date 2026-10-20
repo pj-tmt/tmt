@@ -460,6 +460,7 @@ fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse()
     let expected = r#"{"version":1,"baseline":"AA","updates":["AAE"],"expected_base":{"html":"old\r\n","meta":{"foreign":null,"title":"T 🐈"}},"source":"new 🐈\n\"\\","publisher_agent":null}"#;
     for publisher in [None, Some("agent")] {
         let borrowed = WireContentPreparation {
+            layout: None,
             shell: None,
             version: 1,
             baseline: String::from("AA"),
@@ -517,6 +518,7 @@ fn edited_projection_preserves_full_metadata_publisher_set_clear_and_noop() {
         let result = edited_projection(
             &base,
             ContentEdit {
+                layout: None,
                 source,
                 publisher_agent: publisher,
                 attachments: None,
@@ -1101,6 +1103,7 @@ fn observation_preparation_replays_independently_without_normalizing_fresh_bytes
         .encode_state_as_update_v1(&StateVector::default());
     for (source, publisher) in [("old", None), ("new 🐈", Some("agent"))] {
         let wire = WireContentPreparation {
+            layout: None,
             shell: None,
             version: 1,
             baseline: URL_SAFE_NO_PAD.encode(&baseline),
@@ -1293,6 +1296,7 @@ fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
     let wire = WireContentPreparation {
+        layout: None,
         shell: None,
         version: 1,
         baseline: URL_SAFE_NO_PAD.encode(&baseline),
@@ -1355,6 +1359,7 @@ fn observation_preparation_delta_and_wrong_base_keep_independent_semantics() {
         }
     }
     let wrong = WireContentPreparation {
+        layout: None,
         shell: None,
         version: 1,
         baseline: URL_SAFE_NO_PAD.encode(&baseline),
@@ -1776,6 +1781,7 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
             ("new 🐈", Some("next")),
         ] {
             let input = serde_json::to_vec(&WireContentPreparation {
+                layout: None,
                 shell: None,
                 version: 1,
                 baseline: URL_SAFE_NO_PAD.encode(&update),
@@ -1855,6 +1861,7 @@ fn one_generated_reply_preserves_owned_wire_projection_and_independent_replay() 
             let expected = edited_projection(
                 &expected,
                 ContentEdit {
+                    layout: None,
                     source,
                     publisher_agent: publisher,
                     attachments: None,

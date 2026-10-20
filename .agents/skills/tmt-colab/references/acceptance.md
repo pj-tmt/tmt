@@ -107,8 +107,8 @@ Provider panes explicitly exec `tmt run`, so the pane leader is the wrapper rath
 
 ## Pages
 
-A page needs a real owner command: `tmt colab page create --title <title> [--file <path|->]
-[--json]` (empty source by default; a file or stdin otherwise), which works while `serve`
+A page needs a real owner command: `tmt colab page create --title <title> --layout column|full|canvas [--reason <text>]
+[--file <path|->] [--json]` (empty source by default; a file or stdin otherwise), which works while `serve`
 runs. `--json` returns `{spaceId,pageId,title,path,operationId,membershipHead}`; open `path`
 under the Remote door address (`createPage` and `openPage` in `harness/ask.ts` do this).
 `tmt colab ls --json` and `tmt colab page read <page>` verify it. Create the page before the

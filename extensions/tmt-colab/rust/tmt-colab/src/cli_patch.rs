@@ -237,6 +237,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
             &edited,
             expected,
             Some(crypto::digest(base.source.as_bytes())),
+            None,
             &mut decoder,
         ) {
             Ok(receipt) => {
