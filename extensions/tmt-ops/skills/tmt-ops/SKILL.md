@@ -1157,8 +1157,15 @@ that request. Refusal without a retained request keeps the draft. Sent turns and
 exactly correlated replies are bounded session feedback, not durable history.
 
 Bracketed paste never submits. Message text is limited to 1 MiB, with exact text and
-newlines preserved. Paste over 500 characters or eight lines folds into one labelled
-range; Ctrl-P previews or folds it at the caret, and deletion removes that range.
+newlines preserved. In direct messages, paste over 500 Unicode characters or
+10 logical lines becomes an inline chip; exactly 500 characters or 10 lines stays
+ordinary text. Click its body or press Ctrl-P at the chip to open a read-only,
+scrollable preview above it (below when there is no room above). Esc or an outside
+click closes the preview and keeps the draft. Click ×, or use Backspace/Delete at
+the chip, to remove the whole pasted range. Multiple chips can sit between typed
+text; sending uses every original byte. With ASCII glyphs or NO_COLOR, the chip
+reads `[Pasted … x]`. Other message forms retain their inline fold preview with
+Ctrl-P for paste over 500 characters or eight lines.
 Name/configuration/search fields keep their smaller bounds and do not gain message
 completion. The status reason keeps its 4,000-byte bound and explicit Apply step.
 

@@ -349,7 +349,19 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   names `backtab`. `App::newline_key` is the one source of the new-line key: the footer
   caption and the info line under the input say `Shift+Enter`/`Shift+⏎` only with confirmed
   keyboard enhancement or that request, otherwise `Alt+Enter`/`Alt+⏎`. Terminals own IME preedit; committed Unicode enters the same
-  editor. Large paste folds retain exact text and can be previewed or removed.
+  editor. `composer::paste` projects direct-message Editor folds as atomic chips
+  when a paste exceeds 500 Unicode characters or 10 logical lines (CRLF counts as
+  one break). The Editor remains the only owner of send bytes and retained folds.
+  Chip body clicks and Ctrl-P open a read-only, scrollable preview anchored above
+  the chip, or below when necessary, within half the conversation pane. Escape
+  and outside presses dismiss the preview without changing the draft; the outside
+  press continues to its underlying control. The chip's × removes its source range.
+  Published chip hits are bounded to their draft UUIDs, fold ID and current range.
+  Ctrl-P selects the Editor's current fold even between paints; the next paint
+  publishes its anchor or closes the preview request when it cannot fit.
+  Painting does not mutate the Editor or the pending-send revision fence.
+  A combining mark joining a neighboring grapheme falls back to ordinary text,
+  preserving every byte rather than splitting the grapheme at a chip edge.
   `mentions` supplies the shared completion component with acquired agent UUIDs
   and squad IDs. Inserting a reference never changes recipients or broadcasts;
   cron stores literal text. Name, configuration and search fields do not complete.

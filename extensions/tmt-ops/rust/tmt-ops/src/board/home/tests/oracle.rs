@@ -495,6 +495,23 @@ fn captures() -> Value {
                 }
             }
         }
+        // Paste attachments belong only to the Agents conversation. #4100
+        // carries these scenes into Talk when it migrates the shell.
+        for (look_name, look) in looks() {
+            for state in crate::board::composer::paste::tests::SCENES {
+                let height = if *state == "paste-tiny" { 8 } else { 36 };
+                for width in [160, 100, 80] {
+                    let app = crate::board::composer::paste::tests::capture_case(
+                        state, look, width, height,
+                    );
+                    let mut captured =
+                        capture_frame(&app, state, look_name, width, height, &mut styles);
+                    captured["paste"] =
+                        crate::board::composer::paste::tests::capture_metadata(&app);
+                    frames.push(captured);
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

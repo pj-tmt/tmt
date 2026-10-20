@@ -559,6 +559,7 @@ pub(super) enum Overlay {
     QuotaDetails,
     Discovery,
     UsageControls,
+    PastePreview,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -578,6 +579,7 @@ impl Overlay {
                 Self::QuotaDetails => "quota-details",
                 Self::Discovery => "discovery",
                 Self::UsageControls => "usage-controls",
+                Self::PastePreview => "paste-preview",
             }
             .into(),
         ]
@@ -2923,6 +2925,9 @@ impl App {
     }
 
     pub(super) fn paste(&mut self, text: &str) -> Effect {
+        if self.paste_preview_shown() {
+            return Effect::None;
+        }
         if self.checklist_shown() || self.recovery_shown() || self.discovery_shown() {
             return self
                 .overlay_event(&Event::Paste(text.to_owned()))
@@ -2954,27 +2959,30 @@ impl App {
         if let Some(input) = self.input.as_mut()
             && !matches!(input.compose, Compose::Status)
         {
-            // Terminals may deliver CR, LF or CRLF inside bracketed paste. Count
-            // display lines without changing the exact source retained for send.
-            let lines = text
-                .replace("\r\n", "\n")
-                .replace('\r', "\n")
-                .lines()
-                .count();
-            let inserted = if message && (text.chars().count() > 500 || lines > 8) {
-                input.text.insert_folded(
-                    text,
-                    format!("[paste · {} bytes · {} lines]", text.len(), lines),
-                    limit,
-                )
+            let label = if input.draft_key.is_some() {
+                super::composer::paste::label(text)
+            } else if message {
+                // Other message forms retain their existing inline fold policy.
+                let lines = text
+                    .replace("\r\n", "\n")
+                    .replace('\r', "\n")
+                    .lines()
+                    .count();
+                (text.chars().count() > 500 || lines > 8)
+                    .then(|| format!("[paste · {} bytes · {} lines]", text.len(), lines))
             } else {
-                input.text.insert(text, limit)
+                None
+            };
+            let inserted = match label {
+                Some(label) => input.text.insert_folded(text, label, limit),
+                None => input.text.insert(text, limit),
             };
             if !inserted {
                 return self.say(format!("Paste exceeds {limit} bytes; draft unchanged."));
             }
         }
         self.update_mentions();
+        self.composer.invalidate();
         Effect::None
     }
 
@@ -3041,11 +3049,14 @@ impl App {
             {
                 if message {
                     input.text.insert("\n", limit);
+                    self.composer.invalidate();
                 }
                 return Effect::None;
             }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if message {
+                if input.draft_key.is_some() {
+                    return self.preview_paste_at_cursor();
+                } else if message {
                     input.text.toggle_fold();
                 }
                 return Effect::None;
@@ -3053,6 +3064,7 @@ impl App {
             KeyCode::Char('j' | 'n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if message {
                     input.text.insert("\n", limit);
+                    self.composer.invalidate();
                 }
                 return Effect::None;
             }
@@ -3060,6 +3072,7 @@ impl App {
             _ => {
                 let width = self.input_viewport.get().map_or(80, |(area, _)| area.width);
                 input.text.key(key, width, limit);
+                self.composer.invalidate();
                 return Effect::None;
             }
         }
@@ -3467,7 +3480,9 @@ impl App {
     }
 
     pub(super) fn overlay(&self) -> Option<Overlay> {
-        if self.monitor_details.is_some() {
+        if self.paste_preview_shown() {
+            Some(Overlay::PastePreview)
+        } else if self.monitor_details.is_some() {
             Some(Overlay::MonitorDetails)
         } else if self.cron_review.is_some() {
             Some(Overlay::CronReview)
@@ -3511,6 +3526,7 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
+            Overlay::PastePreview => Some(self.paste_preview_event(event)),
             Overlay::Workspace => self.workspace_form_event(field, event),
             Overlay::Panels => self.panels_event(event),
             Overlay::Recovery => self.recovery_event(event),
@@ -4027,6 +4043,9 @@ impl App {
             return Effect::None;
         }
         if let Some(effect) = self.conversation_quote_mouse(event) {
+            return effect;
+        }
+        if let Some(effect) = self.paste_chip_mouse(event) {
             return effect;
         }
         if let Some(effect) = self.member_link_mouse(event) {

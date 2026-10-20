@@ -49,6 +49,7 @@ fn editor_with_style(
         base,
         base.add_modifier(Modifier::REVERSED),
     ) && input.chat_quote_focus.is_none()
+        && !app.paste_preview_shown()
     {
         frame.set_cursor_position(caret);
     }
@@ -356,6 +357,7 @@ fn final_input(
         return;
     };
     if app.modal_open()
+        && !app.paste_preview_shown()
         && (app.shell.tab != crate::board::shell::OpsTab::Agents || !projection.focused)
     {
         return;
@@ -395,13 +397,15 @@ fn final_input(
     if projection.focused {
         editor_with_style(frame, app, editor_area, base);
     } else if let Some(text) = projection.text.filter(|text| !text.is_empty()) {
-        if super::super::member_links::paint_preview(
-            frame,
-            app,
-            editor_area,
-            text.as_str(),
-            Role::Text,
-        ) {
+        if text.folds().is_empty()
+            && super::super::member_links::paint_preview(
+                frame,
+                app,
+                editor_area,
+                text.as_str(),
+                Role::Text,
+            )
+        {
             app.input_viewport.set(None);
             for y in editor_area.y..editor_area.bottom() {
                 for x in editor_area.x..editor_area.right() {
@@ -417,6 +421,7 @@ fn final_input(
     } else {
         app.input_viewport.set(Some((editor_area, 0)));
     }
+    app.paint_paste_chips(frame, &projection, editor_area);
     let send = app
         .composer_info(&projection)
         .paint(frame.buffer_mut(), field_band, look);
