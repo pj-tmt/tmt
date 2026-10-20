@@ -464,6 +464,46 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
     outcome.map(ActionOutcome::Message)
 }
 
+/// At most this many queued wheel events join one frame; the rest follow next turn.
+const WHEEL_BURST: usize = 64;
+
+fn is_wheel(event: &ratatui::crossterm::event::MouseEvent) -> bool {
+    matches!(
+        event.kind,
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+    )
+}
+
+/// Applies a wheel event and the wheel events already queued behind it, in
+/// order and without dropping any, so a burst paints one frame instead of one per
+/// event. It stops at the first event that is not a wheel step (a click, a key, a
+/// resize, a focus change), which is handed back to land in order on the next turn.
+/// A non-wheel `first` is applied alone.
+fn coalesce_wheel(
+    first: ratatui::crossterm::event::MouseEvent,
+    input: &Receiver<BoardEvent>,
+    mut apply: impl FnMut(ratatui::crossterm::event::MouseEvent) -> Effect,
+) -> (Effect, Option<BoardEvent>) {
+    let mut effect = apply(first);
+    if !is_wheel(&first) {
+        return (effect, None);
+    }
+    for _ in 0..WHEEL_BURST {
+        // An effect to carry out ends the burst before another event can change it.
+        if !matches!(effect, Effect::None) {
+            return (effect, None);
+        }
+        match input.try_recv() {
+            Ok(BoardEvent::Input(Event::Mouse(next))) if is_wheel(&next) => {
+                effect = apply(next);
+            }
+            Ok(other) => return (effect, Some(other)),
+            Err(_) => break,
+        }
+    }
+    (effect, None)
+}
+
 fn reload_interval(app: &App) -> Option<Duration> {
     app.view
         .as_ref()
@@ -502,6 +542,8 @@ fn session(
     // The terminal may have dropped the mouse request; it is asked for again
     // before the next frame, or at the end of this turn when none is due.
     let mut capture_lost = false;
+    // The event that ended a wheel burst; it is the next turn's first event.
+    let mut deferred: Option<BoardEvent> = None;
     let mut wanted: Option<usage_report::Since> = None;
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
@@ -653,7 +695,10 @@ fn session(
         if let Some(interval) = interval {
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
-        let received = input.recv_timeout(wait);
+        let received = match deferred.take() {
+            Some(event) => Ok(event),
+            None => input.recv_timeout(wait),
+        };
         if matches!(received, Ok(BoardEvent::Input(_))) {
             last_input = Instant::now();
         }
@@ -999,7 +1044,10 @@ fn session(
                     Effect::None
                 } else {
                     dirty = true;
-                    app.mouse(mouse, Instant::now())
+                    let (effect, next) =
+                        coalesce_wheel(mouse, input, |event| app.mouse(event, Instant::now()));
+                    deferred = next;
+                    effect
                 }
             }
             Ok(BoardEvent::Input(Event::Paste(text))) => {
@@ -3142,6 +3190,147 @@ mod tests {
         let (asked, frames, _) = run(vec![], Some(Duration::from_millis(20)));
         assert!(asked >= 3, "each refresh tick asks again, asked {asked}");
         assert_eq!(frames, 1, "ticks are not paint changes");
+    }
+
+    fn wheel(kind: MouseEventKind, column: u16) -> ratatui::crossterm::event::MouseEvent {
+        ratatui::crossterm::event::MouseEvent {
+            kind,
+            column,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    /// A burst joins one frame without losing or reordering a step, and ends at
+    /// the first event that is not a wheel step: that event is handed back to
+    /// land before the wheel steps queued behind it.
+    #[test]
+    fn a_wheel_burst_stops_at_a_click_and_keeps_every_step_in_order() {
+        let (sender, input) = channel();
+        let down = |column| wheel(MouseEventKind::ScrollDown, column);
+        let up = |column| wheel(MouseEventKind::ScrollUp, column);
+        for event in [down(1), up(2)] {
+            sender.send(BoardEvent::Input(Event::Mouse(event))).unwrap();
+        }
+        sender
+            .send(BoardEvent::Input(Event::Mouse(wheel(
+                MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left),
+                9,
+            ))))
+            .unwrap();
+        for event in [down(3), down(4)] {
+            sender.send(BoardEvent::Input(Event::Mouse(event))).unwrap();
+        }
+        let mut applied = Vec::new();
+        let (effect, deferred) = coalesce_wheel(down(0), &input, |event| {
+            applied.push((event.kind, event.column));
+            Effect::None
+        });
+        assert_eq!(effect, Effect::None);
+        assert_eq!(
+            applied,
+            [
+                (MouseEventKind::ScrollDown, 0),
+                (MouseEventKind::ScrollDown, 1),
+                (MouseEventKind::ScrollUp, 2),
+            ],
+            "wheel, wheel, wheel in arrival order; none dropped"
+        );
+        assert!(matches!(
+            deferred,
+            Some(BoardEvent::Input(Event::Mouse(click))) if click.column == 9
+        ));
+        // The wheel steps behind the click are still queued, in order.
+        let mut rest = Vec::new();
+        while let Ok(BoardEvent::Input(Event::Mouse(event))) = input.try_recv() {
+            rest.push(event.column);
+        }
+        assert_eq!(rest, [3, 4]);
+        // A key, a resize and a focus change end a burst the same way.
+        for other in [
+            key(KeyCode::Char('x')),
+            BoardEvent::Input(Event::Resize(80, 24)),
+            BoardEvent::Input(Event::FocusGained),
+        ] {
+            sender.send(other).unwrap();
+            sender
+                .send(BoardEvent::Input(Event::Mouse(down(5))))
+                .unwrap();
+            let (_, deferred) = coalesce_wheel(down(0), &input, |_| Effect::None);
+            assert!(
+                deferred.is_some_and(|event| !matches!(event, BoardEvent::Input(Event::Mouse(_))))
+            );
+            assert!(matches!(
+                input.try_recv(),
+                Ok(BoardEvent::Input(Event::Mouse(_)))
+            ));
+        }
+        // A burst is bounded; the remainder follows on the next turn.
+        for column in 0..(WHEEL_BURST as u16 + 10) {
+            sender
+                .send(BoardEvent::Input(Event::Mouse(down(column))))
+                .unwrap();
+        }
+        let mut count = 0;
+        let _ = coalesce_wheel(down(0), &input, |_| {
+            count += 1;
+            Effect::None
+        });
+        assert_eq!(count, WHEEL_BURST + 1);
+        assert_eq!(input.try_iter().count(), 10);
+        // A non-wheel first event is applied alone.
+        sender
+            .send(BoardEvent::Input(Event::Mouse(down(1))))
+            .unwrap();
+        let mut count = 0;
+        let click = wheel(MouseEventKind::Moved, 0);
+        let _ = coalesce_wheel(click, &input, |_| {
+            count += 1;
+            Effect::None
+        });
+        assert_eq!(count, 1);
+        assert_eq!(input.try_iter().count(), 1);
+    }
+
+    /// Ten queued wheel steps paint one frame (plus the first), not eleven.
+    #[test]
+    fn a_wheel_burst_in_the_session_paints_one_frame() {
+        let mut app = app::workspace::tests::board();
+        let (sender, input) = channel();
+        for column in 0..10 {
+            sender
+                .send(BoardEvent::Input(Event::Mouse(wheel(
+                    MouseEventKind::ScrollDown,
+                    column,
+                ))))
+                .unwrap();
+        }
+        sender.send(BoardEvent::InputClosed).unwrap();
+        let frames = std::cell::Cell::new(0);
+        super::session(
+            &mut app,
+            &AtomicUsize::new(0),
+            &input,
+            |_, _, _, _| {},
+            |_, _| {},
+            |_| {},
+            no_io,
+            |_| {},
+            |_| {},
+            || Ok(()),
+            || Ok(()),
+            None,
+            |_| {
+                frames.set(frames.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            frames.get(),
+            2,
+            "the opening frame and one frame for the whole burst"
+        );
     }
 
     #[test]
