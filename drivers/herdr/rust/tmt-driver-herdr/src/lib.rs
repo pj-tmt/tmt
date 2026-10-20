@@ -376,27 +376,21 @@ impl<R: Runner> Handler for HerdrDriver<R> {
         let deadline = deadline(request.deadline_ms);
         let socket = self.socket(&request.body.socket)?;
         let pane_id = self.pane_id(&request.body.pane_id)?;
-        if request.body.lines == 0 {
-            return Err(bad_request("capture needs at least one line"));
-        }
         let gone = || DriverError::new(ErrorCode::NotFound, "the pane is gone");
         let pane = self
             .find(socket, pane_id, deadline)
             .map_err(HerdrError::into_driver)?
             .ok_or_else(gone)?;
         let lines = request.body.lines.to_string();
-        // `recent` is the scrollback's tail, as plain text without styling.
-        let args = [
-            "pane",
-            "read",
-            pane.target.as_str(),
-            "--source",
-            "recent",
-            "--lines",
-            lines.as_str(),
-            "--format",
-            "text",
-        ];
+        // As plain text without styling: `visible` is the screen (the
+        // contract's 0), `recent` the scrollback's tail.
+        let mut args = vec!["pane", "read", pane.target.as_str(), "--source"];
+        if request.body.lines == 0 {
+            args.push("visible");
+        } else {
+            args.extend(["recent", "--lines", lines.as_str()]);
+        }
+        args.extend(["--format", "text"]);
         let text = self
             .herdr
             .text(socket, &args, deadline)
