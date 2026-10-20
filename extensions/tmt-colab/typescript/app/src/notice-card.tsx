@@ -1,4 +1,5 @@
 import { Circle, Diamond, LoaderCircle, X } from 'lucide-react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import type { ReactNode } from 'react';
 import { BrowserNotice } from '@tmt/browser-ui/react';
 import './notice-card.css';
@@ -54,7 +55,7 @@ export function NoticeCard({
       title={title}
       mark={
         state === 'opening' ? (
-          <LoaderCircle />
+          <LoaderCircle className={ui.spin} />
         ) : state === 'waiting' ? (
           <Diamond fill="currentColor" />
         ) : muted ? (

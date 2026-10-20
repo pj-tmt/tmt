@@ -138,7 +138,7 @@ test('the spinner turns unless the reader prefers reduced motion', async ({ page
       .getAnimations()
       .map((animation) => (animation as CSSAnimation).animationName),
   );
-  expect(names).toEqual(['page-opening-spin']);
+  expect(names).toEqual(['tmt-ui-spin']);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(
     await spinner(page).evaluate((mark) => mark.querySelector('svg')!.getAnimations().length),

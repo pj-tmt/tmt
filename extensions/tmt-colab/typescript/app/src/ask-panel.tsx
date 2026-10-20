@@ -3,6 +3,7 @@ import { ConversationPresentation } from './components/conversation-presentation
 import type { AnswerBatchContext, CommentContext } from './thread-store.js';
 import { BrowserIconAction, useBusyMark } from '@tmt/browser-ui/react';
 import { CircleAlert, Clock, LoaderCircle, Pause, RotateCw } from 'lucide-react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { sameMessageIds, type LedgerState } from './ask-records.js';
@@ -88,7 +89,7 @@ function DispatchingMark() {
   const marked = useBusyMark(true);
   return (
     <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
-      <LoaderCircle />
+      <LoaderCircle className={ui.spin} />
     </span>
   );
 }

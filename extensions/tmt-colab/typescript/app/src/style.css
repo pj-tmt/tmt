@@ -290,7 +290,7 @@ body:has(.needs-you-header-menu) {
   background: #fff;
 }
 /* The pending page (#3976): the header holds, one spinner sits centred in the area a loaded page gets.
-   It is the LoaderCircle mark of the busy and echo marks, without words; reduced motion keeps it still. */
+   It is the LoaderCircle mark of the busy and echo marks, without words; it turns by the shared tmt-ui-spin rule. */
 .page-opening {
   display: grid;
   place-items: center;
@@ -306,17 +306,6 @@ body:has(.needs-you-header-menu) {
   display: block;
   width: 24px;
   height: 24px;
-  animation: page-opening-spin 0.9s linear infinite;
-}
-@keyframes page-opening-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .page-opening-mark svg {
-    animation: none;
-  }
 }
 /* About > Layout: the same stacked label-over-value row as the attribution rows above it, at every width. */
 .page-layout-info dl {
@@ -2071,17 +2060,6 @@ body:has(.needs-you-header-menu) {
   margin-right: 4px;
   vertical-align: -0.15em;
   color: var(--tmt-ui-color-working);
-  animation: agent-activity-spin 0.9s linear infinite;
-}
-@keyframes agent-activity-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .agent-activity-spinner {
-    animation: none;
-  }
 }
 .comment-echo-failure {
   margin: 0;

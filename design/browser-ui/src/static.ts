@@ -55,6 +55,7 @@ export const browserUiClasses = Object.freeze({
   action: 'tmt-ui-action',
   actionLabel: 'tmt-ui-action-label',
   actionMark: 'tmt-ui-action-mark',
+  spin: 'tmt-ui-spin',
   iconAction: 'tmt-ui-icon-action',
   iconActionControl: 'tmt-ui-icon-action-control',
   iconActionIcon: 'tmt-ui-icon-action-icon',

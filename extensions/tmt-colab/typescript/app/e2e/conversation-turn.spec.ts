@@ -1036,7 +1036,7 @@ for (const surface of ['chat', 'thread'] as const)
           if (kind === 'working') {
             await expect(status.locator('.agent-activity-spinner')).toHaveCSS(
               'animation-name',
-              'agent-activity-spin',
+              'tmt-ui-spin',
             );
             await page.emulateMedia({ reducedMotion: 'reduce' });
             await expect(status.locator('.agent-activity-spinner')).toHaveCSS(

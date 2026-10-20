@@ -1,6 +1,7 @@
 import type { ComposerConnectionPresentation } from '../router.js';
 import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
 import { LoaderCircle } from 'lucide-react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { useId, useRef, type ReactNode } from 'react';
 import {
   answerOf,
@@ -155,7 +156,7 @@ export function QuestionCard({
               {echoing && (
                 // The same wordless mark as a sent message's echo, on the shared busy-mark delay.
                 <span className="comment-echo-mark" data-shown={pendingMark || undefined}>
-                  <LoaderCircle />
+                  <LoaderCircle className={ui.spin} />
                 </span>
               )}
             </span>

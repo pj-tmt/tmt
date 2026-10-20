@@ -119,7 +119,7 @@ export function ReaderApp({
                   {render === 'ready' ? (
                     <Circle className="status-dot" fill="currentColor" aria-hidden />
                   ) : render === 'loading' ? (
-                    <LoaderCircle aria-hidden />
+                    <LoaderCircle className={ui.spin} aria-hidden />
                   ) : (
                     <X aria-hidden />
                   )}{' '}

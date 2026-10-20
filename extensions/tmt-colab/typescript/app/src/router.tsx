@@ -780,7 +780,7 @@ function PageFrame() {
       />
       <div className="page-opening">
         <span role="status" aria-label={text.openingPage} className="page-opening-mark">
-          <LoaderCircle aria-hidden />
+          <LoaderCircle className={ui.spin} aria-hidden />
         </span>
       </div>
     </div>
