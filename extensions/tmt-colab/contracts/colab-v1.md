@@ -3377,6 +3377,12 @@ receipt ledger, so pruning never permits accepting a sequence again.
 An admission check or catchup that cannot read the store because SQLite stays busy or locked past
 its 2 s timeout answers `RESYNC_REQUIRED`, never `DENIED` (#2956): it says nothing about the
 device, and the client resyncs. A refusal the store answered keeps its code.
+An append that cites an earlier membership revision than the head also answers `RESYNC_REQUIRED`,
+never `DENIED` (#4088): the session was admitted before another page was created or shared, and
+that says nothing about the device. A revision the head has not reached is still `DENIED`. The
+refusal stores nothing, so the owner browser drops an interrupted own append sealed under an
+earlier revision, whose signed header no retry can change, and seals the next write under the head
+it caught up to.
 
 `append.seq` is positive canonical decimal text. `streamId` equals the principal
 and signed author. `envelopeHash` is canonical base64url hash32. `envelope` is either
@@ -3712,8 +3718,8 @@ owner upgrades. `registration::OwnerAdmission` reads a durable authority snapsho
 on each check: active registration/device, certificate lifetime, pinned owner
 management member and editor issuer, retained head and current page epoch. The
 owner management member admits local pages regardless of its empty genesis page
-list. Append additionally requires the current membership revision and an allowed
-namespace, and returns the registered extension signing key for model signature
+list. Append additionally requires the current membership revision (an earlier one answers
+`RESYNC_REQUIRED`) and an allowed namespace, and returns the registered extension signing key for model signature
 verification. Upgrade verifies the full remote binding and device chain; repeated
 Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
 head from `Store::owner_head` and the exact persisted reset descriptor through

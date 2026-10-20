@@ -1227,11 +1227,17 @@ impl crate::sync::Admission for OwnerAdmission {
                 if tx.page_epoch(&scope.page)?.as_deref() != Some(scope.epoch.as_str()) {
                     return Err(SyncCode::StaleEpoch.into());
                 }
-                if let crate::sync::Access::Append(c) = access
-                    && (values::decimal(&c.membership_revision, false)? != head.revision
-                        || !matches!(c.namespace.as_str(), "content" | "own"))
-                {
-                    return Err(SyncCode::Denied.into());
+                if let crate::sync::Access::Append(c) = access {
+                    let cited = values::decimal(&c.membership_revision, false)?;
+                    if cited > head.revision || !matches!(c.namespace.as_str(), "content" | "own") {
+                        return Err(SyncCode::Denied.into());
+                    }
+                    // A session admitted before another page was created or shared seals at the head
+                    // it knew. That is a stale view, not a verdict on the device: ask it to catch up,
+                    // never `DENIED`, which the browser treats as lost access.
+                    if cited < head.revision {
+                        return Err(SyncCode::ResyncRequired.into());
+                    }
                 }
                 Ok(binding.signing)
             })
