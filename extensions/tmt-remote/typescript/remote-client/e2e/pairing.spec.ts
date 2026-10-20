@@ -243,6 +243,11 @@ function lines(child: ChildProcessWithoutNullStreams): Lines {
 /** Fixture colab: a page that shows the forwarded device context and may load the SDK. */
 async function colab(socket: string, recordHead: (head: string) => void): Promise<Server> {
   const server = createServer((connection) => {
+    connection.on('error', (error: NodeJS.ErrnoException) => {
+      // Navigation may close the peer before the fixture finishes its response.
+      if (connection.destroyed && (error.code === 'EPIPE' || error.code === 'ECONNRESET')) return;
+      throw error;
+    });
     let head = '';
     connection.on('data', (chunk) => {
       head += chunk.toString('latin1');
@@ -299,6 +304,29 @@ test('fixture Colab answers a fragmented HTTP request only once', async () => {
     expect(connection.listenerCount('data')).toBe(0);
   } finally {
     client.destroy();
+  }
+});
+
+test('fixture Colab ignores only closed-peer pipe/reset errors and surfaces other failures', async () => {
+  const accepted = new Promise<Socket>((resolve) => fixture.once('connection', resolve));
+  const client = createConnection(join(root, 'state/colab/door.sock'));
+  const connection = await accepted;
+  const pipe = Object.assign(new Error('Fixture closed-peer pipe'), { code: 'EPIPE' });
+  const reset = Object.assign(new Error('Fixture closed-peer reset'), { code: 'ECONNRESET' });
+  const other = Object.assign(new Error('Fixture unexpected socket error'), { code: 'EIO' });
+  try {
+    expect(connection.destroyed).toBe(false);
+    for (const error of [pipe, reset, other])
+      expect(() => connection.emit('error', error)).toThrow(error);
+    const closed = new Promise<void>((resolve) => connection.once('close', () => resolve()));
+    client.destroy();
+    await closed;
+    expect(connection.destroyed).toBe(true);
+    for (const error of [pipe, reset]) expect(() => connection.emit('error', error)).not.toThrow();
+    expect(() => connection.emit('error', other)).toThrow(other);
+  } finally {
+    client.destroy();
+    connection.destroy();
   }
 });
 
