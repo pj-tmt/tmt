@@ -27,6 +27,7 @@ const pairCommand = 'tmt remote pair';
 
 export const text = {
   pageLink: {
+    close: 'Close',
     external: 'Open this link in a new tab?',
     internal: 'Open another Colab page?',
     externalLabel: 'Outside Colab',

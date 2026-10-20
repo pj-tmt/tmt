@@ -197,8 +197,8 @@ function PageLinkBar({
         )}
         <BrowserAction
           type="button"
-          variant="text"
-          label={text.pageLink.cancel}
+          variant={refused ? 'primary' : 'text'}
+          label={refused ? text.pageLink.close : text.pageLink.cancel}
           onActivate={(event) => {
             if (event.isTrusted) cancel();
           }}

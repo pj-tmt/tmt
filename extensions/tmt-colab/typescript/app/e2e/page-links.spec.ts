@@ -247,6 +247,10 @@ for (const scheme of [
       'Pages can open https links and other Colab pages only.',
     );
     await expect(bar(page)).not.toContainText(scheme);
+    await expect(bar(page).getByRole('button', { name: 'Close', exact: true })).toHaveAttribute(
+      'data-variant',
+      'primary',
+    );
     expect(context.pages()).toHaveLength(1);
     await expect(page.locator('#page-link-fixture .status')).toContainText('Live');
   });
