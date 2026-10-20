@@ -356,8 +356,10 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
   the chip, or below when necessary, within half the conversation pane. Escape
   and outside presses dismiss the preview without changing the draft; the outside
   press continues to its underlying control. The chip's × removes its source range.
-  Published chip hits are bounded to their draft UUIDs, fold ID and current range;
-  painting does not mutate the Editor or the pending-send revision fence.
+  Published chip hits are bounded to their draft UUIDs, fold ID and current range.
+  Ctrl-P selects the Editor's current fold even between paints; the next paint
+  publishes its anchor or closes the preview request when it cannot fit.
+  Painting does not mutate the Editor or the pending-send revision fence.
   A combining mark joining a neighboring grapheme falls back to ordinary text,
   preserving every byte rather than splitting the grapheme at a chip edge.
   `mentions` supplies the shared completion component with acquired agent UUIDs

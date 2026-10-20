@@ -241,19 +241,23 @@ impl App {
         if self.input.is_none() {
             self.focus_composer();
         }
+        self.request_paste_preview(hit.key, hit.id, hit.source)
+    }
+
+    fn request_paste_preview(&mut self, key: DraftKey, id: u64, source: Range<usize>) -> Effect {
         let Some(input) = self
             .input
             .as_ref()
-            .filter(|input| input.draft_key.as_ref() == Some(&hit.key))
+            .filter(|input| input.draft_key.as_ref() == Some(&key))
         else {
             return Effect::None;
         };
-        let Some(source) = input.text.as_str().get(hit.source.clone()) else {
+        let Some(source) = input.text.as_str().get(source) else {
             return Effect::None;
         };
         *self.composer.paste_preview.get_mut() = Some(Preview {
-            key: hit.key,
-            id: hit.id,
+            key,
+            id,
             text: source.into(),
             scroll: RefCell::default(),
         });
@@ -261,17 +265,36 @@ impl App {
     }
 
     pub(in crate::board) fn preview_paste_at_cursor(&mut self) -> Effect {
-        let hit = self.input.as_ref().and_then(|input| {
+        let Some((key, id, source)) = self.input.as_ref().and_then(|input| {
             let cursor = input.text.cursor();
-            self.composer
-                .paste_hits
-                .borrow()
-                .iter()
-                .rev()
-                .find(|hit| hit.source.contains(&cursor) || hit.source.end == cursor)
-                .cloned()
-        });
-        hit.map_or(Effect::None, |hit| self.open_paste_preview(hit))
+            let fold = input.text.folds().iter().rev().find(|fold| {
+                !fold.expanded && (fold.source.contains(&cursor) || fold.source.end == cursor)
+            })?;
+            Some((input.draft_key.clone()?, fold.id, fold.source.clone()))
+        }) else {
+            return Effect::None;
+        };
+        let hit = self
+            .composer
+            .paste_hits
+            .borrow()
+            .iter()
+            .find(|hit| hit.key == key && hit.id == id)
+            .cloned();
+        if let Some(hit) = hit {
+            return self.open_paste_preview(hit);
+        }
+        // Keyboard selection belongs to Editor, even between paints. The next
+        // paint publishes the fresh anchor or closes this UI request if it cannot fit.
+        if !self
+            .conversation
+            .borrow()
+            .pane
+            .is_some_and(|bounds| bounds.width >= 5 && bounds.height >= 5)
+        {
+            return self.say("Not enough room for paste preview; enlarge the conversation pane.");
+        }
+        self.request_paste_preview(key, id, source)
     }
 
     pub(in crate::board) fn paste_chip_mouse(&mut self, event: MouseEvent) -> Option<Effect> {

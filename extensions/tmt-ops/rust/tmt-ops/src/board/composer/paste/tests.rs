@@ -28,6 +28,45 @@ fn click(area: Rect) -> MouseEvent {
 }
 
 #[test]
+fn keyboard_preview_follows_the_current_fold_without_an_intermediate_paint() {
+    let mut app = crate::board::app::workspace::tests::board();
+    key(&mut app, KeyCode::Enter);
+    app.paste("before ");
+    let raw = (0..100)
+        .map(|line| format!("source line {line}\r\n"))
+        .collect::<String>();
+    app.paste(&raw);
+    app.paste(" between ");
+    app.paste(&"a".repeat(501));
+    app.paste(" after");
+    draw(&mut app, 80, 36);
+    let draft = app.input.as_ref().unwrap().text.clone();
+    app.key(KeyEvent::new(KeyCode::Home, KeyModifiers::CONTROL));
+    for _ in 0..8 {
+        key(&mut app, KeyCode::Right);
+    }
+    assert!(app.composer.paste_hits.borrow().is_empty());
+    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    assert!(
+        app.paste_preview_shown(),
+        "Ctrl-P follows editor state before paint"
+    );
+    assert!(!draw(&mut app, 80, 36));
+    assert_eq!(app.current_paste_preview().unwrap().text.as_str(), raw);
+    key(&mut app, KeyCode::PageDown);
+    draw(&mut app, 80, 36);
+    assert!(
+        app.current_paste_preview()
+            .unwrap()
+            .scroll
+            .borrow()
+            .offset()
+            > 0
+    );
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), draft.as_str());
+}
+
+#[test]
 fn overview_preview_keeps_its_anchor_and_scrolls_without_changing_the_draft() {
     let mut app = crate::board::app::workspace::tests::board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
