@@ -23,6 +23,11 @@ describe('how a page that could not open is told', () => {
     ['STALE_EPOCH', 'retry'],
     ['DENIED', 'retry'],
     ['EXPIRED', 'retry'],
+    // A rejected integrity check (a tampered signed reset or compacted catchup, a decoder that fails)
+    // publishes nothing, so a Retry re-fetches and re-verifies from scratch: a transient mismatch
+    // passes, a persistent one shows the same card with its token. It is not a refusal of access.
+    ['Invalid colab-v1 value or proof', 'retry'],
+    ['Decoder failed or exceeded its time budget', 'retry'],
     // Nobody classified it: a Retry costs nothing and the token stays visible.
     ['SURPRISE_CODE', 'retry'],
     // Reopening cannot make a page smaller.
