@@ -10,6 +10,8 @@ declare global {
     pageOpens: string[];
     /** While set, opening a page waits for it (the open is "slow"). */
     holdPages?: Promise<void>;
+    /** When set, a held open that is released fails with this message, as a real open failure. */
+    failPages?: string;
   }
 }
 const ID = {
@@ -50,6 +52,7 @@ export function mount() {
     async page(id, signal) {
       window.pageOpens.push(id);
       await window.holdPages;
+      if (window.failPages) throw new Error(window.failPages);
       return base.page(id, signal);
     },
   });

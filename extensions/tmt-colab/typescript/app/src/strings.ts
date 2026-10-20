@@ -775,6 +775,7 @@ export const text = {
   source: 'Source',
   preview: 'Preview',
   loading: 'Opening page…',
+  openingPage: 'Opening page',
   loaded: 'Live preview',
   live: 'Live',
   boundary: 'Page content',

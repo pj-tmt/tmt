@@ -161,7 +161,7 @@ canvas, sandbox attributes, source limits and CSP remain unchanged.
 apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the
 16/8/40 px gaps and `data-width="full"` are defined there and nowhere else in the frame; the
 parent's `.canvas[data-layout] .proposal-inline` rule in `style.css` repeats the column's gutter
-so reading and review bands sit on it, and the pending page frame uses `columnInlineSize`. Question
+so reading and review bands sit on it. Question
 blocks keep the frame's own measurement of their passage. The frame's chip marker is out of flow,
 so it adds no blank line between blocks. `PageSnapshot.layout` is absent for every page until the
 layout is page metadata (#3926); `freeform`, `canvas` and absent bind nothing. An inline `style`

@@ -7,7 +7,3 @@ export type PageLayout = 'column' | 'full' | 'canvas' | 'freeform';
  * render frame, and in the parent's `.canvas[data-layout]` rules, which must agree. */
 export const framedLayout = (layout: PageLayout | undefined): layout is 'column' | 'full' =>
   layout === 'column' || layout === 'full';
-
-/** The column's width as the frame sets it on a block (`page-frame.css`): at most 1280 px, 16 px
- * from each side of a narrower window. A loading frame uses it too, so a page opens where it ends. */
-export const columnInlineSize = 'min(1280px, 100% - 32px)';

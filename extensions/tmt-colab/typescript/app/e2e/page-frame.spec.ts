@@ -2,8 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
 
 /**
- * A page that opens slowly shows a calm frame, never the old screen, and a fast open shows no frame
- * at all. The router's pending timers run on the page's fake clock, so every window is exact.
+ * A page that opens slowly shows the header and one spinner, never the old screen, and a fast open
+ * shows nothing at all. The open has no deadline: only a real failure ends the spinner. The router's
+ * pending timers run on the page's fake clock, so every window is exact.
  */
 const START = new Date('2026-10-09T00:00:00Z');
 
@@ -18,6 +19,7 @@ async function mount(page: Page) {
 }
 const app = (page: Page) => page.locator('#reentry-fixture');
 const frame = (page: Page) => app(page).locator('[data-page-frame]');
+const spinner = (page: Page) => frame(page).getByRole('status', { name: 'Opening page' });
 /** Holds the next page load until `release()`, and records whether a frame was ever on screen. */
 async function holdNextOpen(page: Page) {
   await page.evaluate(() => {
@@ -63,19 +65,18 @@ test('a held open shows the frame by 150 ms and keeps it for at least 300 ms', a
   await page.clock.runFor(20);
   await expect(frame(page)).toBeVisible();
 
-  // The real header with the title the list already held, four quiet lines, nothing of the page.
+  // The real header with the title the list already held and one spinner, nothing of the page.
   await expect(app(page).getByRole('heading', { level: 1, name: 'Alpha plan' })).toBeVisible();
-  await expect(frame(page).locator('[data-frame-line]')).toHaveCount(4);
-  await expect(frame(page).locator('[data-frame-line]').first()).not.toHaveCSS(
-    'background-color',
-    'rgba(0, 0, 0, 0)',
-  );
+  await expect(spinner(page)).toBeVisible();
+  await expect(frame(page).locator('[data-frame-line]')).toHaveCount(0);
+  await expect(frame(page).getByText(/opening page/i)).toHaveCount(0);
   await expect(app(page).locator('iframe')).toHaveCount(0);
   await expect(
     app(page).getByRole('button', {
       name: /comments|files|share|export|manage|chat|more actions/i,
     }),
   ).toHaveCount(0);
+  // Reduced motion (this suite's default) shows the mark still.
   const animations = await frame(page).evaluate(
     (element) =>
       [element, ...element.querySelectorAll('*')].flatMap((node) => node.getAnimations()).length,
@@ -90,6 +91,58 @@ test('a held open shows the frame by 150 ms and keeps it for at least 300 ms', a
   await page.clock.runFor(200);
   await expect(body(page)).toBeVisible();
   await expect(frame(page)).toHaveCount(0);
+});
+
+test('a slow open keeps spinning with no error until the page really opens', async ({ page }) => {
+  await mount(page);
+  await openAlpha(page);
+  await page.clock.runFor(200);
+  await expect(spinner(page)).toBeVisible();
+  // There is no deadline on the open: a minute later the spinner still stands and nothing has failed.
+  await page.clock.runFor(60_000);
+  await expect(spinner(page)).toBeVisible();
+  await expect(app(page).getByRole('alert')).toHaveCount(0);
+  await expect(app(page).getByRole('link', { name: 'Return to space' })).toHaveCount(0);
+  await release(page);
+  await page.clock.runFor(100);
+  await expect(body(page)).toBeVisible();
+  await expect(frame(page)).toHaveCount(0);
+});
+
+test('a real open failure replaces the spinner with the existing error state', async ({ page }) => {
+  await mount(page);
+  await openAlpha(page);
+  await page.clock.runFor(200);
+  await expect(spinner(page)).toBeVisible();
+  await page.evaluate(() => {
+    window.failPages = 'Page unavailable · The open failed.';
+  });
+  await release(page);
+  await page.clock.runFor(400);
+  await expect(spinner(page)).toHaveCount(0);
+  await expect(frame(page)).toHaveCount(0);
+  await expect(app(page).getByText('Page unavailable · The open failed.')).toBeVisible();
+  await expect(app(page).getByRole('link', { name: 'Return to space' })).toBeVisible();
+  await expect(app(page).locator('iframe')).toHaveCount(0);
+});
+
+test('the spinner turns unless the reader prefers reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await mount(page);
+  await openAlpha(page);
+  await page.clock.runFor(200);
+  await expect(spinner(page)).toBeVisible();
+  const names = await spinner(page).evaluate((mark) =>
+    mark
+      .querySelector('svg')!
+      .getAnimations()
+      .map((animation) => (animation as CSSAnimation).animationName),
+  );
+  expect(names).toEqual(['page-opening-spin']);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(
+    await spinner(page).evaluate((mark) => mark.querySelector('svg')!.getAnimations().length),
+  ).toBe(0);
 });
 
 test('a page the list never held opens on the neutral word, not a guessed title', async ({
@@ -132,7 +185,7 @@ test('going back to the list while the open is held works without an error', asy
 
 for (const scheme of ['light', 'dark'] as const) {
   for (const width of [1440, 390]) {
-    test(`the frame fits ${width} px wide in ${scheme} without sideways scrolling`, async ({
+    test(`the spinner is centred under the header at ${width} px in ${scheme}`, async ({
       page,
     }) => {
       await page.emulateMedia({ colorScheme: scheme });
@@ -143,18 +196,38 @@ for (const scheme of ['light', 'dark'] as const) {
       await mount(page);
       await openAlpha(page);
       await page.clock.runFor(200);
-      await expect(frame(page)).toBeVisible();
+      await expect(spinner(page)).toBeVisible();
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
       expect(overflow).toBeLessThanOrEqual(0);
-      // The lines sit on the page column, the one a loaded page gets: 1280 px, or the width less
-      // a 16 px gutter on each side.
-      const lines = await frame(page).locator('[data-frame-line]').first().boundingBox();
-      const column = Math.min(1280, width - 32);
-      expect(lines!.x).toBeCloseTo((width - column) / 2, 0);
-      expect(lines!.width).toBeCloseTo(column * 0.92, 0);
-      await page.screenshot({ path: capturePath(`page-frame-${width}-${scheme}.png`) });
+
+      // The header is intact, and the spinner is the middle of the area below it: the area a loaded
+      // page gets, from the header to the bottom of the window.
+      const title = await app(page)
+        .getByRole('heading', { level: 1, name: 'Alpha plan' })
+        .boundingBox();
+      const area = await frame(page).locator('.page-opening').boundingBox();
+      const mark = await spinner(page).boundingBox();
+      expect(title!.y + title!.height).toBeLessThanOrEqual(area!.y + 0.5);
+      expect(area!.y + area!.height).toBeCloseTo(900, 0);
+      expect(mark!.width).toBeCloseTo(24, 0);
+      expect(mark!.height).toBeCloseTo(24, 0);
+      expect(mark!.x + mark!.width / 2).toBeCloseTo(width / 2, 0);
+      expect(mark!.y + mark!.height / 2).toBeCloseTo(area!.y + area!.height / 2, 0);
+
+      // The secondary colour, with no words beside it.
+      const [color, secondary] = await spinner(page).evaluate((mark) => {
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--tmt-ui-color-secondary)';
+        mark.append(probe);
+        const wanted = getComputedStyle(probe).color;
+        probe.remove();
+        return [getComputedStyle(mark).color, wanted];
+      });
+      expect(color).toBe(secondary);
+      expect((await spinner(page).innerText()).trim()).toBe('');
+      await page.screenshot({ path: capturePath(`page-opening-${width}-${scheme}.png`) });
     });
   }
 }

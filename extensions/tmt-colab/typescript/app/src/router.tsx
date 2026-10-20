@@ -22,7 +22,15 @@ import {
   splitPageHint,
   type PageHint,
 } from './reading-link.js';
-import { ArrowUpRight, MessageCircle, MessageSquare, Moon, MousePointer2, Sun } from 'lucide-react';
+import {
+  ArrowUpRight,
+  LoaderCircle,
+  MessageCircle,
+  MessageSquare,
+  Moon,
+  MousePointer2,
+  Sun,
+} from 'lucide-react';
 import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
@@ -71,7 +79,7 @@ import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
-import { columnInlineSize, framedLayout } from './page-layout.js';
+import { framedLayout } from './page-layout.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
@@ -664,8 +672,9 @@ function markOpen(name: string, from?: string) {
 }
 /**
  * What the reader sees while a page loads: the real header with the title the list already held (the
- * space home loaded; else the neutral word) and four quiet lines where the document
- * goes. It mounts no renderer, frame or page action and fetches nothing.
+ * space home loaded; else the neutral word) and one spinner centred in the page area. It mounts no
+ * renderer, frame or page action and fetches nothing. The open has no deadline: the spinner stays
+ * while the open progresses and gives way only to the router's error state when it really fails.
  */
 function PageFrame() {
   const { transport, space } = root.useRouteContext();
@@ -687,27 +696,10 @@ function PageFrame() {
           </Link>
         )}
       />
-      <div
-        style={{
-          display: 'grid',
-          gap: 14,
-          padding: '32px 0',
-          inlineSize: columnInlineSize,
-          marginInline: 'auto',
-        }}
-      >
-        {[92, 100, 84, 56].map((width) => (
-          <div
-            key={width}
-            data-frame-line=""
-            style={{
-              inlineSize: `${width}%`,
-              blockSize: 12,
-              background: 'var(--tmt-ui-color-secondary)',
-              opacity: 0.2,
-            }}
-          />
-        ))}
+      <div className="page-opening">
+        <span role="status" aria-label={text.openingPage} className="page-opening-mark">
+          <LoaderCircle aria-hidden />
+        </span>
       </div>
     </div>
   );
