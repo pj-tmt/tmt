@@ -5787,7 +5787,7 @@ describe('large board responsiveness', () => {
     });
   }, 120_000);
 
-  it('paints a placeholder before configuration and switches tabs off the input thread', async () => {
+  it('paints a placeholder before configuration and switches the right pane off the input thread', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const found = spawnSync('/usr/bin/which', ['tmux'], { encoding: 'utf8' });
@@ -5888,11 +5888,19 @@ describe('large board responsiveness', () => {
           (first.find((r) => r.event === event)!.elapsed_us as number) / 1000;
         expect(milestone('first_frame')).toBeLessThan(budgetMs.firstFrame);
         expect(milestone('fresh_board')).toBeLessThan(budgetMs.freshBoard);
-        // Shell switching repaints from the acquired snapshot; no new roster load.
-        const loads = first.filter((r) => r.stage === 'load').length;
+        // Switching the right pane (Talk to Measure) repaints from the acquired snapshot; no new roster load.
+        // The Usage band's readers finish their first loads shortly after the first board;
+        // count from the moment the load stage has been quiet for a second.
+        let loads = first.filter((r) => r.stage === 'load').length;
+        for (let quiet = 0; quiet < 1000;) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const now = records().filter((r) => r.stage === 'load').length;
+          quiet = now === loads ? quiet + 100 : 0;
+          loads = now;
+        }
         const before = tmux(['capture-pane', '-p', '-t', pane]);
         const pressed = Date.now();
-        tmux(['send-keys', '-t', pane, '2']);
+        tmux(['send-keys', '-t', pane, 't']);
         await vi.waitFor(
           () => {
             expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
