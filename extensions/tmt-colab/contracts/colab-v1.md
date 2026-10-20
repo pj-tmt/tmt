@@ -4694,8 +4694,10 @@ is no command that returns a page to freeform.
 of a layout choice and a file: `--template` conflicts with `--layout`, `--reason` and `--file`,
 because the template brings its own layout and source. The catalog is closed and compiled into the
 binary: `report`, `review` and `compare` (layout `column`) and `board` (layout `full`). Each source
-is under 8 KiB and passes the page check with no finding. It sets no width, margin or gap CSS,
-which stay the frame's (`data-width` and `data-gap` are the only declarations it uses). A one-line
+is under 8 KiB and passes the page check with no finding. It starts from the page-style starter
+(`tmt colab skill page-style`) without that starter's `body` rule, which frames `canvas` and
+`freeform` pages, and adds no width, margin or gap CSS of its own: those stay the frame's
+(`data-width` and `data-gap` are the only declarations it uses). A one-line
 HTML comment before each block names the rule and the `tmt colab skill` topic and section that
 teaches it; the comments are not rendered. Each `{{uuid:NAME}}` placeholder becomes one fresh
 canonical UUID per name on that page, so no two pages share a block ID. The create result adds

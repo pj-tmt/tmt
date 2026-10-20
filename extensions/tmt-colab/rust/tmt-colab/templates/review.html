@@ -1,4 +1,6 @@
 <!-- layout: column. Colab sets the column width and the gaps: never set max-width or margin on a block. See tmt colab skill layout, section The frame -->
+<!-- style: the base look, from tmt colab skill page-style. Keep it, and change colours and type there, never the frame. See tmt colab skill page-style -->
+{{style}}
 <!-- component: summary. What the reader is asked to confirm, in one short paragraph. See tmt colab skill components, section Summary -->
 <section>
   <h2>For your review</h2>
@@ -14,11 +16,13 @@
   <h2 data-title>Second part to confirm</h2>
   <p>The content the reader confirms.</p>
 </tmt-review>
-<!-- component: questions. Colab draws the controls; ask only what the reader must decide. See tmt colab skill components, section Questions. Rules for questions: tmt colab skill questions -->
-<tmt-questions data-id="{{uuid:questions}}">
-  <p data-title>Decisions for the reader</p>
-  <tmt-question data-id="{{uuid:first-question}}" data-kind="single" data-agent="Your agent name">
-    <p data-question>Which option fits?</p>
-    <span data-choice>First</span><span data-choice>Second</span>
-  </tmt-question>
-</tmt-questions>
+<!-- component: questions. Colab draws the controls; ask only what the reader must decide, and keep the group inside a block of its own. See tmt colab skill components, section Questions. Rules for questions: tmt colab skill questions -->
+<section>
+  <tmt-questions data-id="{{uuid:questions}}">
+    <p data-title>Decisions for the reader</p>
+    <tmt-question data-id="{{uuid:first-question}}" data-kind="single" data-agent="Your agent name">
+      <p data-question>Which option fits?</p>
+      <span data-choice>First</span><span data-choice>Second</span>
+    </tmt-question>
+  </tmt-questions>
+</section>

@@ -13,7 +13,7 @@ use tmt_colab::{
     decoder::{LayoutKind, PageLayout},
 };
 
-use crate::cli_management::fresh_id;
+use crate::{SKILL_REFERENCES, cli_management::fresh_id};
 
 /// One starting page: its name, what it is for, the layout it sets and its source.
 pub struct Template {
@@ -58,12 +58,14 @@ impl Template {
         }
     }
 
-    /// The page source, with each `{{uuid:NAME}}` replaced by a fresh canonical UUID, the same one
-    /// for the same name within this page (a block's ID is unique on its page, never reused).
+    /// The page source: `{{style}}` becomes the base look, and each `{{uuid:NAME}}` a fresh
+    /// canonical UUID, the same one for the same name within this page (a block's ID is unique on
+    /// its page, never reused).
     pub fn source(&self) -> Result<String> {
+        let source = self.source.replace("{{style}}", base_style().trim_end());
         let mut names: Vec<(&str, String)> = Vec::new();
-        let mut rendered = String::with_capacity(self.source.len() + 64);
-        let mut rest = self.source;
+        let mut rendered = String::with_capacity(source.len() + 64);
+        let mut rest = source.as_str();
         while let Some(start) = rest.find("{{uuid:") {
             rendered.push_str(&rest[..start]);
             let after = &rest[start + "{{uuid:".len()..];
@@ -85,6 +87,27 @@ impl Template {
         rendered.push_str(rest);
         Ok(rendered)
     }
+}
+
+/// The look every template starts from: the generated starter of the page-style reference, which
+/// owns the type, colours and rules, without its `body` rule (max-width, margin, padding). That
+/// rule frames `canvas` and `freeform` pages; on `column` and `full` Colab sets the width and the
+/// gaps, and a padding above the first block would add one.
+fn base_style() -> String {
+    const FRAME: &str = "    max-width: 1280px;\n    margin: 0 auto;\n    padding: var(--gap);\n";
+    let reference = SKILL_REFERENCES
+        .iter()
+        .find(|(name, _)| *name == "page-style")
+        .expect("the page-style reference is embedded")
+        .1;
+    let starter = reference
+        .split("<!-- BEGIN generated page style -->")
+        .nth(1)
+        .and_then(|region| region.split("```html\n").nth(1))
+        .and_then(|block| block.split("```").next())
+        .expect("the page-style reference holds its generated starter");
+    assert!(starter.contains(FRAME), "the starter's body rule changed");
+    starter.replacen(FRAME, "", 1)
 }
 
 pub fn find(name: &str) -> Option<&'static Template> {
@@ -176,10 +199,7 @@ pub fn run(args: &ArgMatches) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        SKILL_REFERENCES,
-        cli_page_check::{Attachments, inspect},
-    };
+    use crate::cli_page_check::{Attachments, inspect};
 
     fn reference(topic: &str) -> &'static str {
         SKILL_REFERENCES
@@ -232,15 +252,29 @@ mod tests {
                 "{} is a starting point",
                 template.name
             );
+            // The base look is the page-style starter, minus the rule that frames a canvas page:
+            // on a column or full page Colab sets the width and the gaps.
+            assert!(
+                source.contains("--ink:"),
+                "{} has the base colours",
+                template.name
+            );
+            assert!(
+                source.contains("system-ui"),
+                "{} has the base type",
+                template.name
+            );
+            assert!(!source.contains("max-width: 1280px"), "{}", template.name);
             // Only the two declarations change the frame; the CSS inside a block is the author's.
             // The comments may name these properties to say they are not for the author to set.
-            let markup: String = source
+            let own: String = template
+                .source
                 .lines()
                 .filter(|line| !line.starts_with("<!--"))
                 .collect();
             for forbidden in ["max-width", "min-width", "margin", "width:", "gap:"] {
                 assert!(
-                    !markup.contains(forbidden),
+                    !own.contains(forbidden),
                     "{} sets {forbidden}",
                     template.name
                 );

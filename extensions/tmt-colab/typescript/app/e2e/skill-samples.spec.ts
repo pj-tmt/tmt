@@ -31,14 +31,28 @@ const references: Sample[] = ['layout', 'components'].flatMap((name) => {
     }));
 });
 
-// A template names its layout on its first line; `page create --template` sets that layout and
-// puts a fresh UUID where each `{{uuid:NAME}}` stands (cli_template.rs checks both).
+// A template names its layout on its first line; `page create --template` sets that layout, puts
+// the page-style starter (without its body frame rule) where `{{style}}` stands and a fresh UUID
+// where each `{{uuid:NAME}}` stands (cli_template.rs renders and checks all three).
+const pageStyle = readFileSync(
+  new URL('../../../skills/tmt-colab/references/page-style.md', import.meta.url),
+  'utf8',
+);
+const baseStyle = pageStyle
+  .split('<!-- BEGIN generated page style -->')[1]
+  .split('```html\n')[1]
+  .split('```')[0]
+  .replace('    max-width: 1280px;\n    margin: 0 auto;\n    padding: var(--gap);\n', '')
+  .trimEnd();
 const templateDirectory = new URL('../../../rust/tmt-colab/templates/', import.meta.url);
 const templates: Sample[] = readdirSync(templateDirectory)
   .filter((file) => file.endsWith('.html'))
   .sort()
   .map((file) => {
-    const text = readFileSync(new URL(file, templateDirectory), 'utf8');
+    const text = readFileSync(new URL(file, templateDirectory), 'utf8').replace(
+      '{{style}}',
+      () => baseStyle,
+    );
     const names = [...new Set([...text.matchAll(/\{\{uuid:([a-z-]+)\}\}/g)].map((m) => m[1]))];
     const source = names.reduce(
       (rendered, name, index) =>
