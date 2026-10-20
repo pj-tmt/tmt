@@ -209,6 +209,26 @@ for (const width of [1440, 390])
         group.locator('.question-answer [data-testid="message-attachment"]'),
       ).toHaveCount(2);
       await expect(group.getByTestId('message-attachment')).toHaveCount(2);
+      // Equal thumbnails level at the top of their row, and one line a name.
+      const tiles = await group
+        .locator('.question-answer .attachment-thumbnail')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const box = node.getBoundingClientRect();
+            return [Math.round(box.top), Math.round(box.width), Math.round(box.height)];
+          }),
+        );
+      expect(new Set(tiles.map(([top]) => top)).size).toBe(1);
+      expect(new Set(tiles.map(([, width, height]) => `${width}x${height}`)).size).toBe(1);
+      const lines = await group
+        .locator('.question-answer .attachment-name, .question-answer .attachment-size')
+        .evaluateAll((nodes) =>
+          nodes.map(
+            (node) =>
+              node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
+          ),
+        );
+      expect(Math.max(...lines)).toBeLessThan(1.1);
       if (captures)
         await page.screenshot({
           fullPage: true,

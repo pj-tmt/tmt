@@ -1684,6 +1684,20 @@ body:has(.needs-you-header-menu) {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+/* A sent answer's images are the comment's tiles, held to one line a name so equal thumbnails sit
+   level at the top of their row. */
+.question-answer .attachment-images {
+  align-items: start;
+}
+.question-answer .message-image .attachment-label {
+  max-width: 100%;
+}
+.question-answer .message-image .attachment-name,
+.question-answer .message-image .attachment-size {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* The failure line, present only while there is a failure: the alert and its Retry on one row. */
 .question-status {
   display: flex;
