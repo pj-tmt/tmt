@@ -16,10 +16,11 @@ export interface ReleaseApi {
   readRelease(tag: string): DraftRelease | null;
   upload(release: DraftRelease, name: string, file: string): unknown;
   deleteAsset(id: number): unknown;
+  readPricing?(sha: string): Buffer;
 }
 
 export interface RecordUploadApi extends ReleaseApi {
-  downloadAsset(id: number): string;
+  downloadAsset(id: number, limit?: number): string;
 }
 
 export function bundleFiles(

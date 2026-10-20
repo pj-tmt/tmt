@@ -1,6 +1,7 @@
 import type { ReleaseApi } from './release-draft-assets.mjs';
 
 export interface PublishApi extends ReleaseApi {
+  downloadAsset?(id: number, limit?: number): string;
   latestRelease(): { tag_name: string } | null;
   setLatest(tag: string): void;
   publish(tag: string, flags: readonly string[]): void;
@@ -24,6 +25,7 @@ export interface PublishedRelease {
 }
 
 export interface PublishedApi {
+  readPricing?(sha: string): Buffer;
   listReleases(): readonly { tag_name: string; draft: boolean }[];
   getRelease(tag: string): PublishedRelease | null;
   latestRelease(): PublishedRelease | null;
@@ -62,7 +64,13 @@ export function publishDraft(input: {
   tag: string;
   released?: boolean;
   wait?: () => void;
-  declarationEvidence?: { map: import('./ci-scope.mjs').ComponentMap; observeCli: (release: { tag_name: string; draft: boolean }, floor: string) => { sha: string; status: string } };
+  declarationEvidence?: {
+    map: import('./ci-scope.mjs').ComponentMap;
+    observeCli: (
+      release: { tag_name: string; draft: boolean },
+      floor: string
+    ) => { sha: string; status: string };
+  };
 }): {
   flags: string[];
 };

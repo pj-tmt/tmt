@@ -25,6 +25,19 @@ const PRODUCTS = {
   digest: { tagPrefix: 'tmt-digest-v', prerelease: true, latest: false },
 };
 
+// Core owns the source file/format; release tooling only carries its exact bytes.
+export const DIGEST_PRICING = Object.freeze({
+  source: 'extensions/tmt-digest/pricing/pricing-v1.json',
+  asset: 'tmt-digest-pricing-v1.json',
+  limit: 64 * 1024,
+});
+
+export function digestPricingBytes(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length > DIGEST_PRICING.limit)
+    throw new Error('Digest pricing must be bytes within the 64 KiB release bound.');
+  return bytes;
+}
+
 /** Component identities retain their ownership names; native workflows use product keys. */
 const registeredProductOfComponent = (name) =>
   Object.keys(PRODUCTS).find((product) => name === product || name === `tmt-${product}`);
