@@ -30,8 +30,10 @@ the same-origin `/settings` link. Hosted/detached adapters and missing Sessions 
 `remote-presence.ts` owns the finite snapshot and replacement/close fences. Replacement
 starts one read after any stale read settles; close prevents that successor. `mounted.ts`
 uses its already-admitted Session without reopening. `remote-header.tsx` owns only presentation
-and the three refresh triggers. Desktop uses the shared Tooltip; through 640px the existing
-More menu includes a Remote submenu with the same details and settings link. No shared header
+and the three refresh triggers. The space home header uses the shared Tooltip chip on desktop and,
+through 640px, a Remote submenu in its More menu with the same details and settings link. The page
+header keeps no Remote chip: its More menu holds that Remote entry, after Share…, and the header shows
+`△ Remote offline` (a mark and a word) only while the count cannot be confirmed. No shared header
 API, presence stream, periodic polling or new Remote operation is introduced.
 
 Native pairing/app-unavailable guidance stays static. `chrome.rs` compile-time embeds the same checked
@@ -44,10 +46,12 @@ Signed-in app-unavailable guidance shows a waiting-colored Update needed state a
 asks the person to update Colab to open the page, preserving space/sign-in details and the user command.
 
 `router.tsx` retains one active Source, Comments, Chat, Agents, Files, Export, Manage or
-About overlay. `page-header-actions.tsx` owns the desktop icon entry points:
-Discussion (combined pending count) opens Chat or Comments; Agents and Files (file count)
-open their panels; Source and export opens Source or Export page; More opens Manage
-page, Theme: Light/Dark/System, or About this page. Icons are centralized inline SVG;
+About overlay. `page-header-actions.tsx` owns the page header's entry points, the same at every
+width (#4116): Search, Discussion (combined pending count; opens Chat or Comments), Agents and More.
+More lists, top to bottom: Share… (the page's sharing and connection words as secondary text; it
+opens the Manage dialog), Remote (the submenu above), Files (count; while the page holds a
+file or the viewer can add one), Source, Export page, a rule, then Manage page, Theme: Light/Dark/System and About this page.
+Each moved action keeps its accessible name and handler. Icons are centralized inline SVG;
 labels supply hover and keyboard-focus tooltips. Counts come from the existing page projection.
 The floating Chat icon shares the selection control's corner and opens the same
 retained drawer in one press; it hides during selection mode or an annotation.
@@ -71,14 +75,15 @@ display-only `local · <backendName>` identity (`local` when absent) is not a vi
 names the brand link (`Colab · local · <backendName>`) and is its tooltip; an unlinked brand is a
 named group with the same title. Below 480px every Colab header shows the mark only: the wordmark is
 visually hidden and stays in that name. Author hides below 900px; the title truncates without
-changing its DOM copy. The page connection chip (`Private · Live`) remains outside menus
-and keeps its existing connection owner, except below 480px: the header hides it (CSS; the element stays in the DOM) and its words
-become the first, non-interactive line of the More menu (the menu's description, so the
-access state stays reachable and described), which leaves the title the room. At 640px and narrower, Discussion and More
-stay visible; Agents, Files (count), Source and Export move into More with the same
-handlers and disabled states. A single media-query observation selects those menu
-items; CSS owns fitting. Header, body and update-notice offsets use shared heights,
-including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
+changing its DOM copy. The page header's status slot holds, in order, the needs-you entry
+(only while something waits) and the attention marks, each shown only while its state holds, as
+one mark plus a word: `△ Remote offline`, `◉ Shared` (a page readable by anyone but its owner must
+not hide in a menu) and `○ Archived`. Below 480px a mark keeps its glyph and its word is visually
+hidden, never removed from the accessible name. The connection words (`Private · Live`,
+`Reconnecting…`) are not shown: they stay in the document, visually hidden, and are Share…'s
+secondary text; trouble surfaces in the notice below the header. Nothing is hidden only because of
+width: the same entries stay at 640px and 320px, and CSS owns fitting. Header, body and
+update-notice offsets use shared heights, including at 320px. Reader and guidance headers keep their defaults. No menu grants writer admission.
 
 Header search results and page-list titles are real links with router-generated URLs.
 Plain click/Enter keep the existing same-tab navigation and focus behavior. Modified clicks
@@ -90,10 +95,9 @@ retain that hint for readings), while plain menu selection still jumps to its lo
 
 `needs-you-header.tsx` uses the existing page status slot for one `◆ Needs you N ▾` entry.
 Only the diamond takes the attention colour. Through 640px the visible label is `◆ N ▾`,
-with `Needs you: N` as its accessible name. At zero, neutral `✓ Nothing waits` is plain
-text without a caret or action; compact headers retain the check and accessible name.
-The slot keeps its width across that transition. When the list empties while the menu is open
-(keyboard focus inside it), the mark takes focus (`tabindex=-1`, not a Tab stop) instead of the
+with `Needs you: N` as its accessible name. At zero nothing shows: only a one-pixel, visually
+hidden element labelled `✓ Nothing waits` remains. When the list empties while the menu is open
+(keyboard focus inside it), that element takes focus (`tabindex=-1`, not a Tab stop) instead of the
 body, and keeps it across the header's remount while the page layers reparse; focus elsewhere,
 or a menu that was already closed, is left alone. The page owns that one flag. The shared DropdownMenu supplies grouped
 labels, dismissal and keyboard handling; its modal scroll lock retains Colab's fixed-header

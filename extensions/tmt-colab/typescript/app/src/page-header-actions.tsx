@@ -1,7 +1,6 @@
 import { RemoteMoreMenu, useRemoteHeaderSource } from './remote-header.js';
 import { BrowserIconAction } from '@tmt/browser-ui/react';
 import { useSyncExternalStore } from 'react';
-import { useMedia } from './use-media.js';
 import { PageMenu as BrowserMenu } from './page-menu.js';
 import { getThemeChoice, setThemeChoice, subscribeTheme, type ThemeChoice } from './theme.js';
 import { text } from './strings.js';
@@ -15,7 +14,7 @@ export type PageHeaderAction =
   | 'export'
   | 'manage'
   | 'about';
-type HeaderIcon = 'discussion' | 'agents' | 'files' | 'source' | 'more';
+type HeaderIcon = 'discussion' | 'agents' | 'more';
 
 /** One set of decorative page-header icons; hosts retain each action's authority. */
 function PageHeaderIcon({
@@ -47,10 +46,6 @@ function PageHeaderIcon({
             <circle cx="12" cy="7" r="3" />
             <path d="M5 5a3 3 0 0 0 0 6M19 5a3 3 0 0 1 0 6" />
           </>
-        ) : name === 'files' ? (
-          <path d="M5 3h9l5 5v13H5V3Zm9 0v5h5M8 12h8M8 16h8" />
-        ) : name === 'source' ? (
-          <path d="m7 6-5 6 5 6m10-12 5 6-5 6M14 3l-4 18" />
         ) : (
           <>
             <circle cx="5" cy="12" r="1" />
@@ -69,12 +64,7 @@ function PageHeaderIcon({
   );
 }
 
-const compactQuery = '(max-width: 640px)';
-
-/** Under 480px the header hides the access chip (CSS); its words lead the More menu instead. */
-const phoneQuery = '(max-width: 479px)';
-
-/** Page-local commands use the shared Menu presentation owner. */
+/** Search, Chat and Agents stay in the header; everything else lives in the More menu (#4116). */
 export function PageHeaderActions({
   active,
   comments,
@@ -83,8 +73,8 @@ export function PageHeaderActions({
   chatUnread = false,
   canExport,
   canManage,
-  canFiles,
   readOnly = false,
+  canFiles,
   access,
   onSelect,
 }: {
@@ -98,15 +88,53 @@ export function PageHeaderActions({
   canManage: boolean;
   canFiles: boolean;
   readOnly?: boolean;
-  /** The access chip's words; shown as the More menu's first, non-interactive line on a phone. */
-  access?: string;
+  /** The page's sharing and connection words, the secondary text of the Share… item. */
+  access: string;
   onSelect(action: PageHeaderAction): void;
 }) {
-  const compact = useMedia(compactQuery);
-  const phone = useMedia(phoneQuery);
-  const remoteAvailable = useRemoteHeaderSource();
-  const MoreMenu = compact && remoteAvailable ? RemoteMoreMenu : BrowserMenu;
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
+  const remoteAvailable = useRemoteHeaderSource();
+  const more = {
+    items: [
+      {
+        key: 'share',
+        label: text.shareItem,
+        content: (
+          <span className="more-item">
+            <span>{text.shareItem}</span>
+            <span className="more-item-detail">{access}</span>
+          </span>
+        ),
+        disabled: !canManage,
+      },
+      // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
+      // which is where files are added.
+      ...(files > 0 || canFiles
+        ? [{ key: 'files', label: `${text.files} (${files})`, disabled: !canFiles }]
+        : []),
+      { key: 'source', label: text.source },
+      ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
+      { key: 'manage', label: text.managePage, disabled: !canManage, separated: true },
+      ...(['light', 'dark', 'system'] as const).map((theme) => ({
+        key: theme,
+        label: text.themeChoice[theme],
+        checked: choice === theme,
+      })),
+      { key: 'about', label: text.aboutPage },
+    ],
+    onSelect: (key: string) => {
+      if (key === 'share') onSelect('manage');
+      else if (
+        key === 'manage' ||
+        key === 'about' ||
+        key === 'files' ||
+        key === 'source' ||
+        key === 'export'
+      )
+        onSelect(key);
+      else setThemeChoice(key as ThemeChoice);
+    },
+  };
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
       <BrowserMenu
@@ -121,78 +149,24 @@ export function PageHeaderActions({
         ]}
         onSelect={(key) => onSelect(key as 'chat' | 'comments')}
       />
-      {!compact && (
-        <>
-          {!readOnly && (
-            <BrowserIconAction
-              type="button"
-              variant="text"
-              label={text.agentStatus}
-              icon={<PageHeaderIcon name="agents" />}
-              hasPopup="dialog"
-              expanded={active === 'agents'}
-              onActivate={(event) => {
-                if (event.isTrusted) onSelect('agents');
-              }}
-            />
-          )}
-          <BrowserIconAction
-            type="button"
-            variant="text"
-            label={`${text.files} (${files})`}
-            icon={<PageHeaderIcon name="files" count={files} />}
-            hasPopup="dialog"
-            expanded={active === 'files'}
-            disabled={!canFiles}
-            onActivate={(event) => {
-              if (event.isTrusted) onSelect('files');
-            }}
-          />
-          <BrowserMenu
-            label={text.sourceAndExport}
-            icon={<PageHeaderIcon name="source" />}
-            items={[
-              { key: 'source', label: text.source },
-              ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
-            ]}
-            onSelect={(key) => onSelect(key as 'source' | 'export')}
-          />
-        </>
+      {!readOnly && (
+        <BrowserIconAction
+          type="button"
+          variant="text"
+          label={text.agentStatus}
+          icon={<PageHeaderIcon name="agents" />}
+          hasPopup="dialog"
+          expanded={active === 'agents'}
+          onActivate={(event) => {
+            if (event.isTrusted) onSelect('agents');
+          }}
+        />
       )}
-      <MoreMenu
-        label={text.more}
-        icon={<PageHeaderIcon name="more" />}
-        description={phone ? access : undefined}
-        items={[
-          ...(compact
-            ? [
-                ...(!readOnly ? [{ key: 'agents', label: text.agentStatus }] : []),
-                { key: 'files', label: `${text.files} (${files})`, disabled: !canFiles },
-                { key: 'source', label: text.source },
-                ...(!readOnly ? [{ key: 'export', label: text.export, disabled: !canExport }] : []),
-              ]
-            : []),
-          { key: 'manage', label: text.managePage, disabled: !canManage },
-          ...(['light', 'dark', 'system'] as const).map((theme) => ({
-            key: theme,
-            label: text.themeChoice[theme],
-            checked: choice === theme,
-          })),
-          { key: 'about', label: text.aboutPage },
-        ]}
-        onSelect={(key) => {
-          if (
-            key === 'manage' ||
-            key === 'about' ||
-            key === 'agents' ||
-            key === 'files' ||
-            key === 'source' ||
-            key === 'export'
-          )
-            onSelect(key);
-          else setThemeChoice(key as ThemeChoice);
-        }}
-      />
+      {remoteAvailable ? (
+        <RemoteMoreMenu remoteAfter="share" {...more} />
+      ) : (
+        <BrowserMenu label={text.more} icon={<PageHeaderIcon name="more" />} {...more} />
+      )}
     </nav>
   );
 }

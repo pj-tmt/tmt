@@ -127,7 +127,6 @@ export const text = {
   needsYouWord: 'Needs you',
   needsYouLabel: (count: number) => `Needs you: ${count}`,
   needsYouNothing: '✓ Nothing waits',
-  needsYouNothingWord: 'Nothing waits',
   needsYouGroup: (kind: 'proposal' | 'reading' | 'answer' | 'review', count: number) =>
     `${kind === 'proposal' ? 'Please decide' : kind === 'reading' ? 'Please read' : kind === 'answer' ? 'Please answer' : 'Please confirm'} · ${count}`,
 
@@ -256,6 +255,8 @@ export const text = {
       'Your message was not sent. The page changed while attaching; send again to upload the files.',
   },
   files: 'Files',
+  /** The More menu's entry for the page's sharing, with its state as secondary text. */
+  shareItem: 'Share…',
   filesEmpty: 'No files yet.',
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',
@@ -346,7 +347,9 @@ export const text = {
     count === 0
       ? 'Remote: no live sessions'
       : `Remote: ${count} live ${count === 1 ? 'session' : 'sessions'}`,
-  remoteUnconfirmed: 'Remote · ?',
+  remoteUnconfirmed: 'Remote · offline',
+  /** The attention mark's word while the Remote door is down or unreadable. */
+  remoteOffline: 'Remote offline',
   remoteUnconfirmedLabel: 'Remote: session count unconfirmed',
   remoteThisBrowser: 'This browser',
   remoteAddon: 'Browser add-on',

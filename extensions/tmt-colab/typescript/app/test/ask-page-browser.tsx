@@ -22,6 +22,7 @@ import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { Projection } from '../src/fold-protocol.js';
 import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
+import { RemotePresence } from '../src/remote-presence.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
@@ -226,6 +227,10 @@ export async function mount(
     /** Presentation-only test port for the real Manage dialog. */
     management?: ManagementPort;
     strict?: boolean;
+    /** The page is readable by anyone who holds its link. */
+    shared?: boolean;
+    /** The Remote door cannot be read, so the header shows its attention mark. */
+    remoteOffline?: boolean;
     /** Historical turns are part of the initial load, not a live arrival batch. */
     history?: 'thread' | 'chat';
     /** The page's layout and, for a canvas, its reason; absent is `freeform`. */
@@ -875,6 +880,7 @@ export async function mount(
     ...Object.getOwnPropertyDescriptors(binding),
     files: { value: replacementFiles },
   });
+  const remoteGeneration = {};
   const transport: PageTransport = {
     management: options.management,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
@@ -915,11 +921,25 @@ export async function mount(
         };
       return {
         id: id(1),
-        sharing: 'private',
+        sharing: options.shared ? 'link' : 'private',
         ...shown(),
         binding: replacedFiles ? replacedBinding : binding,
       };
     },
+    ...(options.remoteOffline
+      ? {
+          remotePresence: new RemotePresence(
+            () => ({
+              generation: remoteGeneration,
+              devices: async () => {
+                throw new Error('Refused');
+              },
+            }),
+            new URL('/settings', location.href).href,
+            () => Date.now(),
+          ),
+        }
+      : {}),
   };
   const app = <RouterProvider router={createAppRouter(transport)} />;
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);

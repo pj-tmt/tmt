@@ -68,7 +68,9 @@ test('confirmed and waiting-for-agent sections leave the count; zero is a stable
   const zero = page.locator('#ask-page-fixture').getByLabel('✓ Nothing waits', { exact: true });
   await expect(zero).toBeVisible();
   await expect(zero.getByRole('button')).toHaveCount(0);
-  expect((await zero.boundingBox())!.width).toBe(before!.width);
+  // Nothing shows at zero (#4116): the element that stays is a one-pixel anchor, not the slot's width.
+  expect((await zero.boundingBox())!.width).toBeLessThanOrEqual(1);
+  expect(before!.width).toBeGreaterThan(1);
 });
 
 for (const via of ['keyboard', 'pointer'] as const)
@@ -276,7 +278,9 @@ for (const width of [1440, 390])
       const zero = root.getByLabel('✓ Nothing waits', { exact: true });
       await expect(zero).toBeVisible();
       await expect(zero.getByRole('button')).toHaveCount(0);
-      expect((await zero.boundingBox())!.width).toBe(initialWidth);
+      // The entry's slot is its own width while something waits; at zero only a one-pixel anchor stays.
+      expect(initialWidth).toBe(width === 390 ? 48 : 148);
+      expect((await zero.boundingBox())!.width).toBeLessThanOrEqual(1);
       expect((await run(page, 'proof')).actions).toEqual(['status:resolve', 'status:resolve']);
       expect(await run(page, 'discussionProof')).toHaveLength(3);
       await capture(page, `needs-you-0-${width}-${theme}`);
