@@ -56,6 +56,10 @@ const { isComponentRetired } = (await import(
   new URL('../../scripts/native-release-policy.mjs', import.meta.url).href
 )) as { isComponentRetired: (name: string) => boolean };
 
+it('keeps the adapter environment runner on full native verification', () => {
+  expect(selectNativeScope(['typescript/scripts/e2e-adapter-tests.mjs'])).toBe('full');
+});
+
 describe('complete trusted-main verification', () => {
   const context = {
     repository: 'pj-tmt/tmt',
