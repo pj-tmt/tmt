@@ -105,7 +105,7 @@ export function hostedFailureCopy(
   }
 }
 
-/** Hosted B4 exposes the reader only, even when a Rules-checked link role is editor. */
+/** The hosted page: a reader, and for an editor link, edit requests the owner's serve applies. */
 export function HostedApp({ state, signIn }: { state: HostedEntryState; signIn(): void }) {
   if (state.phase === 'ready')
     return (
