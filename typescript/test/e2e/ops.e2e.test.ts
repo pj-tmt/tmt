@@ -329,13 +329,16 @@ renameSync(output+'.tmp',output);
         10_000,
         'idle alert saved through the board'
       );
-      const read = await squadCli<{ squad: { idleAlert: { enabled: boolean } } }>(fixture, [
-        'ls',
+      const read = await squadCli<{ entries: { key: string; value: unknown }[] }>(fixture, [
+        'config',
+        'show',
         '--squad',
         'product',
-        '--json',
       ]);
-      expect(read.json!.squad.idleAlert.enabled).toBe(true);
+      expect(read.code, read.stderr || read.stdout).toBe(0);
+      expect(read.json!.entries.find((entry) => entry.key === 'idle_alert.enabled')?.value).toBe(
+        true
+      );
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitForCapture(
         (screen) =>
