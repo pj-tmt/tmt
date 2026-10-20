@@ -8,7 +8,7 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
 the root and named references. `tmt colab skill` prints the exact root bytes;
-`tmt colab skill <name>` reads a compile-time key (`attachments`, `components`, `editing`, `layout`, `links`, `page-style`, `questions`, `reviews`), never a path. Both work without core, state or a checkout.
+`tmt colab skill <name>` reads a compile-time key, never a path (`SKILL_REFERENCES` in `main.rs` lists them, and `tmt colab skill --help` prints them). Both work without core, state or a checkout.
 The Page look starter in `references/page-style.md` is generated from `design/tokens/tokens.json`. After changing
 those tokens or the starter generator, run
 `node extensions/tmt-colab/scripts/generate-page-style.mjs --write`, then `--check`.
@@ -69,8 +69,8 @@ standard library alone; run it without `--write` to verify and with `--write` af
 change. Remote's mirror reads the vector.
 
 The app's [hosted reader](../../../../extensions/tmt-colab/contracts/colab-v1.md#hosted-page-consumer-2452-b4-3122)
-uses this inventory and Remote SDK without a local door. Native releases still unset
-`TMT_COLAB_HOSTING_DIR` until #2487's release step. The `hosted-bundle.spec.ts` acceptance runs
+uses this inventory and Remote SDK without a local door. Native releases pin
+`TMT_COLAB_HOSTING_DIR` ([Packaging and archives](#packaging-and-archives)). The `hosted-bundle.spec.ts` acceptance runs
 real embedded bytes at a logical demo origin under Remote's unchanged composed CSP; the
 `hosted-reader.spec.ts` browser fixture checks the read-only states and responsive renderer.
 After both app builds and the Remote SDK build, run
@@ -233,10 +233,7 @@ docker image rm "$tag"
 
 Sensitivity: a negative case must fail for the intended guard only, so each case sits next to a
 positive control that differs in that one condition. After changing a guard, remove it from a copy of the
-composed golden and confirm the suite fails (the suite was checked this way for the epoch fence, open state,
-retention bound, 365-day page ceiling, expiry-only refresh, expired-data cleanup, owner-only refresh,
-writer role, contiguity, writer-uid binding of streams and objects, ID binding, link secret and role, membership reads, list page
-expiry, space owner and owner-path rules).
+composed golden and confirm the suite fails.
 
 ## Run it
 

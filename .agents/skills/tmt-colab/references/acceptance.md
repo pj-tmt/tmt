@@ -256,8 +256,7 @@ card.
 `connection-readmit.spec.ts` (#2557) opens an owner page, advances the page epoch by adding and
 removing a share link, and expects the same tab, with no reload, to return to Live, read the next
 `page write` and deliver a Chat message to an agent. An epoch advance or authority recheck
-(`STALE_EPOCH`, `DENIED`, `EXPIRED`) on an open page reopens it (up to three reopens a minute,
-five open attempts each, at 0/1/3/8/15 s); only a refusal that ends access is terminal, and the
+(`STALE_EPOCH`, `DENIED`, `EXPIRED`) on an open page reopens it; only a refusal that ends access is terminal, and the
 rule is in [Owner-page readmission](../../../../extensions/tmt-colab/contracts/colab-v1.md#owner-page-readmission-2557).
 
 `connection-soak.spec.ts` (#2574) applies real page writes, Colab/Remote restarts, epoch and
@@ -283,13 +282,13 @@ reload/restart checks count actual recipient rows and core dispatches, never ter
 echo. The restart suite can arm the next dispatch before Enter generates its ID,
 then verifies that the parked operation matches the admitted Ask record.
 
-## Storage lifecycle (#1857)
+## Storage lifecycle
 
 `storage-lifecycle.spec.ts` proves the local object-storage flow on the real binaries; it adds
-no product hook. Each ticket bullet maps to the evidence below (conformance names are in
+no product hook. Each row maps a behavior to its evidence (conformance names are in
 `tmt-remote` `tests/objects/conformance.rs`, run for `local.rs` and `memory.rs`).
 
-| Bullet                              | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Behavior                            | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Chat, annotation and Files attach   | `attachments.spec.ts` (Chat, document Files); `storage-lifecycle.spec.ts` annotation case with PNG/JPEG/WebP previews                                                                                                                                                                                                                                                                                                                       |
 | Video and CSP                       | the same case: video is download-only, the CSP header is equal before and after, and no `blob:`/`unsafe-inline`, embed or video element appears; every object URL is revoked                                                                                                                                                                                                                                                                |

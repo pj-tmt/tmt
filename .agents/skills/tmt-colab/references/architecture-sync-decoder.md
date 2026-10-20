@@ -153,8 +153,8 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   export preserve the pair. Source edits cannot set it, and absence never backfills.
   There is no second acquisition, descriptor cache, service startup, private Remote
   state, HTTP or Session lookup. The [Colab contract](../../../../extensions/tmt-colab/contracts/colab-v1.md)
-  owns the complete-pair grammar and strict-reader compatibility rules; the future
-  #1817 UI default is not integrated by this native/non-UI boundary.
+  owns the complete-pair grammar and strict-reader compatibility rules; this native/non-UI
+  boundary does not integrate the browser's creator-default toggle.
 - `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
   lock from preparation through commit, using `Store::write_existing` and `commit_publication`.
   On a tail-capacity refusal, it makes one bounded combine attempt only if existing

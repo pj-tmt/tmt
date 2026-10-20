@@ -145,7 +145,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   defines creator defaults, binding, fan-out limits and per-recipient failures.
   No confirmation or sent-bytes disclosure is offered. `thread-panel.tsx`
   renders verified replies inline and puts Edit (own annotation comments) and Delete
-  (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
+  (own) in the square `⋯` menu (`page-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible
   null-anchor threads. `ask-panel.tsx` displays verified ledger outcomes/replies through the shared
   `components/conversation-turn.tsx` and
