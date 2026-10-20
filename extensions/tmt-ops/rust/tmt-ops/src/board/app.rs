@@ -349,10 +349,7 @@ impl Menu {
         let mut at = self.selected;
         for _ in 0..delta.unsigned_abs() {
             let mut next = at;
-            loop {
-                let Some(moved) = next.checked_add_signed(direction) else {
-                    break;
-                };
+            while let Some(moved) = next.checked_add_signed(direction) {
                 if moved >= self.entries.len() {
                     break;
                 }
