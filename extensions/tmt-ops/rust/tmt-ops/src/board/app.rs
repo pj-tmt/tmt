@@ -254,6 +254,8 @@ pub enum Effect {
     Load(String),
     Refresh,
     Settings,
+    /// The settings overlay in this squad's context, reached from the Workspace settings menu.
+    SquadSettings(String),
     HostAction,
     SaveSetting,
     ResetSetting,
@@ -289,6 +291,10 @@ pub enum Choice {
         room_id: String,
     },
     HostAction,
+    /// Opens the squad settings overlay for this squad from the Workspace settings menu.
+    SquadSettings(String),
+    /// A rule between menu groups: painted, never chosen.
+    Rule,
     WorkspaceLayout(crate::config::OpsLayout),
     DigestWindow(crate::config::DigestWindow),
     /// The window the Digest tab's Usage report shows.
@@ -334,6 +340,28 @@ pub struct Menu {
     pub selected: usize,
     pub(super) anchor: Option<ratatui::layout::Rect>,
     pub(super) surface: RefCell<Option<super::menu_surface::MenuSurface>>,
+}
+
+impl Menu {
+    /// Moves the highlight by `delta` entries, stepping over a rule and stopping at either end.
+    pub(super) fn step(&mut self, delta: isize) {
+        let direction = delta.signum();
+        let mut at = self.selected;
+        for _ in 0..delta.unsigned_abs() {
+            let mut next = at;
+            while let Some(moved) = next.checked_add_signed(direction) {
+                if moved >= self.entries.len() {
+                    break;
+                }
+                next = moved;
+                if !matches!(self.entries[next].choice, Choice::Rule) {
+                    at = next;
+                    break;
+                }
+            }
+        }
+        self.selected = at;
+    }
 }
 
 /// Where composed text goes.
@@ -1675,7 +1703,7 @@ impl App {
         if self
             .settings
             .as_ref()
-            .is_some_and(|overlay| overlay.settings.context != self.shown)
+            .is_some_and(|overlay| !overlay.from_menu && overlay.settings.context != self.shown)
         {
             self.settings = None;
             self.set_notice(Some("Shown tab changed; reopen settings.".into()), false);
@@ -1809,6 +1837,15 @@ impl App {
     }
 
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
+        self.open_settings_in(config, None)
+    }
+
+    /// Opens the overlay for `squad` when given (from the Workspace settings menu), else for the shown tab.
+    pub(super) fn open_settings_in(
+        &mut self,
+        config: Config,
+        squad: Option<&str>,
+    ) -> Result<(), crate::core::SquadError> {
         let window = self
             .meter
             .as_ref()
@@ -1816,10 +1853,15 @@ impl App {
             .map(|_| self.token_window.label().to_owned());
         let mut overlay = super::settings::Overlay::open(
             config,
-            self.shown_tab(),
+            squad.or(self.shown_tab()),
             self.selected_section(),
             window,
         )?;
+        overlay.from_menu = squad.is_some();
+        if squad.is_some() {
+            overlay.reveal_idle.set(true);
+            overlay.surface.borrow_mut().select("idle_alert.enabled");
+        }
         overlay.opening_focus = self.focus;
         overlay.squad_keys = self.squad_keys.clone();
         overlay.staleness = self
@@ -2776,6 +2818,8 @@ impl App {
                 room_id,
             } => self.workspace_choose_room(kind, &identity_id, &room_id),
             Choice::HostAction => Effect::HostAction,
+            Choice::SquadSettings(squad) => Effect::SquadSettings(squad),
+            Choice::Rule => Effect::None,
             Choice::WorkspaceLayout(layout) => self.workspace_layout(layout),
             Choice::DigestWindow(window) => self.select_digest_window(window),
             Choice::UsageReportSince(since) => {
@@ -3265,10 +3309,7 @@ impl App {
                 self.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
             }
             Some(Pointer::Wheel(step)) => {
-                menu.selected = menu
-                    .selected
-                    .saturating_add_signed(step)
-                    .min(menu.entries.len().saturating_sub(1));
+                menu.step(step);
                 Effect::None
             }
             _ => {
@@ -3312,11 +3353,11 @@ impl App {
                 .map(|entry| entry.choice.clone()),
             KeyCode::Esc | KeyCode::Char('q') => None,
             KeyCode::Up | KeyCode::Char('k') => {
-                menu.selected = menu.selected.saturating_sub(1);
+                menu.step(-1);
                 return Effect::None;
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                menu.selected = (menu.selected + 1).min(menu.entries.len().saturating_sub(1));
+                menu.step(1);
                 return Effect::None;
             }
             KeyCode::Enter => menu
@@ -3521,7 +3562,14 @@ impl App {
                         }
                         super::settings::Input::Close => {
                             self.settings_preview();
-                            self.settings = None;
+                            let from_menu = self
+                                .settings
+                                .take()
+                                .is_some_and(|overlay| overlay.from_menu);
+                            if from_menu {
+                                // Back to the Workspace settings menu the overlay was opened from.
+                                self.workspace_settings();
+                            }
                             Effect::CancelSettings
                         }
                         super::settings::Input::Pick("actions") => {

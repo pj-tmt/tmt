@@ -262,6 +262,7 @@ impl OpsWorkspaceSnapshot {
                 lead,
                 member_states: BTreeMap::new(),
                 observation,
+                idle_alert: document.and_then(super::IdleAlertSetting::of),
             };
             result.rows.insert(OpsTarget::Squad(squad.room_id.clone()), serde_json::json!({"name":squad.name,"squad":squad.name,"roomId":squad.room_id,"revision":room.map(|room| &room["revision"]),"memberIds":room.map(|room| &room["memberIds"]),"kind":"squad","lead":document.map(|value| &value["squad"]["lead"])}));
             for (row, rank) in acquired.projected_rows(&squad.name) {
@@ -273,6 +274,7 @@ impl OpsWorkspaceSnapshot {
                             state: identity.state.clone(),
                             waiting: identity.waiting,
                             rank: Some(rank),
+                            idle_over: row["idleAlert"]["state"] == "over",
                         },
                     );
                     result.rows.insert(

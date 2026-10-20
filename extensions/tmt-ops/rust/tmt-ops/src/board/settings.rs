@@ -10,7 +10,7 @@ use ratatui::{
 };
 use serde_json::{Value, json};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
 };
 use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
@@ -119,6 +119,7 @@ struct CachedTemplate<K> {
 #[derive(PartialEq, Eq)]
 struct ReferenceStyle {
     host_title: Option<String>,
+    squad_title: Option<String>,
     key_width: usize,
     source_width: usize,
     notice_role: &'static str,
@@ -150,6 +151,11 @@ pub(super) struct Overlay {
     pub picks: Vec<Pick>,
     overrides: BTreeSet<String>,
     host_action: Option<host_action::HostAction>,
+    /// Opened for one squad from the Workspace settings menu: Esc returns there, and a
+    /// refresh does not close it for showing another tab.
+    pub(in crate::board) from_menu: bool,
+    /// Scroll the idle alert group (its rows and hint) into view once the list has painted.
+    pub(in crate::board) reveal_idle: Cell<bool>,
 }
 impl Overlay {
     pub fn new(mut settings: BoardSettings) -> Self {
@@ -182,6 +188,8 @@ impl Overlay {
             picks: Vec::new(),
             overrides: BTreeSet::new(),
             host_action: None,
+            from_menu: false,
+            reveal_idle: Cell::new(false),
         }
     }
     pub fn open(
@@ -474,6 +482,16 @@ impl Overlay {
                 }
                 return Input::Pick(self.selected_pick().expect("a picker row").id);
             }
+            KeyCode::Char(' ') if self.config.is_some() && self.selected_toggle().is_some() => {
+                let (key, on) = self.selected_toggle().expect("a toggle row");
+                self.editing = Some((key, (!on).to_string()));
+                self.preview();
+                return if self.draft.is_some() {
+                    Input::Save
+                } else {
+                    Input::Preview
+                };
+            }
             KeyCode::Enter if self.config.is_some() => {
                 if let Some(entry) = self.selected_entry() {
                     if !entry.editable {
@@ -495,6 +513,14 @@ impl Overlay {
             .borrow_mut()
             .input(&Event::Key(key), PickerField::List);
         Input::None
+    }
+    /// The selected on/off setting that this squad may change: Space flips it.
+    fn selected_toggle(&self) -> Option<(String, bool)> {
+        let entry = self.selected_entry()?;
+        match entry.value {
+            Value::Bool(on) if entry.editable => Some((entry.key.clone(), on)),
+            _ => None,
+        }
     }
     fn selected_entry(&self) -> Option<&crate::settings::BoardSetting> {
         let id = self
@@ -719,8 +745,17 @@ fn template(
     source_width: usize,
     role: &str,
     host_title: Option<&str>,
+    squad_title: Option<&str>,
 ) -> tmt_tui::components::surface::Template<()> {
-    let title = host_title.unwrap_or("settings · Enter edit · * read-only");
+    let escaped = squad_title.map(|title| {
+        title
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('"', "&quot;")
+    });
+    let title = host_title
+        .or(escaped.as_deref())
+        .unwrap_or("settings · Enter edit · * read-only");
     let host_action = host_title.is_some();
     let reference = if host_action {
         "<tmt-text token=\"dim\" wrap=\"true\">Fields: {pane} {name} {pr_link} {board_pane} · {{ }} for literal braces</tmt-text>"
@@ -938,6 +973,14 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             .host_action
             .as_ref()
             .map(|host| host.title("Host action (j)")),
+        squad_title: overlay.from_menu.then(|| {
+            format!(
+                "Squad settings: {}",
+                crate::board::workspace::render::safe(
+                    overlay.settings.context.as_deref().unwrap_or("")
+                )
+            )
+        }),
         key_width,
         source_width,
         notice_role: notice_role(overlay.notice.as_ref()),
@@ -950,6 +993,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
                 source_width,
                 key.notice_role,
                 key.host_title.as_deref(),
+                key.squad_title.as_deref(),
             ),
             key,
         });
@@ -968,13 +1012,27 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     );
     let footer = if overlay.host_action.is_some() {
         "↑↓ choose · Enter preview · Esc cancel"
-    } else if reset_hint {
-        "↑↓ select · Enter edit · r reset · PgUp/PgDn page · Esc close"
     } else {
-        "↑↓ select · Enter edit · PgUp/PgDn page · Esc close"
+        let space = if overlay.selected_toggle().is_some() {
+            "Space on/off · "
+        } else {
+            ""
+        };
+        let reset = if reset_hint { "r reset · " } else { "" };
+        &format!("↑↓ select · {space}Enter edit · {reset}PgUp/PgDn page · Esc close")
     };
     let mut state = overlay.surface.borrow_mut();
-    state.render(FILE, template, json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":query, "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "saved_path":format!("Saved to {}", overlay.display_path), "footer":footer, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
+    let value = json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":query, "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "saved_path":format!("Saved to {}", overlay.display_path), "footer":footer, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())});
+    state.render(FILE, template, value.clone(), frame, look, body);
+    // Opened from the Workspace menu: show the idle alert rows and their hint whole, then repaint.
+    if overlay.reveal_idle.get()
+        && let Some(moved) = state.reveal_group("group:idle_alert", "idle_alert.enabled", 1)
+    {
+        overlay.reveal_idle.set(false);
+        if moved {
+            state.render(FILE, template, value, frame, look, body);
+        }
+    }
     if let Some(map) = &state.frame {
         for hit in &map.hits {
             let Some(id) = hit.row_id.as_ref() else {
@@ -1331,6 +1389,123 @@ mod tests {
                 "{width}: {longest} is cut: {lines:#?}"
             );
         }
+    }
+    fn settings_screen(f: &Fixture, width: u16) -> String {
+        let overlay = f.app.settings.as_ref().unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
+        terminal
+            .draw(|frame| render(frame, overlay, f.app.look(), frame.area()))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(usize::from(width))
+            .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    fn select(f: &mut Fixture, key: &str) {
+        f.app
+            .settings
+            .as_mut()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select(key);
+    }
+    #[test]
+    fn space_flips_the_selected_on_off_setting_through_the_cli_writer() {
+        let mut f = fixture("idle-toggle", "");
+        select(&mut f, "idle_alert.enabled");
+        let screen = settings_screen(&f, 120);
+        assert!(screen.contains("Space on/off"), "{screen}");
+        assert!(
+            screen.contains("Tells the lead once when a member stays idle longer"),
+            "{screen}"
+        );
+        assert_eq!(
+            press(&mut f.app, KeyCode::Char(' ')),
+            crate::board::app::Effect::SaveSetting
+        );
+        assert!(f.app.settings.as_mut().unwrap().save());
+        let saved = std::fs::read_to_string(&f.path).unwrap();
+        assert!(
+            Config::read(f.path.clone())
+                .unwrap()
+                .idle_alert("product")
+                .unwrap()
+                .enabled
+        );
+        // The board writes the bytes `tmt ops sq config set` writes.
+        let cli = f.root.join("cli.toml");
+        std::fs::write(&cli, &f.original).unwrap();
+        Config::read(cli.clone())
+            .unwrap()
+            .set_setting(Some("product"), "idle_alert.enabled", "true")
+            .unwrap();
+        assert_eq!(saved, std::fs::read_to_string(&cli).unwrap());
+        select(&mut f, "idle_alert.enabled");
+        assert_eq!(
+            press(&mut f.app, KeyCode::Char(' ')),
+            crate::board::app::Effect::SaveSetting
+        );
+        assert!(f.app.settings.as_mut().unwrap().save());
+        assert!(
+            !Config::read(f.path.clone())
+                .unwrap()
+                .idle_alert("product")
+                .unwrap()
+                .enabled
+        );
+    }
+    #[test]
+    fn space_does_nothing_on_a_value_row_and_the_hint_names_only_what_a_row_accepts() {
+        let mut f = fixture("idle-space", "");
+        select(&mut f, "idle_alert.after");
+        let screen = settings_screen(&f, 120);
+        assert!(!screen.contains("Space on/off"), "{screen}");
+        assert_eq!(
+            press(&mut f.app, KeyCode::Char(' ')),
+            crate::board::app::Effect::None
+        );
+        assert!(f.app.settings.as_ref().unwrap().editing.is_none());
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+    }
+    #[test]
+    fn an_idle_time_outside_five_minutes_to_a_day_shows_core_text_and_never_writes() {
+        let mut f = fixture("idle-range", "");
+        for bad in ["4m", "25h", "1.5m", "30"] {
+            edit(&mut f.app, "idle_alert.after", bad);
+            assert!(f.app.settings.as_ref().unwrap().draft.is_none(), "{bad}");
+            let screen = settings_screen(&f, 120);
+            assert!(screen.contains("idle_alert"), "{bad}: {screen}");
+            assert_eq!(
+                press(&mut f.app, KeyCode::Enter),
+                crate::board::app::Effect::None
+            );
+            press(&mut f.app, KeyCode::Esc);
+            assert_eq!(
+                std::fs::read_to_string(&f.path).unwrap(),
+                f.original,
+                "{bad}"
+            );
+        }
+        edit(&mut f.app, "idle_alert.after", "20m");
+        assert_eq!(
+            press(&mut f.app, KeyCode::Enter),
+            crate::board::app::Effect::SaveSetting
+        );
+        assert!(f.app.settings.as_mut().unwrap().save());
+        assert_eq!(
+            Config::read(f.path.clone())
+                .unwrap()
+                .idle_alert("product")
+                .unwrap()
+                .after
+                .as_secs(),
+            1200
+        );
     }
     #[test]
     fn admitted_settings_rows_use_current_hits_and_restore_list_after_raw_edit() {

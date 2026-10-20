@@ -973,6 +973,10 @@ fn session(
                         .open_settings(config)
                         .map_err(|error| error.message)
                         .map(|()| true),
+                    (lane::Opening::SquadSettings(squad), Ok(config)) => app
+                        .open_settings_in(config, Some(&squad))
+                        .map_err(|error| error.message)
+                        .map(|()| true),
                     (lane::Opening::HostAction(selection), Ok(config)) => app
                         .open_host_action(config, *selection, board_pane)
                         .map_err(|error| error.message)
@@ -1100,6 +1104,9 @@ fn session(
                 io(lane::Job::Discovery(task));
             }
             Effect::Settings => submit(app, lane::Job::Open(lane::Opening::Settings)),
+            Effect::SquadSettings(squad) => {
+                submit(app, lane::Job::Open(lane::Opening::SquadSettings(squad)))
+            }
             Effect::HostAction => submit(
                 app,
                 lane::Job::Open(lane::Opening::HostAction(Box::new(

@@ -415,6 +415,28 @@ fn captures() -> Value {
                 }
             }
         }
+        // Idle alert and the squad settings reached from the Workspace menu: additive scenes.
+        for (look_name, look) in looks() {
+            for state in [
+                "idle-alert",
+                "idle-alert-overview",
+                "settings-menu",
+                "settings-menu-pool",
+                "squad-settings",
+            ] {
+                for width in [160, 100, 80, 60] {
+                    let app = capture_case(state, look);
+                    frames.push(capture_frame(
+                        &app,
+                        state,
+                        look_name,
+                        width,
+                        36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

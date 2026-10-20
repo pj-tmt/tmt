@@ -344,6 +344,7 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
             state: Some("working".into()),
             waiting: true,
             rank: None,
+            idle_over: false,
         },
     );
     let other_target = OpsTarget::Member {

@@ -216,7 +216,26 @@ fn body(squad: &Squad, member: &Member, since_ms: u64, after: Duration, zone: &T
     )
 }
 
-fn threshold(after: Duration) -> String {
+/// `idle alert 30m` for a squad document whose alert is on; an off alert has no label.
+pub fn setting_label(document: &Value) -> Option<String> {
+    let setting = &document["squad"]["idleAlert"];
+    (setting["enabled"] == true).then(|| {
+        let after = Duration::from_millis(setting["afterMs"].as_u64()?);
+        Some(format!("idle alert {}", threshold(after)))
+    })?
+}
+
+/// `◷ idle 32m` for a row Core marked over, from Core's idle start. An excepted row has no mark.
+pub fn row_label(row: &Value, now_ms: u64) -> Option<String> {
+    let mark = &row["idleAlert"];
+    (mark["state"] == "over").then(|| {
+        let since = mark["sinceMs"].as_u64()?;
+        Some(format!("◷ idle {}", crate::requests::age(now_ms, since)))
+    })?
+}
+
+/// The threshold as the notice and the board write it: `30m`, `1h`, `90s`.
+pub fn threshold(after: Duration) -> String {
     match after.as_secs() {
         seconds if seconds % 3600 == 0 => format!("{}h", seconds / 3600),
         seconds if seconds % 60 == 0 => format!("{}m", seconds / 60),

@@ -38,6 +38,8 @@ pub struct OpsMembershipState {
     pub state: Option<String>,
     pub waiting: bool,
     pub rank: Option<crate::config::Rank>,
+    /// Core's idle alert marks this member over in this squad.
+    pub idle_over: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +51,39 @@ pub struct OpsSquad {
     /// Squad metadata is scoped even when an identity belongs to several rooms.
     pub member_states: BTreeMap<String, OpsMembershipState>,
     pub observation: OpsObservation,
+    /// The squad's `idle_alert` setting, published only while Core read it.
+    pub idle_alert: Option<IdleAlertSetting>,
+}
+
+/// `squad.idleAlert` from Core's squad document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdleAlertSetting {
+    pub enabled: bool,
+    pub after_ms: u64,
+}
+
+impl IdleAlertSetting {
+    pub fn of(document: &serde_json::Value) -> Option<Self> {
+        let setting = &document["squad"]["idleAlert"];
+        Some(Self {
+            enabled: setting["enabled"].as_bool()?,
+            after_ms: setting["afterMs"].as_u64()?,
+        })
+    }
+    /// `idle alert 30m` while the alert is on, `alert 30m` where the cell is too
+    /// narrow for the full words; an off alert shows nothing.
+    pub fn label(self, width: usize) -> Option<String> {
+        use unicode_width::UnicodeWidthStr;
+        let after = crate::idle_alert::threshold(std::time::Duration::from_millis(self.after_ms));
+        let full = format!("idle alert {after}");
+        self.enabled.then(|| {
+            if full.width() <= width {
+                full
+            } else {
+                format!("alert {after}")
+            }
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -715,6 +750,7 @@ fn member_row(
         activity: Some(super::activity::Member {
             activity: member.activity,
             waiting: scope.map_or(member.waiting, |membership| membership.waiting),
+            idle_over: scope.is_some_and(|membership| membership.idle_over),
             task: scope.map_or_else(
                 || member.state.clone(),
                 |membership| membership.state.clone(),

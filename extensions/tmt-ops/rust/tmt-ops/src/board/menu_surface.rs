@@ -135,7 +135,7 @@ impl MenuSurface {
         let rows: Vec<ListRow> = (0..entries.len())
             .map(|index| ListRow {
                 id: row_id(index),
-                disabled: false,
+                disabled: matches!(entries[index].choice, Choice::Rule),
             })
             .collect();
         Self {

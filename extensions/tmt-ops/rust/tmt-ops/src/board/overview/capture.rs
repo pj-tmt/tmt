@@ -237,6 +237,7 @@ fn pinned_large_case(look: crate::look::Look) -> crate::board::app::App {
                 state: Some(state.into()),
                 waiting: state == "blocked",
                 rank: None,
+                idle_over: false,
             },
         );
         home.workspace.rows.insert(

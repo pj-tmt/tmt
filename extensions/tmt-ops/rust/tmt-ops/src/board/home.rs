@@ -67,7 +67,7 @@ pub fn load(
     let settings = config.tabs()?;
     let squads = squads.iter().collect::<Vec<_>>();
     // Models are public session observations, independent of token sampling.
-    let mut acquired = tab_view::home_sources(core, config, &squads, me);
+    let mut acquired = tab_view::home_sources(core, config, &squads, me, listed.as_ref().ok());
     acquired.digest(core);
     let public = tab_view::document(config, &settings, order, ALL, &acquired)?;
     let resumes = match listed {

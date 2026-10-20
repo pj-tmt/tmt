@@ -1,4 +1,5 @@
 mod host_action;
+pub(in crate::board) mod idle_alert;
 use super::*;
 use crate::board::workspace::{
     OpsMember, OpsObservation, OpsRoster, OpsSquad,
@@ -57,10 +58,12 @@ pub(in crate::board) fn board() -> App {
                         state: Some("working".into()),
                         waiting: false,
                         rank: None,
+                        idle_over: false,
                     },
                 )]
                 .into(),
                 observation: OpsObservation::Complete,
+                idle_alert: None,
             }],
             membership_complete: true,
             observation: OpsObservation::Complete,
@@ -442,6 +445,7 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
             lead: None,
             member_states: Default::default(),
             observation: OpsObservation::Complete,
+            idle_alert: None,
         });
     }
     for ordinal in 0..agents {
@@ -476,6 +480,7 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
                     state: Some(state.into()),
                     waiting: false,
                     rank: None,
+                    idle_over: false,
                 },
             );
             if ordinal < squads {
@@ -2600,6 +2605,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                         state: Some("idle".into()),
                         waiting: false,
                         rank: None,
+                        idle_over: false,
                     },
                 );
                 home.workspace.rows.insert(
@@ -2616,6 +2622,13 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                 room_id: Some(ROOM.into()),
                 identity_id: "44444444-4444-4444-8444-000000000150".into(),
             });
+        }
+        "idle-alert" | "idle-alert-overview" => {
+            idle_alert::populate(home);
+            if scene == "idle-alert-overview" {
+                app.shell.tab = OpsTab::Overview;
+                app.overview_view = crate::board::overview::monitor::View::Squads;
+            }
         }
         "partial" => {
             home.workspace.roster.observation = OpsObservation::Partial;
@@ -2660,6 +2673,17 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         }
         "help" => {
             key(&mut app, KeyCode::Char('?'));
+        }
+        "settings-menu" => {
+            app.workspace_settings();
+        }
+        "settings-menu-pool" => {
+            app.workspace.selected = Some(OpsTarget::Pool);
+            app.workspace_settings();
+        }
+        "squad-settings" => {
+            app.workspace_settings();
+            idle_alert::open_squad_settings(&mut app);
         }
         "review" | "result" => {
             app.workspace_begin(Kind::Remove);
@@ -3361,13 +3385,10 @@ fn only_a_blocked_task_is_red_while_activity_words_are_neutral() {
                     .map(|x| terminal.backend().buffer()[(x, hit.y)].symbol())
                     .collect::<String>();
                 assert!(painted_row.contains("worker"));
-                // A narrow cell cuts the task first; it is never painted for "working".
+                // A cell too narrow for the whole task drops it; it is never painted for "working".
                 let tail = match state {
-                    "working" => "",
                     "idle" => " · idle",
-                    "offline" => " · off…",
-                    "waiting" => " · wai…",
-                    "blocked" => " · blo…",
+                    "working" | "offline" | "waiting" | "blocked" => "",
                     _ => unreachable!(),
                 };
                 assert!(
@@ -5111,12 +5132,14 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
-        let clipped = if waiting {
-            "◆ waiting · blo…"
+        // The 16-cell tree cell drops the whole suffix rather than cutting `blocked`.
+        let kept = if waiting {
+            "◆ waiting"
         } else {
-            "● working · blo…"
+            "● working"
         };
-        assert!(tree.contains(clipped), "tree: {tree}");
+        assert!(tree.contains(kept), "tree: {tree}");
+        assert!(!tree.contains("· b"), "tree: {tree}");
         assert!(
             paint(&app, 160, 36).join("\n").contains(words),
             "focus keeps the full state"
@@ -5129,6 +5152,24 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
         let scene = monitor::scene(&app, app.workspace_snapshot().unwrap());
         assert_eq!(scene.summary.working, 1);
         assert_eq!(scene.summary.unknown_activity, 0);
+        // The wide Overview cell shows the whole task: red only when it is blocked.
+        let screen_rows = paint(&app, 160, 36);
+        let (y, x) = screen_rows
+            .iter()
+            .enumerate()
+            .find_map(|(y, line)| {
+                line.find("· blocked")
+                    .map(|byte| (y, line[..byte].chars().count() + 2))
+            })
+            .expect("the Overview row shows the whole task");
+        let mut shown = Terminal::new(TestBackend::new(160, 36)).unwrap();
+        shown
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        assert_eq!(
+            shown.backend().buffer()[(x as u16, y as u16)].fg,
+            look.role(Role::Blocked).fg.unwrap()
+        );
         // Only the glyph carries request attention colour; the words stay text.
         let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
         terminal
@@ -5160,7 +5201,7 @@ fn overview_state_keeps_the_task_by_width_and_without_colour() {
     use crate::board::overview::monitor;
     for (depth, width, words) in [
         (tmt_cli_style::Depth::TrueColor, 160, "● working · blocked"),
-        (tmt_cli_style::Depth::TrueColor, 82, "● working · block…"),
+        (tmt_cli_style::Depth::TrueColor, 82, "● working "),
         (tmt_cli_style::Depth::TrueColor, 60, "● working "),
         (tmt_cli_style::Depth::None, 160, "● working · blocked"),
     ] {
@@ -5173,8 +5214,11 @@ fn overview_state_keeps_the_task_by_width_and_without_colour() {
         app.overview_view = monitor::View::Agents;
         let screen = paint(&app, width, 36).join("\n");
         assert!(screen.contains(words), "{depth:?} {width}: {screen}");
-        if width == 60 {
-            assert!(!screen.contains("· bl"), "a narrow row cuts the task first");
+        if width < 160 {
+            assert!(
+                !screen.contains("· bl"),
+                "a narrow row drops the whole task, never part of it"
+            );
         }
     }
 }
@@ -5189,8 +5233,8 @@ fn overview_state_width(screen: &[String]) -> usize {
     header.find("TOK 1h").unwrap() - header.find("STATE").unwrap() - 2
 }
 
-/// The STATE column is as wide as the widest cell of the list, at least 12 cells
-/// and within the row's room after the tokens and 16 NOW cells (at most 32).
+/// The STATE column is as wide as the widest cell of the list that fits whole, at least 12
+/// cells and within the row's room after the tokens and 16 NOW cells (at most 32).
 /// TOK and NOW start right after it, in colour and without.
 #[test]
 fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
@@ -5207,12 +5251,12 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
             // A longer label widens to its own width, not to the room.
             (Some("blocked"), 160, 19, "● working · blocked"),
             (Some("blocked"), 300, 19, "● working · blocked"),
-            // The room after the tokens and 16 NOW cells bounds it.
-            (Some("blocked"), 82, 18, "● working · block…"),
+            // The room bounds the column; a label that does not fit it whole is dropped from the cell.
+            (Some("blocked"), 82, 18, "● working "),
             (Some("blocked"), 60, 12, "● working "),
-            // A label longer than the column stops at 32 cells.
-            (Some(long), 160, 32, "● working · reviewing-the-relea…"),
-            (Some(long), 90, 26, "● working · reviewing-the…"),
+            // A label that does not fit the 32-cell cap whole is dropped, so the column stays at 12.
+            (Some(long), 160, 12, "● working "),
+            (Some(long), 90, 12, "● working "),
         ] {
             let mut app = match task {
                 None => board(),
@@ -5283,7 +5327,7 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
         let member = scene.squads[0]
             .members
             .iter()
-            .find(|(id, _)| id == MEMBER)
+            .find(|(id, _, _)| id == MEMBER)
             .unwrap();
         assert_eq!(
             member.1.as_deref(),
@@ -5351,10 +5395,17 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
             depth,
         };
         let mut app = disagreeing_board(false, look);
-        assert!(painted_member_row(&app, 160, 36).contains("● working · blo…"));
+        let before = painted_member_row(&app, 160, 36);
+        assert!(
+            before.contains("● working") && !before.contains("· b"),
+            "{before}"
+        );
         with_unread_replies(&mut app);
         let tree = painted_member_row(&app, 160, 36);
-        assert!(tree.contains("● 2 unread · bl…"), "{depth:?} tree: {tree}");
+        assert!(
+            tree.contains("● 2 unread") && !tree.contains("· b"),
+            "{depth:?} tree: {tree}"
+        );
         assert!(!tree.contains("working"), "{depth:?} tree: {tree}");
         assert!(
             paint(&app, 160, 36)
@@ -5366,8 +5417,8 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
         app.overview_view = monitor::View::Agents;
         for (width, words) in [
             (160, "● 2 unread · blocked"),
-            // The row's room clips the task first.
-            (82, "● 2 unread · bloc…"),
+            // The row's room drops the whole task first.
+            (82, "● 2 unread "),
             (60, "● 2 unread  "),
         ] {
             let screen = paint(&app, width, 36).join("\n");
@@ -5449,7 +5500,7 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         let unread = format!("● 2 unread · {word}");
         let tree = painted_member_row(&app, 160, 36);
         assert!(
-            tree.contains(&format!("● 2 unread · {}…", &word[..2])),
+            tree.contains("● 2 unread") && !tree.contains(&format!("· {}", &word[..2])),
             "{word} tree: {tree}"
         );
         assert!(
@@ -5473,13 +5524,13 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         assert!(roster.contains(&unread), "{word} roster: {roster}");
         app.shell.tab = OpsTab::Overview;
         app.overview_view = monitor::View::Agents;
-        // At 80 cells the STATE room is 16: the task is clipped, not dropped.
-        for (width, words) in [
-            (160, unread.clone()),
-            (80, format!("● 2 unread · {}…", &word[..2])),
-        ] {
+        // At 80 cells the STATE room is 16: the whole task is dropped, never cut.
+        for (width, words) in [(160, unread.clone()), (80, "● 2 unread".to_owned())] {
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains(&words), "{word} {width}: {screen}");
+            if width == 80 {
+                assert!(!screen.contains(&format!("· {}", &word[..2])), "{screen}");
+            }
         }
     }
 }

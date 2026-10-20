@@ -167,6 +167,7 @@ fn a_squad_uses_its_observed_lead_and_never_borrows_a_waiting_members_question()
             state: Some("working".into()),
             waiting: false,
             rank: None,
+            idle_over: false,
         },
     );
     snapshot.rows.insert(OpsTarget::Member { room_id: Some(crate::board::app::workspace::tests::ROOM.into()), identity_id: lead_id.into() }, serde_json::json!({"id":lead_id,"name":"observed-lead","state":"working","presence":"active","pane":{"location":{"host":"tmux"}}}));

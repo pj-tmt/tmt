@@ -45,6 +45,7 @@ fn workspace_board(config: &Config, document: &Value) -> App {
                 state: state.clone(),
                 waiting,
                 rank: None,
+                idle_over: false,
             },
         );
         snapshot.roster.members.insert(

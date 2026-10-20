@@ -15,6 +15,8 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Opening {
     Settings,
+    /// The settings overlay for this squad, opened from the Workspace settings menu.
+    SquadSettings(String),
     HostAction(Box<super::settings::host_action::Selection>),
     /// The theme picker, for this squad tab (none on the aggregate tabs).
     ThemePicker(Option<String>),
@@ -50,7 +52,9 @@ impl Job {
             Self::ReadMarkers(_) => "Saving read markers…",
             Self::Recovery(_) => "Reading or applying the selected workspace snapshot…",
             Self::Discovery(_) => "Scanning or binding the selected agent…",
-            Self::Open(Opening::Settings | Opening::HostAction(_)) => "Loading settings…",
+            Self::Open(Opening::Settings | Opening::SquadSettings(_) | Opening::HostAction(_)) => {
+                "Loading settings…"
+            }
             Self::Open(Opening::ThemePicker(_)) => "Loading themes…",
             Self::TokenWindow(_) => "Saving the token window…",
             Self::ViewState(_) => "Saving the board view…",

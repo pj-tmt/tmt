@@ -469,16 +469,18 @@ pub fn activity_spans(
             .filter(|task| *task != shown)
             .and_then(|task| {
                 let tail = format!(" · {task}");
-                if tail.width() <= room {
-                    Some(tail)
-                } else {
-                    // Keep a clipped task while one character and its ellipsis fit.
-                    (room >= " · x…".width()).then(|| crate::board::view::fit(&tail, room))
-                }
+                // A suffix that does not fit whole is dropped, never cut inside a word.
+                (tail.width() <= room).then_some(tail)
             });
         return (primary, task.map(task_span));
     }
-    let symbol = crate::board::state_cell::glyph(Some(label.state));
+    let over = label
+        .idle_over
+        .then(|| crate::board::state_cell::over(app.cron_glyphs, app.look()));
+    let symbol = over.as_ref().map_or_else(
+        || crate::board::state_cell::glyph(Some(label.state)),
+        |mark| mark.content.as_ref(),
+    );
     // Unknown activity has no word: the glyph is the label's own `?`.
     let unknown = label.state == "unknown";
     let (head, task) = label.fit(if unknown {
@@ -494,8 +496,13 @@ pub fn activity_spans(
     let room = width.saturating_sub(symbol.width());
     let words = crate::board::view::fit(&words, words.width().min(room));
     let mut primary = vec![Span::styled(
-        symbol,
-        table_style(app, selected, activity_style(app, label.state)),
+        symbol.to_owned(),
+        table_style(
+            app,
+            selected,
+            over.as_ref()
+                .map_or_else(|| activity_style(app, label.state), |mark| mark.style),
+        ),
     )];
     if !words.is_empty() {
         primary.push(Span::styled(

@@ -3,6 +3,8 @@ use super::*;
 #[test]
 fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
     let mut app = board();
+    // With no squad selected the menu ends at Actions; a squad adds its settings link after a rule.
+    app.workspace.selected = Some(OpsTarget::Pool);
     assert_eq!(app.workspace_settings(), Effect::None);
     let last = app.menu.as_ref().unwrap().entries.last().unwrap();
     assert_eq!(last.label, "Actions");

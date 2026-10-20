@@ -4,10 +4,7 @@ use super::{
 };
 use crate::rows::Rows;
 use ratatui::widgets::Paragraph;
-use ratatui::{
-    layout::Rect,
-    style::{Modifier, Style},
-};
+use ratatui::{layout::Rect, style::Modifier};
 use serde_json::Value;
 use tmt_cli_style::Role;
 use unicode_width::UnicodeWidthStr;
@@ -669,26 +666,10 @@ fn board_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
     terminal.backend().buffer().clone()
 }
 
-/// The foreground, background and modifiers a style gives a cell.
-fn painted(style: Style) -> (ratatui::style::Color, ratatui::style::Color, Modifier) {
-    let mut cell = ratatui::buffer::Cell::default();
-    cell.set_style(style);
-    (cell.fg, cell.bg, cell.modifier)
-}
-
-fn painted_at(
-    buffer: &ratatui::buffer::Buffer,
-    x: u16,
-    y: u16,
-) -> (ratatui::style::Color, ratatui::style::Color, Modifier) {
-    let cell = &buffer[(x, y)];
-    (cell.fg, cell.bg, cell.modifier)
-}
-
-// A member's task state ignores an authored token: only an exact `blocked`
-// (the `✗` state) is red, and pattern or waiting states stay muted.
+// A member's task state ignores an authored token; the 16-cell STATE track drops a task it
+// cannot show whole, so neither `blocked` nor `waiting` is cut or recoloured there.
 #[test]
-fn member_task_states_are_red_only_when_blocked_whatever_the_projected_token() {
+fn a_task_the_state_track_cannot_show_whole_is_dropped_whatever_the_projected_token() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
     use crate::board::workspace::OpsTarget;
     for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
@@ -747,46 +728,10 @@ fn member_task_states_are_red_only_when_blocked_whatever_the_projected_token() {
                     let row_text = cells.concat();
                     assert!(
                         !row_text.contains(state),
-                        "the 16-cell STATE track clips the task"
+                        "the 16-cell STATE track drops the task it cannot show whole"
                     );
-                    let shown = if state == "waiting" {
-                        "wai…"
-                    } else {
-                        "blo…"
-                    };
-                    assert!(
-                        row_text.contains(&format!("● working · {shown}")),
-                        "{row_text}"
-                    );
-                    let at = (0..cells.len())
-                        .find(|start| cells[*start..].concat().starts_with(shown))
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "the State column keeps a visible ellipsis for {state:?}: {}",
-                                cells.concat()
-                            )
-                        });
-                    let token = look.role(if state == "blocked" {
-                        Role::Blocked
-                    } else {
-                        Role::Muted
-                    });
-                    let expected = if selected {
-                        look.selection()
-                            .patch(look.row_span(true, token, false))
-                            .remove_modifier(Modifier::BOLD)
-                    } else {
-                        token
-                    };
-                    for x in hit.x + at as u16
-                        ..hit.x + at as u16 + unicode_width::UnicodeWidthStr::width(shown) as u16
-                    {
-                        assert_eq!(
-                            painted_at(&buffer, x, hit.y),
-                            painted(expected),
-                            "{base:?}/{depth:?}/{state}/selected={selected}"
-                        );
-                    }
+                    assert!(row_text.contains("● working"), "{row_text}");
+                    assert!(!row_text.contains("· "), "{row_text}");
                 }
             }
         }

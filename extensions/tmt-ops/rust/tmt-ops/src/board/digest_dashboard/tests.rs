@@ -94,6 +94,7 @@ fn duplicate_memberships_have_one_row_and_keep_a_management_context() {
                 lead: None,
                 member_states: Default::default(),
                 observation: OpsObservation::Complete,
+                idle_alert: None,
             });
     }
     for room in [None, Some("a"), Some("b")] {
@@ -565,6 +566,7 @@ fn scoped_digest_summary_follows_its_rows_and_saved_hiding_stays_outside_digest(
         lead: None,
         member_states: Default::default(),
         observation: OpsObservation::Complete,
+        idle_alert: None,
     });
     snapshot.rows.insert(
         OpsTarget::Member {
@@ -1405,6 +1407,7 @@ fn capture_savings_packet() {
                                 state: Some("working".into()),
                                 waiting: false,
                                 rank: None,
+                                idle_over: false,
                             },
                         );
                         workspace.rows.insert(OpsTarget::Member { room_id: Some(ROOM.into()), identity_id: SECOND.into() }, json!({"id":SECOND,"name":"second","state":"working","presence":"active","pane":{"location":{"host":"tmux"}}}));

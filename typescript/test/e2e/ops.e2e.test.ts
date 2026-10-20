@@ -300,6 +300,59 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('reaches the squad settings from the workspace menu, flips the idle alert with Space and returns to the menu on Esc', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('idle-alert-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'tmt ops ui; echo IDLE_BOARD_EXIT=$?', 'Enter']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      // Agents tab, first row (Common pool), then the squad row below it.
+      fixture.tmux(['send-keys', '-t', shell.pane, '2', 'Home', 'Down']);
+      await fixture.waitForCapture((screen) => screen.includes('SQUAD / AGENT'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, ',']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Squad settings: product'),
+        shell.pane
+      );
+      // The entry is last; Down saturates there and never lands on the rule above it.
+      fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
+      // The overlay opens with the idle alert switch selected, so Space is offered at once.
+      await fixture.waitForCapture((screen) => screen.includes('Space on/off'), shell.pane);
+      const config = path.join(fixture.globalDir, 'ops.toml');
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Space']);
+      await fixture.waitFor(
+        () =>
+          fs.existsSync(config) &&
+          /idle_alert[\s\S]*enabled\s*=\s*true/.test(fs.readFileSync(config, 'utf8')),
+        10_000,
+        'idle alert saved through the board'
+      );
+      const read = await squadCli<{ entries: { key: string; value: unknown }[] }>(fixture, [
+        'config',
+        'show',
+        '--squad',
+        'product',
+      ]);
+      expect(read.code, read.stderr || read.stdout).toBe(0);
+      expect(read.json!.entries.find((entry) => entry.key === 'idle_alert.enabled')?.value).toBe(
+        true
+      );
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('Squad settings: product') && screen.includes('Workspace settings'),
+        shell.pane
+      );
+      // Leave the board before the fixture removes the state it still writes.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((screen) => !screen.includes('Workspace settings'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((screen) => screen.includes('IDLE_BOARD_EXIT=0'), shell.pane);
+    });
+  });
+
   it('creates from the empty workspace only after exact review and keeps section keys out of fields', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
@@ -925,8 +978,9 @@ renameSync(output+'.tmp',output);
           (screen) => screen.includes('Workspace settings') && screen.includes('Actions'),
           shell.pane
         );
-        // Actions is the final entry; preceding preference choices may grow.
-        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Enter']);
+        // Down saturates on the final entry (the selected squad's settings link); Up steps over the
+        // rule to Actions, which precedes it. Preceding preference choices may grow.
+        fixture.tmux(['send-keys', '-t', shell.pane, ...Array(40).fill('Down'), 'Up', 'Enter']);
         await fixture.waitForCapture(
           (screen) =>
             !screen.includes('Workspace settings') && screen.includes('Enter runs · Esc closes'),
