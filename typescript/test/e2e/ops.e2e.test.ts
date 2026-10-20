@@ -346,7 +346,9 @@ renameSync(output+'.tmp',output);
         shell.pane
       );
       // Leave the board before the fixture removes the state it still writes.
-      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture((screen) => !screen.includes('Workspace settings'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture((screen) => screen.includes('IDLE_BOARD_EXIT=0'), shell.pane);
     });
   });
