@@ -285,7 +285,10 @@ viewport-growth fallback and malformed/stale/over-limit claims. `e2e/theme.spec.
 covers OS defaults, explicit choices, live updates, render bindings and cleanup
 without reload, plus the media-only CSS limit. `e2e/column-frame.spec.ts` and
 `e2e/column-bands.spec.ts` cover the frame's column, gaps, `full` blocks and author overrides, and
-the bands on it, at 1440, 1024, 390 and 2000 px; `e2e/renderer.spec.ts` covers the layout bind key. Existing Ask,
+the bands on it, at 1440, 1024, 390 and 2000 px; `e2e/band-clearance.spec.ts` measures, on the needs-you sample
+page in `freeform` and `column` layouts at 1440, 1024 and 390 px, that no band covers page text or another band,
+also after a live width change (the frame and the bands catch up with each other in 100-200 ms, so the check waits
+for the clear state); `e2e/renderer.spec.ts` covers the layout bind key. Existing Ask,
 discussion, management and export scenarios verify the publication controls;
 run the [app/browser and real-binary acceptance gates](development.md).
 
