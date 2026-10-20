@@ -332,7 +332,7 @@ for (const width of [1440, 390, 320])
 
 for (const width of [1440, 390, 320])
   for (const theme of ['light', 'dark'] as const)
-    test(`page header shows the mark, names the connection, and keeps status and fitting icon actions: ${width}px ${theme}`, async ({
+    test(`page header names the connection, shows no access words, and keeps three fitting actions: ${width}px ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 800 });
@@ -354,21 +354,16 @@ for (const width of [1440, 390, 320])
       await expect(header.locator('.colab-remote-attribution, .colab-remote-label')).toHaveCount(0);
       const heading = header.getByRole('heading', { name: 'Release notes', exact: true });
       expect(await header.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-      if (width < 480) {
-        // A phone gives the title the chip's room; the access words lead the More menu instead.
-        await expect(header.locator('.page-sharing')).toBeHidden();
-        await expect(heading).toBeVisible();
-        expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
-      } else {
-        await expect(header.locator('.page-sharing')).toHaveText('Private · Live');
-        expect(
-          await header
-            .locator('.page-sharing')
-            .evaluate((node) => node.scrollWidth <= node.clientWidth),
-        ).toBe(true);
-      }
+      // The access words stay in the document for assistive technology, never on screen (#4116);
+      // Share… in the More menu carries them.
+      await expect(header.locator('.page-connection')).toHaveText('Private · Live');
+      expect((await header.locator('.page-connection').boundingBox())!.width).toBeLessThanOrEqual(
+        1,
+      );
+      await expect(heading).toBeVisible();
+      expect(await fittingCharacters(heading)).toBeGreaterThanOrEqual(width === 390 ? 12 : 1);
       const actions = header.getByRole('navigation', { name: 'Page actions' });
-      await expect(actions.getByRole('button')).toHaveCount(width <= 640 ? 2 : 5);
+      await expect(actions.getByRole('button')).toHaveCount(3);
       for (const button of await actions.getByRole('button').all()) {
         await expect(button).toBeInViewport();
         expect(await button.getAttribute('aria-label')).toBeTruthy();
@@ -380,19 +375,13 @@ for (const width of [1440, 390, 320])
       await more.click();
       const menu = actions.getByRole('menu');
       await expect(menu).toBeVisible();
-      if (width <= 640) {
-        for (const name of ['Agents', /^Files \(\d+\)$/, 'Source', 'Export page']) {
-          await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible();
-        }
-      }
-      if (width < 480) {
-        // The access words are the menu's first line: described, not a command.
-        await expect(menu).toHaveAccessibleDescription('Private · Live');
-        await expect(menu.getByRole('menuitem', { name: /Private/ })).toHaveCount(0);
-        expect(await menu.evaluate((node) => node.firstElementChild?.textContent)).toBe(
-          'Private · Live',
-        );
-      } else await expect(menu).not.toContainText('Private · Live');
+      // The same entries at every width, with the access words on Share….
+      for (const name of [/^Share…/, 'Source', 'Export page'])
+        await expect(menu.getByRole('menuitem', { name })).toBeVisible();
+      // This page holds no file and the viewer cannot add one: no Files entry.
+      await expect(menu.getByRole('menuitem', { name: /^Files/ })).toHaveCount(0);
+      await expect(menu.getByRole('menuitem', { name: /^Share…/ })).toContainText('Private · Live');
+      await expect(menu.getByRole('menuitem', { name: 'Agents', exact: true })).toHaveCount(0);
       const surface = actions.getByRole('dialog', { name: 'More', exact: true });
       expect(await surface.evaluate((node) => node.matches(':modal'))).toBe(true);
       await expect(surface).toHaveCSS('box-shadow', 'none');
