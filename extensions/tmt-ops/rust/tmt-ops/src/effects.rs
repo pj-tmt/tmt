@@ -293,6 +293,34 @@ pub struct Focus {
     pub client: String,
 }
 
+/// Core owns the host exchange and all caller/server/neighbour validation.
+/// Ops admits only the published success shapes; malformed success is not a swap.
+pub fn swap(core: &Core, target: &str, direction: &str) -> Result<bool, SquadError> {
+    let result = core.json(&["focus", target, "--into", direction])?;
+    let neighbour = result["with"]["pane"]
+        .as_str()
+        .filter(|pane| !pane.is_empty());
+    let swapped = result["swapped"]["pane"]
+        .as_str()
+        .filter(|pane| !pane.is_empty());
+    if neighbour.is_some()
+        && result["already"] == true
+        && result.get("swapped").is_some_and(Value::is_null)
+    {
+        return Ok(false);
+    }
+    if neighbour.is_some()
+        && swapped.is_some()
+        && result.get("already").is_none_or(|value| value == false)
+    {
+        return Ok(true);
+    }
+    Err(SquadError::new(
+        "SQUAD_CORE_UNAVAILABLE",
+        "tmt focus --into returned no exchange result.",
+    ))
+}
+
 pub fn focus(core: &Core, target: &str) -> Result<Focus, SquadError> {
     let focused = core.json(&["focus", target])?;
     Ok(Focus {
@@ -308,6 +336,73 @@ pub fn focus(core: &Core, target: &str) -> Result<Focus, SquadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn swap_uses_only_the_core_focus_port_and_preserves_refusals() {
+        let root =
+            std::env::temp_dir().join(format!("ops-swap-port-{}", crate::id::new_v4().unwrap()));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let executable = root.join("core");
+        crate::test_support::write_ready_executable(
+            &executable,
+            r#"#!/bin/sh
+root=${0%/*}
+printf '%s\n' "$@" > "$root/argv"
+cat "$root/result"
+if [ -e "$root/fail" ]; then exit 1; fi
+"#,
+        );
+        let core = Core::at(executable);
+        for direction in ["left", "right", "up", "down"] {
+            std::fs::write(
+                root.join("result"),
+                r#"{"swapped":{"pane":"%7"},"with":{"pane":"%8"}}"#,
+            )
+            .unwrap();
+            assert!(swap(&core, "identity-uuid", direction).unwrap());
+            let argv = std::fs::read_to_string(root.join("argv")).unwrap();
+            assert_eq!(
+                argv.lines().collect::<Vec<_>>(),
+                ["focus", "identity-uuid", "--into", direction, "--json"]
+            );
+        }
+        std::fs::write(
+            root.join("result"),
+            r#"{"swapped":null,"with":{"pane":"%7"},"already":true}"#,
+        )
+        .unwrap();
+        assert!(!swap(&core, "identity-uuid", "left").unwrap());
+        for malformed in [
+            "{}",
+            r#"{"swapped":{"pane":"%7"}}"#,
+            r#"{"swapped":null,"with":{"pane":"%7"}}"#,
+            r#"{"swapped":{"pane":"%7"},"with":{"pane":"%8"},"already":true}"#,
+            r#"{"swapped":{"pane":"%7"},"with":{"pane":"%8"},"already":"false"}"#,
+        ] {
+            std::fs::write(root.join("result"), malformed).unwrap();
+            assert_eq!(
+                swap(&core, "identity-uuid", "left").unwrap_err().code,
+                "SQUAD_CORE_UNAVAILABLE"
+            );
+        }
+        std::fs::write(
+            root.join("result"),
+            r#"{"error":{"code":"NAME_NOT_FOUND","message":"Target is gone."}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("fail"), "").unwrap();
+        let error = swap(&core, "identity-uuid", "left").unwrap_err();
+        assert_eq!(error.code, "NAME_NOT_FOUND");
+        assert_eq!(error.message, "Target is gone.");
+    }
+
     use serde_json::json;
 
     #[test]

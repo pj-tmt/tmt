@@ -641,7 +641,10 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
             ]
         } else {
             vec![]
-        };
+        }
+        .into_iter()
+        .map(|(label, choice)| (label.to_owned(), choice))
+        .collect::<Vec<_>>();
         if let OpsTarget::Squad(id) = target {
             let verb = if snapshot.preferences.hidden.contains(id) {
                 OpsUiAction::ShowSquad
@@ -661,12 +664,15 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
                 .find(|a| matches!(a.verb, crate::action::Verb::Ui(OpsUiAction::DiscoverAgents)))
                 .cloned()
         {
-            actions.push(("Add an agent already running", Choice::Action(action)));
+            actions.push((
+                "Add an agent already running".into(),
+                Choice::Action(action),
+            ));
         }
         let mut x = inside.x;
         let mut y = inside.y;
         for (label, choice) in actions {
-            let width = unicode_width::UnicodeWidthStr::width(label) as u16 + 2;
+            let width = unicode_width::UnicodeWidthStr::width(label.as_str()) as u16 + 2;
             if x.saturating_add(width) > inside.right() {
                 x = inside.x;
                 y = y.saturating_add(1);
@@ -676,7 +682,7 @@ fn squad_detail(frame: &mut Frame, app: &App, area: Rect) {
                     app,
                     frame.buffer_mut(),
                     Rect::new(x, y, width, 1),
-                    &[crate::board::buttons::Button::secondary(label)],
+                    &[crate::board::buttons::Button::secondary(label.as_str())],
                     tmt_cli_style::grid::Align::Left,
                     None,
                 )[0] else {

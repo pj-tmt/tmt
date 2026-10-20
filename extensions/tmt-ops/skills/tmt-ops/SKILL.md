@@ -463,10 +463,17 @@ the selected visible agent by UUID; compatible explicit bindings keep their mean
 In the Agents tree, `w` opens saved workspace snapshots;
 compatible explicit `w` bindings retain their configured meaning. Snapshots are
 not offered in Overview, Digest or conversation focus.
-`j` jumps through the observed tmux binding only from a tmux invoker; Herdr
+Default `j` jumps through the observed tmux binding only from a tmux invoker; Herdr
 focus is unavailable. Standalone `j` opens the shared conversation and Esc returns.
 The header names the target and effective action; custom bindings retain their
 actual argv. `j` is not tree navigation.
+Comma Settings → **Host action (j)** offers Focus agent, directional Swap beside
+board, or Custom command. A swap keeps the board focused and exchanges the
+neighbour into the selected agent's old slot; select the displaced agent to
+reverse it. An agent already beside the board stays put. Swap refuses unsupported
+hosts and missing neighbours. Custom commands pass `{pane}` and the verified
+`{board_pane}` as single argv values without a shell; `{{` and `}}` quote literal
+braces. Explicit bindings retain their meaning in the list and conversation.
 
 `ctrl-r` refreshes without discarding entered text. `/` searches. `?` help and the
 footer use the same effective binding table as dispatch: defaults, global `[bind]`,

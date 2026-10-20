@@ -608,14 +608,20 @@ impl App {
             if sources
                 .get("j")
                 .is_some_and(|source| source == "workspace default")
+                && let Some(action) = self.workspace_factory_j(Some(&target))
             {
-                keys.insert(
-                    "j".into(),
-                    crate::action::Action::parse("jump").expect("factory host action"),
-                );
+                keys.insert("j".into(), action);
             }
         }
         keys
+    }
+    /// Agents' factory j follows its recipient; other contexts keep their scope default.
+    pub(super) fn workspace_factory_j(&self, recipient: Option<&OpsTarget>) -> Option<Action> {
+        if self.shell.tab == OpsTab::Agents && recipient.is_some() {
+            Some(Action::parse("jump").expect("factory host action"))
+        } else {
+            crate::config::workspace_defaults(self.workspace_scope()).remove("j")
+        }
     }
     fn workspace_selected_host(&self) -> Option<&str> {
         let row = self
@@ -1226,8 +1232,7 @@ impl App {
                         label: crate::board::view::footer::hint_word(
                             self,
                             &Action::parse(action.spec().name).unwrap(),
-                        )
-                        .into(),
+                        ),
                         choice: Choice::Action(Action::parse(action.spec().name).unwrap()),
                     });
                     for (label, kind) in [
@@ -1347,6 +1352,11 @@ impl App {
                 });
             }
         }
+        entries.push(MenuEntry {
+            key: String::new(),
+            label: "Host action (j)".into(),
+            choice: Choice::HostAction,
+        });
         for (label, action) in [
             ("Theme", "theme"),
             ("Token window", "token-window"),

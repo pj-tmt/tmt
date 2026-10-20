@@ -645,6 +645,59 @@ impl Config {
         })
     }
 
+    /// Resolve j with the opening factory action and its concrete authored write owner.
+    pub fn host_action_binding(
+        &self,
+        scope: OpsKeyScope,
+        row: Option<&Value>,
+        recipient: Option<&Value>,
+        squad: Option<&str>,
+        default_action: Option<&Action>,
+    ) -> Result<(Option<Action>, String), SquadError> {
+        let host = recipient.and_then(|row| row["pane"]["location"]["host"].as_str());
+        let sections = squad
+            .filter(|name| !name.is_empty())
+            .map(|name| self.sections(name))
+            .transpose()?
+            .unwrap_or_default();
+        let section = row.and_then(|row| {
+            sections
+                .iter()
+                .enumerate()
+                .find(|(_, section)| section.includes(row))
+        });
+        let keys = self.workspace_keys(scope, host, section.map(|(_, section)| &section.bind))?;
+        let action = if keys
+            .sources
+            .get("j")
+            .is_some_and(|source| source == "workspace default")
+        {
+            default_action.cloned()
+        } else {
+            keys.bindings.get("j").cloned()
+        };
+        // A retired authored override can mask a newly written global binding.
+        // Repair that owner even when dispatch currently falls back to a factory action.
+        let hosts = self.host_bindings()?;
+        let section_bindings = section.map(|(_, section)| &section.bind);
+        let mut source = if section_bindings.is_some_and(|bindings| bindings.contains_key("j"))
+            || host.is_some_and(|host| hosts.get(host).is_some_and(|keys| keys.contains_key("j")))
+            || self.configured_bindings()?.contains_key("j")
+        {
+            configured_binding_source("j", host, &hosts, section_bindings)
+        } else {
+            "workspace default".into()
+        };
+        if source == "selected squad section.bind" {
+            source = format!(
+                "squad.{}.section[{}].bind.j",
+                squad.expect("a section has a squad"),
+                section.expect("selected section source").0
+            );
+        }
+        Ok((action, source))
+    }
+
     pub fn workspace_keys(
         &self,
         scope: OpsKeyScope,
@@ -674,15 +727,7 @@ impl Config {
                 }
                 continue;
             }
-            let source = if section.is_some_and(|section| section.contains_key(&key)) {
-                "selected squad section.bind".to_owned()
-            } else if let Some(host) =
-                host.filter(|host| hosts.get(*host).is_some_and(|keys| keys.contains_key(&key)))
-            {
-                format!("bind.{host}.{key}")
-            } else {
-                format!("bind.{key}")
-            };
+            let source = configured_binding_source(&key, host, &hosts, section);
             sources.insert(key.clone(), source);
             effective.insert(key, action);
         }
@@ -691,6 +736,23 @@ impl Config {
             sources,
             notices,
         })
+    }
+}
+
+fn configured_binding_source(
+    key: &str,
+    host: Option<&str>,
+    hosts: &std::collections::BTreeMap<String, Bindings>,
+    section: Option<&Bindings>,
+) -> String {
+    if section.is_some_and(|section| section.contains_key(key)) {
+        "selected squad section.bind".into()
+    } else if let Some(host) =
+        host.filter(|host| hosts.get(*host).is_some_and(|keys| keys.contains_key(key)))
+    {
+        format!("bind.{host}.{key}")
+    } else {
+        format!("bind.{key}")
     }
 }
 

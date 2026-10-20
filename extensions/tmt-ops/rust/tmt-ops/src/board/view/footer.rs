@@ -12,8 +12,28 @@ use unicode_width::UnicodeWidthStr;
 
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
-pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> &'static str {
+pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> String {
     use crate::action::Verb;
+    if action.verb == Verb::Swap {
+        return format!(
+            "swap {}",
+            action
+                .args
+                .first()
+                .and_then(|arg| arg.literal())
+                .unwrap_or("?")
+        );
+    }
+    if app.workspace_snapshot().is_some() && action.verb == Verb::Run {
+        return format!(
+            "run {}",
+            action
+                .args
+                .first()
+                .and_then(|arg| arg.literal())
+                .unwrap_or("?")
+        );
+    }
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
     match action.verb {
         Verb::NextPane => "pane",
@@ -43,6 +63,7 @@ pub(in crate::board) fn hint_word(app: &App, action: &crate::action::Action) -> 
         Verb::Ui(action) => action.spec().label,
         verb => verb.name(),
     }
+    .to_owned()
 }
 
 /// The key a hint shows for an event.
@@ -81,6 +102,7 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
         && matches!(
             action.verb,
             Verb::Jump
+                | Verb::Swap
                 | Verb::HomeMessage
                 | Verb::Talk
                 | Verb::Annotate
@@ -134,7 +156,7 @@ pub(in crate::board) fn row_allows(app: &App, action: &crate::action::Action) ->
 /// priority first. Core hints drop from the end; the optional note is dropped first.
 /// `q quit` and effective Help stay (Help alone when only it fits).
 pub(super) fn hints(app: &App, width: usize) -> String {
-    workspace_hints(app, width)
+    hint_text(&workspace_pairs(app, width))
 }
 
 type Hint = (String, String);
@@ -170,7 +192,8 @@ fn overview_pairs(app: &App, width: usize) -> Option<Vec<Hint>> {
         width,
     ))
 }
-/// Text projection for tests and consumers that do not paint key roles.
+/// Text projection for tests that do not paint key roles.
+#[cfg(test)]
 pub(in crate::board) fn overview_hints(app: &App, width: usize) -> Option<String> {
     overview_pairs(app, width).map(|pairs| hint_text(&pairs))
 }
@@ -329,11 +352,11 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             )
             && action.verb == Verb::Talk
         {
-            "message lead"
+            "message lead".to_owned()
         } else {
             hint_word(app, action)
         };
-        first.push(("⏎".into(), word.into()));
+        first.push(("⏎".into(), word));
         seen.push(action.verb);
     }
     for (verb, preferred, word) in [
@@ -351,16 +374,23 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
         {
             continue;
         }
-        if let Some(key) = find(verb, preferred) {
-            let word = if verb == Verb::Ui(Ui::Pin) {
-                bindings
-                    .get(&key)
-                    .map_or(word, |action| hint_word(app, action))
+        let host_key = (verb == Verb::Jump)
+            .then(|| bindings.get("j"))
+            .flatten()
+            .filter(|action| {
+                matches!(action.verb, Verb::Jump | Verb::Swap | Verb::Run)
+                    && row_allows(app, action)
+            })
+            .map(|_| "j".to_owned());
+        if let Some(key) = host_key.or_else(|| find(verb, preferred)) {
+            let action = &bindings[&key];
+            let word = if matches!(verb, Verb::Jump | Verb::Ui(Ui::Pin)) {
+                hint_word(app, action)
             } else {
-                word
+                word.to_owned()
             };
-            first.push((key_label(&key).into(), word.into()));
-            seen.push(verb);
+            first.push((key_label(&key).into(), word));
+            seen.push(action.verb);
         }
     }
     for (verb, preferred) in [
@@ -372,7 +402,7 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
             && let Some(key) = find(Verb::Ui(verb), preferred)
             && let Some(action) = bindings.get(&key)
         {
-            first.push((key_label(&key).into(), hint_word(app, action).into()));
+            first.push((key_label(&key).into(), hint_word(app, action)));
         }
     }
     let mut second = Vec::new();
@@ -446,21 +476,25 @@ fn workspace_legend(app: &App, tab: crate::board::shell::OpsTab) -> Option<Hints
     })
 }
 
-fn workspace_hints(app: &App, width: usize) -> String {
-    if let Some(hints) = overview_hints(app, width) {
+fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
+    if let Some(hints) = overview_pairs(app, width) {
         return hints;
     }
     if app.usage_chart_available() && app.usage_chart.borrow().focused() {
-        return crate::board::view::fit(
-            if app.usage_chart.borrow().scrollable() {
-                "←→ scroll · Enter pin/menu · Home/End · Tab fields · Esc unpin/list · ? help"
-            } else {
-                "←→ select · Enter pin/menu · Tab fields · Esc unpin/list · ? help"
-            },
+        let scrollable = app.usage_chart.borrow().scrollable();
+        return fit_hints(
+            [
+                ("←→", if scrollable { "scroll" } else { "select" }),
+                ("Enter", "pin/menu"),
+            ]
+            .into_iter()
+            .chain(scrollable.then_some(("Home/End", "ends")))
+            .chain([("Tab", "fields"), ("Esc", "unpin/list"), ("?", "help")])
+            .map(|(key, label)| (key.into(), label.into()))
+            .collect(),
+            vec![],
             width,
-        )
-        .trim_end()
-        .to_owned();
+        );
     }
     use crate::action::{OpsUiAction, Verb};
     let bindings = app.bindings();
@@ -528,7 +562,7 @@ fn workspace_hints(app: &App, width: usize) -> String {
             continue;
         }
         let word = hint_word(app, action);
-        let hint = (key_label(key).to_owned(), word.to_owned());
+        let hint = (key_label(key).to_owned(), word);
         if matches!(action.verb, Verb::Ui(OpsUiAction::Help | OpsUiAction::Quit)) {
             if action.verb == Verb::Ui(OpsUiAction::Help) {
                 help_hint = Some(hint.clone());
@@ -546,11 +580,11 @@ fn workspace_hints(app: &App, width: usize) -> String {
     }
     if hint_text(&tail).width() > width {
         return help_hint
-            .map(|hint| hint_text(&[hint]))
-            .filter(|hint| hint.width() <= width)
-            .unwrap_or_default();
+            .filter(|hint| hint_text(std::slice::from_ref(hint)).width() <= width)
+            .into_iter()
+            .collect();
     }
-    hint_text(&fit_hints(hints, tail, width))
+    fit_hints(hints, tail, width)
 }
 
 /// Style the fitted hint list shared by board, HOME, read and jobs footers.
@@ -743,8 +777,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             |lines| hint_text(&lines[1]),
         );
         if app.shell.tab == crate::board::shell::OpsTab::Overview {
-            let pairs = overview_pairs(app, usize::from(hint_area.width.saturating_sub(1)))
-                .unwrap_or_default();
+            let pairs = workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1)));
             let refs: Vec<_> = pairs
                 .iter()
                 .map(|(key, label)| (key.as_str(), label.as_str()))
@@ -756,7 +789,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             let mut line = if let Some(lines) = &legend {
                 paint_hints(&lines[1], look, Role::Text)
             } else if app.shell.tab == crate::board::shell::OpsTab::Agents {
-                crate::board::key_hints::legacy_line(&text, look, look.role(Role::Text), "  ")
+                paint_hints(
+                    &workspace_pairs(app, usize::from(hint_area.width.saturating_sub(1))),
+                    look,
+                    Role::Text,
+                )
             } else {
                 hint_line(&text, look)
             };
