@@ -445,6 +445,7 @@ fn background_publication_does_not_become_an_action_or_repaint() {
         |_| {},
         |_| {},
         || Ok(()),
+        || Ok(()),
         Some(&mut state),
         |app| {
             assert_eq!(app.in_flight, 0);

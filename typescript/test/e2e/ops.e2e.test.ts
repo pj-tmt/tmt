@@ -1051,6 +1051,12 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
       await fixture.waitFor(() => reports() === '110', 5_000, 'mouse asked again after overlay');
 
+      // An idle board has no resize, focus or overlay to repair the request: the
+      // periodic refresh (5 s by default) asks again with no user action.
+      dropRequest();
+      await fixture.waitFor(() => reports() === '000', 2_000, 'request dropped on an idle board');
+      await fixture.waitFor(() => reports() === '110', 10_000, 'mouse asked again by the refresh');
+
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture((screen) => screen.includes('WHEEL_BOARD_EXIT=0'), shell.pane);
     });

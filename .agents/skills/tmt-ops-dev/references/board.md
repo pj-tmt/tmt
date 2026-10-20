@@ -23,9 +23,10 @@ without querying the active reader. A multiplexer, nested client or emulator res
 unseen, and tmux then sends the wheel to the surrounding pane (copy-mode under the
 default `WheelUpPane` binding before tmux 3.6, which keys on `mouse_any_flag` and
 not on the alternate screen). The session
-re-sends it (`reassert_mouse`, idempotent) before the frame that follows a
-resize, regained focus (focus reporting is part of entry) or a closed overlay or
-menu. Worker shutdown follows terminal restoration. Cold launch
+re-sends it (`reassert_mouse`, idempotent) at the end of the turn after a
+resize, regained focus (focus reporting is part of entry), a closed overlay or
+menu, and each periodic refresh (no frame, so an idle board repairs itself; with
+refresh off it relies on the other moments). Worker shutdown follows terminal restoration. Cold launch
 scope names resolve active rooms through the existing `rooms.roster` snapshot port
 before terminal admission; a valid ephemeral reload handoff
 uses its carried UUID scope and does not resolve the original argv names again.
