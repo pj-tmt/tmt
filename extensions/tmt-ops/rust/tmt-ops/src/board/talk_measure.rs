@@ -4,9 +4,17 @@ use crate::board::{
     chip_group, keycap,
     shell::RightTab,
 };
-use ratatui::{buffer::Buffer, layout::Rect, text::Line};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    text::{Line, Span},
+};
+use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
+
+/// The dash and space before the control.
+const LEAD: u16 = 2;
 
 const OPTIONS: [(&str, &str, RightTab); 2] = [
     ("talk", "Talk", RightTab::Talk),
@@ -19,22 +27,28 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rec
     let look = app.look();
     let key = keycap::key(app, crate::action::OpsUiAction::TalkMeasure, "t");
     let cap = key.as_deref().map(|key| keycap::span(key, false, look));
-    let cap_width = cap.as_ref().map_or(0, |cap| cap.width() + 1);
-    let chips = 1 + OPTIONS
+    let cap_width = cap.as_ref().map_or(0, Span::width);
+    let chips = OPTIONS
         .iter()
         .map(|(_, label, _)| label.width() + 3)
         .sum::<usize>();
     let width = (cap_width + chips) as u16;
-    // Keep room for "── " and a short title before the control.
-    if rule.height == 0 || rule.width < width + 14 {
+    // The control leads the rule, right after the divider: `┬─ t  Talk  Measure ── worker ──`.
+    // Keep room for a short title after it.
+    if rule.height == 0 || rule.width < width + LEAD + 14 {
         return rule;
     }
-    let area = Rect::new(rule.right() - width, rule.y, width, 1);
+    strip::paint_left(
+        buffer,
+        Rect::new(rule.x, rule.y, LEAD, 1),
+        Line::styled("─ ", look.role(Role::Dim)),
+    );
+    let area = Rect::new(rule.x + LEAD, rule.y, width, 1);
     if let Some(cap) = cap {
         strip::paint_left(buffer, area, Line::from(vec![cap]));
     }
     let groups = [chip_group::ChipGroup {
-        label: " ".into(),
+        label: String::new(),
         choices: OPTIONS
             .iter()
             .map(|(id, label, tab)| chip_group::Choice {
@@ -55,5 +69,6 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rec
             .borrow_mut()
             .push((hit.area, choice));
     }
-    Rect::new(rule.x, rule.y, rule.width - width, 1)
+    let used = LEAD + width;
+    Rect::new(rule.x + used, rule.y, rule.width - used, 1)
 }

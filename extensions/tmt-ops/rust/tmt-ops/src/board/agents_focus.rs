@@ -318,7 +318,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-mod member;
+pub(in crate::board) mod member;
 mod squad;
 
 #[cfg(test)]

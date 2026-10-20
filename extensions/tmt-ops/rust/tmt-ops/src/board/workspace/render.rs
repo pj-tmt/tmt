@@ -586,17 +586,14 @@ pub(in crate::board) fn controls_rule(frame: &mut Frame, app: &App, area: Rect) 
     let look = app.look();
     let focused = app.focused() == Pane::Rows;
     let rule = Line::styled(
-        format!(
-            "── {}",
-            "─".repeat(usize::from(area.width).saturating_sub(3))
-        ),
+        "─".repeat(usize::from(area.width)),
         look.role(if focused { Role::Muted } else { Role::Dim }),
     );
     tmt_tui::components::strip::paint_left(frame.buffer_mut(), Rect { height: 1, ..area }, rule);
     let inside = Rect::new(
-        area.x + 3.min(area.width),
+        area.x + 2.min(area.width),
         area.y,
-        area.width.saturating_sub(3),
+        area.width.saturating_sub(2),
         1,
     );
     use super::AgentsFilter;

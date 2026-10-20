@@ -852,6 +852,7 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
 fn only_visible_label_text_invalidates_the_clock() {
     crate::status::with_now_ms(1_000, || {
         let mut app = workspace_board();
+        app.right_tab = crate::board::shell::RightTab::Measure;
         app.view.as_mut().unwrap().replies = vec![json!({
             "recipientId": crate::board::app::workspace::tests::MEMBER,
             "requestId":"response", "submittedAtMs":1_000, "response":"quiet response"
@@ -1130,6 +1131,7 @@ fn supplied_digest_zero_held_and_mode_changes_replace_old_labels_and_keep_the_ch
         for width in [80, 100, 160] {
             crate::status::with_now_ms(1000, || {
                 let mut app = workspace_board();
+                app.right_tab = crate::board::shell::RightTab::Measure;
                 app.shell.tab = tab;
                 for (mode, text, held) in [
                     ("auto", "Auto", false),

@@ -106,7 +106,7 @@ impl AgentsField {
     pub fn caption(self, glyphs: crate::board::overview::cron_counts::GlyphSet) -> &'static str {
         match self {
             Self::Agent => "SQUAD / AGENT",
-            Self::Model => "MODEL",
+            Self::Model => "MODEL / NOW",
             Self::State => "STATE",
             Self::Tokens => TOKENS_CAPTION,
             Self::Cron => match glyphs {

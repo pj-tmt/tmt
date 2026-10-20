@@ -55,7 +55,35 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     // The four summary cells: TOK 1h, STATE, DIGEST and TIMERS, label above value.
     let timers = super::lower::Band::timers(app);
-    if bottom.saturating_sub(y) >= CELLS && area.width >= 40 {
+    // An agent selected in the tree gets its own cells; everything else gets the aggregate.
+    let member = match app.workspace.selected.as_ref() {
+        Some(target @ OpsTarget::Member { room_id, .. }) if !app.flat_agents() => app
+            .target_row(&crate::board::app::RowTarget::Workspace(target.clone()))
+            .map(|row| {
+                let squad = snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| Some(&squad.room_id) == room_id.as_ref());
+                (target, row, squad)
+            }),
+        _ => None,
+    };
+    if let Some((target, row, squad)) = member
+        && bottom.saturating_sub(y) >= crate::board::stat_tiles::ROWS
+        && area.width >= 40
+    {
+        crate::board::agents_focus::member::tiles(
+            frame,
+            app,
+            Rect::new(area.x, y, area.width, bottom - y),
+            &mut y,
+            row,
+            target,
+            squad,
+        );
+        y += 1;
+    } else if bottom.saturating_sub(y) >= CELLS && area.width >= 40 {
         let tokens = match selected_squad {
             Some(squad) => app.overview_squad_usage(squad),
             None => snapshot

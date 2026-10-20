@@ -348,6 +348,8 @@ fn captures() -> Value {
         let mut styles = Styles::default();
         let mut frames = Vec::new();
         for (look_name, look) in looks() {
+            // `overview` and the `*-overview` names below are frozen fixture names;
+            // they now render the merged Agents tab.
             for state in [
                 "overview",
                 "agents",
@@ -432,6 +434,53 @@ fn captures() -> Value {
                         look_name,
                         width,
                         36,
+                        &mut styles,
+                    ));
+                }
+            }
+        }
+        // Measure, the right column's summary view: an agent, a squad and the Agents chip.
+        for (look_name, look) in looks() {
+            for scene in ["measure-agent", "measure-squad", "measure-agents-chip"] {
+                for width in [160, 100] {
+                    let mut app = crate::board::app::workspace::tests::populated_board(1, 24);
+                    app.view.as_mut().unwrap().look = look;
+                    let workspace =
+                        &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                    for squad in &workspace.roster.squads {
+                        workspace.squad_looks.insert(squad.room_id.clone(), look);
+                    }
+                    let member = workspace
+                        .rows
+                        .keys()
+                        .find(|target| {
+                            matches!(target, crate::board::workspace::OpsTarget::Member { .. })
+                        })
+                        .cloned()
+                        .unwrap();
+                    let room = workspace.roster.squads[0].room_id.clone();
+                    app.shell.tab = crate::board::shell::OpsTab::Agents;
+                    app.right_tab = crate::board::shell::RightTab::Measure;
+                    app.workspace.filter = if scene == "measure-agents-chip" {
+                        crate::board::workspace::AgentsFilter::Agents
+                    } else {
+                        crate::board::workspace::AgentsFilter::All
+                    };
+                    crate::board::overview::capture::populate_lower_band(&mut app, "digest-rows");
+                    crate::board::overview::capture::populate_final(&mut app, "digest-rows");
+                    app.workspace.expanded.insert(room.clone());
+                    app.workspace.selected = Some(if scene == "measure-squad" {
+                        crate::board::workspace::OpsTarget::Squad(room)
+                    } else {
+                        member
+                    });
+                    app.workspace_reconcile();
+                    frames.push(capture_frame(
+                        &app,
+                        scene,
+                        look_name,
+                        width,
+                        51,
                         &mut styles,
                     ));
                 }

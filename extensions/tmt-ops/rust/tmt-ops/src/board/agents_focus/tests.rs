@@ -72,13 +72,18 @@ fn sparse_and_overflowing_exchanges_keep_the_bottom_input_envelope() {
         "Exchanges with you",
         "One short observed response.",
         "tmux work:2.1",
-        "TOK 1h",
-        "STATE",
-        "DIGEST",
-        "TIMERS",
     ] {
         assert!(text.contains(value), "{value}:\n{text}");
     }
+    // The cells belong to Measure, not to the conversation.
+    assert!(!text.contains("TIMERS"), "{text}");
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    let measure = screen(&draw(&mut app, 148, 51));
+    for value in ["TOK 1h", "STATE", "DIGEST", "TIMERS"] {
+        assert!(measure.contains(value), "{value}:\n{measure}");
+    }
+    app.right_tab = crate::board::shell::RightTab::Talk;
+    let sparse = draw(&mut app, 148, 51);
     assert!(!text.contains("all parties") && !text.contains("since "));
     let input = app.input_band.get().expect("admitted idle input");
     assert_eq!(input.height, 2);

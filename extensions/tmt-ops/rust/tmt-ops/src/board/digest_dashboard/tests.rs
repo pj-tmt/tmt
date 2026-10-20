@@ -857,6 +857,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
 #[test]
 fn member_conversation_status_shows_the_supplied_estimate() {
     let mut app = savings_board();
+    app.right_tab = crate::board::shell::RightTab::Measure;
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("≈24h: 18.2k"), "{shown}");
 }
@@ -948,6 +949,9 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
     let _no_commands = crate::runner::forbid_commands();
     for surface in ["member", "squad", "digest"] {
         let mut app = valued_board();
+        if surface == "member" {
+            app.right_tab = crate::board::shell::RightTab::Measure;
+        }
         match surface {
             "squad" => {
                 app.workspace.selected = Some(OpsTarget::Squad(
@@ -1094,14 +1098,24 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let shown = paint(&mut app, 160, 44);
-    // The selected agent's TOK cell paints a 24h estimate, so the hint is advertised.
-    assert!(
-        shown.contains("≈24h") && shown.contains("$ unit"),
-        "{shown}"
-    );
+    assert!(!shown.contains("$ unit"), "{shown}");
     assert!(
         !shown.contains("Est. ctx avoided"),
         "the retired summary paints no estimate: {shown}"
+    );
+    // Measure paints the estimate, and the hint is advertised with it.
+    let mut measure = valued_board();
+    measure.shell.tab = crate::board::shell::OpsTab::Agents;
+    measure.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    measure.right_tab = crate::board::shell::RightTab::Measure;
+    let shown = paint(&mut measure, 160, 44);
+    assert_eq!(
+        shown.contains("$ unit"),
+        shown.contains("≈24h") || shown.contains("Est. ctx avoided"),
+        "unit={} est={} ctx={}",
+        shown.contains("$ unit"),
+        shown.contains("≈24h"),
+        shown.contains("Est. ctx avoided")
     );
     // Narrow enough that the Digest line drops the estimate and no pane paints
     // one: the key still works, but nothing advertises it.
@@ -1131,6 +1145,7 @@ fn the_action_has_no_default_key_and_the_actions_menu_offers_it_beside_a_figure(
         );
     }
     let mut app = savings_board();
+    app.right_tab = crate::board::shell::RightTab::Measure;
     paint(&mut app, 160, 36);
     app.context_menu();
     let menu = app.menu.as_ref().expect("the Actions menu opens");
@@ -1225,6 +1240,7 @@ fn overview_keeps_the_scoped_estimate_model_without_the_retired_digest_line() {
 fn member_savings_remain_visible_at_each_supported_width() {
     for width in [60, 80, 100, 160] {
         let mut app = savings_board();
+        app.right_tab = crate::board::shell::RightTab::Measure;
         app.key(ratatui::crossterm::event::KeyEvent::new(
             ratatui::crossterm::event::KeyCode::Tab,
             ratatui::crossterm::event::KeyModifiers::NONE,

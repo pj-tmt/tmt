@@ -612,6 +612,7 @@ fn workspace_presence_is_observed_separately_from_member_state_and_missing_data(
 fn compact_workspace_labels_keep_name_state_and_complete_source_units() {
     use crate::labels::{Label, Supplied};
     let mut app = board();
+    app.right_tab = crate::board::shell::RightTab::Measure;
     app.labels = Supplied::from_rows(vec![(
         "digest".into(),
         [(
@@ -1599,6 +1600,7 @@ fn supplied_label_fixture(look: crate::look::Look) -> App {
     use crate::labels::{Label, Supplied};
     use tmt_cli_style::Role;
     let mut app = board();
+    app.right_tab = crate::board::shell::RightTab::Measure;
     let view = app.view.as_mut().unwrap();
     view.look = look;
     view.home.as_mut().unwrap().workspace.squad_looks.clear();

@@ -937,9 +937,32 @@ fn focus_uses_held_identity_stat_tiles_and_uuid_fenced_details_action() {
     let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
     assert!(screen.contains("product · member"));
     assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
+    // The cells are the Measure view of the same agent.
+    assert!(!screen.contains("TIMERS"));
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let measure: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
     for caption in ["TOK 1h", "STATE", "DIGEST", "TIMERS"] {
-        assert!(screen.contains(caption));
+        assert!(measure.contains(caption));
     }
+    app.right_tab = crate::board::shell::RightTab::Talk;
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
     assert!(!screen.contains(" Details   Links "));
     assert!(
         app.conversation.borrow().header_hits.is_empty(),

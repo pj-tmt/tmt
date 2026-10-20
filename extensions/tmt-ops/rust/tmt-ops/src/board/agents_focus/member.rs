@@ -11,13 +11,11 @@ pub(super) fn render(
     squad: Option<&OpsSquad>,
 ) {
     let OpsTarget::Member {
-        identity_id: id,
-        room_id,
+        identity_id: id, ..
     } = target
     else {
         return;
     };
-    let room = room_id.as_deref();
     let look = app.look();
     let observed = app.references.agents.get(id);
     let host = row["pane"]["location"]["host"].as_str().map(|host| {
@@ -46,6 +44,41 @@ pub(super) fn render(
         ),
     );
     blank(area, y);
+    let link = conversation::link_preview(app, row, &app.workspace_bindings());
+    line(
+        frame,
+        area,
+        y,
+        neutral(
+            format!(
+                " link {}",
+                link.as_ref().map_or("—", |link| link.value.as_str())
+            ),
+            look,
+        ),
+    );
+    blank(area, y);
+}
+
+/// The four Measure cells of one agent: TOK 1h, STATE, DIGEST and TIMERS.
+pub(in crate::board) fn tiles(
+    frame: &mut Frame,
+    app: &App,
+    area: Rect,
+    y: &mut u16,
+    row: &serde_json::Value,
+    target: &OpsTarget,
+    squad: Option<&OpsSquad>,
+) {
+    let OpsTarget::Member {
+        identity_id: id,
+        room_id,
+    } = target
+    else {
+        return;
+    };
+    let room = room_id.as_deref();
+    let look = app.look();
     if area.bottom().saturating_sub(*y) >= stat_tiles::ROWS {
         let tile_area = Rect::new(area.x, *y, area.width, stat_tiles::ROWS);
         let tracks = stat_tiles::tracks(tile_area, 4);
@@ -248,18 +281,4 @@ pub(super) fn render(
         }
         *y += stat_tiles::ROWS;
     }
-    let link = conversation::link_preview(app, row, &app.workspace_bindings());
-    line(
-        frame,
-        area,
-        y,
-        neutral(
-            format!(
-                " link {}",
-                link.as_ref().map_or("—", |link| link.value.as_str())
-            ),
-            look,
-        ),
-    );
-    blank(area, y);
 }
