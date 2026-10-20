@@ -473,11 +473,12 @@ fn is_wheel(event: &ratatui::crossterm::event::MouseEvent) -> bool {
     )
 }
 
-/// Applies a wheel event and the wheel events already queued behind it, in
-/// order and without dropping any, so a burst paints one frame instead of one per
-/// event. It stops at the first event that is not a wheel step (a click, a key, a
-/// resize, a focus change), which is handed back to land in order on the next turn.
-/// A non-wheel `first` is applied alone.
+/// Applies a wheel event and the wheel and pointer-move events already queued
+/// behind it, in order and without dropping any, so a burst paints one frame
+/// instead of one per event. Pointer motion (any-motion reporting sends it between
+/// wheel steps) moves the hover and changes nothing the frame must wait for. It stops
+/// at the first other event (a click, a key, a resize, a focus change), which is
+/// handed back to land in order on the next turn. A non-wheel `first` is applied alone.
 fn coalesce_wheel(
     first: ratatui::crossterm::event::MouseEvent,
     input: &Receiver<BoardEvent>,
@@ -493,7 +494,9 @@ fn coalesce_wheel(
             return (effect, None);
         }
         match input.try_recv() {
-            Ok(BoardEvent::Input(Event::Mouse(next))) if is_wheel(&next) => {
+            Ok(BoardEvent::Input(Event::Mouse(next)))
+                if is_wheel(&next) || next.kind == MouseEventKind::Moved =>
+            {
                 effect = apply(next);
             }
             Ok(other) => return (effect, Some(other)),
@@ -3215,7 +3218,8 @@ mod tests {
         let (sender, input) = channel();
         let down = |column| wheel(MouseEventKind::ScrollDown, column);
         let up = |column| wheel(MouseEventKind::ScrollUp, column);
-        for event in [down(1), up(2)] {
+        // Any-motion reporting sends pointer moves between the wheel steps.
+        for event in [down(1), wheel(MouseEventKind::Moved, 7), up(2)] {
             sender.send(BoardEvent::Input(Event::Mouse(event))).unwrap();
         }
         sender
@@ -3238,9 +3242,10 @@ mod tests {
             [
                 (MouseEventKind::ScrollDown, 0),
                 (MouseEventKind::ScrollDown, 1),
+                (MouseEventKind::Moved, 7),
                 (MouseEventKind::ScrollUp, 2),
             ],
-            "wheel, wheel, wheel in arrival order; none dropped"
+            "wheel, wheel, move, wheel in arrival order; none dropped"
         );
         assert!(matches!(
             deferred,
@@ -3298,18 +3303,17 @@ mod tests {
         assert_eq!(input.try_iter().count(), 1);
     }
 
-    /// Ten queued wheel steps paint one frame (plus the first), not eleven.
+    /// Ten queued wheel steps with a pointer move after each paint one frame (plus the first).
     #[test]
     fn a_wheel_burst_in_the_session_paints_one_frame() {
         let mut app = app::workspace::tests::board();
         let (sender, input) = channel();
         for column in 0..10 {
-            sender
-                .send(BoardEvent::Input(Event::Mouse(wheel(
-                    MouseEventKind::ScrollDown,
-                    column,
-                ))))
-                .unwrap();
+            for kind in [MouseEventKind::ScrollDown, MouseEventKind::Moved] {
+                sender
+                    .send(BoardEvent::Input(Event::Mouse(wheel(kind, column))))
+                    .unwrap();
+            }
         }
         sender.send(BoardEvent::InputClosed).unwrap();
         let frames = std::cell::Cell::new(0);
