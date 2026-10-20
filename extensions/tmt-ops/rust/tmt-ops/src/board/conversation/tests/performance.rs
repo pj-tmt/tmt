@@ -467,3 +467,221 @@ fn workspace_ansi_phase_timing() {
         "scope":"event/paint/diff+encoding walltime; process CPU requires external resource measurement; no PTY or terminal emulator latency", "reports":reports});
     std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }
+
+/// 100 wheel steps up over the conversation pane: event and draw time, and the
+/// cells that changed outside the scrolled region or in the input and footer
+/// rows (Investigation of #3986).
+fn scroll_samples(label: &str, app: &mut App) {
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    let mut terminal = Terminal::new(TestBackend::new(160, 50)).unwrap();
+    for _ in 0..5 {
+        measure(app, &mut terminal, |_, _| {});
+    }
+    let area = app
+        .conversation
+        .borrow()
+        .response_area
+        .expect("a painted response area");
+    let input = app.input_band.get();
+    app.scroll_pane(Pane::Replies, Step::Bottom);
+    measure(app, &mut terminal, |_, _| {});
+    let mut steady: Vec<f64> = (0..100)
+        .map(|_| {
+            let start = Instant::now();
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(app, frame.area());
+                    crate::board::view::render(frame, app);
+                })
+                .unwrap();
+            start.elapsed().as_secs_f64() * 1e6
+        })
+        .collect();
+    steady.sort_by(f64::total_cmp);
+    eprintln!("steady {label} draw_us p50={:.0}", steady[50]);
+    let (mut event_us, mut draw_us, mut outside, mut chrome) = (vec![], vec![], vec![], vec![]);
+    for _ in 0..100 {
+        let previous = terminal.backend().buffer().clone();
+        let wheel = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: area.x + area.width / 2,
+            row: area.y + area.height / 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        let start = Instant::now();
+        app.mouse(wheel, Instant::now());
+        event_us.push(start.elapsed().as_secs_f64() * 1e6);
+        let start = Instant::now();
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(app, frame.area());
+                crate::board::view::render(frame, app);
+            })
+            .unwrap();
+        draw_us.push(start.elapsed().as_secs_f64() * 1e6);
+        let diff = previous.diff(terminal.backend().buffer());
+        outside.push(
+            diff.iter()
+                .filter(|(x, y, _)| !area.contains((*x, *y).into()))
+                .count(),
+        );
+        chrome.push(
+            diff.iter()
+                .filter(|(x, y, _)| {
+                    input.is_some_and(|band| band.contains((*x, *y).into())) || *y == 49
+                })
+                .count(),
+        );
+    }
+    let pf = |mut v: Vec<f64>, q: f64| {
+        v.sort_by(f64::total_cmp);
+        v[((v.len() - 1) as f64 * q).round() as usize]
+    };
+    let pu = |mut v: Vec<usize>, q: f64| {
+        v.sort_unstable();
+        v[((v.len() - 1) as f64 * q).round() as usize]
+    };
+    eprintln!(
+        "scroll {label} area={}x{} event_us p50={:.0} p95={:.0} draw_us p50={:.0} p95={:.0} cells_outside_area max={} input_or_footer_cells max={} offset={}",
+        area.width,
+        area.height,
+        pf(event_us.clone(), 0.5),
+        pf(event_us, 0.95),
+        pf(draw_us.clone(), 0.5),
+        pf(draw_us, 0.95),
+        pu(outside, 1.0),
+        pu(chrome, 1.0),
+        app.scrolls.offset(Pane::Replies)
+    );
+}
+
+#[test]
+#[ignore = "local release-mode timing evidence; no CI threshold"]
+fn conversation_scroll_cost() {
+    if cfg!(debug_assertions) {
+        panic!("run this probe with --release");
+    }
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        for lines in [200usize, 2_000, 20_000] {
+            let (mut app, ..) = populated_conversation(150);
+            app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", lines));
+            scroll_samples(&format!("response-lines={lines}"), &mut app);
+        }
+        for turns in [200usize, 2_000] {
+            let (mut app, member, _) = populated_conversation(150);
+            for index in 3..turns {
+                let text = format!("Outgoing turn {index}: retained exact message");
+                app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                app.paste(&text);
+                let app::Effect::Act(request) =
+                    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                else {
+                    panic!("probe must submit a real composer turn");
+                };
+                let ticket = app.outgoing_ticket(&request).unwrap();
+                app.finished_send(crate::board::conversation::outgoing::Completed {
+                    ticket: Some(ticket),
+                    outcome: Ok(crate::send::Accepted {
+                        request: format!("req_88888888-8888-4888-8888-{index:012}"),
+                        disposition: crate::send::Disposition::Queued,
+                    }),
+                    what: "Message".into(),
+                    to: member.clone(),
+                });
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            }
+            app.notice = None;
+            scroll_samples(&format!("outgoing-turns={turns}"), &mut app);
+        }
+    });
+}
+
+/// Scrolling the history changes only the history: the input band and the footer
+/// stay cell for cell, and the caret never moves (it is hidden while the changed
+/// rows are written, then shown again in the same place).
+#[test]
+fn scrolling_leaves_the_input_the_footer_and_the_caret_alone() {
+    use ratatui::backend::Backend as _;
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let (mut app, ..) = populated_conversation(150);
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", 2_000));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.input.is_some(), "the composer is open");
+        let mut cells = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        let sink = AnsiSink::default();
+        let mut bytes = Terminal::with_options(
+            crate::board::terminal::Backend::new(sink.clone()),
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(Rect::new(0, 0, 160, 50)),
+            },
+        )
+        .unwrap();
+        fn draw<B: ratatui::backend::Backend>(app: &mut App, terminal: &mut Terminal<B>)
+        where
+            B::Error: std::fmt::Debug,
+        {
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(app, frame.area());
+                    crate::board::view::render(frame, app);
+                })
+                .unwrap();
+        }
+        for _ in 0..3 {
+            draw(&mut app, &mut cells);
+            draw(&mut app, &mut bytes);
+        }
+        let area = app
+            .conversation
+            .borrow()
+            .response_area
+            .expect("history area");
+        let band = app.input_band.get().expect("the input band is painted");
+        let caret = cells.backend_mut().get_cursor_position().unwrap();
+        assert!(
+            band.contains(caret),
+            "the caret sits in the input: {caret:?}"
+        );
+        let mut scrolled = 0;
+        for step in 0..30 {
+            let previous = cells.backend().buffer().clone();
+            sink.0.borrow_mut().clear();
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::ScrollUp,
+                    column: area.x + area.width / 2,
+                    row: area.y + area.height / 2,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now(),
+            );
+            draw(&mut app, &mut cells);
+            draw(&mut app, &mut bytes);
+            let diff = previous.diff(cells.backend().buffer());
+            assert!(!diff.is_empty(), "step {step} moved the history");
+            scrolled += 1;
+            assert!(
+                diff.iter().all(|(x, y, _)| area.contains((*x, *y).into())),
+                "step {step}: only the scrolled history changes"
+            );
+            assert_eq!(cells.backend_mut().get_cursor_position().unwrap(), caret);
+            let text = String::from_utf8(sink.0.borrow().clone()).unwrap();
+            let hide = text
+                .find("\x1b[?25l")
+                .expect("hidden while cells are written");
+            assert!(
+                hide == 0,
+                "step {step}: hidden before anything is written: {text:?}"
+            );
+            let placed = format!("\x1b[{};{}H\x1b[?25h", caret.y + 1, caret.x + 1);
+            assert!(
+                text.ends_with(&placed),
+                "step {step}: the caret is placed in the input and shown last: {:?}",
+                &text[text.len().saturating_sub(40)..]
+            );
+            assert_eq!(text.matches("\x1b[?25h").count(), 1);
+        }
+        assert_eq!(scrolled, 30);
+    });
+}

@@ -56,7 +56,7 @@ struct Rendered {
     look: Look,
     identities: Option<std::sync::Arc<()>>,
     mapped: Mapped,
-    anchor_text: String,
+    anchor_text: super::notes::IndexedText,
     anchor_sources: Vec<usize>,
     response_sources: Option<Vec<Option<usize>>>,
     final_spans: Vec<(std::ops::Range<usize>, usize)>,
@@ -372,7 +372,7 @@ impl Session {
                 mentions,
             };
             let transcript = self.merge_pane_output(mapped, width, gutter, look, inventory);
-            let anchor_text = transcript.anchor_text;
+            let anchor_text = super::notes::IndexedText::new(transcript.anchor_text);
             // Visual rows keep the transcript's source rows for anchors and, through
             // the transcript's own map, for the retained response lines.
             let anchor_sources = transcript.mapped.sources.clone();

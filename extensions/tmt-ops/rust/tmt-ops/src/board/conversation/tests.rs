@@ -322,7 +322,7 @@ fn append_and_resize_keep_source_anchor_without_reparsing_unchanged_text() {
     );
     session.follow = false;
     session.anchor.select_visual(
-        &session.text,
+        &crate::board::notes::IndexedText::new(session.text.clone()),
         &session.rendered.as_ref().unwrap().mapped.sources,
         4,
     );
