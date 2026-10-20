@@ -1674,8 +1674,9 @@ both replay.
 
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
-There is no cross-writer compaction checkpoint in v1; the epoch baseline above
-is a distinct owner-authorized reset.
+There is no cross-writer compaction checkpoint in v1 today; the epoch baseline above
+is a distinct owner-authorized reset. The one planned exception is the
+[owner fold](#planned-owner-fold-3983), which no code writes or admits yet.
 
 Authority reductions commit the exact checkpoint envelope hash, checkpoint
 sequence and tail head/hash. A revoked device's newly signed replacement cannot
@@ -1751,6 +1752,80 @@ merge. L2/L4 must prove serialized checkpoint/chunk budgets, bounded gap/queue
 accounting and durable prune/receipt behavior with the wire below. #830's
 in-memory fixture does not establish these durable properties. Budget exhaustion backpressures
 or rejects explicitly; it MUST NOT silently discard accepted durable data.
+
+### Planned owner fold (#3983)
+
+This section is a ruling, not shipped behavior: Core and security accepted the direction in
+[#3983](https://github.com/pj-tmt/tmt/issues/3983#issuecomment-6283370867), and no native or browser
+code writes or admits a fold yet. Until it ships, every rule above holds, a checkpoint is by the
+stream's own device, and only that device can clear its tail from the page cap.
+
+A **fold** is a checkpoint that an owner-member device signs for another owner-member device's stream
+(its own included), so the owner's `page compact` can clear every device's tail. It reuses what a
+checkpoint is: it covers seq 1..n, binds the update hash at n, does not advance the stream, is
+published by immutable object ID, and is paired across both namespaces at the same n before
+anything is pruned.
+
+- **Object.** A new kind `fold` in the `tmt-colab-object-v1` header, not a framing version, so an old
+  reader rejects it by kind. A `fold` header carries one extra trailing field, `coveredDevice`; every
+  other kind keeps exactly twelve fields, and a reader rejects a kind it does not know before it reads
+  any trailing field. `authorDevice` is the signer; the covered stream's `streamId` is
+  `coveredDevice`; `streamSeq` is n and `prevEnvelopeHash` is the hash of the covered stream's update
+  envelope at n. The plaintext is raw merged update-v1 of exactly the covered stream's verified
+  updates 1..n in the header's `namespace`, built by the checkpoint rules above (never the merged
+  shared document).
+- **Who.** The signer is an owner-member device with a verified chain. The covered device is an
+  owner-member device of the page's epoch. Bridge streams, link, commenter and named-member streams,
+  and any device without an admitted chain keep the own-stream rule: they stay signed data and still
+  count against the page cap.
+- **Attribution.** The writer of every `own` root, thread and message is the covered device, never the
+  signer: a reader takes identity from `coveredDevice`, not from the signature. A fold replaces the
+  per-edit attribution of the updates it covers with its own statement, which names the signer and the
+  covered range (the trade-off own-stream compaction already makes).
+- **Bounds.** n is at most the covered stream's admitted head. For a revoked covered device n is at most
+  the `tailHeadSeq` of its signed revoke cut, never past it, so a fold cannot cover a tail the cut
+  refused. The owner publishes a fold only after the existing source-equality guard: it decodes the
+  candidate merged streams and requires the HTML, the complete metadata and every writer's own
+  projection to equal the current page; a mismatch or decoder failure publishes nothing.
+- **Anchor.** The store keeps the covered stream's update envelope at n un-pruned when it prunes a
+  fold's prefix (at most one update envelope, 256 KiB, per covered stream). A reader admits a fold only
+  with that anchor: an `update` envelope of `coveredDevice` at `streamSeq` n whose envelope hash is the
+  fold's `prevEnvelopeHash`, verified under the covered device's chain, so the fold names a head the
+  covered device itself signed and not a value the signer asserts. A reader applies nothing from the
+  anchor; its state is in the fold. Catch-up delivers the anchor with the fold, before the tail, and
+  the tail stays contiguous from n+1. A fold without its anchor is refused (`INVALID`) and nothing is
+  applied.
+- **Signer revoke commits its folds.** The `device.revoke` payload of a device that signed folds gains
+  `folds`: a sorted, unique list of the fold envelope hashes the owner accepts from it (at most 512).
+  A fold whose `authorDevice` is a revoked device is admitted only when its envelope hash is in that
+  list; an unlisted fold is refused (`INVALID`), whatever `membershipRevision` it cites, because a
+  stolen key can backdate that revision and, once a prefix is pruned, no reader can recheck the folded
+  state against the updates it replaced. The list holds only retained folds: a fold superseded by a
+  later paired checkpoint or fold of the same stream and namespace is pruned and not listed. A revoke
+  that would list more than 512 is not signed; the owner first re-folds those streams under another
+  owner device, which supersedes the revoked signer's folds, and then revokes, so a fold is never left
+  unlisted after its prefix was pruned. Unseen offline folds beyond the list are rejected like unseen
+  updates beyond a cut. A revoke cut for the covered stream may name a fold as its checkpoint
+  (`checkpointEnvelopeHash` the fold's hash, `checkpointSeq` n).
+- **Concurrency.** A fold does not advance the covered chain: the covered device's update n+1 still
+  cites the hash at n and survives as an ordinary tail update, so an edit in flight during the fold is
+  never dropped and the device continues from the fold. If the device also seals its own checkpoint at
+  m, the greatest paired n wins; both fold the same verified updates and cannot disagree.
+- **Wire.** `append` accepts kind `fold` from an owner-member signer for a covered owner-member stream
+  at n up to its head; it is stored, receipted and announced as a `checkpoint` notice whose `streamId`
+  is the covered device. Work is bounded per step: one covered stream and namespace per decoder step,
+  within the decoder's time budget (see the limits table above) and the serialized checkpoint budgets.
+- **Order of delivery.** Browser admission and fold-read (all checkpoints before the tail, one agreed n
+  per stream in catch-up) merge before any native write is enabled. Native writes come first, because
+  the browser has no folding command. When both ship, `page compact` folds every owner-member stream
+  in steps and `otherDeviceUpdates` no longer stops it from clearing the page; bridge and link tails
+  still count.
+
+Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
+admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer
+admitted; a missing anchor refused; an anchor whose hash differs from `prevEnvelopeHash` refused; a
+covered device that is not owner-member refused; a fold past the covered head or past a revoked
+device's cut refused; an unknown kind rejected before its trailing field is read.
 
 ## Pairing and machine-local grants
 
@@ -5003,7 +5078,7 @@ byte-identical). Archived and deleted pages refuse as a write does.
 A combine moves the page revision, so a revision read before it is `COLAB_STALE_BASE` for the
 next write. The merged changes' per-edit attribution is replaced by the checkpoint, which is
 signed by the device and covers `1..=through`; no ledger or schema is added. Only a device can
-combine its own stream. A browser device combines its own `own` stream by sealing a `checkpoint` at
+combine its own stream (the planned [owner fold](#planned-owner-fold-3983) is the one exception). A browser device combines its own `own` stream by sealing a `checkpoint` at
 its head and sending it as an `append` (the browser's Compact asks the serve to combine the
 root-local stream, then does this); it counts its own changes as its own, so only the changes of
 other devices are `otherDeviceUpdates` to it. Where a stream is rewritten, the state encoding a
