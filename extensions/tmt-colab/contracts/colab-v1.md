@@ -1674,9 +1674,8 @@ both replay.
 
 Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
-There is no cross-writer compaction checkpoint in v1 today; the epoch baseline above
-is a distinct owner-authorized reset. The one planned exception is the
-[owner fold](#planned-owner-fold-3983), which the browser admits and no code writes yet.
+There is no cross-writer compaction checkpoint in v1 except the
+[owner fold](#owner-fold-3983); the epoch baseline above is a distinct owner-authorized reset.
 
 Authority reductions commit the exact checkpoint envelope hash, checkpoint
 sequence and tail head/hash. A revoked device's newly signed replacement cannot
@@ -1753,14 +1752,12 @@ accounting and durable prune/receipt behavior with the wire below. #830's
 in-memory fixture does not establish these durable properties. Budget exhaustion backpressures
 or rejects explicitly; it MUST NOT silently discard accepted durable data.
 
-### Planned owner fold (#3983)
+### Owner fold (#3983)
 
-This section is a ruling that ships in two steps: Core and security accepted the direction in
-[#3983](https://github.com/pj-tmt/tmt/issues/3983#issuecomment-6283370867). The object model and the
-browser's admission and fold-read ship first (the `fold` kind, the anchor, the revoke's `folds`
-list and the frozen vectors below). Nothing writes a fold yet, and native storage and catch-up do not
-carry one, so every rule above still holds in practice: a checkpoint is by the stream's own device,
-and only that device can clear its tail from the page cap.
+Core and security accepted the direction in
+[#3983](https://github.com/pj-tmt/tmt/issues/3983#issuecomment-6283370867). The object model, the
+browser's admission and fold-read, the native store and catch-up, and this machine's writer
+(`tmt colab page compact`) ship; what the cloud channel cannot carry yet is the last bullet.
 
 A **fold** is a checkpoint that an owner-member device signs for another owner-member device's stream
 (its own included), so the owner's `page compact` can clear every device's tail. It reuses what a
@@ -1823,25 +1820,45 @@ anything is pruned.
   cites the hash at n and survives as an ordinary tail update, so an edit in flight during the fold is
   never dropped and the device continues from the fold. If the device also seals its own checkpoint at
   m, the greatest paired n wins; both fold the same verified updates and cannot disagree.
-- **Wire.** `append` accepts kind `fold` from an owner-member signer for a covered owner-member stream
-  at n up to its head; it is stored, receipted and announced as a `checkpoint` notice whose `streamId`
-  is the covered device. Work is bounded per step: one covered stream and namespace per decoder step,
-  within the decoder's time budget (see the limits table above) and the serialized checkpoint budgets.
-- **Order of delivery.** Browser admission and fold-read (all checkpoints before the tail, one agreed n
-  per stream in catch-up) merge before any native write is enabled. Native writes come first, because
-  the browser has no folding command. When both ship, `page compact` folds every owner-member stream
-  in steps and `otherDeviceUpdates` no longer stops it from clearing the page; bridge and link tails
-  still count.
+- **Store.** A fold is stored as the covered stream's checkpoint, with the signing device recorded
+  beside it (schema 14, `checkpoints.signer`; empty means the stream's own device). A fold in one
+  namespace alone prunes nothing: the stream is pruned to n only when both namespaces with changes
+  up to n have a checkpoint at n, and the update at n stays as the anchor until a later checkpoint or
+  fold of the stream supersedes it. A fold never replaces another checkpoint and must bind an update
+  the stream holds. The native snapshot reads the anchors it needs from the store.
+- **Wire.** Catch-up delivers the anchor frame and then the fold, as above. `append` of a fold sent by
+  another device is not accepted yet: the only writer is this machine's own (below), which stores
+  folds directly. The serve announces a `checkpoint` notice whose `streamId` is the covered device for each
+  fold a browser's Compact wrote.
+- **Writer.** `tmt colab page compact` (and the browser's Compact, which asks the same route) first
+  combines the root-local device's own stream, then folds the streams of other owner-member devices
+  with this machine's local writer as the signer, in steps: at most 16 namespace merges per run and
+  the caller's deadline; streams not reached are counted and the next run continues. A fold is
+  published only after the source-equality guard above, once per run for all of its folds. A stream is
+  left as it is, and named with its reason in the report, when it is a bridge, link or commenter
+  device or has no admitted owner chain (`not-owner-device`); when it is a device this machine
+  publishes, on a page the cloud publisher has started (`published`, below); when its merge would
+  exceed one object (`too-large`); or when its changes did not merge into exactly the same page
+  (`refused`). The writer treats a page as published when it has any cloud publication or cloud page
+  row, because the publisher's per-page state cannot be read reliably. The report gains `folded`
+  (each `{stream, through, mergedObjects}`), `left` (each `{stream, why}`) and `unfolded` (a count);
+  the keys are absent when empty.
+- **Cloud.** The cloud channel carries no anchor, so a cloud reader would refuse a stream whose
+  checkpoint is a fold. The cloud publisher therefore never starts from one: a page whose next
+  checkpoint to publish is a fold stops with the visible line `Some changes were combined by
+`tmt colab page compact`, and the cloud cannot carry combined changes yet (#4049).` and edits
+  continue locally. This holds for a page that was never published, compacted, and then activated.
+  [#4049](https://github.com/pj-tmt/tmt/issues/4049) lifts the stop by carrying the anchor.
 
 Frozen vectors, replayed by native and browser admission, ship with the code and must cover: a fold
 admitted; an unlisted fold from a revoked signer refused; a listed fold from a revoked signer
 admitted; a missing anchor refused; an anchor whose hash differs from `prevEnvelopeHash` refused; a
 covered device that is not owner-member refused; a fold past the covered head or past a revoked
 device's cut refused; an unknown kind rejected before its trailing field is read.
-`contracts/vectors/fold-v1.json` freezes them (see its README entry). Native replays the model's part
-of each case (header, anchor, the revoke's list, the refusal by a reader of today's thirteen-element header) and the browser
-replays the whole catch-up through `Admission` and `Objects`; the native store joins the replay when
-it writes and reads folds.
+`contracts/vectors/fold-v1.json` freezes them (see its README entry). Native replays each case
+through the model and a real store (the fold is written with the store's own fold call and read back
+through the snapshot), except the two `advanceThenRevoke` cases, which the browser alone replays
+through `Admission` and `Objects` with the whole catch-up.
 
 ## Pairing and machine-local grants
 
@@ -5067,7 +5084,7 @@ to the page since that revision, anywhere, is `COLAB_STALE_BASE`, and nothing is
 | `updates`, `updateLimit` (200)     | Changes after the checkpoints, over every device's stream.                                                                                                                                                   |
 | `tailBytes`, `tailBytesLimit`      | Their plaintext bytes (4 MiB).                                                                                                                                                                               |
 | `checkpointBytes`                  | Plaintext bytes of the checkpoints.                                                                                                                                                                          |
-| `otherDeviceUpdates`               | Of `updates`, those on other devices' streams. Only those devices can combine them.                                                                                                                          |
+| `otherDeviceUpdates`               | Of `updates`, those on other devices' streams. Those devices can combine them, or an owner device's [fold](#owner-fold-3983).                                                                                |
 | `stateBytes`                       | The whole state, uncompressed: baseline, checkpoints and tail.                                                                                                                                               |
 | `gzipBytes`, `gzipLimit` (5000000) | The state gzipped as a browser loads it. Measured from a `stateBytes` of 256 KiB; absent below, where `stateBytes` bounds it by 5% of the limit.                                                             |
 | `limiting`                         | Which of the three `percent` is: `changes`, `recent-data` (the tail's bytes) or `stored-size` (the gzipped state); the first of the fullest wins a tie. Combining changes makes room only for the first two. |
@@ -5083,7 +5100,8 @@ gzipped state `admit_gzip` refuses at. A refusal caused by the tail (`COLAB_CAPA
 export-and-recreate way out; one caused by the source size or the gzipped state does not, because
 combining changes does not make those smaller.
 
-`tmt colab page compact <page> [--json]` combines the root-local device's own stream with the
+`tmt colab page compact <page> [--json]` combines the root-local device's own stream, then folds the
+other owner-member devices' streams ([owner fold](#owner-fold-3983)), with the
 automatic combine's rules and a trigger of one change (`page/compact.rs`: the stream's own
 verified updates, merged inside the isolated decoder, one checkpoint per namespace at the
 stream's head). While `tmt colab serve` runs it asks the serve over the owner-only socket route
@@ -5097,7 +5115,8 @@ never races a write through the serve. The reply is a `Report`: `pageId`, `compa
 over one checkpoint's size or did not finish in time), `by` (the device whose stream was combined),
 `through` (the checkpoints now cover that stream's changes `1..=through`; 0 when nothing was
 combined), `mergedObjects`, `sourceSha256` (the folded source after) and `before` / `after`
-usage. The folded source is the same before and after: the merge is compared with the page's own
+usage; `folded`, `left` and `unfolded` are described under the owner fold, and `compacted` is true when
+either this device's stream or another's was combined. The folded source is the same before and after: the merge is compared with the page's own
 projections before its first checkpoint is published, or nothing is. A second request finds no
 change after the checkpoints and writes nothing (`compacted:false`, the stored state
 byte-identical). Archived and deleted pages refuse as a write does.
@@ -5105,7 +5124,7 @@ byte-identical). Archived and deleted pages refuse as a write does.
 A combine moves the page revision, so a revision read before it is `COLAB_STALE_BASE` for the
 next write. The merged changes' per-edit attribution is replaced by the checkpoint, which is
 signed by the device and covers `1..=through`; no ledger or schema is added. Only a device can
-combine its own stream (the planned [owner fold](#planned-owner-fold-3983) is the one exception). A browser device combines its own `own` stream by sealing a `checkpoint` at
+combine its own stream (the [owner fold](#owner-fold-3983) is the one exception). A browser device combines its own `own` stream by sealing a `checkpoint` at
 its head and sending it as an `append` (the browser's Compact asks the serve to combine the
 root-local stream, then does this); it counts its own changes as its own, so only the changes of
 other devices are `otherDeviceUpdates` to it. Where a stream is rewritten, the state encoding a

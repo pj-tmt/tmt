@@ -109,6 +109,8 @@ pub(crate) struct Snapshot {
     payloads: Vec<Payload>,
     baseline: Option<StoredBaseline>,
     pub(crate) objects: Vec<(usize, crate::store::owner::epoch::StoredObject)>,
+    /// The update each retained owner fold binds, by covered stream and sequence.
+    anchors: BTreeMap<(String, u64), Vec<u8>>,
 }
 /// Authenticated bytes from one snapshot, shared by reads, edits and causal preparation.
 struct MaterializationInput {
@@ -285,6 +287,7 @@ impl Snapshot {
                 payloads,
                 baseline: None,
                 objects: Vec::new(),
+                anchors: BTreeMap::new(),
             })
         })
     }
@@ -360,6 +363,7 @@ impl Snapshot {
                 payloads,
                 baseline: tx.baseline(page, epoch)?,
                 objects,
+                anchors: tx.fold_anchors(page, epoch)?,
             })
         })
     }
@@ -388,6 +392,9 @@ impl Snapshot {
     ) -> Result<OpenedObject> {
         let envelope = object::Envelope::from_json(&stored.bytes)?;
         let h = object::Header::decode(envelope.header())?;
+        if h.covered_device.is_some() {
+            return self.open_fold_object(key, page, stream, namespace, stored, &envelope, &h);
+        }
         let c = &h.context;
         let revision = values::decimal(&c.membership_revision, false)?;
         let at_write = self
@@ -491,42 +498,8 @@ impl Snapshot {
                 _ => None,
             };
             if let Some(cuts) = affected {
-                let matches = |p: &&payload::Cut| {
-                    p.page_id == page
-                        && p.epoch == c.epoch
-                        && p.namespace == c.namespace
-                        && values::binary(&p.cut, 1024)
-                            .and_then(|bytes| {
-                                Ok(stream_cut::decode(&bytes)?.stream_id == c.author_device)
-                            })
-                            .unwrap_or(false)
-                };
-                // A later reduction need not repeat an already sealed epoch's
-                // cut. Only an earlier verified owner epoch.advance can supply
-                // that exact bound; unsealed/uncut history still refuses.
-                let bound = cuts
-                    .iter()
-                    .find(matches)
-                    .or_else(|| {
-                        self.payloads[..index]
-                            .iter()
-                            .enumerate()
-                            .find_map(|(seal_index, p)| {
-                                if seal_index < usize::try_from(revision).ok()? {
-                                    return None;
-                                }
-                                match p {
-                                    Payload::EpochAdvance(seal)
-                                        if seal.page_id == page
-                                            && values::decimal(&seal.epoch, false).ok()
-                                                == self.epoch.checked_add(1) =>
-                                    {
-                                        seal.cuts.as_slice().iter().find(matches)
-                                    }
-                                    _ => None,
-                                }
-                            })
-                    })
+                let bound = self
+                    .signed_cut(index, cuts, revision, page, &c.namespace, &c.author_device)
                     .ok_or(OwnerFault::Invalid)?;
                 let bytes = values::binary(&bound.cut, 1024)?;
                 let committed = stream_cut::decode(&bytes)?;
@@ -549,6 +522,205 @@ impl Snapshot {
             plaintext,
             key_bytes,
             owner_device,
+        })
+    }
+    /// Whether `device` is an owner-member device that may write `namespace` of the page now.
+    pub(crate) fn is_owner_member_device(
+        &self,
+        key: &Keyring,
+        page: &str,
+        device: &str,
+        namespace: &str,
+    ) -> bool {
+        self.owner_member_key(
+            key,
+            &self.authority,
+            page,
+            device,
+            namespace,
+            self.authority.head.revision,
+        )
+        .is_ok()
+    }
+    /// Hold the update at `seq` of `stream` as the anchor of a fold about to be checked, as the
+    /// store hands it to a snapshot once the fold is stored.
+    pub(crate) fn with_anchor(&mut self, stream: &str, seq: u64, bytes: Vec<u8>) {
+        self.anchors.insert((stream.to_owned(), seq), bytes);
+    }
+    /// The cut that bounds `stream`'s objects in `namespace` of this epoch at the reduction `cuts`
+    /// belongs to (the statement at payload `index`): the reduction's own or, as a later reduction
+    /// need not repeat an already sealed epoch's cut, the one an earlier verified owner
+    /// `epoch.advance` sealing this epoch signed after revision `after`. Unsealed or uncut history
+    /// has none and is refused.
+    fn signed_cut<'a>(
+        &'a self,
+        index: usize,
+        cuts: &'a [payload::Cut],
+        after: u64,
+        page: &str,
+        namespace: &str,
+        stream: &str,
+    ) -> Option<&'a payload::Cut> {
+        let epoch = self.epoch.to_string();
+        let matches = |p: &&payload::Cut| {
+            p.page_id == page
+                && p.epoch == epoch
+                && p.namespace == namespace
+                && values::binary(&p.cut, 1024)
+                    .and_then(|bytes| Ok(stream_cut::decode(&bytes)?.stream_id == stream))
+                    .unwrap_or(false)
+        };
+        cuts.iter().find(matches).or_else(|| {
+            self.payloads[..index]
+                .iter()
+                .enumerate()
+                .find_map(|(seal_index, p)| {
+                    if seal_index < usize::try_from(after).ok()? {
+                        return None;
+                    }
+                    match p {
+                        Payload::EpochAdvance(seal)
+                            if seal.page_id == page
+                                && values::decimal(&seal.epoch, false).ok()
+                                    == self.epoch.checked_add(1) =>
+                        {
+                            seal.cuts.as_slice().iter().find(matches)
+                        }
+                        _ => None,
+                    }
+                })
+        })
+    }
+    /// The signing key of `device` as an owner-member device of the page at `revision`: its chain
+    /// verifies against the owner member at that revision and the owner member may write the
+    /// namespace. A bridge, a link-issued or commenter device and one with no chain are refused.
+    fn owner_member_key(
+        &self,
+        key: &Keyring,
+        at_write: &Authority,
+        page: &str,
+        device: &str,
+        namespace: &str,
+        revision: u64,
+    ) -> Result<[u8; 32]> {
+        if at_write
+            .recipients
+            .contains_key(&("bridge".into(), device.to_owned()))
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let found = self
+            .devices
+            .iter()
+            .find_map(|d| {
+                let chain = certificate::Chain::from_json(&d.chain).ok()?;
+                (chain.certificate().ok()?.device_id == device).then_some(chain)
+            })
+            .ok_or(OwnerFault::Invalid)?;
+        let cert = found.certificate()?;
+        let issuer = at_write
+            .recipients
+            .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
+            .ok_or(OwnerFault::Invalid)?;
+        verify_chain(&found, issuer, key, revision)?;
+        if cert.issuer_kind != "member"
+            || cert.issuer_id != at_write.head.owner_member.id
+            || !eligible(&issuer.recipient, at_write, page)
+            || (namespace == "content" && issuer.recipient.role.as_deref() != Some("editor"))
+            || issuer.recipient.role.as_deref() == Some("viewer")
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        Ok(*cert.signing_key)
+    }
+    /// A stored owner fold of `stream` (colab-v1, "Owner fold"): the checkpoint of the covered
+    /// stream that another owner-member device signed. It is admitted by the rules the browser
+    /// applies (`Admission.readFold`):
+    /// - signer and covered device are owner-member devices at the fold's revision;
+    /// - a signer that is revoked folds only what its `device.revoke` lists, and only at a
+    ///   revision before that revoke;
+    /// - a covered device that is revoked is folded only up to its signed cut's tail head;
+    /// - the fold binds an update the covered device itself signed (the anchor).
+    ///
+    /// The writer of what it holds is the covered device, never the signer.
+    #[allow(clippy::too_many_arguments)]
+    fn open_fold_object(
+        &self,
+        key: &Keyring,
+        page: &str,
+        stream: &str,
+        namespace: &str,
+        stored: &crate::store::owner::epoch::StoredObject,
+        envelope: &object::Envelope,
+        h: &object::Header,
+    ) -> Result<OpenedObject> {
+        let c = &h.context;
+        let signer = c.author_device.as_str();
+        let revision = values::decimal(&c.membership_revision, false)?;
+        let at_write = self
+            .states
+            .get(usize::try_from(revision - 1).map_err(|_| OwnerFault::Invalid)?)
+            .ok_or(OwnerFault::Invalid)?;
+        if c.space != key.space_id
+            || c.page != page
+            || c.epoch != self.epoch.to_string()
+            || !stored.checkpoint
+            || c.kind != object::FOLD
+            || h.covered_device.as_deref() != Some(stream)
+            || c.namespace != namespace
+            || c.stream_seq != stored.seq.to_string()
+            || c.prev_hash != stored.previous
+            || envelope.hash()? != stored.hash
+            || at_write.policy.epoch != self.epoch
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let signer_key = self.owner_member_key(key, at_write, page, signer, namespace, revision)?;
+        let covered_key =
+            self.owner_member_key(key, at_write, page, stream, namespace, revision)?;
+        for (index, payload) in self.payloads.iter().enumerate() {
+            let Payload::DeviceRevoke(revoke) = payload else {
+                continue;
+            };
+            if revoke.device_id == signer
+                && !(revision <= index as u64 && revoke.lists_fold(&stored.hash))
+            {
+                return Err(OwnerFault::Invalid.into());
+            }
+            if revoke.device_id == stream {
+                let cut = self
+                    .signed_cut(
+                        index,
+                        revoke.cuts.as_slice(),
+                        revision,
+                        page,
+                        namespace,
+                        stream,
+                    )
+                    .ok_or(OwnerFault::Invalid)?;
+                let bytes = values::binary(&cut.cut, 1024)?;
+                let cut = stream_cut::decode(&bytes)?;
+                let tail = values::decimal(cut.tail_head_seq, true)?;
+                // The anchor is the update at the fold's sequence, so the cut's own tail rules apply.
+                if stored.seq > tail
+                    || (stored.seq == tail && *cut.tail_head_hash != stored.previous)
+                {
+                    return Err(OwnerFault::Invalid.into());
+                }
+            }
+        }
+        let anchor = self
+            .anchors
+            .get(&(stream.to_owned(), stored.seq))
+            .ok_or(OwnerFault::Invalid)?;
+        object::check_anchor(h, &object::Envelope::from_json(anchor)?, &covered_key)?;
+        let plaintext = object::open_fold(envelope, c, stream, &self.secret, &signer_key)?;
+        Ok(OpenedObject {
+            namespace: c.namespace.clone(),
+            author_device: stream.to_owned(),
+            plaintext,
+            key_bytes: covered_key,
+            owner_device: true,
         })
     }
     /// Creator admission for zero-sequence assets. The caller must separately

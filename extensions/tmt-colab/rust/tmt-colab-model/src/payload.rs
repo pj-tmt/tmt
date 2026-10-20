@@ -68,7 +68,7 @@ pub struct DeviceRevoke {
     pub cuts: List<Cut, 512>,
     /// Envelope hashes of the retained folds the owner accepts from this device as signer (a
     /// sorted, unique list of 32-byte values); absent means none. A fold signed by a revoked
-    /// device is admitted only when its hash is listed (colab-v1, "Planned owner fold (#3983)").
+    /// device is admitted only when its hash is listed (colab-v1, "Owner fold (#3983)").
     #[serde(default)]
     pub folds: List<String, 512>,
 }

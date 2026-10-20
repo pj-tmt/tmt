@@ -143,6 +143,12 @@ pub struct NamespaceCursor {
     pub seq: u64,
     pub hash: [u8; 32],
 }
+/// The update envelope an owner fold binds, kept past the prune of the prefix it covers.
+pub struct Anchor {
+    pub namespace: Namespace,
+    pub hash: [u8; 32],
+    pub bytes: Vec<u8>,
+}
 pub struct ReadObject {
     pub cursor: NamespaceCursor,
     pub checkpoint: bool,
@@ -276,6 +282,20 @@ impl Store {
     }
     /// Publish an admitted checkpoint; prune only a prefix covered by every namespace.
     pub fn checkpoint(&mut self, envelope: &Envelope<'_>) -> StoreResult<Accepted> {
+        self.checkpoint_by(envelope, None)
+    }
+    /// Publish an admitted owner fold (colab-v1, "Owner fold") that `signer` signed for the
+    /// stream the envelope names. It is stored as that stream's checkpoint; the signer is kept so
+    /// that a prune keeps the update the fold binds and a revoke of the signer can list the fold.
+    pub fn fold(&mut self, envelope: &Envelope<'_>, signer: &str) -> StoreResult<Accepted> {
+        bounded_id(signer)?;
+        self.checkpoint_by(envelope, Some(signer))
+    }
+    fn checkpoint_by(
+        &mut self,
+        envelope: &Envelope<'_>,
+        signer: Option<&str>,
+    ) -> StoreResult<Accepted> {
         validate(envelope)?;
         let s = envelope.scope;
         let epoch = s.epoch.to_string();
@@ -312,7 +332,7 @@ impl Store {
             return Err(Fault::StaleCheckpoint);
         }
         tx.execute(
-            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload) VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer) VALUES (?,?,?,?,?,?,?,?,?,?)",
             params![
                 s.page,
                 epoch,
@@ -322,7 +342,8 @@ impl Store {
                 envelope.hash.as_slice(),
                 digest,
                 envelope.previous.as_slice(),
-                envelope.bytes
+                envelope.bytes,
+                signer
             ],
         )?;
         // Sequence/hash continuity belongs to the shared stream, not a namespace.
@@ -375,6 +396,21 @@ impl Store {
             )
             .optional()?
             .flatten())
+    }
+    /// The retained update envelope at `seq` of a stream, in whichever namespace it is: the anchor
+    /// an owner fold of the stream at `seq` is checked against. `None` once it is pruned.
+    pub fn anchor(&self, scope: StreamScope<'_>, seq: u64) -> StoreResult<Option<Anchor>> {
+        current(&self.connection, scope)?;
+        read_anchor(&self.connection, scope, seq)
+    }
+    /// [`Self::anchor`] for a historical epoch, which only detached history reads.
+    pub(crate) fn retained_anchor(
+        &self,
+        scope: StreamScope<'_>,
+        seq: u64,
+    ) -> StoreResult<Option<Anchor>> {
+        read_epoch(&self.connection, scope, true)?;
+        read_anchor(&self.connection, scope, seq)
     }
     /// The latest receipt of a stream, which survives pruning of its payload. A stream that has
     /// never been stored has none.
@@ -573,6 +609,27 @@ fn advance_epoch(connection: &Connection, page: &str, expected: u64) -> StoreRes
         return Err(Fault::StaleEpoch);
     }
     Ok(())
+}
+fn read_anchor(c: &Connection, scope: StreamScope<'_>, seq: u64) -> StoreResult<Option<Anchor>> {
+    let row: Option<(String, Vec<u8>, Option<Vec<u8>>)> = c
+        .query_row(
+            "SELECT namespace,hash,payload FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
+            params![scope.page, scope.epoch.to_string(), scope.stream, sequence(seq)],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    let Some((namespace, hash, Some(bytes))) = row else {
+        return Ok(None);
+    };
+    Ok(Some(Anchor {
+        namespace: match namespace.as_str() {
+            "content" => Namespace::Content,
+            "own" => Namespace::Own,
+            _ => return Err(Fault::Invalid),
+        },
+        hash: hash.try_into().map_err(|_| Fault::Invalid)?,
+        bytes,
+    }))
 }
 fn sequence(n: u64) -> String {
     format!("{n:020}")

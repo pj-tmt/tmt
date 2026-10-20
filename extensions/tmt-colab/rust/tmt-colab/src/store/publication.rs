@@ -332,9 +332,19 @@ pub(super) fn prune(c: &Connection, s: StreamScope<'_>, paired_seq: &str) -> Sto
     let cut = confirmed
         .as_deref()
         .map_or(latest.as_str(), |seq| seq.min(latest.as_str()));
+    // An owner fold binds the update at its sequence, and a reader admits the fold only with that
+    // update (the anchor), so the update a retained fold covers through is kept; the next
+    // checkpoint or fold supersedes both.
+    let anchored: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM checkpoints WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq=?4
+         AND signer IS NOT NULL AND payload IS NOT NULL)",
+        params![s.page, s.epoch.to_string(), s.stream, latest],
+        |r| r.get(0),
+    )?;
     c.execute(
-        "UPDATE receipts SET payload=NULL WHERE page=? AND epoch=? AND stream=? AND seq<=?",
-        params![s.page, s.epoch.to_string(), s.stream, cut],
+        "UPDATE receipts SET payload=NULL WHERE page=?1 AND epoch=?2 AND stream=?3 AND seq<=?4
+         AND (seq<>?5 OR NOT ?6)",
+        params![s.page, s.epoch.to_string(), s.stream, cut, latest, anchored],
     )?;
     // The latest paired original supersedes historical checkpoints. Even when
     // it is unconfirmed, it stays retained with all unconfirmed updates.

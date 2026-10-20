@@ -427,6 +427,7 @@ fn sealed_historical_receipts_use_the_owner_bound_before_later_revocation() {
             payloads,
             baseline: None,
             objects: Vec::new(),
+            anchors: BTreeMap::new(),
         };
         let stored = crate::store::owner::epoch::StoredObject {
             seq: values::decimal(case["seq"].as_str().unwrap(), false).unwrap(),

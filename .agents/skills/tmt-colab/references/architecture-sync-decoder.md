@@ -15,13 +15,19 @@ and `limits.rs`; do not restate them.
   envelope, header, hash and signature bindings, then calls the create-only `Store`. It
   never decrypts and never calls the decoder. An exact retry returns the same receipt
   without a rebroadcast; awareness is ephemeral.
-- Owner folds (#3983, colab-v1 "Planned owner fold"): the model decodes the `fold` object kind
+- Owner folds (#3983, colab-v1 "Owner fold"): the model decodes the `fold` object kind
   (`object::seal_fold`, `open_fold`, `check_anchor`; a fold header has one more field, so a reader
   of the thirteen-field header refuses it) and a `device.revoke` carries the fold hashes it accepts
-  (`DeviceRevoke::folds`). The browser admits a fold in `Objects` (an anchor frame first, then the
-  fold in a checkpoint slot) through `Admission.readFold`, which decides signer and covered-device
-  authority and the revoke's list. The sync server, store and `page compact` neither write nor carry a
-  fold yet; `contracts/vectors/fold-v1.json` is replayed by `src/fold_vectors.rs` and
+  (`DeviceRevoke::folds`; the native revoke lists `committed_folds`, at most 512). The writer is
+  `page/owner_fold.rs`, run by `compact::request` after the device's own combine: it merges another
+  owner-member device's verified updates per namespace and publishes them with `Store::fold` (the
+  signer is the local writer, kept in `checkpoints.signer`) only after one source/metadata/own
+  equality guard; `prune` keeps the update at the fold's sequence as its anchor. Native
+  admission reads folds through `fold.rs` (`open_fold_object`, anchors from `fold_anchors`); catch-up
+  sends the anchor frame, then the fold; the browser admits both in `Objects` through
+  `Admission.readFold`. A fold is not accepted as an `append` from another device yet. The cloud
+  publisher stops a page whose next checkpoint is a fold (`FOLDED_STOP`, #4049).
+  `contracts/vectors/fold-v1.json` is replayed by `src/fold_vectors.rs`, `tests/fold_vectors.rs` and
   `test/fold-own.test.ts`.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:
   clients reconstruct from a fresh verified catchup. Bytes already written cannot be

@@ -1,4 +1,4 @@
-//! Frozen vectors for the owner fold (colab-v1, "Planned owner fold (#3983)"): the owner log,
+//! Frozen vectors for the owner fold (colab-v1, "Owner fold (#3983)"): the owner log,
 //! the device chains and the sealed objects that the browser replays through `Admission` and
 //! `Objects` (`app/test/fold-own.test.ts`). This module regenerates them and replays, against the
 //! same bytes, the part of each case the model itself decides: the header shape, the anchor check,
@@ -364,14 +364,14 @@ fn regenerate() {
         forged_anchor.hash,
         &signer_key,
     );
-    let bridge_anchor = update(&space, BRIDGE, "own", REVISION, 2, [1; 32], &bridge_key);
+    let bridge_anchor = update(&space, BRIDGE, "own", REVISION, 1, [0; 32], &bridge_key);
     let bridge_fold = fold(
         &space,
         SIGNER,
         BRIDGE,
         "own",
         REVISION,
-        2,
+        1,
         bridge_anchor.hash,
         &signer_key,
     );
@@ -410,6 +410,7 @@ fn regenerate() {
         "keys": {SIGNER: b64(signer_key.verifying_key().as_bytes()),
             COVERED: b64(covered_key.verifying_key().as_bytes()),
             BRIDGE: b64(bridge_key.verifying_key().as_bytes())},
+        "first": content_first.entry,
         "oldReader": {"header": b64(content.envelope.header()), "fields": 14, "readerFields": 13},
         "cases": [
             case("a fold of 1..2 in both namespaces, with the one anchor", "base", both.clone(), "admit", "ok", None),

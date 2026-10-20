@@ -22,6 +22,19 @@ export interface PageUsage {
   limiting: Limiting;
 }
 export type Skipped = 'nothing-to-combine' | 'not-combined';
+export type LeftWhy = 'not-owner-device' | 'published' | 'too-large' | 'refused';
+const LEFT_WHY: readonly string[] = ['not-owner-device', 'published', 'too-large', 'refused'];
+/** Another device's stream that a compaction combined into an owner fold. */
+export interface FoldedStream {
+  stream: string;
+  through: number;
+  mergedObjects: number;
+}
+/** A stream with changes that a compaction left as it is, and why. */
+export interface LeftStream {
+  stream: string;
+  why: LeftWhy;
+}
 /** What one requested compaction did (`page::compact::Report`). */
 export interface CompactReport {
   pageId: string;
@@ -30,6 +43,9 @@ export interface CompactReport {
   by: string;
   through: number;
   mergedObjects: number;
+  folded?: FoldedStream[];
+  left?: LeftStream[];
+  unfolded?: number;
   sourceSha256: string;
   before: PageUsage;
   after: PageUsage;
@@ -84,10 +100,23 @@ export function pageUsage(value: unknown): PageUsage {
   requireValue(usage.otherDeviceUpdates <= usage.updates);
   return usage;
 }
+function streamList<T>(value: unknown, keys: string[], read: (row: Record<string, unknown>) => T) {
+  requireValue(Array.isArray(value) && value.length > 0 && value.length <= 256);
+  return value.map((row) => {
+    requireValue(typeof row === 'object' && row !== null && !Array.isArray(row));
+    exactKeys(row, keys);
+    const record = row as Record<string, unknown>;
+    requireValue(typeof record.stream === 'string' && record.stream.length <= 64);
+    return read(record);
+  });
+}
 export function compactReport(value: unknown): CompactReport {
   requireValue(typeof value === 'object' && value !== null && !Array.isArray(value));
   const raw = value as Record<string, unknown>;
   const skipped = Object.hasOwn(raw, 'skipped');
+  const [folded, left, unfolded] = ['folded', 'left', 'unfolded'].map((key) =>
+    Object.hasOwn(raw, key),
+  );
   exactKeys(raw, [
     'pageId',
     'compacted',
@@ -95,6 +124,9 @@ export function compactReport(value: unknown): CompactReport {
     'by',
     'through',
     'mergedObjects',
+    ...(folded ? ['folded'] : []),
+    ...(left ? ['left'] : []),
+    ...(unfolded ? ['unfolded'] : []),
     'sourceSha256',
     'before',
     'after',
@@ -113,6 +145,24 @@ export function compactReport(value: unknown): CompactReport {
     by: raw.by as string,
     through: count(raw.through),
     mergedObjects: count(raw.mergedObjects),
+    ...(folded
+      ? {
+          folded: streamList(raw.folded, ['stream', 'through', 'mergedObjects'], (row) => ({
+            stream: row.stream as string,
+            through: count(row.through),
+            mergedObjects: count(row.mergedObjects),
+          })),
+        }
+      : {}),
+    ...(left
+      ? {
+          left: streamList(raw.left, ['stream', 'why'], (row) => {
+            requireValue(typeof row.why === 'string' && LEFT_WHY.includes(row.why));
+            return { stream: row.stream as string, why: row.why as LeftWhy };
+          }),
+        }
+      : {}),
+    ...(unfolded ? { unfolded: count(raw.unfolded) } : {}),
     sourceSha256: raw.sourceSha256 as string,
     before: pageUsage(raw.before),
     after: pageUsage(raw.after),

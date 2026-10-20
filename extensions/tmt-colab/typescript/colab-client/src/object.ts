@@ -53,7 +53,7 @@ export interface Context {
   prevHash: Uint8Array;
 }
 /** The kind of an owner fold: a checkpoint an owner-member device signs for another owner-member
- * device's stream (colab-v1, "Planned owner fold"). Its header has one extra trailing field, the
+ * device's stream (colab-v1, "Owner fold"). Its header has one extra trailing field, the
  * covered device; every other kind keeps thirteen, so a reader that does not know the kind
  * refuses the header by its field count. */
 export const FOLD = 'fold';

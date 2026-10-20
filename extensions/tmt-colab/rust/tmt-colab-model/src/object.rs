@@ -41,7 +41,7 @@ pub struct Header {
     pub covered_device: Option<String>,
 }
 /// The kind of an owner fold: a checkpoint an owner-member device signs for another owner-member
-/// device's stream (colab-v1, "Planned owner fold (#3983)").
+/// device's stream (colab-v1, "Owner fold (#3983)").
 pub const FOLD: &str = "fold";
 impl Header {
     pub fn encode(&self) -> Result<Vec<u8>> {
