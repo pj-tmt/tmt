@@ -2,11 +2,11 @@
 
 Use the TMT browser style: square, flat, shadow-free surfaces; neutral greys;
 system fonts; and a mark plus a word for every state (for example, "◆ Waiting"),
-never colour alone. Use a centred page container with `max-width: 1280px`.
-Prose, tables, charts and code stay inside the same container. Narrow screens
-fill the available width with the starter's existing gutter. This is author-page
-CSS; Colab does not impose a width on existing pages or dashboards. Start with
-the inline content styles below, never the browser leaf's whole static.css.
+never colour alone. On a `column` or `full` page Colab sets the width and the
+gaps: read [layout](layout.md) (`tmt colab skill layout`) and do not set a
+width, margin or block gap yourself. The starter's `body` rule (centred,
+`max-width: 1280px`) is for `canvas` and `freeform` pages. Start with the inline
+content styles below, never the browser leaf's whole static.css.
 
 Colab already shows the brand, page title and actions. Do not add a site header,
 navigation, product mark or wordmark, or any sticky or fixed bar. Begin with the

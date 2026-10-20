@@ -24,8 +24,16 @@ const SKILL_REFERENCES: &[(&str, &str)] = &[
         include_str!("../../../skills/tmt-colab/references/attachments.md"),
     ),
     (
+        "components",
+        include_str!("../../../skills/tmt-colab/references/components.md"),
+    ),
+    (
         "editing",
         include_str!("../../../skills/tmt-colab/references/editing.md"),
+    ),
+    (
+        "layout",
+        include_str!("../../../skills/tmt-colab/references/layout.md"),
     ),
     (
         "links",

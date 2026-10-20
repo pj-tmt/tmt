@@ -26,8 +26,7 @@ seed; never create or disclose them to bypass pairing.
 
 ## Set up a page
 
-Check both extensions with `--help`. Explain what is missing; install only with user
-consent:
+Check both extensions with `--help`; install what is missing only with user consent:
 
 ```sh
 tmt extension install remote --yes
@@ -37,7 +36,7 @@ tmt extension install colab --yes --skills
 `--skills` installs this managed skill. Inspect unmanaged conflicts; never force silently. Reload provider skills, or run `tmt colab skill`, which needs no server or
 checkout.
 
-Start in the background so it outlives your task:
+Start in the background:
 
 ```sh
 tmt colab serve --background --json
@@ -70,7 +69,7 @@ inspect serving status; do not invent a URL. `path` is root-relative.
 When asked to open a page, run `tmt colab open PAGE`; omit PAGE for space home.
 It opens even with automatic-open off, but as an agent it only prints the link unless
 you pass `--open`. It never starts or pairs services. `--json` and `--no-open` suppress
-opening. Open browsers only on request.
+opening.
 
 ## Check before publishing
 
@@ -116,7 +115,9 @@ fresh one (see the editing reference); never delete the original to clear a limi
 
 ## Page look
 
-Read [references/page-style.md](references/page-style.md) or `tmt colab skill page-style` before styling a page.
+Read [layout](references/layout.md) (`tmt colab skill layout`) for the frame,
+[components](references/components.md) (`tmt colab skill components`) for markup, and
+[page-style](references/page-style.md) (`tmt colab skill page-style`) before styling.
 
 ## HTML that renders
 
@@ -198,7 +199,7 @@ with the same ID, title and body to finish the missing step. `placed:false`
 means placement is unconfirmed; missing/duplicate placeholders stay detached.
 HTML grants no authority. Resolve never notifies agents; Reopen keeps the decision.
 Trusted Approve/Decline saves the final decision, then sends one Ask; failure
-keeps it. Reload never sends. `--after` is deferred.
+keeps it. Reload never sends.
 
 ## Projects
 
@@ -209,7 +210,7 @@ unsigned. `tmt colab project add PAGE NAME...`, `project remove PAGE NAME...`,
 never delete one). A name is 1 to 32 characters (no control characters, no edge or
 doubled spaces); a page is in at most 8. `add` and `remove` replace the page's set (last
 writer wins); `changed:false` means no change. `ls` and `show --json` list each page's
-`projects`; `ls --project NAME` shows that project's pages.
+`projects`; `ls --project NAME` filters by project.
 
 After page create/update, add reading anchors for passages the reader must not miss.
 Split/compact [questions](references/questions.md) (`tmt colab skill questions`),

@@ -7162,6 +7162,14 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "editing",
             include_bytes!("../../../skills/tmt-colab/references/editing.md").as_slice(),
         ),
+        (
+            "layout",
+            include_bytes!("../../../skills/tmt-colab/references/layout.md").as_slice(),
+        ),
+        (
+            "components",
+            include_bytes!("../../../skills/tmt-colab/references/components.md").as_slice(),
+        ),
     ] {
         let reference = invoke(&["skill", name]);
         assert!(reference.status.success(), "{reference:?}");
@@ -7189,6 +7197,8 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "reviews",
             "attachments",
             "editing",
+            "layout",
+            "components",
         ] {
             assert!(message.contains(valid), "{message}");
         }
@@ -7216,6 +7226,36 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     );
     // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
     assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
+}
+
+/// #3927: a markup sample the layout and component references teach must be markup `page check`
+/// accepts, or an agent that copies it publishes a page the check then refuses.
+#[test]
+fn every_html_sample_in_the_layout_and_component_references_passes_page_check() {
+    let pilot = Pilot::new(None);
+    let mut checked = 0;
+    for (name, text) in [
+        (
+            "layout.md",
+            include_str!("../../../skills/tmt-colab/references/layout.md"),
+        ),
+        (
+            "components.md",
+            include_str!("../../../skills/tmt-colab/references/components.md"),
+        ),
+    ] {
+        for (index, block) in text.split("```html\n").skip(1).enumerate() {
+            let sample = block.split("```").next().unwrap();
+            let file = pilot.root.join(format!("{name}-{index}.html"));
+            fs::write(&file, sample).unwrap();
+            let report = pilot.call(&["page", "check", file.to_str().unwrap(), "--json"]);
+            assert_eq!(report["ok"], true, "{name} sample {index}: {report}");
+            assert_eq!(report["findings"], json!([]), "{name} sample {index}");
+            checked += 1;
+        }
+    }
+    // components.md has one sample per component; a parse that finds none proves nothing.
+    assert!(checked >= 11, "only {checked} samples found");
 }
 
 /// #2842: the shipped skill teaches only flags the CLI ships, so guidance and `--help` cannot drift
