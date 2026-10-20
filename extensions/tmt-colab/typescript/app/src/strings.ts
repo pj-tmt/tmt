@@ -347,7 +347,7 @@ export const text = {
     count === 0
       ? 'Remote: no live sessions'
       : `Remote: ${count} live ${count === 1 ? 'session' : 'sessions'}`,
-  remoteUnconfirmed: 'Remote · ?',
+  remoteUnconfirmed: 'Remote · offline',
   /** The attention mark's word while the Remote door is down or unreadable. */
   remoteOffline: 'Remote offline',
   remoteUnconfirmedLabel: 'Remote: session count unconfirmed',

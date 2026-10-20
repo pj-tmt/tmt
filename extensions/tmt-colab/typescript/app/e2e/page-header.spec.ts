@@ -110,7 +110,7 @@ for (const width of [1440, 390])
         .allInnerTexts();
       expect(rows.map((row) => row.replace(/\s+/g, ' ').trim())).toEqual([
         'Share… Link · Live',
-        'Remote · ?',
+        'Remote · offline',
         'Source',
         'Export page',
         'Manage page',

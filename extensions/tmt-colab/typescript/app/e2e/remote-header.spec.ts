@@ -133,7 +133,7 @@ for (const width of [1440, 390])
         width === 390
           ? page.getByRole('menuitem', { name: 'Remote: session count unconfirmed' })
           : header.getByRole('button', { name: 'Remote: session count unconfirmed' });
-      await expect(control).toHaveText('Remote · ?');
+      await expect(control).toHaveText('Remote · offline');
       await control.hover();
       await expect(page.getByText("Couldn't confirm live sessions right now.")).toBeVisible();
       await expect(page.getByRole('menuitem', { name: 'Open Remote settings' })).toHaveCount(0);
