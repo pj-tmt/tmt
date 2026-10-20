@@ -14,8 +14,9 @@ export type AgentChipState = 'checking' | 'not-found' | 'offline' | 'online' | '
 /**
  * The one place an agent is shown: icon, name, then muted machine and driver. `chip` is the
  * bordered form for what the reader edits (a composer mention, a question recipient) and takes a
- * trailing control as children; `inline` sits inside a sentence, a menu row or a byline. The icon
- * becomes a labelled spinner while the agent works; any other or unknown activity keeps the icon.
+ * trailing control as children; `inline` sits inside a sentence, a menu row or a byline. While the
+ * agent works the icon carries a small status dot and the name gains a hidden ", working"; the chip
+ * never animates, and any other or unknown activity shows the plain icon (#3978).
  */
 export function AgentChip({
   name,
@@ -51,14 +52,13 @@ export function AgentChip({
       data-variant={variant}
       data-state={state}
       data-activity={currentActivity}
-      title={title}
+      title={working ? `${title ?? name}, ${text.agentWorking}` : title}
     >
-      {working ? (
-        <span className="agent-chip-spinner" role="img" aria-label={text.agentWorking} />
-      ) : (
-        <Bot className="agent-chip-icon" aria-hidden />
-      )}
+      <span className="agent-chip-mark" data-working={working || undefined} aria-hidden>
+        <Bot className="agent-chip-icon" />
+      </span>
       <span className="agent-chip-name">{name}</span>
+      {working && <span className="agent-chip-state">, {text.agentWorking}</span>}
       {machine && <span className="agent-chip-machine"> · {machine}</span>}
       {driver && <span className="agent-chip-driver"> · {driver}</span>}
       {children}

@@ -1997,6 +1997,27 @@ body:has(.needs-you-header-menu) {
 .agent-activity[data-activity='finished'] > .agent-activity-mark {
   color: var(--tmt-ui-color-working);
 }
+/* The one animated mark of a working agent in a thread (#3978): the line's own LoaderCircle in the
+   working colour, ahead of the name. Agent chips never animate. */
+.agent-activity-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 4px;
+  vertical-align: -0.15em;
+  color: var(--tmt-ui-color-working);
+  animation: agent-activity-spin 0.9s linear infinite;
+}
+@keyframes agent-activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-spinner {
+    animation: none;
+  }
+}
 .comment-echo-failure {
   margin: 0;
 }

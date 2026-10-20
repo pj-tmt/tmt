@@ -1,3 +1,4 @@
+import { LoaderCircle } from 'lucide-react';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { activityAt, type ActivityObservation } from '../agent-activity.js';
 import type { PageAsk } from '../ask-panel.js';
@@ -85,12 +86,18 @@ export function AgentActivityLine({ record }: { record: PageAsk }) {
           ✓{' '}
         </span>
       )}
+      {kind === 'working' && <LoaderCircle className="agent-activity-spinner" aria-hidden />}
       {kind === 'sent' ? (
         text.agentSent
       ) : (
         <>
           {kind === 'unknown' && 'sent · '}
-          <AgentChip name={name} activity={kind === 'working' ? 'working' : undefined} />
+          {kind === 'working' ? (
+            // The line's own mark animates; the name stays plain so the chip's dot adds nothing.
+            <span className="agent-activity-name">{name}</span>
+          ) : (
+            <AgentChip name={name} />
+          )}
           {kind !== 'unknown' && ' '}
           {detail}
         </>
