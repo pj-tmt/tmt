@@ -366,6 +366,128 @@ fn exact_source_title_authenticated_receipts_and_reopening() {
     assert_eq!(f.read().title, "Exact title 🐈");
 }
 #[test]
+fn a_page_carries_work_through_actions_source_writes_and_a_new_epoch() {
+    use tmt_colab::decoder::StructuredKind;
+    let mut f = Fixture::new();
+    let work = |f: &Fixture| page::read_work(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let act = |f: &mut Fixture,
+               action: &str,
+               body: serde_json::Value,
+               revision: &str|
+     -> tmt_colab::Result<Option<String>> {
+        let prepared = page::prepare_structured_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            page::StructuredAction {
+                kind: StructuredKind::Work,
+                action,
+                body: &body,
+                expected_revision: revision,
+                display_agent: Some(json!({"name":"feat-2"})),
+            },
+            &mut f.decoder(),
+            &|| Ok(NOW),
+        )?;
+        match prepared {
+            page::PublicationPreparation::Write(frozen) => {
+                let committed = f.commit(&frozen, NOW)?;
+                Ok(Some(
+                    page::publication_receipt(frozen.job(), &committed.record)?.revision,
+                ))
+            }
+            page::PublicationPreparation::Noop { .. } => Ok(None),
+        }
+    };
+    // A page that has had no work reads as an empty value, and a write against it succeeds.
+    let before = work(&f);
+    assert_eq!(before.work, tmt_colab::work::empty());
+    assert_eq!(before.derived["stage"], "discussion");
+    let revision = act(
+        &mut f,
+        "task.add",
+        json!({"task":{"title":"Write it","assignee":{"kind":"agent","name":"feat-2"}}}),
+        &before.revision,
+    )
+    .unwrap()
+    .unwrap();
+    let after = work(&f);
+    assert_eq!(after.revision, revision);
+    assert_eq!(after.work["tasks"]["T-1"]["title"], "Write it");
+    assert_eq!(after.derived["total"], 1);
+    // The write owner's attribution, not the caller's, lands in the summary.
+    let revision = act(
+        &mut f,
+        "summary.set",
+        json!({"line1":"One task","line2":"Next: build"}),
+        &revision,
+    )
+    .unwrap()
+    .unwrap();
+    let summary = work(&f).work["summary"].clone();
+    assert_eq!(summary["line1"], "One task");
+    assert_eq!(
+        summary["attribution"]["displayAgent"],
+        json!({"name":"feat-2"})
+    );
+    assert!(summary["attribution"]["writerId"].is_string());
+    // A stale base, an invalid action and a repeated no-op write nothing.
+    let stale = act(
+        &mut f,
+        "task.remove",
+        json!({"taskId":"T-1"}),
+        &before.revision,
+    );
+    assert!(stale.is_err());
+    assert!(act(&mut f, "task.remove", json!({"taskId":"T-9"}), &revision).is_err());
+    assert!(
+        act(
+            &mut f,
+            "task.state",
+            json!({"taskId":"T-1","state":"todo"}),
+            &revision
+        )
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(work(&f).revision, revision);
+    // The page's own source still writes, and the work stays.
+    let source_receipt = f.write("a new source 🦊");
+    assert_eq!(f.read().source, "a new source 🦊");
+    assert_eq!(work(&f).work["tasks"]["T-1"]["title"], "Write it");
+    assert_eq!(work(&f).revision, source_receipt.revision);
+    // A new epoch keeps the work with the source.
+    Engine::with_decoder_config(support::decoder_config(BINARY.into()))
+        .unwrap()
+        .advance_epoch(
+            &mut f.store,
+            &f.key,
+            EpochAdvance {
+                page: PAGE,
+                operation_id: "40000000-0000-4000-8000-000000000002",
+                expected_revision: 2,
+            },
+            NOW,
+        )
+        .unwrap();
+    let rotated = work(&f);
+    assert_eq!(rotated.epoch, "2");
+    assert_eq!(rotated.work["tasks"]["T-1"]["title"], "Write it");
+    assert_eq!(rotated.work["summary"], summary);
+    assert_eq!(f.read().source, "a new source 🦊");
+    // The numbering carries on after the rotation.
+    let revision = act(
+        &mut f,
+        "task.add",
+        json!({"task":{"title":"Second"}}),
+        &rotated.revision,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(work(&f).revision, revision);
+    assert_eq!(work(&f).work["order"], json!(["T-1", "T-2"]));
+}
+#[test]
 fn a_replayed_write_reports_the_batch_it_originally_committed() {
     let mut f = Fixture::new();
     let first = f.prepare("one", None).unwrap();

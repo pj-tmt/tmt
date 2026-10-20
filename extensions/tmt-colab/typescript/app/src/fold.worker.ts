@@ -158,6 +158,7 @@ function project(doc: Y.Doc, complete = true) {
         key !== 'creationRecipient' &&
         key !== 'pageType' &&
         key !== 'shell' &&
+        key !== 'work' &&
         key !== 'attachments',
     ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
@@ -174,6 +175,7 @@ function project(doc: Y.Doc, complete = true) {
     ...(meta.has('attachments') ? { attachments: meta.get('attachments') } : {}),
     ...(meta.has('pageType') ? { pageType: meta.get('pageType') } : {}),
     ...(meta.has('shell') ? { shell: meta.get('shell') } : {}),
+    ...(meta.has('work') ? { work: meta.get('work') } : {}),
   };
   validateProjection(projection);
   return projection;

@@ -485,6 +485,50 @@ pub fn read_shell(
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
     })
 }
+/// A page's work, read without its HTML source: the value (an empty one while the page has none),
+/// what is derived from it, and the revision a write must name. A shell has no work.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkPage {
+    pub space_id: String,
+    pub page_id: String,
+    pub title: String,
+    pub work: serde_json::Value,
+    pub derived: serde_json::Value,
+    pub epoch: String,
+    pub membership_head: Head,
+    pub revision: String,
+}
+pub fn read_work(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+) -> Result<WorkPage> {
+    let s = snapshot(store, key, page, false)?;
+    let view = s.materialize(key, page, decoder)?;
+    if view.meta["pageType"].as_str() == Some("shell") {
+        return Err(Fault::Invalid.into());
+    }
+    let work = view
+        .meta
+        .get("work")
+        .cloned()
+        .unwrap_or_else(crate::work::empty);
+    let derived = crate::work::derived(&work)
+        .map_err(|_| Fault::Invalid)?
+        .to_value();
+    Ok(WorkPage {
+        space_id: key.space_id.clone(),
+        page_id: page.into(),
+        title: view.title,
+        work,
+        derived,
+        epoch: s.epoch.to_string(),
+        membership_head: Head::from(&s.authority.head),
+        revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
+    })
+}
 /// NOOP carries no original operation or certificate; it reports the captured base.
 pub enum PublicationPreparation {
     Noop {
