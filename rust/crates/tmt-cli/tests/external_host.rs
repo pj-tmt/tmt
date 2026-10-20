@@ -125,6 +125,7 @@ case "$3" in
     esac ;;
   snapshot)
     if [ -f "$d/unreachable" ]; then printf '{"error":{"code":"unavailable","message":"server offline"}}'; exit 0; fi
+    if [ -f "$d/absent" ]; then printf '{"ok":{"panes":[]}}'; exit 0; fi
     # A sampling fixture logs each snapshot with its caller and requested
     # panes. While `gate` exists, a caller `ps` cannot classify, and a
     # consumption sampler other than the one pid it names, are refused.
@@ -2819,4 +2820,74 @@ fn an_unreachable_recipient_is_not_reported_as_an_inactive_name() {
         worker(&fixture.json(&["ls", "--json"]))["presence"],
         "active"
     );
+}
+
+#[test]
+fn a_first_missing_recipient_refusal_uses_its_reconciled_lifetime() {
+    register();
+    for saved in [false, true] {
+        for operation in ["check", "focus"] {
+            let fixture = Fixture::delivering(&format!("missing-{saved}-{operation}"));
+            fixture.approve();
+            let mut name = vec!["name", "worker", "--json"];
+            if saved {
+                name.push("--save");
+            }
+            let named = fixture.tmt_in(Some("f1"), &name);
+            assert!(named.status.success(), "{named:?}");
+            let id = worker(&fixture.json(&["ls", "--json"]))["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            // No discovery command runs between disappearance and the first
+            // refusal: this command itself must reconcile the temporary row.
+            fs::write(fixture.root.join("driver/absent"), "").unwrap();
+            let target = if operation == "focus" {
+                id.as_str()
+            } else {
+                "worker"
+            };
+            let args = match operation {
+                "focus" => vec!["focus", target, "--json"],
+                _ => vec!["check", target, "--capture-only", "--json"],
+            };
+            let output = fixture.tmt_in(Some("f1"), &args);
+            assert_eq!(output.status.code(), Some(3), "{output:?}");
+            let failure: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(failure["error"]["code"], "NAME_NOT_FOUND");
+            let reason = if saved {
+                "is not active"
+            } else {
+                "was not found"
+            };
+            assert_eq!(
+                failure["error"]["message"],
+                format!("Identity '{target}' {reason}.")
+            );
+            let connection = rusqlite::Connection::open_with_flags(
+                fixture.state().join("tmt.db"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            let retired: Option<i64> = connection
+                .query_row(
+                    "SELECT retired_at_ms FROM identities WHERE id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(retired.is_some(), !saved);
+            let bound: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM bindings WHERE identity_id=?1",
+                    [&id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(bound, 0);
+            assert!(fixture.requests("typed").is_empty());
+            assert!(fixture.requests("prompted").is_empty());
+            assert!(!fixture.calls().iter().any(|call| call == "focus"));
+        }
+    }
 }

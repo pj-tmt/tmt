@@ -94,7 +94,17 @@ fn resolve_identity(storage: &mut Storage, id: &str, input: &str) -> Result<Pane
                 error => binding_failure(error),
             }
         })?;
-    presence.ok_or_else(|| missing_identity(input, true))
+    if let Some(presence) = presence {
+        return Ok(presence);
+    }
+    // Reconciliation can retire a temporary identity. Classify the refusal
+    // from the committed record, never the entry captured before observation.
+    let exists = storage
+        .with_binding_transaction(|records| records.entry_by_id(id).map(|entry| entry.is_some()))
+        .map_err(|error| {
+            Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1).caused_by(error)
+        })?;
+    Err(missing_identity(input, exists))
 }
 
 fn recipient_failure(
