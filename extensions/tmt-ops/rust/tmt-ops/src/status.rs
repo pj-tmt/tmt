@@ -306,6 +306,7 @@ fn detail(row: &Value) -> String {
     if let Some(text) = row["annotation"]["text"].as_str() {
         parts.push(format!("✎ to {}: {text}", cell(&row["annotation"]["to"])));
     }
+    parts.extend(crate::idle_alert::row_label(row, now_ms()));
     parts.join(" · ")
 }
 
@@ -360,7 +361,8 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
                 .as_str()
                 .map_or_else(|| "no lead".to_owned(), |name| format!("lead {name}")),
             cell(&squad["layout"]),
-        )
+        ) + &crate::idle_alert::setting_label(document)
+            .map_or_else(String::new, |label| format!(" · {label}"))
     };
     let _ = writeln!(output, "{}\n", terminal.paint(Token::Dim, &escape(&header)));
     if let Some(stale) = crate::staleness::label(&squad["notesStaleness"]) {
@@ -989,6 +991,38 @@ sort = ["state"]
         let rendered = text(&document, Terminal::PLAIN);
         assert!(rendered.contains("NEEDS ME 1\n  ◆  bob  blocked  waiting on you"));
         assert!(rendered.ends_with("EMPTY 0\n    (no members)\n"));
+    }
+
+    #[test]
+    fn the_text_marks_an_over_row_and_names_an_enabled_alert_but_never_an_off_one() {
+        let squad = Squad {
+            name: "product".into(),
+            room_id: "room".into(),
+        };
+        let mut crew = document(
+            &squad,
+            Layout::Crew,
+            &states(Layout::Crew),
+            &[],
+            &Rows::preset(),
+            members(),
+        );
+        let off = text(&crew, Terminal::PLAIN);
+        assert!(!off.contains("idle"), "{off}");
+        let since = now_ms() - 32 * 60_000;
+        crew["squad"]["idleAlert"] = json!({"enabled": true, "afterMs": 1_800_000});
+        crew["sections"][0]["rows"][1]["idleAlert"] = json!({"state": "over", "sinceMs": since});
+        crew["sections"][0]["rows"][2]["idleAlert"] =
+            json!({"state": "excepted", "reason": "hold", "sinceMs": since});
+        let on = text(&crew, Terminal::PLAIN);
+        assert!(
+            on.starts_with("squad product · lead sol · layout crew · idle alert 30m\n"),
+            "{on}"
+        );
+        assert_eq!(on.matches("◷ idle 32m").count(), 1, "{on}");
+        assert!(on.contains("zed  working  ◷ idle 32m"), "{on}");
+        crew["squad"]["idleAlert"] = json!({"enabled": false, "afterMs": 1_800_000});
+        assert!(!text(&crew, Terminal::PLAIN).contains("idle alert"));
     }
 
     #[test]
