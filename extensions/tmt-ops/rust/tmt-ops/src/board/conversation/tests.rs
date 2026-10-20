@@ -278,6 +278,23 @@ fn switching_identity_and_renaming_preserves_each_reading_anchor() {
 }
 
 #[test]
+fn reopening_a_member_paints_its_held_messages_in_the_first_frame_without_a_placeholder() {
+    const START: u64 = 1_791_600_000_000;
+    let at = |app: &App, now| crate::status::with_now_ms(now, || draw(app, 80, 18));
+    let mut app = fixture();
+    assert!(at(&app, START).contains("alpha line"));
+    app.selected = 1;
+    assert!(at(&app, START + 10).contains("beta line"));
+    // Long after the first visit, back on the first member: its messages are
+    // there in the very first frame, with neither placeholder.
+    app.selected = 0;
+    let reopened = at(&app, START + 60_000);
+    assert!(reopened.contains("alpha line"), "{reopened}");
+    assert!(!reopened.contains("Loading exchanges"));
+    assert!(!reopened.contains("Exchange history unavailable"));
+}
+
+#[test]
 fn new_output_does_not_replace_a_paused_request_and_end_reads_latest() {
     let mut app = fixture();
     draw(&app, 80, 18);
