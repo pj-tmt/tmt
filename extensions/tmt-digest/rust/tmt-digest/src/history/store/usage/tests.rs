@@ -33,12 +33,13 @@ fn normative_quotes_and_weighted_ratios_have_independent_values() {
     .unwrap();
     for case in vectors["quotes"].as_array().unwrap() {
         assert_eq!(
-            crate::pricing::quote(
-                case["model"].as_str().unwrap(),
-                case["observedAtMs"].as_u64().unwrap(),
-                case["tokens"].as_u64().unwrap()
-            )
-            .unwrap_or(Value::Null),
+            crate::pricing::built_in()
+                .quote(
+                    case["model"].as_str().unwrap(),
+                    case["observedAtMs"].as_u64().unwrap(),
+                    case["tokens"].as_u64().unwrap()
+                )
+                .unwrap_or(Value::Null),
             case["expected"],
             "{}",
             case["name"]
@@ -72,7 +73,7 @@ fn normative_quotes_and_weighted_ratios_have_independent_values() {
         assert_eq!(case["expected"], Value::Null, "{}", case["name"]);
         assert_eq!(case["pricesDiffer"], true, "{}", case["name"]);
     }
-    let table = crate::pricing::table();
+    let table = crate::pricing::Resolved::built_in().document();
     assert_eq!(table["models"].as_array().unwrap().len(), 4);
     assert_eq!(table["version"], "2026-10-14");
     assert!(
@@ -180,13 +181,15 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
     store.checkpoint(ID, through, 2, 2).unwrap();
     recorded_day(&mut store, start);
     let expected = json!({"basisPoints":154,"estimatedInputTokensAvoided":2700,"observedInputTokens":172680,"fromMs":start+MINUTE,"throughMs":start+crate::history::DAY});
-    let status = store.status(ID, Window::Day, through, Some(2)).unwrap();
+    let status = store
+        .status_built_in(ID, Window::Day, through, Some(2))
+        .unwrap();
     assert_eq!(status["estimatedInputTokensAvoided"], 2800);
     assert_eq!(status["cost"]["usdMicros"], 5600);
     assert_eq!(status["percent"], expected); // The edge event is not the ratio numerator.
     assert!(
         store
-            .status(ID, Window::Lifetime, through, Some(2))
+            .status_built_in(ID, Window::Lifetime, through, Some(2))
             .unwrap()["percent"]
             .is_null()
     );
@@ -198,7 +201,9 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
             .unwrap();
     }
     assert_eq!(
-        store.status(ID, Window::Day, through, Some(2)).unwrap()["percent"],
+        store
+            .status_built_in(ID, Window::Day, through, Some(2))
+            .unwrap()["percent"],
         expected
     );
     assert_eq!(
@@ -215,7 +220,9 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
     store
         .record_usage(ID, &UsagePage::parse(&bad, ID).unwrap())
         .unwrap();
-    let partial = store.status(ID, Window::Day, through, Some(2)).unwrap();
+    let partial = store
+        .status_built_in(ID, Window::Day, through, Some(2))
+        .unwrap();
     assert!(partial["percent"].is_null());
     assert_eq!(partial["cost"]["usdMicros"], 5600);
     assert_eq!(partial["complete"], true);
@@ -224,7 +231,9 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
     store
         .record_usage(ID, &UsagePage::parse(&improved, ID).unwrap())
         .unwrap();
-    let changed = store.status(ID, Window::Day, through, Some(2)).unwrap();
+    let changed = store
+        .status_built_in(ID, Window::Day, through, Some(2))
+        .unwrap();
     assert_eq!(changed["percent"], expected);
     assert_eq!(changed["cost"]["usdMicros"], 11200);
     assert_eq!(changed["cost"]["modelId"], "claude-opus-5-5");
@@ -232,7 +241,12 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
     store
         .record_usage(ID, &UsagePage::parse(&improved, ID).unwrap())
         .unwrap();
-    assert!(store.status(ID, Window::Day, through, Some(2)).unwrap()["cost"].is_null());
+    assert!(
+        store
+            .status_built_in(ID, Window::Day, through, Some(2))
+            .unwrap()["cost"]
+            .is_null()
+    );
     store
         .0
         .execute(
@@ -240,7 +254,12 @@ fn matched_period_restart_overlap_gaps_and_profile_changes_are_observable() {
             [(start + MINUTE) as i64],
         )
         .unwrap();
-    assert!(store.status(ID, Window::Day, through, Some(2)).unwrap()["percent"].is_null());
+    assert!(
+        store
+            .status_built_in(ID, Window::Day, through, Some(2))
+            .unwrap()["percent"]
+            .is_null()
+    );
 }
 
 #[test]
@@ -306,7 +325,9 @@ fn schema_one_read_is_unchanged_and_write_migration_preserves_savings() {
     let file = fixture.0.join("digest/history/history.sqlite");
     let before = fs::read(&file).unwrap();
     let reader = Store::open(&fixture.0, false).unwrap().unwrap();
-    let old = reader.status(ID, Window::Lifetime, 4000, Some(1)).unwrap();
+    let old = reader
+        .status_built_in(ID, Window::Lifetime, 4000, Some(1))
+        .unwrap();
     assert_eq!(old["estimatedInputTokensAvoided"], 2700);
     assert!(old["cost"].is_null() && old["percent"].is_null());
     drop(reader);
@@ -321,7 +342,9 @@ fn schema_one_read_is_unchanged_and_write_migration_preserves_savings() {
     );
     assert_eq!(writer.cursor(ID).unwrap(), Some(1));
     assert_eq!(
-        writer.status(ID, Window::Lifetime, 4000, Some(1)).unwrap()["estimatedInputTokensAvoided"],
+        writer
+            .status_built_in(ID, Window::Lifetime, 4000, Some(1))
+            .unwrap()["estimatedInputTokensAvoided"],
         2700
     );
 }
@@ -374,7 +397,7 @@ fn usage_shares_raw_budget_and_expiry_preserves_settlement_totals() {
     tx.commit().unwrap();
     assert_eq!(
         store
-            .status(ID, Window::Lifetime, start + 600000, Some(1))
+            .status_built_in(ID, Window::Lifetime, start + 600000, Some(1))
             .unwrap()["estimatedInputTokensAvoided"],
         2700
     );
@@ -391,7 +414,7 @@ fn usage_shares_raw_budget_and_expiry_preserves_settlement_totals() {
     );
     assert_eq!(
         store
-            .status(
+            .status_built_in(
                 ID,
                 Window::Lifetime,
                 start + 1200000 + super::super::RETENTION + MINUTE,

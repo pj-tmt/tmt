@@ -1,10 +1,12 @@
 //! Tick process locking and failure cleanup use a public Core fixture, never user state.
+mod support;
+
 use nix::fcntl::{Flock, FlockArg};
 use std::{
     fs::{self, OpenOptions},
     os::unix::fs::PermissionsExt,
     path::PathBuf,
-    process::{Command, Output},
+    process::Output,
     sync::atomic::{AtomicU64, Ordering},
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -46,7 +48,7 @@ esac
                 std::thread::sleep(std::time::Duration::from_millis(remaining as u64));
             }
         }
-        Command::new(env!("CARGO_BIN_EXE_tmt-digest"))
+        support::digest()
             .args(words)
             .env("TMT_EXECUTABLE", self.0.join("core"))
             .env("TMT_HOME", self.0.join("state"))

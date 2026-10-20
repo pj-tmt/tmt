@@ -1,9 +1,11 @@
 //! Observable settings and help process contract, isolated from the user's state.
 
+mod support;
+
 use std::{
     fs,
     path::PathBuf,
-    process::{Command, Output},
+    process::Output,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -24,7 +26,7 @@ impl Sandbox {
         Self(root)
     }
     fn run(&self, words: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_tmt-digest"))
+        support::digest()
             .args(words)
             .current_dir(&self.0)
             .env("HOME", &self.0)
@@ -149,7 +151,7 @@ esac
     let path = sandbox.0.join("digest.toml");
     fs::write(&path, "# keep\ndefault = '30m'\nflushCount = 10\n").unwrap();
     let run = |member: &str, value: &str| {
-        Command::new(env!("CARGO_BIN_EXE_tmt-digest"))
+        support::digest()
             .args([member, value])
             .env("TMT_EXECUTABLE", &core)
             .env("NO_COLOR", "1")

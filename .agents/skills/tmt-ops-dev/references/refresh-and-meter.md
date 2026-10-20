@@ -57,7 +57,8 @@
   validation drops only itself. Costs sum only within one `pricingVersion`; percents
   combine summed numerators over one exact interval and are recomputed once, never added or
   averaged; each unit keeps its own coverage and a `conflict` flag. The root `pricing`
-  table is read-only metadata for the Digest Details; the board never opens its sources.
+  table (with its `origin`: fetched, cached or built-in) is read-only metadata for the
+  Digest Details; the board never opens its sources and never fetches prices itself.
   Details observation times use the shared relative-age wording plus local `HH:MM`;
   absent, zero, future or invalid instants show `unknown`, never a fabricated age.
   The Overview Digest panel (`overview/summary.rs`) calls it over the visible roster, so

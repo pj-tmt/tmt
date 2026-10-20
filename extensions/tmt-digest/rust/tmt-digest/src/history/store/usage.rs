@@ -7,6 +7,7 @@ use crate::{
         MAX, invalid,
         usage::{MINUTE, UsagePage},
     },
+    pricing::Table,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
@@ -79,10 +80,10 @@ impl Store {
 
     pub(super) fn valuations(
         tx: &Transaction<'_>,
+        prices: &Table,
         id: &str,
         tokens: Option<u64>,
-        from: u64,
-        through: u64,
+        (from, through): (u64, u64),
         now: u64,
         recent: bool,
     ) -> (Value, Value) {
@@ -102,7 +103,7 @@ impl Store {
                 if observed > now {
                     return None;
                 }
-                crate::pricing::quote(&model, observed, tokens)
+                prices.quote(&model, observed, tokens)
             })
             .unwrap_or(Value::Null);
         let percent = if recent && tokens.is_some() {

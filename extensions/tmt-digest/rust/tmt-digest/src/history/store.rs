@@ -4,14 +4,10 @@ use super::{
     DAY, MAX, METHOD, RETENTION, invalid,
     model::{ChecklistSettlement, Window},
 };
-use crate::core::Error;
+use crate::{core::Error, pricing::Table};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Value, json};
-use std::{
-    fs,
-    os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
-    path::Path,
-};
+use std::{fs, os::unix::fs::OpenOptionsExt, path::Path};
 
 mod decision;
 mod settlement;
@@ -54,17 +50,13 @@ fn optional_number(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Op
     }
 }
 fn private(path: &Path, directory: bool) -> Result<(), Error> {
-    let meta = fs::symlink_metadata(path).map_err(io)?;
-    if meta.file_type().is_symlink()
-        || meta.is_dir() != directory
-        || (!directory && !meta.is_file())
-        || meta.mode() & 0o077 != 0
-    {
-        return Err(invalid(
-            "History paths must be private regular files/directories without symlinks",
-        ));
+    if crate::private::is_private(path, directory).map_err(io)? {
+        return Ok(());
     }
-    Ok(())
+    Err(not_private())
+}
+fn not_private() -> Error {
+    invalid("History paths must be private regular files/directories without symlinks")
 }
 impl Store {
     pub fn open(root: &Path, write: bool) -> Result<Option<Self>, Error> {
@@ -72,14 +64,9 @@ impl Store {
         let directory = digest.join("history");
         if write {
             for path in [&digest, &directory] {
-                match fs::symlink_metadata(path) {
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                        fs::DirBuilder::new().mode(0o700).create(path).map_err(io)?;
-                    }
-                    Err(e) => return Err(io(e)),
-                    Ok(_) => {}
+                if !crate::private::ensure_dir(path).map_err(io)? {
+                    return Err(not_private());
                 }
-                private(path, true)?;
             }
         } else {
             for path in [&digest, &directory] {
@@ -314,6 +301,7 @@ impl Store {
         window: Window,
         now: u64,
         observed_counter: Option<u64>,
+        prices: &Table,
     ) -> Result<Value, Error> {
         let tx = self.0.unchecked_transaction().map_err(io)?;
         let meta: Option<Snapshot> = tx.query_row("SELECT started,through,counter,pending,tokens,avoided,gap,raw_from FROM members WHERE id=?1",[id], |r| Ok(Snapshot {started:number(r,0)?,through:number(r,1)?,counter:number(r,2)?,pending:number(r,3)?,tokens:optional_number(r,4)?,avoided:optional_number(r,5)?,gap:r.get(6)?,raw_from:number(r,7)?})).optional().map_err(io)?;
@@ -371,10 +359,10 @@ impl Store {
         }
         let (cost, percent) = Self::valuations(
             &tx,
+            prices,
             id,
             tokens,
-            from,
-            through,
+            (from, through),
             now,
             window.duration().is_some(),
         );

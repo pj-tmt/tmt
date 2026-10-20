@@ -269,6 +269,7 @@ it('owns the default tmux socket directory and removes it with the sandbox', asy
         XDG_CACHE_HOME: path.join(sandbox.root, 'xdg-cache'),
         CODEX_HOME: path.join(sandbox.home, '.codex'),
         TMPDIR: path.join(sandbox.root, 'tmp'),
+        TMT_DIGEST_PRICING_URL: 'off',
         TMUX_TMPDIR: socketRoot,
         PATH: [path.dirname(process.execPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(
           path.delimiter

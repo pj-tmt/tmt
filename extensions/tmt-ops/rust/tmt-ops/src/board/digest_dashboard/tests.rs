@@ -881,6 +881,7 @@ pub(in crate::board) fn valued_document() -> serde_json::Value {
         "observedInputTokens": 81_800, "fromMs": 60_000, "throughMs": 120_000});
     document["pricing"] = serde_json::json!({
         "version": "2026-10-14", "asOf": "2026-10-14", "basis": "standard-base-input",
+        "origin": "fetched",
         "models": [
             {"modelId": "claude-opus-5-5", "usdMicrosPerMillionInputTokens": 4_000_000,
              "source": "https://example.test/anthropic-pricing"},
@@ -1027,7 +1028,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     press(&mut app, '3');
     let shown = paint(&mut app, 200, 60);
     for expected in [
-        "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input",
+        "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input (uncached input, list price) · source: fetched",
         "claude-opus-5-5: $4.00 per 1M input tokens · https://example.test/anthropic-pricing",
         "gpt-6-sol: $2.00 per 1M input tokens",
         "Cost quote: $12.40 at list price · gpt-6-sol at $2.00 per 1M input tokens · price table 2026-10-14",
@@ -1042,6 +1043,40 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
             "{expected}\n{shown}"
         );
     }
+    // The origin is the supplier's word: each known one is named, others are not.
+    for (origin, shown_as) in [
+        ("cached", Some("cached")),
+        ("built-in", Some("built-in")),
+        ("mirror", None),
+        ("", None),
+    ] {
+        let mut document = valued_document();
+        document["pricing"]["origin"] = serde_json::json!(origin);
+        let mut app = valued_board();
+        app.labels = crate::labels::Supplied::from_document("digest", &document, false);
+        press(&mut app, '3');
+        let shown = paint(&mut app, 200, 60);
+        let shown = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            shown.contains("Prices as of 2026-10-14"),
+            "{origin}\n{shown}"
+        );
+        match shown_as {
+            Some(name) => assert!(
+                shown.contains(&format!("source: {name}")),
+                "{origin}\n{shown}"
+            ),
+            None => assert!(!shown.contains("source:"), "{origin}\n{shown}"),
+        }
+    }
+    let mut older = valued_document();
+    older["pricing"].as_object_mut().unwrap().remove("origin");
+    let mut app = valued_board();
+    app.labels = crate::labels::Supplied::from_document("digest", &older, false);
+    press(&mut app, '3');
+    let shown = paint(&mut app, 200, 60);
+    assert!(shown.contains("Prices as of"), "{shown}");
+    assert!(!shown.contains("source:"), "{shown}");
     // Without a price table or valuations the details say nothing about them.
     let mut plain = savings_board();
     press(&mut plain, '3');

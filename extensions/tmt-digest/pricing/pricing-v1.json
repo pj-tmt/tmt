@@ -1,0 +1,28 @@
+{
+  "schema": "tmt-digest-pricing-v1",
+  "version": "2026-10-14",
+  "asOf": "2026-10-14",
+  "basis": "standard-base-input",
+  "models": [
+    {
+      "modelId": "claude-opus-5-5",
+      "usdMicrosPerMillionInputTokens": 4000000,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    {
+      "modelId": "claude-sonnet-5-5",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    {
+      "modelId": "gpt-6-sol",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6-sol"
+    },
+    {
+      "modelId": "gpt-6.1-sol",
+      "usdMicrosPerMillionInputTokens": 2000000,
+      "source": "https://developers.openai.com/api/docs/models/gpt-6.1-sol"
+    }
+  ]
+}

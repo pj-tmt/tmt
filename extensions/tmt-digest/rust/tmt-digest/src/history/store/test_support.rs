@@ -1,7 +1,10 @@
 //! Private store fixtures shared by settlement and valuation scenarios.
 use super::Store;
-use crate::history::model;
-use serde_json::json;
+use crate::{
+    core::Error,
+    history::{Window, model},
+};
+use serde_json::{Value, json};
 use std::{
     fs,
     path::PathBuf,
@@ -26,6 +29,24 @@ impl Fixture {
     }
     pub(super) fn store(&self) -> Store {
         Store::open(&self.0, true).unwrap().unwrap()
+    }
+}
+impl Store {
+    /// `status` at the built-in prices, for scenarios that are not about prices.
+    pub(crate) fn status_built_in(
+        &self,
+        id: &str,
+        window: Window,
+        now: u64,
+        observed_counter: Option<u64>,
+    ) -> Result<Value, Error> {
+        self.status(
+            id,
+            window,
+            now,
+            observed_counter,
+            crate::pricing::built_in(),
+        )
     }
 }
 impl Drop for Fixture {

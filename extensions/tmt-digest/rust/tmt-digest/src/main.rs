@@ -5,6 +5,7 @@ mod decisions;
 mod grammar;
 mod history;
 mod pricing;
+mod private;
 mod settings;
 mod status;
 mod tick;

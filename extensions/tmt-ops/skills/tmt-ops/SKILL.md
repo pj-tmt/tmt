@@ -309,7 +309,8 @@ Click any estimate to cycle its unit on every view at once: tokens (default), pe
 `workspace.savings_unit` (`tokens`, `percent`, `cost`), next to the window.
 Percent has no all-time form, so all time shows tokens and the cycle skips it.
 Cost is an estimate at list price for uncached input, never money saved or a bill;
-the Digest tab's Details list the price table and each member's quote and share.
+the Digest tab's Details list the price table, where it came from (fetched, cached or
+built-in) and each member's quote and share.
 A sum of percents needs one shared interval and a sum of costs one price table;
 otherwise it reads `— (intervals differ)` or `— (prices differ)`. The `savings-unit`
 action has no default key: bind one under `[bind]` and its hint appears beside a

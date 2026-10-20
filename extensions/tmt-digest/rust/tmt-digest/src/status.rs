@@ -13,6 +13,12 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     let core = Core::discover()?.until(Instant::now() + Duration::from_secs(15));
     let settings = DigestConfig::load(&core.settings_path()?)?;
     let identities = inventory(&core.json(&["identity", "ls"])?)?;
+    // The price fetch runs while Core is read and is joined before prices are used.
+    let root = core.data_root().ok();
+    let lookup = root
+        .as_deref()
+        .zip(crate::tick::now_ms().ok())
+        .map(|(root, now)| crate::pricing::Lookup::start(root, now));
     let mut stats = Vec::with_capacity(identities.len());
     for batch in identities.chunks(256) {
         let ids: Vec<_> = batch.iter().map(|(id, _)| id.as_str()).collect();
@@ -35,11 +41,9 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
     }
     let now = crate::tick::now_ms()?;
     let mut document = project(&settings, &identities, &stats, now)?;
-    document["pricing"] = crate::pricing::table();
-    let history = core
-        .data_root()
-        .ok()
-        .and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
+    let prices = lookup.map_or_else(crate::pricing::Resolved::built_in, |lookup| lookup.finish());
+    document["pricing"] = prices.document();
+    let history = root.and_then(|root| crate::history::Store::open(&root, false).ok().flatten());
     if let Some(history) = history {
         for (row, observation) in document["members"]
             .as_array_mut()
@@ -54,6 +58,7 @@ pub fn execute(window: crate::history::Window) -> Result<Value, Error> {
                     window,
                     now,
                     observation.and_then(|stats| stats.delivered),
+                    prices.table(),
                 )
                 .unwrap_or(Value::Null);
         }
