@@ -1,0 +1,39 @@
+/* The page's projects after its title: small chips, then the picker's own trigger. A phone keeps the
+   trigger alone; the picker names every project. */
+.page-header-projects {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.page-header-project-chip {
+  box-sizing: border-box;
+  max-width: 16ch;
+  min-height: 24px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid var(--tmt-ui-color-edge);
+  border-radius: 0;
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font: inherit;
+  font-size: var(--tmt-ui-caption-size);
+  line-height: var(--tmt-ui-caption-line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (max-width: 639px) {
+  .page-header-project-chip {
+    display: none;
+  }
+}
+.page-header-projects-status {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

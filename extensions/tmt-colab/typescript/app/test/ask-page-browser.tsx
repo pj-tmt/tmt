@@ -27,6 +27,7 @@ import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
 import type { ManagementPort } from '../src/management.js';
+import type { ProjectChange } from '../src/projects.js';
 import { commentsForAnswerBatch } from '../src/answer-batch.js';
 import { inspectQuestions } from '../src/questions.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
@@ -39,6 +40,7 @@ let root: Root | undefined;
 let sends: RemoteDouble;
 let dispatched: RemoteDouble[];
 let actions: string[];
+let projectRequests: ProjectChange[];
 let answerAttempts: {
   input: Parameters<AskBinding['prepare']>[0];
   selection: ReturnType<typeof selection>;
@@ -227,6 +229,8 @@ export async function mount(
     /** Presentation-only test port for the real Manage dialog. */
     management?: ManagementPort;
     strict?: boolean;
+    /** The viewer writes projects: the space's names and the ones this page is in. */
+    projects?: { names: string[]; current: string[] };
     /** The page is readable by anyone who holds its link. */
     shared?: boolean;
     /** The Remote door cannot be read, so the header shows its attention mark. */
@@ -253,6 +257,7 @@ export async function mount(
   sends = new RemoteDouble();
   dispatched = [];
   actions = [];
+  projectRequests = [];
   answerAttempts = [];
   readRefusal = undefined;
   records = options.pastReplies
@@ -881,13 +886,39 @@ export async function mount(
     files: { value: replacementFiles },
   });
   const remoteGeneration = {};
+  const projectState = options.projects && {
+    names: new Set(options.projects.names),
+    current: [...options.projects.current],
+  };
+  const projectPort = projectState
+    ? ({
+        async setProjects(changes: readonly ProjectChange[]) {
+          for (const change of changes) {
+            projectRequests.push(change);
+            projectState.current = [...change.projects];
+            for (const name of change.projects) projectState.names.add(name);
+          }
+        },
+        async manageProject() {},
+      } as unknown as ManagementPort)
+    : undefined;
   const transport: PageTransport = {
-    management: options.management,
+    management: options.management ?? projectPort,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
     async spaceHome() {
       return {
         title: 'Fixture space',
-        pages: [],
+        ...(projectState ? { projects: [...projectState.names] } : {}),
+        pages: projectState
+          ? [
+              {
+                id: id(1),
+                title: 'Live shared page',
+                sharing: 'private' as const,
+                projects: [...projectState.current],
+              },
+            ]
+          : [],
       };
     },
     async page(pageId) {
@@ -988,7 +1019,11 @@ export function seenProof() {
   return seenOpens;
 }
 export function proof() {
-  return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+  return {
+    sends: dispatched.flatMap((remote) => remote.sends),
+    actions,
+    projects: structuredClone(projectRequests),
+  };
 }
 export function answerBatchProof() {
   return structuredClone(answerAttempts);

@@ -75,6 +75,7 @@ export function PageHeaderActions({
   canManage,
   readOnly = false,
   canFiles,
+  canProjects,
   access,
   onSelect,
 }: {
@@ -87,10 +88,12 @@ export function PageHeaderActions({
   canExport: boolean;
   canManage: boolean;
   canFiles: boolean;
+  /** The viewer can set the page's projects (the picker is beside the title). */
+  canProjects: boolean;
   readOnly?: boolean;
   /** The page's sharing and connection words, the secondary text of the Share… item. */
   access: string;
-  onSelect(action: PageHeaderAction): void;
+  onSelect(action: PageHeaderAction | 'projects'): void;
 }) {
   const choice = useSyncExternalStore(subscribeTheme, getThemeChoice);
   const remoteAvailable = useRemoteHeaderSource();
@@ -107,6 +110,7 @@ export function PageHeaderActions({
         ),
         disabled: !canManage,
       },
+      ...(canProjects ? [{ key: 'projects', label: text.projectsItem }] : []),
       // A page that cannot hold a file and holds none has nothing to open; a writer keeps the entry,
       // which is where files are added.
       ...(files > 0 || canFiles
@@ -124,6 +128,7 @@ export function PageHeaderActions({
     ],
     onSelect: (key: string) => {
       if (key === 'share') onSelect('manage');
+      else if (key === 'projects') onSelect('projects');
       else if (
         key === 'manage' ||
         key === 'about' ||
