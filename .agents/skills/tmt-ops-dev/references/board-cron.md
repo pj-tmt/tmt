@@ -64,6 +64,30 @@ Count clicks freeze the painted UUID scope and reject superseded geometry.
 The shared cron projection retains earliest active-slot and next-run detail for
 job rows; the retired squad-tab jobs half owns no focus, geometry or controls.
 
+## Idle alert scan
+
+`idle_alert` is the clock tick's second duty: `Watch::advance` runs after `digest.advance` and the
+cron pass in `cron_clock::serve`, under the same lease, and is rebuilt when the lease is acquired.
+`Watch::due` allows one scan a minute. A clock's first look, a look after more than five minutes
+without a tick and a look after the clock moved back only record the time, so members are judged a
+minute after a wake, never at it. A scan re-reads `ops.toml` (settings change while a clock runs),
+lists the squads whose table sets `idle_alert.enabled`, and per enabled squad reads the roster and
+one `ls` through `Squad::members`: nothing for a squad with the alert off, no daemon, model call or
+stored state. `keep` renews the lease and reports cancellation between squads and before each send.
+
+`assess` is the one rule, shared with `ls --json` (`Observation::document` overlays `squad.idleAlert`
+and each row's `idleAlert`): the typed `board::activity` projection of Core's `session.activity`
+must be `idle` for at least `after` from its `sinceMs`. Pending text or a case-insensitive `hold`
+state excepts a member; the lead is marked but never announced to. `notices` needs exactly one
+lead. The operation UUID hashes a fixed domain, the room, member and lead UUIDs and `sinceMs`
+(`operation::uuid_v8`, shared with `cron::tick::operation_id`). Core compares the recipient, kind,
+origin and body; the body names the squad, member, idle start and threshold, never the scan time,
+and quotes the row line (cut per value and to 600 bytes) as of the first attempt. A retry whose row
+differs returns `DISPATCH_IDEMPOTENCY_CONFLICT`, which `send` reads as accepted. An uncertain create
+recovers with `dispatch.show`. The only memory is the in-clock set of accepted operation IDs that
+spares a repeat call each minute; a new clock repeats one call and Core makes it a no-op. Tests run
+the real scan against the fake Core of `cron_service::test_support`.
+
 ## Verification
 
 `cronboard` tests use disposable service fixtures; workspace App tests cover the

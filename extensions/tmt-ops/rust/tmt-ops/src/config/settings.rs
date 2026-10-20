@@ -202,6 +202,17 @@ impl Config {
             json!(format!("{}s", reminders.stale_after.as_secs())),
             &sources["stale_after"],
         );
+        let (idle_alert, sources) = self.idle_alert_settings(key)?;
+        out.push(
+            "idle_alert.enabled",
+            json!(idle_alert.enabled),
+            &sources["enabled"],
+        );
+        out.push(
+            "idle_alert.after",
+            json!(format!("{}s", idle_alert.after.as_secs())),
+            &sources["after"],
+        );
         for (provider, source) in self.provider_settings(key)? {
             out.push(
                 format!("fields.{}", provider.name),

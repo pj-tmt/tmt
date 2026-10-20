@@ -117,7 +117,7 @@ if a[0]=='api':
    save(m); fail('DISPATCH_FAILURE')
   intent={'input':i,'identity':q.get('identity'),'originator':q.get('originator')}
   dispatches=m.setdefault('announcements' if i['kind']=='announcement' else 'dispatches',{}); previous=dispatches.get(i['operationId'])
-  if previous and previous['intent']!=intent: save(m); fail('DISPATCH_OPERATION_CONFLICT')
+  if previous and previous['intent']!=intent: save(m); fail('DISPATCH_IDEMPOTENCY_CONFLICT')
   if previous: out=previous['receipt']
   else:
    out={'operationId':i['operationId'],'items':[{'recipientId':id,'acceptance':'queued','requestId':'req_'+i['operationId']} for id in i['recipientIds']]}
@@ -166,6 +166,8 @@ elif a[0]=='room' and a[1]=='show':
   room=next((room for room in m.get('otherRooms',{}).values() if a[2] in [room['id'],room['name']]),None)
   if room is None: fail('ROOM_NOT_FOUND')
  print(json.dumps({'room':room}))
+elif a[0]=='ls':
+ m['calls'].append({'command':a}); save(m); print(json.dumps({'identities':m.get('ls',[])}))
 elif a[0]=='room': print(json.dumps({'rooms':[{'id':m['room'],'name':m.get('roomName','squad-product')}]}))
 elif a[0]=='identity' and a[1]=='meta':
  id=a[a.index('--identity')+1]

@@ -1083,6 +1083,7 @@ fn squad_view(
     let rows = config.rows(&squad.name)?;
     let providers = config.providers(&squad.name)?;
     let reminders = config.reminders(&squad.name)?;
+    let idle_alert = config.idle_alert(&squad.name)?;
     let shows_notes = preview_panes || board.panes.contains(&Pane::Notes);
     let observation = timing::measure(trace, "observe::observe", || {
         crate::observe::observe(
@@ -1128,6 +1129,7 @@ fn squad_view(
                     states: &states,
                     sections: &sections,
                     rows: &rows,
+                    idle_alert,
                 },
             )
         })?;

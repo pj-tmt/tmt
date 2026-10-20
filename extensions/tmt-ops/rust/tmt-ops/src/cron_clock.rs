@@ -3,6 +3,7 @@ use crate::{
     config::Config,
     core::{Core, SquadError},
     cron_service::{self as service, CronActor, JobKey},
+    idle_alert,
     runner::{self, Cancellation},
     specs,
     squad::Squad,
@@ -454,6 +455,8 @@ fn serve(
     let mut digest = DigestTicks::new(core, foreground);
     let mut lease: Option<Lease> = None;
     let mut tick = Tick::new(now());
+    let mut idle = idle_alert::Watch::new();
+    let zone = jiff::tz::TimeZone::system();
     let mut last = json!({"action":"tick","accepted":0,"warnings":[],"complete":true});
     let result = (|| {
         while !cancellation.cancelled() {
@@ -483,6 +486,7 @@ fn serve(
                     return Err(occupied(&clock));
                 }
                 tick = Tick::new(time);
+                idle = idle_alert::Watch::new();
             }
             if let Some(owned) = lease.as_mut() {
                 digest.advance(time);
@@ -500,6 +504,16 @@ fn serve(
                     }
                     Err(error) => return Err(error),
                 };
+                // The second duty of this tick: tell a lead about a member idle too long.
+                let warnings = idle.advance(core, config.path(), time, &zone, &mut || {
+                    !cancellation.cancelled() && matches!(owned.renew(now()), Ok(true))
+                });
+                if !warnings.is_empty() {
+                    last["complete"] = json!(false);
+                    if let Some(list) = last["warnings"].as_array_mut() {
+                        list.extend(warnings.iter().map(SquadError::to_json));
+                    }
+                }
             }
             match stop.recv_timeout(EVERY) {
                 Err(RecvTimeoutError::Timeout) => {}

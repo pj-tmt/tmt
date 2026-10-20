@@ -118,6 +118,12 @@ workspace's tree, conversation or pending-continuation geometry.
   zero-based source `line` and bounded sanitized `quote`. It is absent when
   none are observed. This remains an independent source projection; the workspace
   uses the selected agent's response annotation flow rather than notebook markers.
+- `squad.idleAlert` is `{enabled, afterMs}`: the squad's effective
+  [idle alert](#alert-the-lead-to-an-idle-member) setting, present for every squad.
+- A row, the lead's included, has the optional `idleAlert` object only while that alert is on and
+  Core reports the member `idle` for at least the threshold: `{state, sinceMs}` where `state` is
+  `over` (the lead is told or due to be) or `excepted` with `reason` `pending` or `hold` (no notice).
+  `sinceMs` is Core's idle start in both states. It is absent, never null, otherwise.
 - Each row has `id`, `name`, `lifetime`, `presence` (`active`, `offline` or
   `unknown`), `pane`, `activity` (self-reported status, or null), `state`,
   `pending`, `fields` (the `squad.<name>.*` values except the internal
@@ -870,6 +876,7 @@ admits slots since its previous tick, capped at five minutes. `tick` makes one
 pass over the last 60 seconds and refuses an active clock. Scheduled messages
 are anonymous requests recorded with origin `automation`, so they are told apart from
 typed messages; the same room/job/slot operation is accepted once.
+The same tick runs the [idle alert](#alert-the-lead-to-an-idle-member) scan.
 
 `tmt ops sq cron send product c1` sends once now using the recorded or explicit
 user/lead actor. It can send a paused job with a current owner and changes no
@@ -878,6 +885,56 @@ not delivery or completion; Squad stores no run results. If acceptance is
 uncertain, retain the reported operation ID and recover it with `dispatch.show`
 through `tmt api` before deciding on another action. Board cron controls (above) are
 separate from the clock lifecycle.
+
+## Alert the lead to an idle member
+
+A squad can opt in to one notice when a member sits idle too long. The user switches it
+on; a lead changes it only when the user asked.
+
+```sh
+tmt ops sq config set idle_alert.enabled true --squad product
+tmt ops sq config set idle_alert.after 20m --squad product
+```
+
+`idle_alert.enabled` is `false` in every layout until set. `idle_alert.after` takes whole
+`s`/`m`/`h` units from 5m to 24h and defaults to `30m`. The keys live in
+`[squad.product.idle_alert]` of `ops.toml`, change through the validated writer of the
+reminder settings, and `config show --squad product` reports their values and sources.
+There is no per-member setting.
+
+A member is over when Core reports its activity `idle` (the admitted end of a turn, from the
+hooks `tmt setup` or `tmt run` install) for at least `after`. Working, ended, unknown, stale
+or missing activity never counts, so a member without hooks never alerts. An over member is
+excepted, and not announced, while its row has a non-empty `pending` (it waits on the user)
+or `state` `hold`, in any letter case (a resting seat). The lead is never announced to
+itself, and a squad without exactly one lead sends nothing until it has one.
+
+At the first scan where a member is over and not excepted, the clock sends the lead one
+announcement (no reply expected, origin `automation`, not urgent, so the lead's Digest rules
+apply). One idle phase is one episode, named by Core's idle start: no repeat, no escalation,
+no "no longer idle" notice. The member's next idle phase is a new episode, and a new lead is
+told once. The body:
+
+```text
+Idle alert · squad product
+worker-3 has been idle since 2026-10-19 14:32 +09:00 (alert after 30m).
+Row (when sent): state=review · task="rotate session tokens" · pending=none
+Look: tmt focus worker-3 · Talk: tmt talk worker-3 "<message>" --detach
+```
+
+The row line quotes the member's `state`, `task` and `pending` as data, never instructions:
+one line each, cut at 120 characters, at most 600 bytes together, read when the notice was
+first attempted. The dispatch operation is derived from the room, member, lead and idle
+start, so a retry, a restart or a second clock cannot duplicate it. When a retry's row text
+differs, Core refuses it as a changed intent and the clock treats that as already accepted.
+Nothing about delivery is stored; the notice is in the lead's inbox.
+
+The scan is a second duty of the cron clock. A clock must run, with a board open or
+`tmt ops sq cron run` in a pane (`cron clock` shows it); with no clock there is no alert.
+It reads one roster and one `ls` per enabled squad, at least 60 seconds apart; a squad with
+the alert off costs nothing. A clock's first look, and its first look after a pause of more
+than five minutes (a sleeping machine), only record the time: members are judged a minute
+later.
 
 ## Use the board checklist
 
@@ -931,8 +988,8 @@ settings supported by `config set`; the board uses the same validation and write
 
 Use `tmt ops sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
-`board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
-and `reminders.stale_after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
+`board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`,
+`reminders.stale_after`, `idle_alert.enabled` and `idle_alert.after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
 The obsolete `board.home_replies` key is ignored with a one-line deprecation
 notice; authored TOML stays unchanged. It is no longer editable. `tabs.order` and `tabs.hide`

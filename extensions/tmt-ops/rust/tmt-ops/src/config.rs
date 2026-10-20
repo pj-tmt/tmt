@@ -19,6 +19,7 @@ use tmt_extension_state::{Document as StateDocument, UpdateError};
 use toml_edit::{DocumentMut, Item, Table, TableLike, value};
 
 mod edit;
+mod idle_alert;
 mod rename;
 mod settings;
 mod sourced;
@@ -105,6 +106,8 @@ impl Default for Reminders {
         }
     }
 }
+
+pub use idle_alert::IdleAlert;
 
 /// The window requested from Digest's own retained evidence, not the token meter.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

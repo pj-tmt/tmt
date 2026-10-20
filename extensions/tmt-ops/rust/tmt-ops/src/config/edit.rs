@@ -26,6 +26,8 @@ impl Config {
                     | "notes.render"
                     | "reminders.enabled"
                     | "reminders.stale_after"
+                    | "idle_alert.enabled"
+                    | "idle_alert.after"
             ) || key
                 .strip_prefix("states.")
                 .and_then(|name| name.strip_suffix(".color"))
@@ -77,7 +79,7 @@ impl Config {
                     invalid("`board.startup_tab` must be last, overview, agents or digest.")
                 });
         }
-        if key == "reminders.enabled" {
+        if matches!(key, "reminders.enabled" | "idle_alert.enabled") {
             return text
                 .parse::<bool>()
                 .map(value)
