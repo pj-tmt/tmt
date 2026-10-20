@@ -231,7 +231,7 @@ export class Writer {
   }
   /** The saved writer state with any interrupted append finished first: exact stored bytes are
    * retried, never resealed. */
-  async #settled(c: Connection): Promise<SavedWriter> {
+  async #settled(c: Connection, current?: string): Promise<SavedWriter> {
     const state = (await this.record<SavedWriter>(this.key)) ?? { pending: null, completed: [] };
     exactKeys(state, ['pending', 'completed']);
     requireValue(
@@ -248,10 +248,13 @@ export class Writer {
       requireValue(head !== null);
       if (sealedRevision(state.pending.entry) < head.revision) {
         // Another page was created or shared since it was sealed. Its membership revision is part
-        // of the signed header, so no retry of these bytes is ever admitted. Its sender was told it
-        // was not accepted; the next write seals at the stream's head under the current revision.
+        // of the signed header, so no retry of these bytes is ever admitted. Whoever still waits on
+        // it is told it was refused, as for a taken sequence; the next write seals at the stream's
+        // head under the current revision, and a retry of the same write is that next write.
+        const dropped = state.pending.id;
         state.pending = null;
         await this.record(this.key, state);
+        if (dropped !== current) this.#result(dropped, false, null, true);
         return state;
       }
       // Includes signature/scope/authority checks on restored data.
@@ -282,7 +285,7 @@ export class Writer {
     requireValue(!this.#closed && this.#leader);
     const c = await this.connection();
     await c.ready;
-    const state = await this.#settled(c);
+    const state = await this.#settled(c, id);
     if (state.completed.includes(id)) return null;
     const entry = await c.run(async () => {
       // Own records are immutable and this leader orders every append of the stream, so a write

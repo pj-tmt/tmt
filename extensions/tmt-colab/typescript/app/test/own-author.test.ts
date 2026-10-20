@@ -73,8 +73,11 @@ class Socket extends EventTarget {
   }
 }
 class Channel {
+  static posted: unknown[] = [];
   onmessage = null;
-  postMessage() {}
+  postMessage(value: unknown) {
+    Channel.posted.push(value);
+  }
   close() {}
 }
 afterEach(() => vi.unstubAllGlobals());
@@ -389,6 +392,9 @@ async function writerOver(appends: (Error | undefined)[]) {
     save,
     appended,
     admission: w.admission,
+    /** What a restarted leader finds: an append left behind by an earlier page. */
+    leave: async (id: string) =>
+      records('own-author-refused', { pending: { id, entry: await sealed(w) }, completed: [] }),
     saved: () =>
       records<{
         pending: { entry: { seq: string; envelope: string } } | null;
@@ -446,6 +452,23 @@ it('drops a kept append sealed before the membership head moved, and seals the n
     expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5']);
     const [stale, fresh] = w.appended.map((entry) => sealedRevision(entry));
     expect([stale, fresh]).toEqual([REVISION, REVISION + 1n]);
+    expect((await w.saved())?.pending).toBeNull();
+  } finally {
+    w.writer.close();
+  }
+});
+
+it('tells whoever still waits on a dropped stale append that it was refused, and seals the next write anew (#4088)', async () => {
+  const w = await writerOver([undefined]);
+  try {
+    const id = crypto.randomUUID();
+    await w.leave(id);
+    w.admission.head = { revision: REVISION + 1n };
+    Channel.posted.length = 0;
+    await w.save();
+    expect(Channel.posted).toContainEqual({ type: 'append-refused', id });
+    expect(Channel.posted).toContainEqual({ type: 'result', id, ok: false });
+    expect(w.appended.map((entry) => sealedRevision(entry))).toEqual([REVISION + 1n]);
     expect((await w.saved())?.pending).toBeNull();
   } finally {
     w.writer.close();
