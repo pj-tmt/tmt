@@ -50,6 +50,13 @@ pub const ACQUISITION: Duration = Duration::from_secs(5);
 pub const RESPONSE: Duration = Duration::from_secs(1);
 /// Total time for a mounted extension to accept a request and reply.
 pub const MOUNT_RESPONSE: Duration = Duration::from_secs(15);
+/// One owner-socket display description; no request retries.
+pub const DESCRIBE_WAIT: Duration = Duration::from_secs(1);
+pub const DESCRIBE_BYTES: usize = 16 * 1024;
+pub const DESCRIBE_FRESH: Duration = Duration::from_secs(5);
+pub const DESCRIBE_STALE: Duration = Duration::from_secs(30);
+/// Module composition after authority checks, shared by every parallel describe.
+pub const SHELL_WAIT: Duration = Duration::from_millis(300);
 /// One demand-triggered object setup, including queue time; ordinary forwarding keeps its budget.
 pub const OBJECT_REACTIVATION: Duration = Duration::from_millis(250);
 /// Failed setups cannot turn a reconnect loop into an activation loop.
@@ -206,3 +213,15 @@ pub const NATIVE_DISCOVERY_RUN_PAGES: u16 = 257;
 /// Wake the terminal confirmation on SIGINT/SIGTERM without a detached stdin reader.
 pub const DEPLOY_CONFIRM_POLL_MS: u16 = 100;
 pub const DEPLOY_CONFIRM_BYTES: usize = 64;
+
+/// Module-description v1 scalar and collection bounds (display data only).
+pub const DESCRIBE_ID: usize = 32;
+pub const DESCRIBE_PATH: usize = 256;
+pub const DESCRIBE_RAIL_LABEL: usize = 16;
+pub const DESCRIBE_LABEL: usize = 40;
+pub const DESCRIBE_GROUP: usize = 24;
+pub const DESCRIBE_ORDER: u16 = 999;
+pub const DESCRIBE_COUNT: u16 = 9999;
+pub const DESCRIBE_MENU: usize = 24;
+pub const DESCRIBE_SETTINGS: usize = 16;
+pub const DESCRIBE_HOME: usize = 8;

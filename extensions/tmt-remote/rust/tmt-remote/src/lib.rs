@@ -46,6 +46,7 @@ pub mod rules;
 pub mod sealed_sync;
 pub mod session;
 pub mod settings;
+mod shell;
 pub mod site;
 pub mod state;
 pub mod store;

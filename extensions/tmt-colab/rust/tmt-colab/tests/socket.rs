@@ -6174,3 +6174,74 @@ fn a_page_with_a_full_epoch_of_decisions_saves_no_further_request() {
     assert_eq!(held, 0);
     assert_eq!(native_source(&layout, &key), "", "a request was saved");
 }
+
+#[test]
+fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
+    let root = PathBuf::from(format!(
+        "/tmp/tmt-describe-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let layout = Layout::open(&root).unwrap();
+    let key = Keyring::open(&layout).unwrap();
+    let space = key.space_id.clone();
+    let registration = Arc::new(Mutex::new(
+        Registration::with_decoder_config(
+            Store::open(&layout).unwrap(),
+            key,
+            support::decoder_config(env!("CARGO_BIN_EXE_tmt-colab").into()),
+        )
+        .unwrap(),
+    ));
+    let mount = MountSocket::bind(&layout, &space, Tunnels::PRODUCT)
+        .unwrap()
+        .with_registration(&layout, Arc::clone(&registration))
+        .unwrap();
+    let path = mount.path.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let worker = Some(std::thread::spawn(move || mount.run(&flag).unwrap()));
+    let running = Running {
+        save_gate: Arc::default(),
+        snapshot_gate: Arc::default(),
+        replacement: Arc::default(),
+        clock_fault: Arc::new(AtomicI32::new(-1)),
+        registration,
+        root,
+        path,
+        space,
+        stop,
+        worker,
+    };
+    let callback = Running::get(
+        "/.tmt/remote/describe",
+        "tmt-describe: 1\r\ntmt-mount: /r/abcdefghijklmnop/x/colab/\r\n",
+    );
+    let answer = running.request(&callback);
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["version"], 1);
+    assert_eq!(
+        body["needsYou"], 0,
+        "empty catalog has a known zero, not missing evidence"
+    );
+    assert_eq!(body["rail"]["path"], "/");
+    Store::open(&layout).unwrap().create_page(PAGE).unwrap();
+    let answer = running.request(&callback);
+    assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["rail"]["label"], "Colab");
+    assert!(
+        body.get("needsYou").is_none(),
+        "unknown must never become zero"
+    );
+    assert_eq!(body["menu"][0]["count"]["value"], 1);
+    let held = running.registration.lock().unwrap();
+    let answer = running.request(&callback);
+    assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
+    let body: Value = serde_json::from_str(answer.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body["error"]["code"], "COLAB_UNAVAILABLE");
+    drop(held);
+    let refused = running.request(&Running::get("/.tmt/remote/describe", ""));
+    assert!(refused.starts_with("HTTP/1.1 400"));
+}
