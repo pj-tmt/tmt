@@ -3410,6 +3410,8 @@ reconstruction ends with the last chunk, a protocol violation (order, count, has
 connection closing, and the catchup ends with the page's final frame, so a large page or a busy
 server only makes the page open slowly. Liveness stays with the server's 30 s WebSocket ping and
 the connection's close handling (#3975).
+A read of the page's own objects (attachment configuration and content) has no deadline either: it
+ends with its reply or the connection closing. An upload request keeps its own 15 s bound (#3982).
 Pre-hello live-only subscribe remains available without the hello credit flow.
 
 Pages are generated only when that peer's outbound queue is empty, its buffered

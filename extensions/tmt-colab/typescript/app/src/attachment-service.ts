@@ -19,9 +19,11 @@ import type { Connection } from './connection.js';
 import type { OwnRecord } from './fold-protocol.js';
 import { hex } from './export.js';
 
-/** Each object request carries its own bound; a late reply ends the connection's generation. */
+/** An upload request carries its own bound; a late reply ends the connection's generation. */
 const REQUEST_MS = 15_000;
-const READ_MS = 30_000;
+/** A read of the page's objects has no deadline: it ends with its reply or the connection closing,
+ * however large the object or busy the server (#3982). */
+const NO_DEADLINE = Number.POSITIVE_INFINITY;
 
 export interface AttachmentInput {
   filename: string;
@@ -153,7 +155,7 @@ export class AttachmentService implements AttachmentBinding {
   > {
     try {
       const c = await this.#channel(),
-        outcome = await c.attachmentObjects.config(this.#bound());
+        outcome = await c.attachmentObjects.config(NO_DEADLINE);
       if ('error' in outcome) return { reason: refusal(outcome), usage: outcome.error.usage };
       const { capabilities, limits } = outcome.ok as {
         capabilities: Record<string, unknown>;
@@ -356,7 +358,7 @@ export class AttachmentService implements AttachmentBinding {
           original.descriptor,
           original.base,
           c.attachmentObjects.verifier(original),
-          this.#bound(READ_MS),
+          NO_DEADLINE,
           this.options.sharing,
         ),
       );
@@ -391,7 +393,7 @@ export class AttachmentService implements AttachmentBinding {
   async read(selector: attachment.AttachmentSelector) {
     const c = selector.kind === 'document-current' ? await this.#fenced() : await this.#channel(),
       owner = { snapshot: (epoch?: string, bound?: number) => c.attachmentSnapshot(epoch, bound) },
-      deadline = this.#bound(READ_MS),
+      deadline = NO_DEADLINE,
       admitted = await AdmittedAttachmentRead.capture(
         owner,
         selector,

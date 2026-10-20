@@ -99,7 +99,8 @@ export class Connection {
       method: AttachmentObjectRequest['method'];
       resolve(value: AttachmentObjectOutcome): void;
       reject(error: Error): void;
-      timer: ReturnType<typeof setTimeout>;
+      /** Absent for a read that has no deadline of its own. */
+      timer: ReturnType<typeof setTimeout> | undefined;
     }
   >();
   readonly ready: Promise<Projection>;
@@ -227,7 +228,7 @@ export class Connection {
    * by the object adapter, never substituted with the current projection. */
   async attachmentSnapshot(
     epoch = this.admission.epoch,
-    deadline = performance.now() + 15_000,
+    deadline = Number.POSITIVE_INFINITY,
   ): Promise<AttachmentSnapshot> {
     if (epoch !== this.admission.epoch) {
       // The detached source awaits outside run(): its responses arrive through
@@ -258,18 +259,20 @@ export class Connection {
     await this.ready;
     requireValue(
       !this.#stopped &&
-        Number.isFinite(deadline) &&
+        !Number.isNaN(deadline) &&
         performance.now() < deadline &&
         this.#objectReplies.size < 8,
     );
     const requestId = crypto.randomUUID();
     return new Promise((resolve, reject) => {
-      // The caller's own bound is the only deadline: a large read may take longer than any fixed
-      // cap while the connection stays alive, and a close rejects it.
-      const timer = setTimeout(
-        () => this.close(new Error('Storage unavailable')),
-        deadline - performance.now(),
-      );
+      // The caller's own bound is the only deadline. A read that has none (an infinite deadline)
+      // ends with its reply or the connection closing, however long a large object takes.
+      const timer = Number.isFinite(deadline)
+        ? setTimeout(
+            () => this.close(new Error('Storage unavailable')),
+            deadline - performance.now(),
+          )
+        : undefined;
       this.#objectReplies.set(requestId, { method: request.method, resolve, reject, timer });
       try {
         this.send('object', { requestId, request });
