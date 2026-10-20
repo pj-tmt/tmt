@@ -4243,7 +4243,7 @@ remain unavailable. No schema, dependency or separate replay store is added.
 
 `tmt colab skill [<name>]` prints human-only guidance before core discovery or
 state access. Without a name it prints the embedded root `SKILL.md` exactly.
-Names are compile-time keys (`links`, `page-style`, `questions`),
+Names are compile-time keys (`layout`, `components`, `links`, `page-style`, `questions`),
 not paths; unknown names return `COLAB_INPUT_INVALID` and list the valid keys.
 Each root pointer names both `references/<name>.md` in the installed skill tree
 and the offline command. Authority, pairing, bearer-seed, user-only sharing,
