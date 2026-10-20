@@ -64,6 +64,16 @@ function PageHeaderIcon({
   );
 }
 
+/** Where the More trigger is (the last visible button of the page header's actions, outside any open
+ * menu), for a menu opened from one of its items that belongs under it. */
+export function moreButtonRect(): DOMRect | undefined {
+  const rects = [...document.querySelectorAll('.page-header-actions button')]
+    .filter((button) => !button.closest('dialog, [role="menu"]'))
+    .map((button) => button.getBoundingClientRect())
+    .filter((rect) => rect.width > 0);
+  return rects[rects.length - 1];
+}
+
 /** Search, Chat and Agents stay in the header; everything else lives in the More menu (#4116). */
 export function PageHeaderActions({
   active,

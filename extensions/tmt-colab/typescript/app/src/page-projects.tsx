@@ -67,6 +67,7 @@ export function PageProjects({
   transport,
   pageId,
   request,
+  from,
   open,
   onLoaded,
 }: {
@@ -74,6 +75,9 @@ export function PageProjects({
   pageId: string;
   /** Changes to open the picker, from the chips and from Projects… in the More menu. */
   request: number;
+  /** Where the request came from when it is not the chips: the More trigger's box, which the picker
+   * opens under (right-aligned like the More menu itself) instead of under the chips. */
+  from?: { top: number; left: number; width: number; height: number };
   open(): void;
   /** Whether the picker can open: the viewer writes projects and the page is in the owner list. */
   onLoaded(available: boolean): void;
@@ -157,7 +161,11 @@ export function PageProjects({
           </button>
         )}
         {/* The picker's own trigger is the menu's anchor, never shown: the chips and More open it. */}
-        <span className="page-header-projects-anchor">
+        <span
+          className="page-header-projects-anchor"
+          data-from={from ? 'more' : 'chips'}
+          style={from && { top: from.top, left: from.left, width: from.width, height: from.height }}
+        >
           <PageProjectsMenu
             page={page}
             names={names}

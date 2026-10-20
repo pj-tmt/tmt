@@ -32,7 +32,7 @@ import {
   MousePointer2,
   Sun,
 } from 'lucide-react';
-import { PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
+import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
 import { ColabHeader } from './colab-header.js';
 import { PageAttribution } from './page-attribution.js';
 import { PageLayoutSection } from './page-layout-section.js';
@@ -1012,9 +1012,10 @@ function Page() {
   useEffect(() => setChatActivation(undefined), [snapshot.binding]);
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
-  const [projectsRequest, setProjectsRequest] = useState(0);
+  const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
   const [canProjects, setCanProjects] = useState(false);
-  const openProjects = () => setProjectsRequest((count) => count + 1);
+  const openProjects = (from?: DOMRect) =>
+    setProjects((previous) => ({ request: previous.request + 1, from }));
   const toggle = (value: PageHeaderAction) => {
     if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
@@ -1802,8 +1803,9 @@ function Page() {
           <PageProjects
             transport={transport}
             pageId={snapshot.id}
-            request={projectsRequest}
-            open={openProjects}
+            request={projects.request}
+            from={projects.from}
+            open={() => openProjects()}
             onLoaded={setCanProjects}
           />
         }
@@ -1907,7 +1909,9 @@ function Page() {
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
             canProjects={canProjects}
-            onSelect={(action) => (action === 'projects' ? openProjects() : toggle(action))}
+            onSelect={(action) =>
+              action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
+            }
           />
         }
       />

@@ -141,6 +141,23 @@ test('the chips and Projects… in More open the same picker', async ({ page }) 
   await expect(page.getByRole('menuitemcheckbox')).toHaveCount(3);
 });
 
+for (const width of [1440, 390])
+  test(`the picker opened from More → Projects… sits right-aligned under More at ${width}`, async ({
+    page,
+  }) => {
+    const header = await open(page, width, 'light');
+    await (await pageAction(page.locator('#ask-page-fixture'), 'Projects…')).click();
+    const picker = page.locator('dialog[open]:has([role="menuitemcheckbox"])');
+    await expect(picker).toBeVisible();
+    const more = (await header.getByRole('button', { name: 'More', exact: true }).boundingBox())!;
+    const box = (await picker.boundingBox())!;
+    // Under the More button, flush with its right edge, never floating under the title.
+    expect(box.y).toBeGreaterThanOrEqual(more.y + more.height - 2);
+    expect(box.x + box.width).toBeLessThanOrEqual(more.x + more.width + 2);
+    expect(box.x + box.width).toBeGreaterThanOrEqual(more.x + more.width - 12);
+    await capture(page, `projects-picker-from-more-${width}-light.png`);
+  });
+
 test('a page in eight projects cannot take a ninth or a new one', async ({ page }) => {
   const eight = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8'];
   const header = await open(page, 1440, 'light', { current: eight, all: [...eight, 'p9'] });

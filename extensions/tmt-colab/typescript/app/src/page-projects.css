@@ -47,6 +47,19 @@
   inset-block-start: 0;
   inset-inline-start: 0;
 }
+/* Opened from More, the anchor is the More button's own box, so the picker opens under it. */
+.page-header-projects-anchor[data-from='more'] {
+  position: fixed;
+}
+.page-header-projects-anchor[data-from='more'] :is(.tmt-ui-menu, .tmt-ui-icon-action) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.page-header-projects-anchor[data-from='more'] .tmt-ui-icon-action-control {
+  width: 100%;
+  height: 100%;
+}
 /* Only the trigger is hidden: the menu opens from it and stays visible and clickable. */
 .page-header-projects-anchor .tmt-ui-icon-action-control {
   visibility: hidden;
