@@ -167,7 +167,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ),
                 (
                     "wheel",
-                    "scroll the pane under the pointer without moving the selected target",
+                    "scroll the pane under the pointer without moving the selected target; if the wheel scrolls tmux instead, run tmux set -g mouse on",
                 ),
                 (
                     "divider drag",

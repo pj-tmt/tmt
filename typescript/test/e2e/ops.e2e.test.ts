@@ -1003,6 +1003,65 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('asks the terminal for the mouse again after a resize or a closed overlay, so the wheel stays with the board', async () => {
+    await withE2EFixture(async (fixture) => {
+      installSquad(fixture);
+      expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('wheel-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'tmt ops ui; echo WHEEL_BOARD_EXIT=$?',
+        'Enter',
+      ]);
+      await fixture.waitForCapture((screen) => screen.includes('OPS / UI'), shell.pane);
+
+      // tmux sends the wheel to the pane only while the pane asks for mouse reports
+      // (`mouse_any_flag`); without them its default binding enters copy-mode.
+      const reports = () =>
+        fixture
+          .tmux([
+            'display-message',
+            '-p',
+            '-t',
+            shell.pane,
+            '#{mouse_any_flag}#{mouse_sgr_flag}#{pane_in_mode}',
+          ])
+          .trim();
+      const dropRequest = () => {
+        // What a nested client, a multiplexer or an emulator reset does to the request.
+        const tty = fixture.tmux(['display-message', '-p', '-t', shell.pane, '#{pane_tty}']).trim();
+        fs.writeFileSync(tty, '\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1015l\u001b[?1006l');
+      };
+      await fixture.waitFor(() => reports() === '110', 5_000, 'board asked for mouse reports');
+
+      dropRequest();
+      await fixture.waitFor(() => reports() === '000', 2_000, 'request dropped');
+      fixture.tmux(['resize-window', '-t', shell.pane, '-x', '90', '-y', '24']);
+      await fixture.waitFor(() => reports() === '110', 5_000, 'mouse asked again after resize');
+
+      dropRequest();
+      await fixture.waitFor(() => reports() === '000', 2_000, 'request dropped again');
+      fixture.tmux(['send-keys', '-t', shell.pane, '?']);
+      await fixture.waitForCapture((screen) => screen.includes('help'), shell.pane);
+      expect(reports(), 'an open overlay does not ask').toBe('000');
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitFor(() => reports() === '110', 5_000, 'mouse asked again after overlay');
+
+      // An idle board has no resize, focus or overlay to repair the request: the
+      // periodic refresh (5 s by default) asks again with no user action.
+      dropRequest();
+      await fixture.waitFor(() => reports() === '000', 2_000, 'request dropped on an idle board');
+      await fixture.waitFor(() => reports() === '110', 10_000, 'mouse asked again by the refresh');
+
+      fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
+      await fixture.waitForCapture((screen) => screen.includes('WHEEL_BOARD_EXIT=0'), shell.pane);
+    });
+  });
+
   it('closes a --popup board after its jump and keeps the pane board open', async () => {
     await withE2EFixture(async (fixture) => {
       const member = await squadWithMember(fixture);

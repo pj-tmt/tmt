@@ -483,6 +483,7 @@ fn session(
     labels_window: impl Fn(crate::config::DigestWindow),
     usage_wants: impl Fn(Option<usage_report::Since>),
     mut suspend: impl FnMut() -> io::Result<()>,
+    mut reassert_mouse: impl FnMut() -> io::Result<()>,
     mut state: Option<&mut view_state::Session>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
@@ -496,6 +497,10 @@ fn session(
     let mut marks = view::time_marks(app, crate::status::now_ms());
     let mut spinner = view::spinner_frame(app, Instant::now());
     let mut last_input = Instant::now();
+    let mut modal_was_open = false;
+    // The terminal may have dropped the mouse request; it is asked for again
+    // before the next frame, or at the end of this turn when none is due.
+    let mut capture_lost = false;
     let mut wanted: Option<usage_report::Since> = None;
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
@@ -1000,7 +1005,13 @@ fn session(
                 dirty = true;
                 app.paste(&text)
             }
+            Ok(BoardEvent::Input(Event::FocusGained)) => {
+                capture_lost = true;
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                capture_lost = true;
                 if let Some(discovery) = &mut app.discovery {
                     discovery.changed();
                 }
@@ -1157,6 +1168,17 @@ fn session(
                 app.history_demand(),
             );
             refreshed = Instant::now();
+            // An idle board has no resize, focus or overlay to repair a dropped
+            // request: the periodic refresh asks again (a few idempotent bytes, no frame).
+            capture_lost = true;
+        }
+        // A closed overlay or menu is the last moment the board can be sure the
+        // terminal still reports the mouse.
+        let modal = app.modal_open();
+        capture_lost |= modal_was_open && !modal;
+        modal_was_open = modal;
+        if std::mem::take(&mut capture_lost) {
+            reassert_mouse()?;
         }
     }
 }
@@ -1397,6 +1419,7 @@ pub fn run(
             resumed.set(true);
             Ok(())
         },
+        || terminal::reassert_mouse(&mut io::stdout()),
         view_state.as_mut(),
         |app| {
             if resumed.replace(false) {
@@ -1490,6 +1513,7 @@ mod tests {
                 io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 || Ok(()),
                 None,
                 draw,
@@ -2298,6 +2322,7 @@ mod tests {
             |window| windows.borrow_mut().push(window),
             |_| {},
             || Ok(()),
+            || Ok(()),
             None,
             |_| Ok(()),
         )
@@ -2446,6 +2471,7 @@ mod tests {
                 events.send(BoardEvent::InputClosed).unwrap();
                 Ok(())
             },
+            || Ok(()),
             None,
             |_| {
                 paints.set(paints.get() + 1);
@@ -2648,6 +2674,7 @@ mod tests {
                 |_| {},
                 |_| {},
                 || Ok(()),
+                || Ok(()),
                 None,
                 |app| {
                     painted
@@ -2708,6 +2735,7 @@ mod tests {
                 no_io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 || Ok(()),
                 None,
                 |app| {
@@ -2772,6 +2800,7 @@ mod tests {
                     |_| {},
                     |_| {},
                     || Ok(()),
+                    || Ok(()),
                     None,
                     |_| {
                         painted.send(()).unwrap();
@@ -2817,6 +2846,7 @@ mod tests {
                 no_io,
                 |_| {},
                 |_| {},
+                || Ok(()),
                 || Ok(()),
                 None,
                 |_| {
@@ -3022,6 +3052,95 @@ mod tests {
             |_| Ok(()),
         )
         .unwrap()
+    }
+
+    /// The terminal can drop the mouse request without telling the board (a
+    /// nested client, a multiplexer or an emulator reset). Each of these moments
+    /// asks for it again, so the wheel never falls to tmux's copy-mode.
+    #[test]
+    fn resize_focus_a_closed_overlay_and_the_refresh_tick_each_ask_for_the_mouse_again() {
+        // Returns how often the mouse was asked for, how often a frame was drawn
+        // and whether an overlay was ever open, for a session fed `events`.
+        let run = |events: Vec<BoardEvent>, refresh: Option<Duration>| {
+            let mut app = app::workspace::tests::board();
+            app.view.as_mut().unwrap().refresh = refresh;
+            let (sender, input) = channel();
+            let asked = std::cell::Cell::new(0);
+            let frames = std::cell::Cell::new(0);
+            let overlay_seen = std::cell::Cell::new(false);
+            let stop = AtomicUsize::new(0);
+            std::thread::scope(|scope| {
+                // The ticking case needs wall time; the others end with their input.
+                if refresh.is_some() {
+                    let sender = sender.clone();
+                    scope.spawn(move || {
+                        std::thread::sleep(Duration::from_millis(200));
+                        let _ = sender.send(BoardEvent::InputClosed);
+                    });
+                }
+                for event in events {
+                    sender.send(event).unwrap();
+                }
+                super::session(
+                    &mut app,
+                    &stop,
+                    &input,
+                    |_, _, _, _| {},
+                    |_, _| {},
+                    |_| {},
+                    no_io,
+                    |_| {},
+                    |_| {},
+                    || Ok(()),
+                    || {
+                        asked.set(asked.get() + 1);
+                        Ok(())
+                    },
+                    None,
+                    |app| {
+                        frames.set(frames.get() + 1);
+                        overlay_seen.set(overlay_seen.get() | app.modal_open());
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            });
+            (asked.get(), frames.get(), overlay_seen.get())
+        };
+        let closed = || BoardEvent::InputClosed;
+        assert_eq!(
+            run(vec![closed()], None).0,
+            0,
+            "a quiet board asks for nothing"
+        );
+        assert_eq!(
+            run(
+                vec![BoardEvent::Input(Event::Resize(100, 30)), closed()],
+                None
+            )
+            .0,
+            1
+        );
+        assert_eq!(
+            run(vec![BoardEvent::Input(Event::FocusGained), closed()], None).0,
+            1
+        );
+        // An open overlay alone does not ask; closing it does.
+        let opened = run(vec![key(KeyCode::Char('?')), closed()], None);
+        assert_eq!(
+            (opened.0, opened.2),
+            (0, true),
+            "help is open: nothing asked yet"
+        );
+        let shut = run(
+            vec![key(KeyCode::Char('?')), key(KeyCode::Esc), closed()],
+            None,
+        );
+        assert_eq!((shut.0, shut.2), (1, true), "closing help asks again");
+        // An idle board repairs itself on the existing refresh tick, without a frame.
+        let (asked, frames, _) = run(vec![], Some(Duration::from_millis(20)));
+        assert!(asked >= 3, "each refresh tick asks again, asked {asked}");
+        assert_eq!(frames, 1, "ticks are not paint changes");
     }
 
     #[test]

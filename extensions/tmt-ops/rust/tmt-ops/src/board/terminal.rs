@@ -7,8 +7,9 @@ pub(super) mod background;
 use ratatui::crossterm::{
     cursor::{Hide, Show},
     event::{
-        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-        KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{
@@ -38,6 +39,14 @@ pub trait Screen {
             reply: None,
         })
     }
+}
+
+/// Asks again for the mouse reports (1000/1002/1003/1015/1006). Setting a mode
+/// that is already set changes nothing, so it is safe at any time; it repairs a
+/// request a multiplexer, a nested client or an emulator reset has dropped, which
+/// would otherwise leave the wheel to the surrounding tmux pane (copy-mode).
+pub fn reassert_mouse(output: &mut impl io::Write) -> io::Result<()> {
+    execute!(output, EnableMouseCapture)
 }
 
 /// Only the terminal owner changes this flag; the panic hook needs the same
@@ -116,6 +125,7 @@ impl Screen for Crossterm {
             output,
             EnterAlternateScreen,
             EnableMouseCapture,
+            EnableFocusChange,
             EnableBracketedPaste,
             Hide
         )?;
@@ -142,6 +152,7 @@ impl Screen for Crossterm {
         let screen = execute!(
             io::stdout(),
             DisableBracketedPaste,
+            DisableFocusChange,
             DisableMouseCapture,
             LeaveAlternateScreen,
             Show
@@ -294,6 +305,20 @@ mod tests {
         let mut off = Vec::new();
         write_modify_other_keys(&mut off, false).unwrap();
         assert_eq!(off, b"\x1b[>4;0m");
+    }
+
+    #[test]
+    fn reasserting_the_mouse_sends_the_same_request_as_entering() {
+        let mut sent = Vec::new();
+        reassert_mouse(&mut sent).unwrap();
+        let mut entered = Vec::new();
+        execute!(&mut entered, EnableMouseCapture).unwrap();
+        assert_eq!(sent, entered);
+        let text = String::from_utf8(sent).unwrap();
+        // Button and drag reports plus the SGR encoding the wheel arrives in.
+        for mode in ["1000", "1002", "1006"] {
+            assert!(text.contains(&format!("\x1b[?{mode}h")), "{text:?}");
+        }
     }
 
     #[test]
