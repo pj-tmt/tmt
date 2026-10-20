@@ -809,6 +809,8 @@ fn frame_rows_never_retain_old_roster_filter_or_membership_authority() {
     assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
     app.search.clear();
+    app.workspace_reconcile();
+    assert_eq!(app.workspace_selection_state(), SelectionState::Visible);
     app.workspace.expanded.clear();
     app.workspace_reconcile();
     paint(&app, 160, 36);
@@ -4008,7 +4010,7 @@ fn in_place_search_edits_retained_query_and_moves_rows_before_enter() {
 }
 
 #[test]
-fn search_follows_first_match_and_clearing_restores_the_original_selection() {
+fn search_follows_first_match_and_clearing_keeps_the_current_selection() {
     for tab in [OpsTab::Overview, OpsTab::Agents] {
         let mut app = populated_board(8, 28);
         app.shell.tab = tab;
@@ -4085,7 +4087,7 @@ fn search_follows_first_match_and_clearing_restores_the_original_selection() {
         );
         key(&mut app, KeyCode::Esc);
         assert!(app.search.is_empty());
-        assert_eq!(app.workspace.selected, Some(original));
+        assert_eq!(app.workspace.selected, matched);
     }
 }
 
@@ -4152,7 +4154,7 @@ fn changing_a_query_restarts_at_the_first_match_but_arrows_keep_their_selection(
 }
 
 #[test]
-fn clearing_search_does_not_restore_an_anchor_removed_from_the_roster() {
+fn clearing_search_keeps_current_selection_when_the_previous_target_disappears() {
     let mut app = populated_board(8, 28);
     app.shell.tab = OpsTab::Agents;
     let original = OpsTarget::Squad(
@@ -4255,7 +4257,129 @@ fn shared_search_field_pointer_activation_edits_without_retargeting_or_clearing(
 }
 
 #[test]
-fn agents_search_count_lives_on_squads_rule_and_highlights_matching_name() {
+fn clearing_search_keeps_exact_occurrence_and_reveals_it_in_the_full_list() {
+    for tab in [OpsTab::Overview, OpsTab::Agents] {
+        for clear in ["editing-esc", "committed-esc", "click"] {
+            let mut app = populated_board(8, 56);
+            app.shell.tab = tab;
+            app.overview_view = crate::board::overview::monitor::View::Agents;
+            let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+            let id = "66666666-6666-4666-8666-000000000055";
+            let duplicate_room = snapshot.roster.squads[6].room_id.clone();
+            snapshot.roster.squads[6].members.push(id.into());
+            snapshot.rows.insert(
+                OpsTarget::Member {
+                    room_id: Some(duplicate_room),
+                    identity_id: id.into(),
+                },
+                json!({"id":id,"name":"agent-00055"}),
+            );
+            app.workspace.expanded.clear();
+            app.workspace_reconcile();
+            key(&mut app, KeyCode::Char('/'));
+            app.paste("agent-000");
+            let index = app.workspace_rows().iter().rposition(|row| matches!(&row.target, OpsTarget::Member { identity_id, .. } if identity_id == id)).unwrap();
+            // Arrow through the filtered rows rather than assigning a target.
+            for _ in 0..index {
+                key(&mut app, KeyCode::Down);
+            }
+            let selected = app.workspace.selected.clone().unwrap();
+            assert!(
+                matches!(&selected, OpsTarget::Member { identity_id, .. } if identity_id == id)
+            );
+            if clear != "editing-esc" {
+                key(&mut app, KeyCode::Enter);
+            }
+            if clear == "click" {
+                paint(&app, 160, 24);
+                let area = app
+                    .workspace_strip_hits
+                    .borrow()
+                    .iter()
+                    .find_map(|(area, choice)| {
+                        matches!(choice, Choice::ClearSearch).then_some(*area)
+                    })
+                    .expect("visible clear control");
+                app.mouse(
+                    MouseEvent {
+                        kind: MouseEventKind::Down(MouseButton::Left),
+                        column: area.x,
+                        row: area.y,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    Instant::now(),
+                );
+            } else {
+                key(&mut app, KeyCode::Esc);
+            }
+            assert!(!app.searching && app.search.is_empty() && app.workspace.query.is_empty());
+            assert_eq!(
+                app.workspace.selected.as_ref(),
+                Some(&selected),
+                "{tab:?} {clear}"
+            );
+            paint(&app, 160, 24);
+            assert!(app.hits.borrow().iter().any(|hit| matches!(hit.target, HitTarget::Row(index) if app.workspace_rows()[index].target == selected)), "selected occurrence is scrolled into view: {tab:?} {clear}");
+            assert!(
+                !app.workspace_strip_hits
+                    .borrow()
+                    .iter()
+                    .any(|(_, choice)| matches!(choice, Choice::ClearSearch))
+            );
+        }
+    }
+}
+
+#[test]
+fn committed_search_releases_list_shortcuts_and_clear_invalidates_pointer_hits() {
+    let mut app = configured_member(
+        "[bind]\nf7 = 'search'\n",
+        json!({"id":MEMBER,"name":"worker"}),
+    );
+    app.focus = 1;
+    assert_eq!(
+        app.workspace_input_owner(),
+        crate::board::shell::OpsInputOwner::Reader
+    );
+    key(&mut app, KeyCode::F(7));
+    assert!(app.searching && app.input.is_none());
+    app.paste("worker");
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.workspace_input_owner(),
+        crate::board::shell::OpsInputOwner::List
+    );
+    key(&mut app, KeyCode::Char('?'));
+    assert!(app.help && !app.searching);
+    key(&mut app, KeyCode::Esc);
+    assert!(!app.help && app.search == "worker");
+    paint(&app, 160, 44);
+    let area = app
+        .workspace_strip_hits
+        .borrow()
+        .iter()
+        .find_map(|(area, choice)| matches!(choice, Choice::ClearSearch).then_some(*area))
+        .unwrap();
+    key(&mut app, KeyCode::Esc);
+    assert!(app.workspace_strip_hits.borrow().is_empty());
+    let selected = app.workspace.selected.clone();
+    app.mouse(
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: area.x,
+            row: area.y,
+            modifiers: KeyModifiers::NONE,
+        },
+        Instant::now(),
+    );
+    assert_eq!(app.workspace.selected, selected);
+    assert!(!app.searching);
+    key(&mut app, KeyCode::Esc);
+    assert!(app.search.is_empty() && app.input.is_none() && app.menu.is_none());
+}
+
+#[test]
+fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
     app.search = "worker".into();
@@ -4274,12 +4398,15 @@ fn agents_search_count_lives_on_squads_rule_and_highlights_matching_name() {
         .iter()
         .find(|line| line.contains("── Squads"))
         .expect("Squads section rule");
-    assert!(rule.contains("1 of 1 agents"), "{rule}");
+    assert!(!rule.contains("of 1"), "{rule}");
     let filter = lines
         .iter()
         .find(|line| line.contains("/  worker"))
         .expect("shared search field");
-    assert!(!filter.contains("of 1"));
+    assert!(
+        filter.contains("1 of 1") && filter.contains('×'),
+        "{filter}"
+    );
     let name_row = app
         .hits
         .borrow()
@@ -4548,7 +4675,10 @@ fn snapshots_shortcut_yields_to_search_and_the_existing_composer() {
     assert_eq!(key(&mut app, KeyCode::Char('w')), Effect::None);
     assert_eq!(app.search, "w");
     assert!(!app.recovery_shown());
+    key(&mut app, KeyCode::Down);
+    let selected = app.workspace.selected.clone();
     key(&mut app, KeyCode::Esc);
+    assert_eq!(app.workspace.selected, selected);
     paint(&app, 160, 44);
     key(&mut app, KeyCode::Enter);
     assert!(app.input.is_some());

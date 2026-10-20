@@ -437,6 +437,64 @@ fn captures() -> Value {
                 }
             }
         }
+        // Search has its own committed indicator and clear hit. These additive
+        // scenes keep the existing unfiltered baseline independently frozen.
+        for (look_name, look) in looks() {
+            for mode in [
+                "overview-agents",
+                "overview-squads",
+                "agents-all",
+                "agents-pinned",
+            ] {
+                for state in ["matches", "empty"] {
+                    for width in [160, 100, 80] {
+                        let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
+                        app.view.as_mut().unwrap().look = look;
+                        let workspace =
+                            &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+                        for squad in &workspace.roster.squads {
+                            workspace.squad_looks.insert(squad.room_id.clone(), look);
+                        }
+                        if mode == "agents-pinned" {
+                            workspace
+                                .preferences
+                                .pinned
+                                .insert(workspace.roster.squads[7].room_id.clone());
+                            app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
+                        }
+                        app.shell.tab = if mode.starts_with("overview") {
+                            crate::board::shell::OpsTab::Overview
+                        } else {
+                            crate::board::shell::OpsTab::Agents
+                        };
+                        app.overview_view = if mode == "overview-squads" {
+                            crate::board::overview::monitor::View::Squads
+                        } else {
+                            crate::board::overview::monitor::View::Agents
+                        };
+                        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+                        app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+                        app.paste(if state == "matches" {
+                            "agent-00007"
+                        } else {
+                            "no-such-agent"
+                        });
+                        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                        let mut captured = capture_frame(
+                            &app,
+                            &format!("search-{mode}-{state}"),
+                            look_name,
+                            width,
+                            36,
+                            &mut styles,
+                        );
+                        captured["stripHits"] =
+                            json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+                        frames.push(captured);
+                    }
+                }
+            }
+        }
         let styles = styles
             .0
             .into_iter()

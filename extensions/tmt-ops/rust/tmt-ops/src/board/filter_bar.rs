@@ -8,9 +8,9 @@ pub(in crate::board) fn paint(
     area: Rect,
     options: &[(&str, &str)],
     selected: usize,
-    query: &tmt_tui::components::Editor,
     app: &App,
     toggle: crate::action::OpsUiAction,
+    count: Option<&str>,
 ) -> Vec<chip_group::Hit> {
     let look = app.look();
     let area = Rect {
@@ -82,14 +82,25 @@ pub(in crate::board) fn paint(
     if search_width > 0 {
         let search = Rect::new(x, area.y, search_width, area.height.min(1));
         let search_key = super::keycap::key(app, crate::action::OpsUiAction::Search, "/");
-        super::search_field::paint(
+        let clear = super::search_field::paint(
             buffer,
             search,
-            query,
+            &app.search,
             app.searching,
             search_key.as_deref(),
             look,
+            count,
         );
+        if let Some(area) = clear {
+            hits.push(chip_group::Hit {
+                area,
+                id: "clear-search".into(),
+            });
+        }
+        let search = Rect {
+            width: clear.map_or(search.width, |clear| clear.x - search.x),
+            ..search
+        };
         if search.width >= 3 {
             hits.push(chip_group::Hit {
                 area: search,
@@ -127,6 +138,7 @@ mod tests {
                             depth,
                         });
                         app.searching = editing;
+                        app.search = query.into();
                         let area = Rect::new(0, 0, width, 1);
                         let mut buffer = Buffer::empty(area);
                         buffer.set_style(area, ratatui::style::Style::default().bg(Color::Magenta));
@@ -135,11 +147,14 @@ mod tests {
                             area,
                             &options,
                             0,
-                            &query.into(),
                             &app,
                             crate::action::OpsUiAction::OverviewView,
+                            None,
                         );
-                        let slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
+                        let mut slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
+                        if let Some(clear) = hits.iter().find(|hit| hit.id == "clear-search") {
+                            slot.width = clear.area.right() + 1 - slot.x;
+                        }
                         assert_eq!(slot.width, 34);
                         assert_eq!(*geometry.get_or_insert(slot), slot);
                         let style = app
@@ -175,6 +190,61 @@ mod tests {
     }
 
     #[test]
+    fn committed_count_and_clear_have_clipped_nonoverlapping_visible_hits() {
+        use tmt_cli_style::{Base, Depth, Theme};
+        for (base, depth) in [
+            ("tmt", Depth::TrueColor),
+            ("tmt-light", Depth::TrueColor),
+            ("tmt", Depth::None),
+        ] {
+            for width in [1, 8, 20, 40, 60, 80, 103, 148] {
+                for editing in [false, true] {
+                    let mut app = App::default();
+                    app.initial_look = Some(crate::look::Look {
+                        theme: Theme::new(Base::parse(base).unwrap()),
+                        depth,
+                    });
+                    app.searching = editing;
+                    app.search = "long query 工作台 e\u{301}".into();
+                    let area = Rect::new(2, 1, width, 1);
+                    let mut buffer = Buffer::empty(Rect::new(0, 0, width + 4, 3));
+                    let hits = paint(
+                        &mut buffer,
+                        area,
+                        &[("all", "All"), ("pinned", "Pinned")],
+                        0,
+                        &app,
+                        crate::action::OpsUiAction::AgentsFilter,
+                        Some("3 of 23"),
+                    );
+                    for (i, hit) in hits.iter().enumerate() {
+                        assert!(!hit.area.is_empty() && hit.area.intersection(area) == hit.area);
+                        assert!(
+                            hits[i + 1..]
+                                .iter()
+                                .all(|other| hit.area.intersection(other.area).is_empty())
+                        );
+                        if hit.id == "clear-search" {
+                            assert!(!editing);
+                            assert_eq!(buffer[(hit.area.x, hit.area.y)].symbol(), "×");
+                        }
+                    }
+                    let text: String = (area.x..area.right())
+                        .map(|x| buffer[(x, area.y)].symbol())
+                        .collect();
+                    if width >= 80 && !editing {
+                        assert!(text.contains("3 of 23") && text.contains('×'), "{text}");
+                    }
+                    if editing {
+                        assert!(!text.contains('×') && !text.contains("3 of 23"));
+                    }
+                    assert_eq!(app.search.as_str(), "long query 工作台 e\u{301}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn both_hosts_share_fitted_chips_and_idle_search_without_hidden_hits() {
         for options in [
             [("squads", "Squads"), ("agents", "Agents")],
@@ -190,9 +260,9 @@ mod tests {
                     area,
                     &options,
                     1,
-                    &"".into(),
                     &app,
                     crate::action::OpsUiAction::OverviewView,
+                    None,
                 );
                 for hit in hits {
                     assert_eq!(hit.area.intersection(area), hit.area);

@@ -267,9 +267,9 @@ impl App {
             && rows.is_empty()
             && !self.workspace.query.is_empty()
             && self
-                .search_anchor
+                .search_preview_tab
                 .as_ref()
-                .is_some_and(|(tab, _)| *tab == self.shell.tab)
+                .is_some_and(|tab| *tab == self.shell.tab)
             && matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents)
             && let Some(target) = self.workspace.selected.as_ref()
         {
@@ -654,35 +654,41 @@ impl App {
     }
     pub(in crate::board) fn workspace_reconcile(&mut self) {
         if self
-            .search_anchor
+            .search_preview_tab
             .as_ref()
-            .is_some_and(|(tab, _)| *tab != self.shell.tab)
+            .is_some_and(|tab| *tab != self.shell.tab)
         {
-            self.search_anchor = None;
+            self.search_preview_tab = None;
         }
         let query_changed = self.workspace.query != self.search.as_str();
         let selects_matches = matches!(self.shell.tab, OpsTab::Overview | OpsTab::Agents);
         if query_changed && selects_matches {
             if self.search.is_empty() {
-                if let Some((tab, target)) = self.search_anchor.take()
-                    && tab == self.shell.tab
-                    && self
-                        .workspace_snapshot()
-                        .is_some_and(|snapshot| snapshot.roster.contains(&target))
-                {
-                    self.workspace.selected = Some(target);
+                self.search_preview_tab = None;
+                // Search temporarily reveals collapsed matches. Clearing keeps
+                // this exact occurrence visible in the full list as well.
+                if self.shell.tab == OpsTab::Agents {
+                    match self.workspace.selected.as_ref() {
+                        Some(OpsTarget::Member {
+                            room_id: Some(room),
+                            ..
+                        }) => {
+                            self.workspace.expanded.insert(room.clone());
+                        }
+                        Some(OpsTarget::Member { room_id: None, .. }) => {
+                            self.workspace.pool_expanded = true;
+                        }
+                        _ => {}
+                    }
                 }
-            } else if self.search_anchor.is_none()
+                self.follow = true;
+            } else if self.search_preview_tab.is_none()
                 && self.workspace.selected.as_ref().is_some_and(|target| {
                     self.workspace_snapshot()
                         .is_some_and(|snapshot| snapshot.roster.contains(target))
                 })
             {
-                self.search_anchor = self
-                    .workspace
-                    .selected
-                    .clone()
-                    .map(|target| (self.shell.tab, target));
+                self.search_preview_tab = Some(self.shell.tab);
             }
         }
         self.workspace.query = self.search.to_string();
@@ -939,7 +945,10 @@ impl App {
             First => self.workspace_select(0),
             Last => self.workspace_select(usize::MAX),
             PageUp | PageDown => self.page_rows(if action == PageUp { -1 } else { 1 }),
-            Search => self.searching = true,
+            Search => {
+                self.focus = 0;
+                self.searching = true;
+            }
             Fold | Expand | Inspect => {
                 if !self.workspace_selection_visible() {
                     return self.say("The selected target is hidden or unavailable; select a visible target explicitly.");

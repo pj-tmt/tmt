@@ -266,6 +266,8 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             ),
             look.role(Role::Muted),
         )
+    } else if !app.searching {
+        Line::default()
     } else {
         let (matched, total) = app
             .workspace
@@ -539,18 +541,28 @@ fn agents_controls(
 ) {
     let inside = bands.filters;
     use super::AgentsFilter;
+    let search_count = app
+        .workspace_snapshot()
+        .filter(|_| !app.search.is_empty() && !app.searching)
+        .map(|snapshot| {
+            let (matched, total) = app
+                .workspace
+                .search_counts(&snapshot.roster, &snapshot.preferences);
+            format!("{matched} of {total}")
+        });
     for hit in crate::board::filter_bar::paint(
         frame.buffer_mut(),
         inside,
         &[("all", "All"), ("pinned", "Pinned")],
         usize::from(app.workspace.filter == AgentsFilter::Pinned),
-        &app.search,
         app,
         crate::action::OpsUiAction::AgentsFilter,
+        search_count.as_deref(),
     ) {
         let choice = match hit.id.as_str() {
             "all" => Choice::AgentsFilter(AgentsFilter::All),
             "pinned" => Choice::AgentsFilter(AgentsFilter::Pinned),
+            "clear-search" => Choice::ClearSearch,
             _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
         };
         app.workspace_strip_hits

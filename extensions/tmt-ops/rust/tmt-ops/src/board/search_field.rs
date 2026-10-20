@@ -24,10 +24,7 @@ pub(super) fn key(query: &mut Editor, editing: &mut bool, key: KeyEvent) -> Opti
         return None;
     }
     match key.code {
-        KeyCode::Esc => {
-            query.clear();
-            *editing = false;
-        }
+        KeyCode::Esc => clear(query, editing),
         KeyCode::Enter => *editing = false,
         KeyCode::Backspace if query.is_empty() && key.modifiers.is_empty() => *editing = false,
         KeyCode::Up => return Some(Input::Previous),
@@ -37,6 +34,11 @@ pub(super) fn key(query: &mut Editor, editing: &mut bool, key: KeyEvent) -> Opti
         }
     }
     Some(Input::Changed)
+}
+
+pub(super) fn clear(query: &mut Editor, editing: &mut bool) {
+    query.clear();
+    *editing = false;
 }
 
 /// Paste remains a single-line query; reject the whole edit at the cache bound.
@@ -61,19 +63,36 @@ pub(super) fn paint(
     editing: bool,
     key: Option<&str>,
     look: Look,
-) {
+    count: Option<&str>,
+) -> Option<Rect> {
+    let style = look.role(Role::Text).patch(look.role(Role::Track));
+    let cap = key
+        .map(|key| super::keycap::span(key, false, look))
+        .filter(|cap| cap.width() + 2 <= usize::from(area.width));
+    let prefix = 1 + cap.as_ref().map_or(0, |cap| cap.width() + 1);
+    let committed = !query.is_empty() && !editing;
+    // Keep one cell of query text between the keycap and the clear control.
+    let clear = (committed && usize::from(area.width) >= prefix + 5)
+        .then(|| Rect::new(area.right() - 2, area.y, 1, area.height.min(1)));
+    let suffix = clear.map(|_| {
+        let count = count.unwrap_or_default();
+        let full = format!("  {count}  × ");
+        if unicode_width::UnicodeWidthStr::width(full.as_str()) + prefix < usize::from(area.width) {
+            full
+        } else {
+            "  × ".into()
+        }
+    });
+    let suffix_width = suffix
+        .as_deref()
+        .map_or(0, unicode_width::UnicodeWidthStr::width);
     let value = if query.is_empty() && !editing {
         "Search"
     } else {
         query.as_str()
     };
     let value = crate::board::notes::sanitize(value);
-    let style = look.role(Role::Text).patch(look.role(Role::Track));
-    let cap = key
-        .map(|key| super::keycap::span(key, false, look))
-        .filter(|cap| cap.width() + 2 <= usize::from(area.width));
-    let prefix = 1 + cap.as_ref().map_or(0, |cap| cap.width() + 1);
-    let available = usize::from(area.width).saturating_sub(prefix);
+    let available = usize::from(area.width).saturating_sub(prefix + suffix_width);
     let mut spans = vec![Span::styled(" ", style)];
     if let Some(cap) = cap {
         spans.push(cap);
@@ -134,6 +153,14 @@ pub(super) fn paint(
             style,
         ));
     }
+    if let Some(suffix) = suffix {
+        let used: usize = spans.iter().map(Span::width).sum();
+        spans.push(Span::styled(
+            " ".repeat(usize::from(area.width).saturating_sub(used + suffix_width)),
+            style,
+        ));
+        spans.push(Span::styled(suffix, style));
+    }
     let used = spans
         .iter()
         .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
@@ -143,6 +170,7 @@ pub(super) fn paint(
         style,
     ));
     strip::paint_left(buffer, area, Line::from(spans).style(style));
+    clear
 }
 
 /// Highlight original characters, including Unicode case-fold expansions, with
@@ -264,6 +292,7 @@ mod tests {
             true,
             Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
+            None,
         );
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
         assert!(text.starts_with("  /  …"), "{text}");
@@ -318,6 +347,7 @@ mod tests {
             true,
             Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
+            None,
         );
         let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
         assert!(text.starts_with("  /  ▏replacement"), "{text}");
@@ -343,6 +373,7 @@ mod tests {
             true,
             Some("/"),
             Look::new(tmt_cli_style::Theme::default()),
+            None,
         );
         assert_eq!(buffer[(6, 0)].symbol(), "▏");
         assert_eq!(buffer[(7, 0)].symbol(), "你");

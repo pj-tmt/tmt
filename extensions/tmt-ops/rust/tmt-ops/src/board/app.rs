@@ -302,6 +302,7 @@ pub enum Choice {
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
     OverviewView(super::overview::monitor::View),
+    ClearSearch,
     Panels,
     Checklist,
     Action(Action),
@@ -719,8 +720,8 @@ pub struct App {
     pub error: Option<String>,
     pub search: tmt_tui::components::Editor,
     pub searching: bool,
-    /// Exact pre-filter selection, restored when this tab's query clears.
-    pub(super) search_anchor: Option<(super::shell::OpsTab, super::workspace::OpsTarget)>,
+    /// Tab whose empty search may retain the current read-only pane target.
+    pub(super) search_preview_tab: Option<super::shell::OpsTab>,
     /// Index among visible rows (headers excluded).
     pub selected: usize,
     pub notice: Option<String>,
@@ -1379,7 +1380,7 @@ impl App {
 
     /// Another squad is now on screen: its selection and scrolling start over.
     fn shown_changed(&mut self) {
-        self.search_anchor = None;
+        self.search_preview_tab = None;
         self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
@@ -2828,6 +2829,12 @@ impl App {
             }
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::OverviewView(view) => self.select_overview_view(view),
+            Choice::ClearSearch => {
+                super::search_field::clear(&mut self.search, &mut self.searching);
+                self.clamp();
+                self.invalidate_frame_geometry();
+                Effect::None
+            }
             Choice::Panels => self.open_panels(),
             Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
@@ -4174,8 +4181,10 @@ impl App {
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
                 // Scope controls and the savings figure work on every tab that paints them.
-                let visibility = matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_))
-                    || matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                let visibility = matches!(
+                    choice,
+                    Choice::SavingsUnit | Choice::OverviewView(_) | Choice::ClearSearch
+                ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {
@@ -5951,6 +5960,7 @@ mod token_window_tests {
         assert_eq!(app.key(key), Effect::None);
         assert_eq!(app.search, "u");
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         app.searching = false;
         for compose in [
             Compose::Talk { to: "a".into() },
@@ -5984,7 +5994,7 @@ mod token_window_tests {
         assert_eq!(
             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             Effect::None,
-            "clear the retained filter and restore its selection before testing member bindings"
+            "clear the retained filter while keeping its current selection before testing member bindings"
         );
         configure_window_keys(&mut app, "[bind]\nu = \"refresh\"\nU = \"token-window\"\n");
         assert_eq!(app.key(key), Effect::Refresh);

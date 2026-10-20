@@ -45,8 +45,8 @@ Config preference save lane; hidden/scope and search fences still apply. Retaine
 loads as All; an authored `agents-filter needs-you` binding gets a located
 retirement notice without rewriting its text or falling through to a default key.
 Waiting agents remain visible through their state marks. Search keeps matching
-ancestors and temporarily reveals matching children without changing saved
-expansion. Group totals remain unfiltered room totals. Empty filtered results are
+ancestors and temporarily reveals matching children; clearing expands the
+selected occurrence's group when needed to keep that row visible. Group totals remain unfiltered room totals. Empty filtered results are
 non-interactive; retained hidden targets grant no action authority.
 
 Overview and Agents share the always-visible search field after FilterBar chips.
@@ -60,15 +60,23 @@ name and numeric tracks, and NO_COLOR keeps the glyph.
 Selected chips keep their fill while search owns input; hover and activation
 eligibility remain independent.
 `/` edits the retained query; typing filters live, with bold-only matches. Up/Down
-move through filtered rows while typing; Enter keeps the filter and returns list
-keys; Escape clears from typing or applied state; empty Backspace ends typing.
+move through filtered rows while typing; opening search moves focus to the list.
+Enter keeps the filter and returns list keys; Escape clears and closes from typing
+or applied state in one press; empty Backspace ends typing.
 The filled field keeps one 34-cell slot across idle, typing and applied states,
 clipped only by available width. Each query edit selects the first visible match;
-Up/Down then move among its matches. Clearing restores the pre-filter selection
-when it still exists. No matches leave the previous pane visible as a read-only
+Up/Down then move among its matches. Clearing retains the current exact row and
+squad occurrence, expands its group when needed, and scrolls it into view. A
+subsequent Escape uses the normal list behavior. No matches leave the previous
+pane visible as a read-only
 preview, without hidden-row actions, revealing hidden rooms or bypassing scope
 or the Pinned filter.
-Counts belong to section rules, not FilterBar. Overview applies the query to held
+While editing, match counts live on section rules. Committing moves the count
+into the shared field (`/ foo  3 of 23  ×`); × clears and closes through the same
+transition as Escape. The shared field reports distinct clipped clear geometry;
+hosts supply admitted counts and current-frame hits. App owns the sole query and
+exact selection, with only a tab marker retained for the guarded no-match preview.
+Ordinary unfiltered totals remain on section rules. Overview applies the query to held
 Timers before the three-row preview limit, matching displayed ID, squad, schedule
 or purpose. Its rule counts all matching jobs against the unsearched observation;
 stale and unavailable observations stay explicit. Transient footer feedback keeps
