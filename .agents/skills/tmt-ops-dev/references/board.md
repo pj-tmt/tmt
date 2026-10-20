@@ -26,7 +26,13 @@ not on the alternate screen). The session
 re-sends it (`reassert_mouse`, idempotent) at the end of the turn after a
 resize, regained focus (focus reporting is part of entry), a closed overlay or
 menu, and each periodic refresh (no frame, so an idle board repairs itself; with
-refresh off it relies on the other moments). Worker shutdown follows terminal restoration. Cold launch
+refresh off it relies on the other moments). `terminal::Backend` is ratatui's crossterm backend plus one rule: a frame that
+writes cells hides a visible caret first and shows it again once placed, so
+the input caret never hops over the changed rows. The session loop applies a
+queued burst of wheel steps in order (at most 64, stopping at the first other
+event, which is handled next) and paints one frame for it. The reader's anchor
+cursor works on `notes::IndexedText` built with the rendered text, so a scroll
+step costs one source line, not the history. Worker shutdown follows terminal restoration. Cold launch
 scope names resolve active rooms through the existing `rooms.roster` snapshot port
 before terminal admission; a valid ephemeral reload handoff
 uses its carried UUID scope and does not resolve the original argv names again.

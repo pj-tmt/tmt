@@ -90,7 +90,6 @@ use crate::{
 use app::{App, Effect, Request, Snapshot};
 use ratatui::{
     Terminal,
-    backend::CrosstermBackend,
     crossterm::event::{self, Event, KeyEventKind, MouseEventKind},
 };
 use std::{
@@ -1327,7 +1326,7 @@ pub fn run(
     // and the terminal background query. A later failure drops the guard and
     // restores the terminal before the error is reported.
     let mut guard = terminal::Guard::enter(terminal::Crossterm::default()).map_err(failed)?;
-    let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
+    let mut screen = Terminal::new(terminal::Backend::new(io::stdout())).map_err(failed)?;
     timing::measure(startup.as_ref(), "startup.placeholder", || {
         screen.draw(|frame| {
             let area = ratatui::layout::Rect {

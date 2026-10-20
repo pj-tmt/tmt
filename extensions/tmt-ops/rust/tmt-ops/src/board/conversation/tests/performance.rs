@@ -774,3 +774,93 @@ fn conversation_profile_loop() {
         eprintln!("profile frames={frames} scroll={scroll}");
     });
 }
+
+/// Scrolling the history changes only the history: the input band and the footer
+/// stay cell for cell, and the caret never moves (it is hidden while the changed
+/// rows are written, then shown again in the same place).
+#[test]
+fn scrolling_leaves_the_input_the_footer_and_the_caret_alone() {
+    use ratatui::backend::Backend as _;
+    use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
+    crate::status::with_now_ms(1_791_600_000_000, || {
+        let (mut app, ..) = populated_conversation(150);
+        app.view.as_mut().unwrap().replies[0]["response"] = json!(body("response", 2_000));
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.input.is_some(), "the composer is open");
+        let mut cells = Terminal::new(TestBackend::new(160, 50)).unwrap();
+        let sink = AnsiSink::default();
+        let mut bytes = Terminal::with_options(
+            crate::board::terminal::Backend::new(sink.clone()),
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(Rect::new(0, 0, 160, 50)),
+            },
+        )
+        .unwrap();
+        fn draw<B: ratatui::backend::Backend>(app: &mut App, terminal: &mut Terminal<B>)
+        where
+            B::Error: std::fmt::Debug,
+        {
+            terminal
+                .draw(|frame| {
+                    crate::board::view::prepare(app, frame.area());
+                    crate::board::view::render(frame, app);
+                })
+                .unwrap();
+        }
+        for _ in 0..3 {
+            draw(&mut app, &mut cells);
+            draw(&mut app, &mut bytes);
+        }
+        let area = app
+            .conversation
+            .borrow()
+            .response_area
+            .expect("history area");
+        let band = app.input_band.get().expect("the input band is painted");
+        let caret = cells.backend_mut().get_cursor_position().unwrap();
+        assert!(
+            band.contains(caret),
+            "the caret sits in the input: {caret:?}"
+        );
+        let mut scrolled = 0;
+        for step in 0..30 {
+            let previous = cells.backend().buffer().clone();
+            sink.0.borrow_mut().clear();
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::ScrollUp,
+                    column: area.x + area.width / 2,
+                    row: area.y + area.height / 2,
+                    modifiers: KeyModifiers::NONE,
+                },
+                Instant::now(),
+            );
+            draw(&mut app, &mut cells);
+            draw(&mut app, &mut bytes);
+            let diff = previous.diff(cells.backend().buffer());
+            assert!(!diff.is_empty(), "step {step} moved the history");
+            scrolled += 1;
+            assert!(
+                diff.iter().all(|(x, y, _)| area.contains((*x, *y).into())),
+                "step {step}: only the scrolled history changes"
+            );
+            assert_eq!(cells.backend_mut().get_cursor_position().unwrap(), caret);
+            let text = String::from_utf8(sink.0.borrow().clone()).unwrap();
+            let hide = text
+                .find("\x1b[?25l")
+                .expect("hidden while cells are written");
+            assert!(
+                hide == 0,
+                "step {step}: hidden before anything is written: {text:?}"
+            );
+            let placed = format!("\x1b[{};{}H\x1b[?25h", caret.y + 1, caret.x + 1);
+            assert!(
+                text.ends_with(&placed),
+                "step {step}: the caret is placed in the input and shown last: {:?}",
+                &text[text.len().saturating_sub(40)..]
+            );
+            assert_eq!(text.matches("\x1b[?25h").count(), 1);
+        }
+        assert_eq!(scrolled, 30);
+    });
+}

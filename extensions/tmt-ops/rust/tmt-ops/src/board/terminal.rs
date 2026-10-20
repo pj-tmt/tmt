@@ -162,6 +162,103 @@ impl Screen for Crossterm {
     }
 }
 
+/// ratatui's crossterm backend, except that a frame which writes cells first
+/// hides a visible caret. Without it the caret hops over every changed row
+/// (and back to the input) once per frame, which flickers while the history
+/// scrolls; `Terminal` shows it again where it belongs once the diff is
+/// written, and a frame with no changes touches nothing.
+pub struct Backend<W: io::Write> {
+    inner: ratatui::backend::CrosstermBackend<W>,
+    /// What `Terminal` last asked for: the caret is shown for the input.
+    caret: bool,
+    /// The caret was hidden for this frame's cells and is shown again once it
+    /// has been placed, so it never appears at the last written cell.
+    resume: bool,
+}
+
+impl<W: io::Write> Backend<W> {
+    pub fn new(output: W) -> Self {
+        Self {
+            inner: ratatui::backend::CrosstermBackend::new(output),
+            caret: false,
+            resume: false,
+        }
+    }
+}
+
+impl<W: io::Write> ratatui::backend::Backend for Backend<W> {
+    type Error = io::Error;
+
+    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+    where
+        I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+    {
+        let mut content = content.peekable();
+        if self.caret && content.peek().is_some() {
+            self.inner.hide_cursor()?;
+            self.resume = true;
+        }
+        self.inner.draw(content)
+    }
+
+    fn append_lines(&mut self, lines: u16) -> io::Result<()> {
+        self.inner.append_lines(lines)
+    }
+
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        self.caret = false;
+        self.resume = false;
+        self.inner.hide_cursor()
+    }
+
+    fn show_cursor(&mut self) -> io::Result<()> {
+        self.caret = true;
+        if self.resume {
+            // `Terminal` places the caret right after this call; show it there.
+            return Ok(());
+        }
+        self.inner.show_cursor()
+    }
+
+    fn get_cursor_position(&mut self) -> io::Result<ratatui::layout::Position> {
+        self.inner.get_cursor_position()
+    }
+
+    fn set_cursor_position<P: Into<ratatui::layout::Position>>(
+        &mut self,
+        position: P,
+    ) -> io::Result<()> {
+        self.inner.set_cursor_position(position)?;
+        if std::mem::take(&mut self.resume) {
+            self.inner.show_cursor()?;
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        self.inner.clear()
+    }
+
+    fn clear_region(&mut self, clear_type: ratatui::backend::ClearType) -> io::Result<()> {
+        self.inner.clear_region(clear_type)
+    }
+
+    fn size(&self) -> io::Result<ratatui::layout::Size> {
+        self.inner.size()
+    }
+
+    fn window_size(&mut self) -> io::Result<ratatui::backend::WindowSize> {
+        self.inner.window_size()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if std::mem::take(&mut self.resume) {
+            self.inner.show_cursor()?;
+        }
+        ratatui::backend::Backend::flush(&mut self.inner)
+    }
+}
+
 /// Restores the screen exactly once: on `restore`, or when dropped, which
 /// includes unwinding from a panic.
 pub struct Guard<S: Screen> {
@@ -305,6 +402,81 @@ mod tests {
         let mut off = Vec::new();
         write_modify_other_keys(&mut off, false).unwrap();
         assert_eq!(off, b"\x1b[>4;0m");
+    }
+
+    #[derive(Clone, Default)]
+    struct Sink(Rc<RefCell<Vec<u8>>>);
+    impl io::Write for Sink {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.borrow_mut().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Draws `text` in a 20x3 viewport with the caret at (2, 2) when `caret`.
+    fn frame(
+        terminal: &mut ratatui::Terminal<Backend<Sink>>,
+        sink: &Sink,
+        text: &str,
+        caret: bool,
+    ) -> String {
+        sink.0.borrow_mut().clear();
+        terminal
+            .draw(|frame| {
+                frame
+                    .buffer_mut()
+                    .set_string(0, 0, text, ratatui::style::Style::default());
+                frame
+                    .buffer_mut()
+                    .set_string(0, 2, "> input", ratatui::style::Style::default());
+                if caret {
+                    frame.set_cursor_position((2, 2));
+                }
+            })
+            .unwrap();
+        String::from_utf8(sink.0.borrow().clone()).unwrap()
+    }
+
+    #[test]
+    fn a_frame_that_writes_cells_hides_the_caret_and_one_that_does_not_leaves_it() {
+        let sink = Sink::default();
+        let mut terminal = ratatui::Terminal::with_options(
+            Backend::new(sink.clone()),
+            ratatui::TerminalOptions {
+                viewport: ratatui::Viewport::Fixed(ratatui::layout::Rect::new(0, 0, 20, 3)),
+            },
+        )
+        .unwrap();
+        frame(&mut terminal, &sink, "first", true);
+        // The caret is shown for the input; a changed cell hides it first and the
+        // frame ends by placing and showing it again where it was.
+        let scrolled = frame(&mut terminal, &sink, "second", true);
+        let hide = scrolled.find("\x1b[?25l").expect("hidden before writing");
+        let cell = scrolled.find('s').expect("the changed cells are written");
+        let show = scrolled.rfind("\x1b[?25h").expect("shown again");
+        assert!(hide < cell && cell < show, "{scrolled:?}");
+        assert!(
+            scrolled.ends_with("\x1b[3;3H\x1b[?25h"),
+            "the caret is placed, then shown: {scrolled:?}"
+        );
+        assert_eq!(scrolled.matches("\x1b[?25h").count(), 1);
+        assert!(
+            !scrolled.contains("input"),
+            "the input row is not rewritten"
+        );
+        // Nothing changed: nothing to hide.
+        let steady = frame(&mut terminal, &sink, "second", true);
+        assert!(!steady.contains("\x1b[?25l"), "{steady:?}");
+        // Without a caret there is nothing to hide or show around the cells.
+        frame(&mut terminal, &sink, "third", false);
+        let quiet = frame(&mut terminal, &sink, "fourth", false);
+        assert!(
+            !quiet.contains("\x1b[?25h") && quiet.matches("\x1b[?25l").count() <= 1,
+            "{quiet:?}"
+        );
     }
 
     #[test]

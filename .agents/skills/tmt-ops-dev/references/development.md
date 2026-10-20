@@ -101,6 +101,10 @@ CARGO_BUILD_JOBS=2 cargo test --release --locked -p tmt-ops workspace_ansi_phase
   surfaces change only their expected regions. Input/paint performs no source I/O.
   An exceeded limit requires diagnosis or an agreed adjustment, not relabelling.
   These are probe/profile limits, not CI gates or user-facing/cross-machine SLOs.
+  `conversation_scroll_cost` (same `--ignored --nocapture` form, release) prints
+  steady and wheel-step event/draw time over 200/2,000/20,000 response lines and
+  200/2,000 outgoing turns at 160×50, plus the cells changed outside the history
+  pane; step time must not grow with the history.
   `workspace_frame_cost` is the separate roster-only 160×50 steady/scroll/resize
   probe; `frame_timing` is the independent CLI crew/team row-painter harness.
 - Layout validation: `cargo test --locked -p tmt-ops layout` and the native `ops.test.ts`
