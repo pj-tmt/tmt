@@ -23,7 +23,7 @@ function where(excerpt: string, line: number): string {
   return excerpt === '' ? `at line ${line}` : `near \u201c${excerpt}\u201d (line ${line})`;
 }
 
-const reconnectCommand = 'tmt remote pair';
+const pairCommand = 'tmt remote pair';
 
 export const text = {
   quickSwitcher: {
@@ -329,15 +329,16 @@ export const text = {
   agentWorking: 'working',
   recoveryRequired: 'Reconnect to resume live updates.',
   reconnecting: 'Reconnecting…',
+  notConnected: 'not connected',
   sendOnHold: 'Send is on hold until the connection is back.',
-  reconnectCommand,
-  reconnectFailed: `Could not reconnect. Open this page from a paired browser, or pair for page access with ${reconnectCommand}.`,
+  pairCommand,
+  reconnectFailed: 'Could not reconnect. Reopen the page to try again. Your pairing is unchanged.',
   sessionEvicted: (limit: number) =>
-    `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
+    `This tab was disconnected when this browser reached its limit of ${limit} Remote sessions. Your pairing is unchanged.`,
   sessionLimitTitle: 'Remote session limit reached',
-  sessionLimitClose: 'Close another page to open this one.',
+  sessionLimitClose: 'Close another tab to open this one. Your pairing is unchanged.',
   sessionLimitReached: (limit: number) =>
-    `Your paired device is at its limit of ${limit} Remote sessions.`,
+    `This browser has reached its limit of ${limit} Remote sessions.`,
   sessionLimitCommand: 'To allow another tab, run:',
   remoteSettings: 'Open Remote settings',
   remoteCount: (count: number) => `Remote · ${count}`,
@@ -799,14 +800,30 @@ export const text = {
   openTooLargeLabel: 'Page too large',
   blocked: 'Preview stopped',
   failureAccessEnded: 'Your access to this page ended. Open it again to continue.',
+  failurePairingRemoved: "This browser's pairing was removed.",
+  failurePairingExpired: "This browser's pairing expired.",
   failureUnpaired: 'This browser is not paired with Remote for this page.',
   pairAgain: 'Pair again with:',
-  failurePageGone: 'This page is no longer available. It may have been deleted.',
-  failureSessionEnded: 'The Remote session for this page ended. Reopen the page to continue.',
+  failurePageGone:
+    'This page is unavailable. Open it again from the machine. Your pairing is unchanged.',
+  failureSessionEnded: "This page's connection ended. Try again. Your pairing is unchanged.",
   failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
   failureGeneric: 'This page stopped syncing. Reopen it to try again.',
-  failureSessionLimit: 'Your paired device is at its Remote session limit.',
+  failureSessionLimit:
+    "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
   failureCodeLabel: 'Code:',
+  failureReference: {
+    access: 'Access denied',
+    revoked: 'Pairing removed',
+    expired: 'Pairing expired',
+    mismatch: 'Reconnect mismatch',
+    unpaired: 'Not paired',
+    gone: 'Page unavailable',
+    session: 'Session ended',
+    capacity: 'Session limit',
+    large: 'Page too large',
+    generic: 'Connection unavailable',
+  },
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',
   limit: 'This preview accepts pages up to 2 MiB of HTML.',

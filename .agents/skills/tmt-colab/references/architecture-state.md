@@ -307,8 +307,9 @@ stays, the match never goes stale (`staleTime: Infinity`): a thread selection re
 address fragment, and a reload for it would replace the binding and close its writer under a send
 in flight. `ended` replaces
 the page with one card: the failure sentence and the one action that fits (`Pair again` with the
-command for access ended, revoked, expired, unpaired and mismatch; a way back to the space for a
-page that is gone; `Reload` for a device at its Remote session limit; none otherwise). A modal drawer makes that card inert, so a live Chat
+command only for verified revoked, expired or missing pairing; a way back to the space for a
+page that is gone; `Reload` for ended sessions, access refusals, identity mismatches and a device
+at its Remote session limit, and generic reconnect failures; none for an oversized change). A modal drawer makes that card inert, so a live Chat
 composer owns its ended sentence/action once; an archived Chat and every other drawer keep
 the same sentence/action in the `notice` row under the header. An ended annotation keeps its
 action scroll- and keyboard-reachable within the existing composer overflow. `Live` stays
@@ -317,14 +318,20 @@ and publishes failures, and no longer decides terminal or recoverable for the pa
 One table, `connection-state.ts`, classifies every token the live path can fail with (sync frame
 codes, Remote refusal codes, HTTP admission refusals, a few short messages, each `ReopenFailedError` reason): what recovers
 it (`resync` on the same session, replace the `session`, `reopen` the page for a new epoch,
-`retry` a fresh open, or `none`) and which sentence it ends with. `live.ts`, `readmit.ts`,
+`retry` a fresh open, or `none`) and which sentence it ends with. Verified pairing loss is a
+separate cause from page access ending; a saved identity mismatch never proves pairing loss.
+Generic reconnect failures offer Reload and Return to space, never a pairing command.
+Only access-ending refusals (denied access, identity mismatch or verified missing/revoked/expired
+pairing) use the red failed mark. Other stopped connections use the neutral circle and
+`not connected` state, with the `Preview stopped` title. A failure before the page opens
+keeps the separate open-failure presentation below. `live.ts`, `readmit.ts`,
 `connection-model.ts` and `terminal-failure.ts` read it; none matches raw strings. A signed
 `REMOTE_CLOSED`, `REMOTE_GRANT_CHANGED` or `REMOTE_SERVE_STOPPED` replaces the session once,
 silently; the access card shows only when that fresh open is refused (#2619).
-A terminal failure card shows one of seven `strings.ts` sentences (access ended, not paired, page
-gone, session ended, too large, session limit, generic), never the raw token (`terminal-failure.ts`); an unknown non-admission token is not
-recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
-`Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
+A terminal failure card uses a `strings.ts` sentence and readable code label
+(`terminal-failure.ts`); revoked and expired pairing have distinct sentences. An unknown
+non-admission token is not automatically recovered and gets the generic sentence. The raw
+diagnostic remains bounded to 120 characters in the reference title rather than its visible label. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
 A page that cannot open (the root error on `/pages/…`) is decided once by `openFailure()` (`open-failure.ts`)
 from the same classification, because the open has no deadline (#3975) and ends only by a closed connection,
@@ -334,8 +341,9 @@ loader again (`router.invalidate()`; the router then shows the same opening fram
 Return to space and the raw token as the muted `Code: …` reference, with no red state. A page over the
 read limits (`large`) is the same card without Retry, with the way out (`tmt colab export`) and a
 readable label in place of the token.
-Only a refusal (access ended, not paired, page gone, session limit, or a message that is already a
-sentence) keeps the red card, now with its sentence instead of the raw message. A test decides every
+Only a refusal (access ended, not paired, page gone, session limit, or no verified page key)
+keeps the red card, now with its sentence instead of the raw message. The recognized generic
+reconnect sentence is retryable and uses that same plain open-failure card. A test decides every
 `CONNECTION_CODES` entry. Other routes keep the plain root error.
 Eviction and management-changed keep their own cards. A device at its Remote session limit
 (`REMOTE_SESSION_LIMIT`: Remote never evicts an attached session, #2585) is refused with the

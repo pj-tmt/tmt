@@ -455,18 +455,6 @@ function SelectionAnnotation({
 }
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
-/** Style the command in the same complete sentence used by live errors. */
-function ReconnectFailure() {
-  const [before, after] = text.reconnectFailed.split(text.reconnectCommand);
-  return (
-    <>
-      {before}
-      <code className="tmt-ui-code">{text.reconnectCommand}</code>
-      {after}
-    </>
-  );
-}
-
 /** A terminal refusal as a sentence; its raw code stays as a small reference. */
 function TerminalFailure({
   error,
@@ -476,10 +464,10 @@ function TerminalFailure({
   reference?: boolean;
 }) {
   if (error.message === managementChanged) return <p>{managementChanged}</p>;
-  const { sentence, reference } = terminalFailure(error);
+  const { sentence, reference, referenceLabel } = terminalFailure(error);
   return (
     <>
-      <p>{sentence === text.reconnectFailed ? <ReconnectFailure /> : sentence}</p>
+      <p>{sentence}</p>
       {showReference && reference && (
         <p>
           <small className="failure-reference">
@@ -487,13 +475,14 @@ function TerminalFailure({
             <code
               className="tmt-ui-code"
               data-failure-reference
+              title={reference}
               data-own-publication={
                 error instanceof OwnPublicationTimeout && error.diagnostic
                   ? JSON.stringify(error.diagnostic)
                   : undefined
               }
             >
-              {reference}
+              {referenceLabel}
             </code>
           </small>
         </p>
@@ -522,28 +511,29 @@ function EndedBody({
       {action === 'pair' && (
         <>
           <p>{text.pairAgain}</p>
-          <BrowserCommand text={text.reconnectCommand} />
+          <BrowserCommand text={text.pairCommand} />
         </>
       )}
     </>
   );
 }
 
-function EndedLink({ action }: { action: EndedAction }) {
-  if (action === 'reload')
-    return (
-      <BrowserAction
-        type="button"
-        variant="text"
-        label={text.reload}
-        onActivate={() => location.reload()}
-      />
-    );
-  return action === 'pages' ? (
-    <Link className={ui.action} data-variant="text" to="/">
-      {text.retry}
-    </Link>
-  ) : null;
+function EndedLink({ action, primary = false }: { action: EndedAction; primary?: boolean }) {
+  return (
+    <>
+      {action === 'reload' && (
+        <BrowserAction
+          type="button"
+          variant={primary ? 'primary' : 'text'}
+          label={text.reload}
+          onActivate={() => location.reload()}
+        />
+      )}
+      <Link className={ui.action} data-variant="text" to="/">
+        {text.retry}
+      </Link>
+    </>
+  );
 }
 
 /** The page owner projects C1 once; composers do not classify transport errors. */
@@ -640,7 +630,10 @@ const root = createRootRouteWithContext<AppContext>()({
     const opening = useRouterState({ select: (state) => state.location.pathname }).startsWith(
       '/pages/',
     );
-    const failure = opening && error instanceof Error ? openFailure(error) : undefined;
+    const failure =
+      error instanceof Error && (opening || error.message === text.reconnectFailed)
+        ? openFailure(error)
+        : undefined;
     const header = useRef<HTMLElement>(null);
     useLayoutEffect(() => {
       const title = header.current?.querySelector('h1');
@@ -672,17 +665,7 @@ const root = createRootRouteWithContext<AppContext>()({
               {failure ? (
                 <TerminalFailure error={error as Error} />
               ) : (
-                <p>
-                  {error instanceof Error ? (
-                    error.message === text.reconnectFailed ? (
-                      <ReconnectFailure />
-                    ) : (
-                      error.message
-                    )
-                  ) : (
-                    text.blocked
-                  )}
-                </p>
+                <p>{error instanceof Error ? error.message : text.blocked}</p>
               )}
             </NoticeCard>
           )}
@@ -1086,6 +1069,7 @@ function Page() {
   // Anything not connected holds writes; only an ended connection replaces the page with a card.
   const liveError = connection.phase === 'connected' ? null : connection.error;
   const endedError = connection.phase === 'ended' ? connection.error : null;
+  const endedPresentation = endedError ? terminalFailure(endedError) : undefined;
   const recoveryRequired = connection.phase === 'reconnecting';
   const connectionPresentation = composerConnection(connection);
   const endedAction = connection.phase === 'ended' ? connection.action : 'none';
@@ -1727,9 +1711,9 @@ function Page() {
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (
-    <div className="drawer-recovery" role="status">
+    <div className="drawer-recovery" role="status" data-tone={endedPresentation?.state}>
       <span className="drawer-recovery-state">
-        <span aria-hidden="true">✗ </span>
+        <span aria-hidden="true">{endedPresentation?.state === 'inactive' ? '○ ' : '✗ '}</span>
         {text.blocked}
       </span>
       <EndedBody error={endedError} action={endedAction} compact />
@@ -1958,10 +1942,13 @@ function Page() {
           )}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
-              state="blocked"
+              state={endedPresentation?.state ?? 'blocked'}
+              stateLabel={endedPresentation?.state === 'inactive' ? text.notConnected : undefined}
               eyebrow={text.product}
               title={text.blocked}
-              actions={<EndedLink action={endedAction} />}
+              actions={
+                <EndedLink action={endedAction} primary={endedPresentation?.state === 'inactive'} />
+              }
             >
               {endedError ? (
                 <EndedBody error={endedError} action={endedAction} />

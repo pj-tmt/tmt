@@ -1484,14 +1484,18 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   f.stopSync();
   await expect(page.getByRole('heading', { name: 'Preview stopped', exact: true })).toBeVisible();
   await expect(page.locator('.tmt-ui-notice')).toHaveAttribute('data-tone', 'blocked');
-  // The body is a sentence; the raw token is only the small reference under it.
-  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.failureAccessEnded);
-  await expect(page.locator('[data-failure-reference]')).toHaveText('REMOTE_DEVICE_REVOKED');
+  // The body and code label are readable; the original diagnostic stays in the title.
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.failurePairingRemoved);
+  await expect(page.locator('[data-failure-reference]')).toHaveText('Pairing removed');
+  await expect(page.locator('[data-failure-reference]')).toHaveAttribute(
+    'title',
+    'REMOTE_DEVICE_REVOKED',
+  );
   await expect(page.locator('.failure-reference')).toContainText(copy.failureCodeLabel);
   await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
   // The one action fits the reason: pairing again, with its command.
   await expect(page.locator('.tmt-ui-notice')).toContainText(copy.pairAgain);
-  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.reconnectCommand);
+  await expect(page.locator('.tmt-ui-notice')).toContainText(copy.pairCommand);
   await capture('terminal-refusal');
   await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
@@ -1818,10 +1822,10 @@ for (const surface of ['Chat', 'annotation'] as const) {
     await input.fill(draft);
     f.end();
     const status = container.getByTestId('annotation-compose').getByRole('status');
-    await expect(status).toContainText(copy.failureAccessEnded);
-    await expect(container.getByText(copy.failureAccessEnded, { exact: true })).toHaveCount(1);
+    await expect(status).toContainText(copy.failurePairingRemoved);
+    await expect(container.getByText(copy.failurePairingRemoved, { exact: true })).toHaveCount(1);
     await expect(status).toContainText(copy.pairAgain);
-    await expect(status).toContainText(copy.reconnectCommand);
+    await expect(status).toContainText(copy.pairCommand);
     await expect(status).not.toContainText(copy.messageAgentsUnavailable);
     await expect(status).not.toContainText(copy.sendOnHold);
     await expect(
@@ -1864,9 +1868,9 @@ for (const surface of ['Chat', 'annotation'] as const) {
       await (await pageAction(page, 'Source')).click();
       const source = page.locator('.tmt-ui-drawer[data-panel=source]');
       const notice = source.locator('.drawer-recovery');
-      await expect(notice).toContainText(copy.failureAccessEnded);
-      await expect(notice).toContainText(copy.reconnectCommand);
-      await expect(source.getByText(copy.failureAccessEnded, { exact: true })).toHaveCount(1);
+      await expect(notice).toContainText(copy.failurePairingRemoved);
+      await expect(notice).toContainText(copy.pairCommand);
+      await expect(source.getByText(copy.failurePairingRemoved, { exact: true })).toHaveCount(1);
     }
   });
 }

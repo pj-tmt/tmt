@@ -6,6 +6,40 @@ import { ReaderApp, type ReaderState } from '../src/reader-app.js';
 import { MountedNotice } from '../src/mounted-app.js';
 import { text } from '../src/strings.js';
 import { localTransport, type PageSnapshot } from '../src/transport.js';
+import { ReopenFailedError } from '../src/registration.js';
+import { SessionLimitError } from '../src/session-limit-error.js';
+
+export type RecoveryFailure =
+  | 'uncertain'
+  | 'capacity'
+  | 'ended'
+  | 'gone'
+  | 'denied'
+  | 'mismatch'
+  | 'missing'
+  | 'revoked'
+  | 'expired';
+
+function recoveryFailure(kind: RecoveryFailure): Error {
+  switch (kind) {
+    case 'uncertain':
+      return new Error(text.reconnectFailed);
+    case 'capacity':
+      return new SessionLimitError(8);
+    case 'ended':
+      return new Error('REMOTE_SESSION_ENDED');
+    case 'gone':
+      return new Error('Page unavailable');
+    case 'denied':
+      return new Error('REMOTE_SCOPE_DENIED');
+    case 'missing':
+      return new ReopenFailedError('unpaired');
+    case 'mismatch':
+    case 'revoked':
+    case 'expired':
+      return new ReopenFailedError(kind);
+  }
+}
 
 let root: Root | undefined;
 const id = 'a19c0460-1111-4111-8111-000000000001';
@@ -28,7 +62,7 @@ export type Screen =
   | 'reader-ended'
   | 'reader-failed';
 
-export async function mount(screen: Screen) {
+export async function mount(screen: Screen, failure: RecoveryFailure = 'uncertain') {
   document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('chrome-fixture');
   if (!host) {
@@ -103,7 +137,7 @@ export async function mount(screen: Screen) {
           ...snapshot,
           binding: {
             subscribe: (_, failed) => {
-              failed(new Error(text.reconnectFailed));
+              failed(recoveryFailure(failure));
               return () => {};
             },
             edit: async () => {

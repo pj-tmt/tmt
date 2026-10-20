@@ -316,8 +316,11 @@ for (const width of [1440, 390]) {
         'Exact selected text',
       );
       await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
-      const notice = page.getByRole('alert');
-      await expect(notice).toContainText('Page unavailable');
+      const notice = page.locator('#ask-page-fixture .tmt-ui-notice');
+      await expect(notice).toHaveAttribute('role', 'status');
+      await expect(notice).toHaveAttribute('data-tone', 'muted');
+      await expect(notice).toContainText(text.notConnected);
+      await expect(notice).toContainText(text.failurePageGone);
       await expect(notice).not.toContainText(text.limit);
       await expect
         .poll(async () => {
