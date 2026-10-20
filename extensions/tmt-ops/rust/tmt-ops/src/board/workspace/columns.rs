@@ -755,7 +755,11 @@ mod tests {
                     field,
                     AgentsField::Tokens | AgentsField::Cron | AgentsField::Model
                 ) {
-                    assert_eq!(slot.width, field.minimum(), "optional fields fit whole");
+                    // MODEL, the last field, also takes what the others leave.
+                    assert!(slot.width >= field.minimum(), "optional fields fit whole");
+                    if *field != AgentsField::Model {
+                        assert_eq!(slot.width, field.minimum());
+                    }
                 }
             }
         }

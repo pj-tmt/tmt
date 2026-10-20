@@ -266,6 +266,17 @@ impl App {
             }
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
+        // The flat list discusses the acquired request the member is waiting on,
+        // not an unrelated newer response to one of our outgoing messages.
+        let flat = self.workspace_snapshot().is_some() && self.flat_agents();
+        if flat && let Some(question) = self.pending_question(target, None) {
+            detail.reply = Some(question);
+            return Some(detail.additional(visible));
+        }
+        if flat {
+            // A board decision without an observed request is not a transcript.
+            return Some(detail.additional(visible));
+        }
         detail.finals = self.finals(row, squad, id, sender.as_deref(), now);
         detail.reply = detail.finals.last().cloned();
         detail.sent = self.sent(id, sender.as_deref());

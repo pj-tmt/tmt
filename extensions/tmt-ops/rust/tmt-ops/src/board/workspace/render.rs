@@ -468,9 +468,14 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                             .idle_alert
                             .and_then(|alert| alert.label(model_width))
                             .unwrap_or_else(|| {
-                                let (now, _) =
+                                // The tree never discloses a waiting preview.
+                                let (now, pending) =
                                     crate::board::overview::monitor::squad_now(snapshot, squad);
-                                crate::board::workspace::render::safe(&now)
+                                if pending {
+                                    "waiting on you".to_owned()
+                                } else {
+                                    crate::board::workspace::render::safe(&now)
+                                }
                             })
                     })
                     .unwrap_or_default(),

@@ -447,12 +447,14 @@ fn unread_squad_maximum_label_is_whole_and_tokens_align_with_the_header() {
             .collect();
         let header = lines
             .iter()
-            .find(|line| line.contains("SQUAD") && line.contains("TEAM"))
+            .find(|line| line.contains("SQUAD / AGENT") && line.contains("STATE"))
             .unwrap();
         let token_end = header.find("TOK 1h").unwrap() + "TOK 1h".len() - 1;
         let row = lines
             .iter()
-            .find(|line| line.contains("product") && line.contains("50+ unread"))
+            .find(|line| {
+                line.contains(" product ") && line.contains("50+ unread") && !line.contains(" · ")
+            })
             .unwrap();
         assert!(row.contains("● 50+ unread"), "{row}");
         assert_eq!(row.chars().nth(token_end), Some('—'), "{header}\n{row}");

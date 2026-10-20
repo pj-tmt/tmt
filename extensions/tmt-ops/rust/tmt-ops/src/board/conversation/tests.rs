@@ -751,7 +751,7 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
-fn switching_shell_keeps_uuid_and_link_while_agents_shows_the_exchange() {
+fn switching_shell_keeps_uuid_and_link_while_the_flat_list_discusses_only_an_observed_question() {
     use crate::board::shell::OpsTab;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_fixture();
@@ -796,18 +796,19 @@ fn switching_shell_keeps_uuid_and_link_while_agents_shows_the_exchange() {
                 !text.contains("worker line 089"),
                 "Digest shows status details"
             );
-        } else {
+        } else if tab == OpsTab::Agents {
+            assert!(text.contains("(no response in loaded history)"), "{text}");
+            assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
-                text.contains("https://example.test/pr")
-                    && !text.contains("(press ")
-                    && !text.contains("$link"),
-                "{tab:?}: {text}"
+                !text.contains("worker line 089"),
+                "an unrelated outgoing result is not the incoming question"
             );
-            assert!(text.contains("worker line 089"), "{tab:?}: {text}");
             assert_eq!(
                 app.workspace_bindings()["o"].verb,
                 crate::action::Verb::Open
             );
+        } else {
+            unreachable!()
         }
         assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
         assert!(app.conversation.borrow().pane.is_some());

@@ -24,7 +24,8 @@ impl State {
 
 impl App {
     pub(in crate::board) fn pane_output_enabled(&self) -> bool {
-        self.workspace_snapshot().is_none() || self.shell.tab == crate::board::shell::OpsTab::Agents
+        self.workspace_snapshot().is_none()
+            || self.shell.tab == crate::board::shell::OpsTab::Agents && !self.flat_agents()
     }
 
     pub(in crate::board) fn pane_output_read(&self) -> Option<ConversationKey> {

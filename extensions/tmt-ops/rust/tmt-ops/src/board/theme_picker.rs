@@ -487,19 +487,15 @@ mod tests {
                     .iter()
                     .all(|hit| hit.target != crate::board::app::HitTarget::AllRoomTimers)
             );
+            // The count line under the list carries the waiting note.
             let summary_y = (0..buffer.area.height)
                 .find(|y| {
                     (0..108)
                         .map(|x| buffer[(x, *y)].symbol())
                         .collect::<String>()
-                        .contains("── Agents")
+                        .contains("waiting first")
                 })
-                .expect("actual Agents rule");
-            assert_eq!(
-                buffer[(find(summary_y, "Agents"), summary_y)].fg,
-                app.look().role(Role::Text).fg.unwrap_or_default(),
-                "section title uses previewed text while attention retains its token"
-            );
+                .expect("actual Agents count line");
             assert_eq!(buffer[(find(summary_y, "◆"), summary_y)].fg, expected);
             let tabs: String = (0..108).map(|x| buffer[(x, tabs_y)].symbol()).collect();
             assert!(!tabs.contains('◆'));
