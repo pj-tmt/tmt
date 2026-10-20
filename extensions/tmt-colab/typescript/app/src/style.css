@@ -289,6 +289,18 @@ body:has(.needs-you-header-menu) {
   border: 0;
   background: #fff;
 }
+/* The cards drawn over a page (#4081): a wrapper that only scopes the page's painted scheme to them,
+   not to the review and reading bands, which sit on the app's paper. */
+.page-cards {
+  display: contents;
+}
+/* Native controls in those cards are drawn for the same scheme as their sheet. */
+.page-cards[data-theme='light'] {
+  color-scheme: light;
+}
+.page-cards[data-theme='dark'] {
+  color-scheme: dark;
+}
 /* The pending page (#3976): the header holds, one spinner sits centred in the area a loaded page gets.
    It is the LoaderCircle mark of the busy and echo marks, without words; it turns by the shared tmt-ui-spin rule. */
 .page-opening {

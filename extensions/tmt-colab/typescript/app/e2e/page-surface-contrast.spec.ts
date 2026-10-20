@@ -4,9 +4,9 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * Colab draws its cards over the author's page (#3959): whatever the page paints, and whatever
  * the app theme is, a card's text stays readable against what is really behind it. A card is the
- * page sheet of the active theme with a 1px light rule, not the needs-you band and not a dark edge
- * (#4068). The render frame's canvas is white, so a page that sets no background is a white page in
- * both themes.
+ * page sheet with a 1px light rule, not the needs-you band and not a dark edge (#4068), of the
+ * scheme the page paints (#4081): a light page gets the light sheet and a dark page the dark one in
+ * either theme, and a page that paints nothing (the frame's canvas is white) follows the app theme.
  */
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
@@ -140,6 +140,17 @@ for (const width of [1440, 390])
           await expect(
             page.frameLocator('#ask-page-fixture iframe').locator('html'),
           ).toHaveAttribute('data-theme', theme);
+          // The frame reports what the page paints once it has loaded; a bare page keeps the app theme.
+          // A reading and a review band sit on the app's paper and keep the app's scheme.
+          const cardsOnPage = name === 'question group' || name === 'question and proposal';
+          if (paint !== 'bare' && cardsOnPage)
+            await expect(
+              page
+                .locator('.page-cards', {
+                  has: page.locator('.proposal-inline:not([data-detached])'),
+                })
+                .first(),
+            ).toHaveAttribute('data-theme', paint);
           const { text, cards } = await measure(page, backdrop);
           if (process.env.CONTRAST_DEBUG)
             console.log(
@@ -154,13 +165,13 @@ for (const width of [1440, 390])
           expect(text.every((entry) => Number.isFinite(entry.ratio))).toBe(true);
           // Text against the surface it sits on: 4.5:1.
           expect(text.filter((entry) => entry.ratio < 4.5)).toEqual([]);
-          // Every card is the theme's sheet with a 1px light rule and no dark edge; the 3:1 boundary
+          // Every card is the painted scheme's sheet with a 1px light rule and no dark edge; the 3:1 boundary
           // floor does not apply to it, by Ben's decision (#4068, as for floating panels in #4025).
-          const sheet = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
-          const rule = theme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)';
+          const scheme = paint === 'bare' ? theme : paint;
+          const sheet = scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+          const rule = scheme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)';
           // A reading and a review band hold no card of these two kinds.
-          if (name === 'question group' || name === 'question and proposal')
-            expect(cards.length).toBeGreaterThan(0);
+          if (cardsOnPage) expect(cards.length).toBeGreaterThan(0);
           expect(
             cards.filter(
               (card) =>

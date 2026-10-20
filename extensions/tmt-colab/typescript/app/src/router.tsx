@@ -83,7 +83,7 @@ import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
-import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
+import type { AnchorPosition, PageScheme, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
@@ -1446,6 +1446,7 @@ function Page() {
     renderer.current?.images(imageInput.current);
   }, [imageBinding, imageScope, imageDescriptors]);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  const [pageScheme, setPageScheme] = useState<PageScheme>('none');
   const accessLabel = archived
     ? text.archiveReadOnly
     : recoveryRequired
@@ -1613,10 +1614,12 @@ function Page() {
     // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
     setAnchorsChecked(false);
+    setPageScheme('none');
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       layout: view.layout,
       onState: setState,
+      onScheme: setPageScheme,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
       onReadings: onReadingAnchors,
@@ -1934,10 +1937,22 @@ function Page() {
           <div className="frame-host" ref={host} />
           {!discussionPending && (
             <>
-              {proposalLayer.inline}
+              {/* The proposal and question cards sit on the author's page, so they take the scheme it
+                  paints; the review and reading bands sit on the app's paper and keep the app's. */}
+              <div
+                className="page-cards"
+                data-theme={pageScheme === 'none' ? undefined : pageScheme}
+              >
+                {proposalLayer.inline}
+              </div>
               {reviewLayer.inline}
               {readingLayer.inline}
-              {questionLayer.inline}
+              <div
+                className="page-cards"
+                data-theme={pageScheme === 'none' ? undefined : pageScheme}
+              >
+                {questionLayer.inline}
+              </div>
             </>
           )}
           {(state === 'navigation' || state === 'failed') && (
