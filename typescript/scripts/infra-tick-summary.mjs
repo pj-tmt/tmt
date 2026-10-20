@@ -23,6 +23,11 @@ import { runPackedCommand } from './packed-command.mjs';
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = /^[a-f0-9]{40}$/;
 const FAILED = new Set(['failure', 'timed_out', 'action_required', 'stale']);
+const INCOMPLETE_KINDS = new Set([
+  'collection refused',
+  'queue coverage unavailable',
+  'public-install release evidence unavailable',
+]);
 const ACTIVE = new Set(['queued', 'in_progress', 'waiting', 'pending', 'requested']);
 const AGGREGATES = new Set([
   'Docker E2E',
@@ -73,6 +78,19 @@ const time = (value) => {
   );
   return Date.parse(value);
 };
+function redactCredentials(text) {
+  return [process.env.GH_TOKEN, process.env.GITHUB_TOKEN]
+    .filter(Boolean)
+    .reduce((result, secret) => result.replaceAll(secret, '[REDACTED]'), text);
+}
+function incompleteBanner(report) {
+  const kinds = [
+    ...new Set(
+      report.anomalies.filter(({ kind }) => INCOMPLETE_KINDS.has(kind)).map(({ kind }) => kind)
+    ),
+  ];
+  return `INCOMPLETE: ${kinds.join('; ')}; cursor not advanced`;
+}
 function identity(row, label) {
   assert.ok(Number.isSafeInteger(row?.id) && row.id > 0, `Invalid ${label} identity.`);
   return row.id;
@@ -607,8 +625,8 @@ export function collectInfraTick(
       );
       positions.add(entry.position);
       prs.add(entry.pullRequest.number);
-      const ageMinutes = (end - time(entry.enqueuedAt)) / 60_000;
-      assert.ok(ageMinutes >= 0, 'Queue enqueue time is in the future.');
+      // The live queue can acquire entries after this report's fixed boundary.
+      const ageMinutes = Math.max(0, (end - time(entry.enqueuedAt)) / 60_000);
       const row = {
         pr: entry.pullRequest.number,
         head: entry.pullRequest.headRefOid,
@@ -620,9 +638,11 @@ export function collectInfraTick(
       queue.push(row);
       if (ageMinutes > 30) anomaly('merge queue entry older than 30 minutes', row);
     }
-  } catch {
+  } catch (error) {
     queue.length = 0;
-    anomaly('queue coverage unavailable', {});
+    anomaly('queue coverage unavailable', {
+      message: redactCredentials(String(error?.message ?? error)),
+    });
   }
   api.stage?.('release catalogue');
   const releases = api.releases();
@@ -1044,11 +1064,7 @@ export function collectInfraTick(
     guides,
     host: { freeBytes: local.freeBytes, load1: local.load1 },
     evidence: api.evidence?.() ?? {},
-    complete: !anomalies.some((item) =>
-      ['queue coverage unavailable', 'public-install release evidence unavailable'].includes(
-        item.kind
-      )
-    ),
+    complete: !anomalies.some(({ kind }) => INCOMPLETE_KINDS.has(kind)),
   };
 }
 
@@ -1060,11 +1076,11 @@ function anomalyPriority({ kind }) {
     case 'failed release or post-publication check':
     case 'published release post-publication check failed':
     case 'public-install release evidence unavailable':
+    case 'queue coverage unavailable':
       return 0;
     case 'guide near or over budget':
       return 2;
     case 'merge queue entry older than 30 minutes':
-    case 'queue coverage unavailable':
       return 3;
     case 'unmapped shared path':
       return 4;
@@ -1085,6 +1101,7 @@ export function renderInfraTick(report) {
     '',
     `Anomalies: ${report.anomalies.length}`,
   ];
+  if (!report.complete) rows.unshift(incompleteBanner(report));
   const statements = report.anomalies.filter(
     (item) => item.kind === 'missing head-named lead statement; judgement required'
   );
@@ -1152,13 +1169,12 @@ function main() {
   const cursor = path.join(values.output, 'cursor.json');
   const until = values.until ?? new Date().toISOString();
   assert.ok(time(until) <= Date.now(), 'Tick end cannot be in the future.');
-  const secrets = [process.env.GH_TOKEN, process.env.GITHUB_TOKEN].filter(Boolean);
-  const safe = (text) =>
-    secrets.reduce((result, secret) => result.replaceAll(secret, '[REDACTED]'), text);
   const invocation = `${until}:${process.pid}`;
   const callLog = path.join(values.output, 'calls.jsonl');
   const trace = (entry) =>
-    appendFileSync(callLog, safe(JSON.stringify({ invocation, ...entry })) + '\n', { mode: 0o600 });
+    appendFileSync(callLog, redactCredentials(JSON.stringify({ invocation, ...entry })) + '\n', {
+      mode: 0o600,
+    });
   trace({ event: 'invocation', until });
   let since = values.since ?? new Date(Date.parse(until) - 60 * 60_000).toISOString();
   const api = createTickClient({
@@ -1238,10 +1254,10 @@ function main() {
     });
     writeFileSync(
       path.join(values.output, 'summary.json'),
-      safe(JSON.stringify(report, null, 2) + '\n'),
+      redactCredentials(JSON.stringify(report, null, 2) + '\n'),
       { mode: 0o600 }
     );
-    const markdown = safe(renderInfraTick(report));
+    const markdown = redactCredentials(renderInfraTick(report));
     writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
     process.stdout.write(markdown);
     if (report.complete) {
@@ -1270,7 +1286,9 @@ function main() {
       since,
       until,
       coverage: COVERAGE,
-      anomalies: [{ kind: 'collection refused', message: safe(error.message), stage, prCount }],
+      anomalies: [
+        { kind: 'collection refused', message: redactCredentials(error.message), stage, prCount },
+      ],
       evidence: api.evidence(),
     };
     writeFileSync(
@@ -1278,7 +1296,7 @@ function main() {
       JSON.stringify(report, null, 2) + '\n',
       { mode: 0o600 }
     );
-    const markdown = `# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${safe(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.\n`;
+    const markdown = `${incompleteBanner(report)}\n# Infra tick refused\n\n${COVERAGE}\n\n- collection refused: ${redactCredentials(error.message)}\n- stage: ${stage}; PRs: ${prCount}\n- API calls: ${api.evidence().requests}/80. Cursor unchanged. Qualified terminal job/log evidence is retained. Retry a transient refusal once; after a second refusal stop and split the window with --until or escalate.\n`;
     writeFileSync(path.join(values.output, 'summary.md'), markdown, { mode: 0o600 });
     process.stdout.write(markdown);
     trace({ event: 'refused', requests: api.evidence().requests, complete: false });
