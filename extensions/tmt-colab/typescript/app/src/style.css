@@ -793,6 +793,13 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
   font-size: 12px;
 }
+/* Where comments and chat will be until the page's threads are verified: quiet, in the drawer body. */
+.discussion-pending {
+  margin: 0;
+  padding: 16px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
 .annotation-row .annotation-number {
   margin-inline-end: 8px;
 }

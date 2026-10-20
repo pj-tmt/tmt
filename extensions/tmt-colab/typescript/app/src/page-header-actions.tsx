@@ -82,7 +82,8 @@ export function PageHeaderActions({
   onSelect,
 }: {
   active: PageHeaderAction | null;
-  comments: number;
+  /** Absent while the page's threads are still being verified: no count is better than a false 0. */
+  comments?: number;
   files: number;
   unseen: boolean;
   chatUnread?: boolean;
@@ -102,13 +103,13 @@ export function PageHeaderActions({
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
       <BrowserMenu
-        label={`${text.discussion} (${comments})${unseen ? ` · ${text.threadUnseen}` : ''}`}
+        label={`${text.discussion}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
         icon={<PageHeaderIcon name="discussion" count={comments} unseen={unseen} />}
         items={[
           { key: 'chat', label: chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat },
           {
             key: 'comments',
-            label: `${text.comments} ${comments}${unseen ? ` · ${text.threadUnseen}` : ''}`,
+            label: `${text.comments}${comments === undefined ? '' : ` ${comments}`}${unseen ? ` · ${text.threadUnseen}` : ''}`,
           },
         ]}
         onSelect={(key) => onSelect(key as 'chat' | 'comments')}
