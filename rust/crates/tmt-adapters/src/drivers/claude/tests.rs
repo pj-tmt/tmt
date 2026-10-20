@@ -461,13 +461,105 @@ fn resumed_start_attaches_first_session_to_admitted_process_only() {
             .propose(&admitted, &other, RuntimeLiveness::Unknown)
             .is_none()
     );
-    for transition in [SessionTransition::Cleared, SessionTransition::Compacted] {
+    assert!(
+        event(true, SessionTransition::Cleared, "resumed-session")
+            .propose(&admitted, &process, RuntimeLiveness::Alive)
+            .is_none()
+    );
+}
+
+fn compact_start(session: &str) -> ClaudeObservation {
+    decode_hook(
+        json!({"hook_event_name": "SessionStart", "source": "compact", "session_id": session})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_compact_start_names_a_running_launch_owned_unnamed_key() {
+    let process = ProcessIncarnation::new(42, "child").unwrap();
+    let owner = ProcessIncarnation::new(41, "owner").unwrap();
+    let unnamed = ObservedSessionKey {
+        incarnation: process.clone(),
+        provider_session: None,
+    };
+    let launched = BindingSessionState::default()
+        .admit_launched(
+            unnamed.clone(),
+            owner.clone(),
+            SessionTransition::Started,
+            RuntimeLiveness::Alive,
+            RuntimeLiveness::Alive,
+        )
+        .unwrap();
+    let compact = compact_start("current");
+    let named = compact
+        .propose(&launched, &process, RuntimeLiveness::Alive)
+        .unwrap();
+    assert_eq!(
+        named,
+        BindingSessionState {
+            last_transition: Some(SessionTransition::Compacted),
+            state: RuntimeState::Running,
+            key: Some(ObservedSessionKey {
+                incarnation: process.clone(),
+                provider_session: Some(compact.session.clone()),
+            }),
+            launch_owner: Some(owner),
+        }
+    );
+    // The named key now follows the normal rules: another compact is a plain
+    // transition, and a clear to another session still needs its end first.
+    assert!(
+        compact
+            .propose(&named, &process, RuntimeLiveness::Alive)
+            .is_some()
+    );
+    assert!(
+        event(true, SessionTransition::Cleared, "next")
+            .propose(&named, &process, RuntimeLiveness::Alive)
+            .is_none()
+    );
+
+    // Another process incarnation.
+    let other = ProcessIncarnation::new(43, "other").unwrap();
+    for liveness in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
+        assert!(compact.propose(&launched, &other, liveness).is_none());
+    }
+    // No launch owner: a replacement process that delivery admitted.
+    let replacement = BindingSessionState::default()
+        .admit(
+            unnamed.clone(),
+            SessionTransition::Started,
+            RuntimeLiveness::Alive,
+        )
+        .unwrap();
+    assert!(
+        compact
+            .propose(&replacement, &process, RuntimeLiveness::Alive)
+            .is_none()
+    );
+    // Not Running: after a provider end, and after the process ended.
+    let provider_end = launched
+        .transition(&unnamed, SessionTransition::Ended, None)
+        .unwrap();
+    let mut ended = launched.clone();
+    ended.state = RuntimeState::Ended;
+    for stopped in [provider_end, ended] {
         assert!(
-            event(true, transition, "resumed-session")
-                .propose(&admitted, &process, RuntimeLiveness::Alive)
+            compact
+                .propose(&stopped, &process, RuntimeLiveness::Alive)
                 .is_none()
         );
     }
+    // Only a start names it, never a compaction that is not one.
+    assert!(
+        event(false, SessionTransition::Compacted, "current")
+            .propose(&launched, &process, RuntimeLiveness::Alive)
+            .is_none()
+    );
 }
 
 #[test]
