@@ -193,7 +193,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             squad
                 .members
                 .iter()
-                .any(|(id, _)| unread.contains(id.as_str()))
+                .any(|(id, _, _)| unread.contains(id.as_str()))
         }) {
         14
     } else {
@@ -436,10 +436,11 @@ fn squad_line(
     let members: Vec<_> = squad
         .members
         .iter()
-        .map(|(id, state)| team_strip::Member {
+        .map(|(id, state, over)| team_strip::Member {
             id,
             state: state.as_deref(),
             unread: app.unread_count(id),
+            over: *over,
         })
         .collect();
     let team = if members.is_empty()
@@ -447,7 +448,13 @@ fn squad_line(
     {
         Line::styled("—", look.role(Role::Muted))
     } else {
-        team_strip::line(&members, squad.lead.as_deref(), team_width, look)
+        team_strip::line(
+            &members,
+            squad.lead.as_deref(),
+            team_width,
+            look,
+            app.cron_glyphs,
+        )
     };
     let padding = team_width.saturating_sub(team.width());
     let mut spans = vec![

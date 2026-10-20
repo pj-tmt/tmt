@@ -52,6 +52,9 @@ pub struct Member {
     pub activity: ObservedActivity,
     /// A request waits on the user: the only waiting evidence today.
     pub waiting: bool,
+    /// Core's idle alert marks this member over its threshold: the squad's alert
+    /// is on, the idle phase is older than the threshold, and nothing excepts it.
+    pub idle_over: bool,
     pub task: Option<String>,
 }
 
@@ -63,6 +66,9 @@ pub struct Label {
     pub age: Option<String>,
     /// The core time `age` counts from, so a frame clock can follow it.
     pub at: Option<u64>,
+    /// The idle alert is over for this member while it shows as idle: the cell
+    /// marks it `◷` in the attention colour and the word `idle` still follows.
+    pub idle_over: bool,
     /// The sanitized task state, even when it repeats the activity word: only
     /// the painter knows which primary words it shows, so it removes a repeat.
     pub task: Option<String>,
@@ -101,6 +107,7 @@ impl Member {
             state,
             age,
             at,
+            idle_over: self.idle_over && state == "idle",
             task,
         }
     }
@@ -258,6 +265,7 @@ mod tests {
                 last_ms: last,
             },
             waiting: false,
+            idle_over: false,
             task: task.map(str::to_owned),
         }
     }

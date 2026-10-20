@@ -98,7 +98,8 @@ pub(in crate::board) struct Squad {
     pub room_id: String,
     pub name: String,
     pub lead: Option<String>,
-    pub members: Vec<(String, Option<String>)>,
+    /// Each member once: identity, its activity word, and whether Core's idle alert is over.
+    pub members: Vec<(String, Option<String>, bool)>,
     pub tokens: Option<(u128, bool)>,
     pub observation: crate::board::workspace::OpsObservation,
     pub now: String,
@@ -197,10 +198,11 @@ fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
                             .map(|member| member.activity)
                             .unwrap_or_default(),
                         waiting: membership.is_some_and(|state| state.waiting),
+                        idle_over: membership.is_some_and(|state| state.idle_over),
                         task: None,
                     }
                     .label(key.activity_stale, 0);
-                    (id.clone(), Some(label.state.to_owned()))
+                    (id.clone(), Some(label.state.to_owned()), label.idle_over)
                 })
                 .collect();
             let rows: Vec<_> = squad

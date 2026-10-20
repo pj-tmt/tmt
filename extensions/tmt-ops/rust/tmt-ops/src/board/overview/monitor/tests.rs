@@ -656,7 +656,7 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
         scene.squads[0]
             .members
             .iter()
-            .find(|(id, _)| id == MEMBER)
+            .find(|(id, _, _)| id == MEMBER)
             .unwrap()
             .1
             .as_deref(),

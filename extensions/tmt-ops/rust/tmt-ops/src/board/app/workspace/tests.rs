@@ -1,4 +1,5 @@
 mod host_action;
+mod idle_alert;
 use super::*;
 use crate::board::workspace::{
     OpsMember, OpsObservation, OpsRoster, OpsSquad,
@@ -57,10 +58,12 @@ pub(in crate::board) fn board() -> App {
                         state: Some("working".into()),
                         waiting: false,
                         rank: None,
+                        idle_over: false,
                     },
                 )]
                 .into(),
                 observation: OpsObservation::Complete,
+                idle_alert: None,
             }],
             membership_complete: true,
             observation: OpsObservation::Complete,
@@ -442,6 +445,7 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
             lead: None,
             member_states: Default::default(),
             observation: OpsObservation::Complete,
+            idle_alert: None,
         });
     }
     for ordinal in 0..agents {
@@ -476,6 +480,7 @@ pub(in crate::board) fn populated_board(squads: usize, agents: usize) -> App {
                     state: Some(state.into()),
                     waiting: false,
                     rank: None,
+                    idle_over: false,
                 },
             );
             if ordinal < squads {
@@ -2600,6 +2605,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
                         state: Some("idle".into()),
                         waiting: false,
                         rank: None,
+                        idle_over: false,
                     },
                 );
                 home.workspace.rows.insert(
@@ -5283,7 +5289,7 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
         let member = scene.squads[0]
             .members
             .iter()
-            .find(|(id, _)| id == MEMBER)
+            .find(|(id, _, _)| id == MEMBER)
             .unwrap();
         assert_eq!(
             member.1.as_deref(),

@@ -29,6 +29,7 @@ fn roster() -> OpsRoster {
             lead: Some("lead".into()),
             member_states: BTreeMap::new(),
             observation: OpsObservation::Complete,
+            idle_alert: None,
         }],
         membership_complete: true,
         observation: OpsObservation::Complete,
@@ -76,6 +77,7 @@ fn session_scope_overrides_hidden_squads_and_excludes_unscoped_pool_and_rooms() 
         lead: None,
         member_states: BTreeMap::new(),
         observation: OpsObservation::Complete,
+        idle_alert: None,
     });
     let preferences = OpsPreferences {
         hidden: ["room".into()].into(),
@@ -151,6 +153,7 @@ fn shell_counts_deduplicate_memberships_and_keep_attention_independent_of_state(
             waiting: true,
             state: Some("blocked".into()),
             rank: None,
+            idle_over: false,
         },
     );
     roster.squads.push(OpsSquad {
@@ -492,6 +495,7 @@ fn collapse_retains_child_attention_without_making_a_second_member_count() {
             state: Some("blocked".into()),
             waiting: false,
             rank: None,
+            idle_over: false,
         },
     );
     roster.squads[0].members.push("one".into());
@@ -505,6 +509,7 @@ fn collapse_retains_child_attention_without_making_a_second_member_count() {
             state: None,
             waiting: true,
             rank: None,
+            idle_over: false,
         },
     );
     assert_eq!(
@@ -597,6 +602,7 @@ fn pinned_squads_stay_before_unpinned_in_both_sort_directions() {
         lead: None,
         member_states: BTreeMap::new(),
         observation: OpsObservation::Complete,
+        idle_alert: None,
     });
     let workspace = OpsWorkspace {
         selected: Some(OpsTarget::Squad("pinned".into())),
@@ -676,6 +682,7 @@ fn dense_roster_preserves_selected_target_across_reversal_and_search() {
             lead: None,
             member_states: BTreeMap::new(),
             observation: OpsObservation::Complete,
+            idle_alert: None,
         });
     }
     let selected = target(Some("room-20"), "identity-020");
@@ -718,6 +725,7 @@ fn same_identity_keeps_each_squads_metadata_state_and_attention() {
             state: Some("blocked".into()),
             waiting: false,
             rank: None,
+            idle_over: false,
         },
     );
     let mut other = OpsSquad {
@@ -731,6 +739,7 @@ fn same_identity_keeps_each_squads_metadata_state_and_attention() {
             state: Some("idle".into()),
             waiting: false,
             rank: None,
+            idle_over: false,
         },
     );
     roster.squads.push(other);
@@ -774,6 +783,7 @@ fn a_collapsed_squad_preserves_its_configured_worst_observed_state() {
                 state: Some("hold".into()),
                 waiting: false,
                 rank: Some((1, false, 0)),
+                idle_over: false,
             },
         ),
         (
@@ -782,6 +792,7 @@ fn a_collapsed_squad_preserves_its_configured_worst_observed_state() {
                 state: Some("working".into()),
                 waiting: false,
                 rank: Some((20, false, 1)),
+                idle_over: false,
             },
         ),
     ]
@@ -818,6 +829,7 @@ fn hidden_attention_reuses_shell_evidence_and_deduplicates_room_memberships() {
             state: Some("blocked".into()),
             waiting: true,
             rank: None,
+            idle_over: false,
         },
     );
     duplicate.member_states.insert(
@@ -826,6 +838,7 @@ fn hidden_attention_reuses_shell_evidence_and_deduplicates_room_memberships() {
             state: Some("blocked".into()),
             waiting: true,
             rank: None,
+            idle_over: false,
         },
     );
     roster.squads.push(duplicate);
@@ -908,6 +921,7 @@ fn direct_member_projection_matches_expanded_rows_without_leaking_global_waiting
             state: Some("review".into()),
             waiting: false,
             rank: None,
+            idle_over: false,
         },
     );
     let workspace = OpsWorkspace {

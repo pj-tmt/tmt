@@ -359,6 +359,10 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     )
                 },
             );
+            let model_width = slots
+                .iter()
+                .find(|(field, _)| *field == Field::Model)
+                .map_or(0, |(_, rect)| usize::from(rect.width));
             let state_width = slots
                 .iter()
                 .find(|(field, _)| *field == Field::State)
@@ -395,24 +399,24 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 let now = crate::status::now_ms();
                 let members: Vec<_> = ids
                     .iter()
-                    .map(|id| crate::board::team_strip::Member {
-                        id,
+                    .map(|id| {
                         // TEAM needs only the activity glyph, not a cloned display row/task.
-                        state: snapshot.roster.members.get(*id).map(|member| {
+                        let label = snapshot.roster.members.get(*id).map(|member| {
+                            let state = squad.and_then(|squad| squad.member_states.get(*id));
                             crate::board::activity::Member {
                                 activity: member.activity,
-                                waiting: squad.map_or(member.waiting, |squad| {
-                                    squad
-                                        .member_states
-                                        .get(*id)
-                                        .is_some_and(|state| state.waiting)
-                                }),
+                                waiting: state.map_or(member.waiting, |state| state.waiting),
+                                idle_over: state.is_some_and(|state| state.idle_over),
                                 task: None,
                             }
                             .label(stale, now)
-                            .state
-                        }),
-                        unread: app.unread_count(id),
+                        });
+                        crate::board::team_strip::Member {
+                            id,
+                            over: label.as_ref().is_some_and(|label| label.idle_over),
+                            state: label.map(|label| label.state),
+                            unread: app.unread_count(id),
+                        }
                     })
                     .collect();
                 let state = if members.is_empty()
@@ -425,6 +429,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                         squad.and_then(|squad| squad.lead.as_deref()),
                         state_width,
                         look,
+                        app.cron_glyphs,
                     )
                 };
                 (state, None)
@@ -464,7 +469,14 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 agent.and_then(|agent| agent.model.as_deref()),
                             )
                         }
-                        _ => String::new(),
+                        OpsTarget::Squad(room) => snapshot
+                            .roster
+                            .squads
+                            .iter()
+                            .find(|squad| &squad.room_id == room)
+                            .and_then(|squad| squad.idle_alert?.label(model_width))
+                            .unwrap_or_default(),
+                        OpsTarget::Pool => String::new(),
                     },
                     timers: timers.map(|count| count.total),
                     selected,

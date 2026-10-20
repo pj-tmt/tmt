@@ -120,6 +120,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
                     state: Some((*state).into()),
                     waiting: *state == "waiting",
                     rank: None,
+                    idle_over: false,
                 },
             );
             roster.members.insert(
@@ -206,6 +207,7 @@ fn fixture(selected_name: &str, look: Look) -> App {
             members: ids,
             member_states: states,
             observation: OpsObservation::Complete,
+            idle_alert: None,
         });
         rates.push((
             name.to_owned(),

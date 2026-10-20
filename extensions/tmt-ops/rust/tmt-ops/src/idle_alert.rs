@@ -216,7 +216,8 @@ fn body(squad: &Squad, member: &Member, since_ms: u64, after: Duration, zone: &T
     )
 }
 
-fn threshold(after: Duration) -> String {
+/// The threshold as the notice and the board write it: `30m`, `1h`, `90s`.
+pub fn threshold(after: Duration) -> String {
     match after.as_secs() {
         seconds if seconds % 3600 == 0 => format!("{}h", seconds / 3600),
         seconds if seconds % 60 == 0 => format!("{}m", seconds / 60),
