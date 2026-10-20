@@ -123,6 +123,7 @@ function PageFloatingActions({
   chatButton,
   toggleChat,
   canSelect,
+  selectPending,
   slots,
 }: {
   slots: readonly AnchorPosition[];
@@ -135,6 +136,8 @@ function PageFloatingActions({
   chatButton: Ref<HTMLButtonElement>;
   toggleChat(): void;
   canSelect: boolean;
+  /** The button's place while the threads are unverified: fenced, not greyed. */
+  selectPending: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<{
@@ -229,10 +232,11 @@ function PageFloatingActions({
             }}
           />
         )}
-        {canSelect && (
+        {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
             variant="primary"
+            busy={selectPending}
             label={text.selectionMode}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
             pressed={enabled}
@@ -1483,11 +1487,11 @@ function Page() {
   // Author loading does not block discussion: sends use the captured quote.
   const discussionBlocked =
     archived || !!liveError || state === 'failed' || state === 'navigation' || discussionPending;
-  const canSelect =
-    view.pageType !== 'shell' &&
-    !!snapshot.binding?.discussion &&
-    !discussionBlocked &&
-    state === 'ready';
+  const selectable =
+    view.pageType !== 'shell' && !!snapshot.binding?.discussion && state === 'ready';
+  const canSelect = selectable && !discussionBlocked;
+  // Selecting is offered once the threads are verified; until then its button holds its place.
+  const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
     if (
       archived ||
@@ -1986,6 +1990,7 @@ function Page() {
           chatButton={floatingChat}
           toggleChat={() => toggle('chat')}
           canSelect={canSelect}
+          selectPending={selectPending}
         />
       )}
       {snapshot.binding?.discussion &&

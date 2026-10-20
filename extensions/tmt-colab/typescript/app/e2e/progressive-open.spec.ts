@@ -23,6 +23,25 @@ async function open(page: Page, width = 1440) {
   await run(page, 'conversation', { surface: 'thread', state: 'replied' });
   await expect(frame(page).locator('#selected')).toBeVisible();
 }
+/** Where the header actions, the status chip and the floating buttons sit, in order. */
+const placed = (page: Page) =>
+  page.evaluate(() => {
+    const nodes = [
+      ...document.querySelectorAll(
+        '#ask-page-fixture .page-header-actions button, #ask-page-fixture [aria-label="Search pages"], #ask-page-fixture .page-header-meta .status, #ask-page-fixture .page-floating-actions button',
+      ),
+    ];
+    return nodes.map((node) => {
+      const { x, y, width, height } = node.getBoundingClientRect();
+      return {
+        name: node.getAttribute('aria-label') ?? node.textContent?.trim().slice(0, 24) ?? '',
+        x: Math.round(x * 100) / 100,
+        y: Math.round(y * 100) / 100,
+        width: Math.round(width * 100) / 100,
+        height: Math.round(height * 100) / 100,
+      };
+    });
+  });
 const capture = async (page: Page, name: string, width: number) => {
   if (process.env.COLAB_CAPTURE_DIR)
     await page.screenshot({ path: capturePath(`progressive-${name}-${width}.png`) });
@@ -45,10 +64,27 @@ for (const width of [1440, 390])
     ).toHaveCount(0);
     await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(0);
     await capture(page, 'pending', width);
+    // The select button holds its place, fenced rather than greyed.
+    const select = page.getByRole('button', { name: 'Selection mode' });
+    await expect(select).toHaveAttribute('aria-busy', 'true');
+    await expect(select).toHaveAttribute('aria-disabled', 'true');
+    expect(await select.evaluate((node) => (node as HTMLButtonElement).disabled)).toBe(false);
+    const pending = await placed(page);
     await run(page, 'verifyDiscussion');
     await expect(page.getByRole('button', { name: /^Discussion \(1\)/ })).toBeVisible();
     await expect(frame(page).locator('[data-colab-thread]')).toHaveCount(1);
     await expect(needsYou).toHaveCount(1);
+    await expect(select).not.toHaveAttribute('aria-busy', 'true');
+    // Nothing the person aims at moves when verification arrives.
+    const verified = await placed(page);
+    expect(verified.length).toBeGreaterThanOrEqual(5);
+    // The Discussion button gains its number in its name; every box stays where it was, to the
+    // layout engine's 1/64 px.
+    verified.forEach((box, index) => {
+      const before = pending[index]!;
+      for (const key of ['x', 'y', 'width', 'height'] as const)
+        expect(Math.abs(box[key] - before[key]), `${before.name} ${key}`).toBeLessThan(0.1);
+    });
     await capture(page, 'verified', width);
   });
 

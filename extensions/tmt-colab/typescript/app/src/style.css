@@ -210,6 +210,10 @@ body:has(.needs-you-header-menu) {
 .page-header-count {
   font: 11px var(--f-mono);
 }
+/* One digit wide, so a count of 0–9 arriving later moves nothing. */
+.page-header-count[data-pending] {
+  min-width: 1ch;
+}
 .page-header-unseen {
   color: var(--c-waiting);
 }
