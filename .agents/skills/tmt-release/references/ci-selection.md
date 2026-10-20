@@ -387,8 +387,10 @@ A transient `Truncated REST evidence` may allow one retry in the same directory;
 
 `calls.jsonl` records network endpoint/method/outcome/elapsed time and review query
 cost; cache hits are not calls. It stores no credentials, response bodies or raw logs.
-Refusals name the acquisition stage and cohort PR count. `summary.md` puts up to 20 anomalies first, pointing to
-complete `summary.json` evidence/cache paths, with coverage and host disk/load. `cursor.json`
+Refusals name the acquisition stage and cohort PR count. `summary.md` ranks up to 20 anomaly lines:
+failed drafts/publication failures, failed runs/repeated tests, guide budgets, stuck queue entries,
+then PR statements (one count with three example PRs). `summary.json` retains every anomaly and
+evidence/cache path; coverage and host disk/load follow the printed anomalies. `cursor.json`
 advances atomically when all required metadata is complete under the stated log
 sample, including omitted/unavailable diagnostics. Only failed attempted downloads
 add log anomalies; omissions remain in worker records and the tail list.

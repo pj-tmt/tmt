@@ -1052,6 +1052,30 @@ export function collectInfraTick(
   };
 }
 
+function anomalyPriority({ kind }) {
+  switch (kind) {
+    case 'collection refused':
+    case 'newly observed failed draft':
+    case 'failed draft at initial baseline':
+    case 'failed release or post-publication check':
+    case 'published release post-publication check failed':
+    case 'public-install release evidence unavailable':
+      return 0;
+    case 'guide near or over budget':
+      return 2;
+    case 'merge queue entry older than 30 minutes':
+    case 'queue coverage unavailable':
+      return 3;
+    case 'unmapped shared path':
+      return 4;
+    case 'missing head-named lead statements; judgement required':
+      return 5;
+    default:
+      // Failed runs, repeated tests and other diagnostic failures precede budgets.
+      return 1;
+  }
+}
+
 export function renderInfraTick(report) {
   const rows = [
     `# Infra tick ${report.until}`,
@@ -1061,14 +1085,37 @@ export function renderInfraTick(report) {
     '',
     `Anomalies: ${report.anomalies.length}`,
   ];
-  for (const item of report.anomalies.slice(0, 20)) {
+  const statements = report.anomalies.filter(
+    (item) => item.kind === 'missing head-named lead statement; judgement required'
+  );
+  const printed = report.anomalies
+    .filter((item) => !statements.includes(item))
+    .map((item) => ({ item, count: 1 }));
+  if (statements.length) {
+    const prs = new Map();
+    for (const { pr, head, lead } of statements) {
+      if (!prs.has(pr)) prs.set(pr, { pr, head, leads: [] });
+      prs.get(pr).leads.push(lead);
+    }
+    printed.push({
+      item: {
+        kind: 'missing head-named lead statements; judgement required',
+        count: statements.length,
+        prs: [...prs.values()].slice(0, 3),
+        remainingPrs: Math.max(0, prs.size - 3),
+      },
+      count: statements.length,
+    });
+  }
+  printed.sort((a, b) => anomalyPriority(a.item) - anomalyPriority(b.item));
+  for (const { item } of printed.slice(0, 20)) {
     const { occurrences, ...summary } = item;
     const detail = occurrences ? { ...summary, contexts: occurrences.length } : summary;
     rows.push(`- ${item.kind}: ${JSON.stringify(detail)}`);
   }
-  if (report.anomalies.length > 20)
+  if (printed.length > 20)
     rows.push(
-      `- ${report.anomalies.length - 20} more anomalies; full evidence is in summary.json.`
+      `- ${printed.slice(20).reduce((total, entry) => total + entry.count, 0)} more anomalies; full evidence is in summary.json.`
     );
   if (!report.anomalies.length) rows.push('No anomalies observed within the stated coverage.');
   rows.push(
