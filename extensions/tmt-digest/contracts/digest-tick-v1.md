@@ -20,15 +20,18 @@ observations, without a last-sent timestamp or persistent scheduler state. Its s
 ## Settings and deadlines
 
 The [settings contract](digest-v1.md#settings) owns resolution and attribution.
-In phase 2, `auto` and `off` both mean no Core hold. Interval mode creates or renews
-a Core hold each tick, so non-urgent automatic arrivals enter Core's checklist.
-The hold expires at renewal time plus the greater of the interval and 120 seconds.
+`off` means no Core hold. Interval and `auto` modes create or renew a Core hold each tick, so non-urgent automatic arrivals enter Core's checklist.
+The hold expires at renewal time plus the greater of the interval and 120 seconds; an `auto` member has no interval, so its hold lasts 120 seconds.
 An unchanged active policy is renewed once per invocation; a changed setting or
 inactive policy is reconciled again. If ticks stop, the hold lapses within that
 window and normal Core delivery resumes on the next admitted opportunity.
-The extension is the policy owner. Existing Core owner/setter IDs are preserved;
-a new policy uses the recorded settings setter for both IDs when known, otherwise
-the member itself. This policy attribution does not fill an unknown settings setter.
+The extension is the policy owner. The owner Core pins is the one whose messages
+pass the hold, so a new policy uses the recorded setter of the member's effective
+setting for both IDs: a member override's own setter, or for a member that inherits,
+the [global default's](digest-v1.md#settings); the member itself when none is
+recorded. Existing Core owner/setter IDs are preserved, except that an ID naming
+the member itself is replaced once the settings record a setter, which the next
+tick writes. This policy attribution does not fill an unknown settings setter.
 A revision conflict is an error, never permission to repeat the same write.
 
 Interval delivery becomes due when the oldest held item has waited its configured
@@ -43,6 +46,35 @@ Immediately before an opportunity, settings and statistics are read again. An
 increased interval or a changed flush count can postpone delivery; `off` or `auto`
 clears the hold and offers normal Core delivery. No last-sent state changes empty
 intervals or restart deadlines.
+
+## Auto delivery
+
+An `auto` member's hold lets Core keep its automatic messages while the agent is busy.
+Three parties deliver them, and none needs a setting: the constants below are the
+tick's.
+
+- **Turn end: Core and the provider.** At an admitted turn boundary Core claims
+  everything held and the provider hook delivers it once as one checklist. This
+  path does not depend on the tick or on an active policy.
+- **Idle offer: the tick.** Idle delivery claims only the range marked due, so for
+  an `auto` member holding messages the tick calls `digest.checklist.dueNow` and
+  then `digest.checklist.flush` when something new is held (a different held count
+  or oldest arrival) and again once 15 seconds have passed with the same backlog.
+  Core answers `not_idle` for a busy member, which stays held for its turn end, or
+  `delivered`. A message that arrives while the agent is idle therefore waits for the
+  next once-a-second look rather than for a turn end that will not come.
+- **Cap: the tick.** When five messages are held, or the oldest has waited five
+  minutes, the same offer is made with `whenBusy: true`. Core then skips only its
+  live-idle evidence ([flush](../../../contracts/extension-api.md#digest-policy-and-checklist));
+  the verified live binding and session, approval and host checks, claim, seal and
+  settlement all stay. The cap is what keeps a member that never reports idle, or
+  has no turn-end hook, from being held for ever; its worst case is an ordinary
+  message today. The count and the five minutes are constants, not `digest.toml`
+  keys, and `flushCount` stays interval-only.
+
+Urgent sends and the policy owner bypass the hold as for interval mode. An uncertain
+or failed offer is reported after the minute and that member is not offered again
+within the invocation; the next tick reads current state.
 
 ## Delivery and failure
 
@@ -82,8 +114,12 @@ held count, oldest held age and `outcome`. It holds no message text, subject or
 sender, and changes no setting, policy or delivery admission.
 
 The rule is decided by the same reading that decides delivery. A member holding
-nothing has no decision. `auto` and `off` members holding messages are offered
-Core's normal delivery opportunity (`auto_idle_point`, `off`). An interval member
+nothing has no decision. An `off` member holding messages is offered Core's normal
+delivery opportunity (`off`). An `auto` member is `auto_cap` when five messages are
+held or the oldest has waited five minutes, and `auto_hold` otherwise; `outcome` is
+Core's answer to the offer, which for `auto_cap` never says `not_idle` for a live
+member. `auto_idle_point` is what a tick wrote before `auto` held messages: stored
+rows keep it, and no tick writes it now. An interval member
 is `flush_count` when the held count reached `flushCount` (also when the interval
 has passed), `interval_deadline` when only the oldest held message's interval has
 passed, and `not_due` otherwise, including when the fresh reading taken just before

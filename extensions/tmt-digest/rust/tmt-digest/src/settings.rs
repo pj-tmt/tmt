@@ -131,6 +131,20 @@ impl DigestConfig {
             .and_then(|row| row.get("setByIdentityId"))
             .and_then(Item::as_str)
     }
+    /// Who set the global default, when it was written with `tmt digest global`.
+    pub fn default_setter(&self) -> Option<&str> {
+        self.document
+            .get("defaultSetByIdentityId")
+            .and_then(Item::as_str)
+    }
+    /// The recorded setter behind a member's effective setting: its own override's,
+    /// or for a member that inherits, the global default's.
+    pub fn recorded_setter(&self, id: &str) -> Option<&str> {
+        match self.member_setting(id) {
+            Ok(MemberSetting::Override(_)) => self.setter(id),
+            _ => self.default_setter(),
+        }
+    }
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         let text = std::str::from_utf8(bytes).map_err(|_| invalid("digest.toml must be UTF-8"))?;
         let document = text
@@ -150,6 +164,22 @@ impl DigestConfig {
                 .filter(|count| *count > 0)
                 .ok_or_else(|| invalid("flushCount must be a positive integer"))?,
         };
+        if let Some(setter) = document.get("defaultSetByIdentityId")
+            && !setter.as_str().is_some_and(canonical_uuid)
+        {
+            return Err(invalid(
+                "defaultSetByIdentityId must be a canonical identity UUID",
+            ));
+        }
+        if let Some(stamp) = document.get("defaultSetAtMs")
+            && !stamp
+                .as_integer()
+                .is_some_and(|n| n >= 0 && n as u64 <= MAX_MS)
+        {
+            return Err(invalid(
+                "defaultSetAtMs must be a nonnegative JS-safe integer",
+            ));
+        }
         if let Some(item) = document.get("members") {
             let members = item
                 .as_table_like()
@@ -210,6 +240,23 @@ impl DigestConfig {
             .and_then(|members| members.get(id))
             .and_then(|row| row.get("setAtMs"))
             .and_then(Item::as_integer)
+    }
+    fn edit_default(&mut self, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
+        if setter.is_some_and(|id| !canonical_uuid(id)) || now < 0 || now as u64 > MAX_MS {
+            return Err(invalid("Invalid identity or write timestamp"));
+        }
+        self.document["default"] = toml_edit::value(mode.text());
+        self.document["defaultSetAtMs"] = toml_edit::value(now);
+        match setter {
+            Some(setter) => {
+                self.document["defaultSetByIdentityId"] = toml_edit::value(setter);
+            }
+            None => {
+                self.document.remove("defaultSetByIdentityId");
+            }
+        }
+        self.default = mode.clone();
+        Ok(())
     }
     fn edit(
         &mut self,
@@ -285,7 +332,7 @@ fn read(path: &Path) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
-/// Serialize extension writers, preserve comments/unknown fields and publish one atomic file.
+/// Save one member's setting.
 pub fn set(
     path: &Path,
     id: &str,
@@ -293,6 +340,20 @@ pub fn set(
     setter: Option<&str>,
     now: i64,
 ) -> Result<(Mode, i64), Error> {
+    let settings = update(path, |settings| settings.edit(id, setting, setter, now))?;
+    Ok((settings.effective(id)?, settings.flush_count))
+}
+
+/// Save the global default and who set it, which members inheriting it adopt as owner.
+pub fn set_default(path: &Path, mode: &Mode, setter: Option<&str>, now: i64) -> Result<(), Error> {
+    update(path, |settings| settings.edit_default(mode, setter, now)).map(drop)
+}
+
+/// Serialize extension writers, preserve comments/unknown fields and publish one atomic file.
+fn update(
+    path: &Path,
+    edit: impl FnOnce(&mut DigestConfig) -> Result<(), Error>,
+) -> Result<DigestConfig, Error> {
     // Validate the existing file before creating a lock or staging anything.
     DigestConfig::parse(&read(path)?)?;
     let directory = path
@@ -310,14 +371,13 @@ pub fn set(
         .map_err(|(_, error)| Error::new("DIGEST_SETTINGS_IO", error.to_string()))?;
     let original = read(path)?;
     let mut settings = DigestConfig::parse(&original)?;
-    settings.edit(id, setting, setter, now)?;
-    let effective = settings.effective(id)?;
+    edit(&mut settings)?;
     let bytes = settings.document.to_string().into_bytes();
     if bytes.len() as u64 > FILE_LIMIT {
         return Err(invalid("Updated digest.toml exceeds 1 MiB"));
     }
     if bytes == original {
-        return Ok((effective, settings.flush_count));
+        return Ok(settings);
     }
     let staged: PathBuf = directory.join(format!(".digest.toml.{}", std::process::id()));
     let mut file = OpenOptions::new()
@@ -340,7 +400,7 @@ pub fn set(
         let _ = fs::remove_file(&staged);
     }
     result?;
-    Ok((effective, settings.flush_count))
+    Ok(settings)
 }
 
 #[cfg(test)]

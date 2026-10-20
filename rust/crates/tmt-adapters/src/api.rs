@@ -388,7 +388,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     }
     // Delivery uses configured input delay; reads do not depend on unrelated config.
     let settings = if matches!(request, Request::Dispatch { .. })
-        || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush(_)))
+        || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
     {
         Some(
             ConfigFiles {

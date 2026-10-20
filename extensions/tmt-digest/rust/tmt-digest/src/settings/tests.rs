@@ -124,3 +124,76 @@ fn inline_member_tables_accept_new_rows_without_losing_unknown_fields() {
         .unwrap();
     assert!(!reloaded.document.to_string().contains(SETTER));
 }
+
+#[test]
+fn the_global_default_records_its_setter_and_members_that_inherit_it_adopt_it() {
+    let directory = std::env::temp_dir().join(format!(
+        "tmt-digest-settings-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir(&directory).unwrap();
+    let path = directory.join("digest.toml");
+    fs::write(
+        &path,
+        format!(
+            "# user comment\nflushCount = 5\nfuture = 'keep'\n[members.{MEMBER}]\nmode = '5m'\nsetAtMs = 1\n"
+        ),
+    )
+    .unwrap();
+    // Nothing is recorded anywhere yet: the member owns its own hold.
+    let before = DigestConfig::load(&path).unwrap();
+    assert_eq!(before.recorded_setter(MEMBER), None);
+    assert_eq!(before.default_setter(), None);
+    set_default(&path, &Mode::Auto, Some(SETTER), 7).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("# user comment"));
+    assert!(text.contains("future = 'keep'"));
+    assert!(text.contains("default = \"auto\""));
+    assert!(text.contains("defaultSetAtMs = 7"));
+    assert!(text.contains(&format!("defaultSetByIdentityId = \"{SETTER}\"")));
+    let settings = DigestConfig::load(&path).unwrap();
+    assert_eq!(settings.default, Mode::Auto);
+    assert_eq!(settings.flush_count, 5);
+    // An override without a setter does not borrow the global one; an inherited member does.
+    let other = "10000000-0000-4000-8000-000000000002";
+    assert_eq!(settings.recorded_setter(MEMBER), None);
+    assert_eq!(settings.recorded_setter(other), Some(SETTER));
+    assert_eq!(settings.effective(other).unwrap(), Mode::Auto);
+    // A write with no known setter forgets the old one rather than keeping a stale owner.
+    set_default(&path, &Mode::parse("20m").unwrap(), None, 8).unwrap();
+    let settings = DigestConfig::load(&path).unwrap();
+    assert_eq!(settings.default.text(), "20m");
+    assert_eq!(settings.recorded_setter(other), None);
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("defaultSetByIdentityId"));
+    assert!(text.contains("defaultSetAtMs = 8"));
+    // An override with its own setter keeps it.
+    set(
+        &path,
+        other,
+        &MemberSetting::Override(Mode::Off),
+        Some(SETTER),
+        9,
+    )
+    .unwrap();
+    assert_eq!(
+        DigestConfig::load(&path).unwrap().recorded_setter(other),
+        Some(SETTER)
+    );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_malformed_default_attribution_is_refused_without_changing_the_file() {
+    for source in [
+        "defaultSetByIdentityId = 'worker'",
+        "defaultSetByIdentityId = 7",
+        "defaultSetAtMs = -1",
+        "defaultSetAtMs = '1'",
+        "defaultSetAtMs = 9007199254740992",
+    ] {
+        assert!(DigestConfig::parse(source.as_bytes()).is_err(), "{source}");
+    }
+    assert!(DigestConfig::parse(b"defaultSetAtMs = 0\n").is_ok());
+}

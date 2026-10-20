@@ -13,10 +13,13 @@ is a duration. `off` disables the member's configured digest mode.
 
 The file is `digest.toml` beside the global configuration file reported by public
 `tmt config show --json` (normally `~/.config/tmt/digest.toml`). Missing files inherit
-the shipped defaults. Global `default` and `flushCount` are TOML-only, with no CLI flags:
+the shipped defaults. `tmt digest global <duration>|auto|off` saves the global
+`default` and records who set it; `flushCount` is TOML-only, with no CLI flag:
 
 ```toml
 default = "auto"
+defaultSetByIdentityId = "20000000-0000-4000-8000-000000000001"
+defaultSetAtMs = 1791629000000
 flushCount = 10
 
 [members.10000000-0000-4000-8000-000000000001]
@@ -31,6 +34,14 @@ must resolve exactly to at least one
 millisecond and at most 9,007,199,254,740,991 milliseconds. `flushCount` is a positive
 integer (zero is invalid), defaults to 10, and applies only to interval mode.
 Member keys and setter IDs are canonical identity UUIDs.
+
+`defaultSetByIdentityId` and `defaultSetAtMs` follow the same rules as a member's
+attribution: the setter is absent when Core cannot identify it, and a write with no
+identifiable setter removes a previous one rather than keeping a stale owner. A member
+that inherits the default has the default's setter as its recorded setter; a member
+override has only its own. The recorded setter is the owner whose messages pass the
+member's [hold](digest-tick-v1.md#settings-and-deadlines); with none recorded the
+member owns it and only an urgent send passes.
 
 `setByIdentityId` is absent when Core cannot identify the setter. `setAtMs` is the
 current override write timestamp, a nonnegative JS-safe integer; it is neither
@@ -78,11 +89,12 @@ Each row contains:
 
 `oldestHeldAgeMs` and `deliveredDigests` are additive nullable row fields from the same Core stats observation. The counter is cumulative Core evidence, not a selected-window total.
 
+`ownerBypass` is an additive row field from settings alone: `true` when the member's recorded setter (its override's, or the global default's for an inheriting member) is someone else, whose messages then pass its hold; `false` when none is recorded, so the member owns its own hold and only an urgent send passes it; null for `off`, which holds nothing. It is a flag for a setting that needs attention, never delivery eligibility.
+
 Timestamps and numeric counts are nonnegative JS-safe integers. Deadline arithmetic
 that cannot be represented safely is unknown. `nextSendAtMs` is an extension
 deadline, never Core's `nextEligibleAtMs`. It is null for auto/off, zero held
-messages, or unavailable oldest-held timing. Phase-2 auto means when idle, not a
-predicted timestamp. A deadline or “Due now” label never proves the agent is idle
+messages, or unavailable oldest-held timing. Auto means when the member is idle or its turn ends, and at the latest at the [cap](digest-tick-v1.md#auto-delivery), not a predicted timestamp. A deadline or “Due now” label never proves the agent is idle
 or authorizes delivery past Core's admission/approval guards. `flushCount` can make
 an interval batch due earlier: keep the scheduled `nextSendAtMs`, but report
 `timeToSendMs: 0` and “Due now” when its known threshold is reached. Neither
@@ -114,7 +126,8 @@ window ending now, oldest first, as one document and keeps no state of its own:
 ```
 
 `mode` is `auto`, `off` or `interval`; `intervalMs` is null unless `interval`. `rule`
-is one of `interval_deadline`, `flush_count`, `auto_idle_point`, `off` or `not_due`;
+is one of `interval_deadline`, `flush_count`, `auto_hold`, `auto_cap`, `auto_idle_point`
+(stored rows from before `auto` held messages), `off` or `not_due`;
 `outcome` is Core's answer to the delivery opportunity (`delivered`, `not_idle`,
 `nothing_due`, `unavailable`, `uncertain` or `error`) and is null exactly for
 `not_due`. `name` is null when the roster cannot name the member (retired or Core

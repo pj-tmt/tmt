@@ -53,9 +53,9 @@ describe('native Digest held delivery and checklist seam', () => {
   it('offers a pinned flush without claiming offline work or retargeting a retired UUID', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = await calibrateTmuxTripwire(sandbox);
-      const flush = async (identityId: string) => {
+      const flush = async (identityId: string, options: Record<string, unknown> = {}) => {
         const before = readFileSync(tripwire, 'utf8');
-        const result = await api(sandbox, 'digest.checklist.flush', { identityId });
+        const result = await api(sandbox, 'digest.checklist.flush', { identityId, ...options });
         expect(readFileSync(tripwire, 'utf8')).toBe(before);
         return result;
       };
@@ -93,6 +93,19 @@ describe('native Digest held delivery and checklist seam', () => {
       ).toBe(1);
       for (let i = 0; i < 2; i++) {
         expect((await flush(target)).body).toEqual({ identityId: target, state: 'not_idle' });
+      }
+      // The cap's option skips only the idle evidence: a member with no live session is
+      // still not offered anything, and the option is a boolean and nothing else.
+      for (const whenBusy of [true, false]) {
+        expect((await flush(target, { whenBusy })).body).toEqual({
+          identityId: target,
+          state: 'not_idle',
+        });
+      }
+      for (const whenBusy of ['true', 1, null]) {
+        const refused = await flush(target, { whenBusy });
+        expect(refused.status).toBe(1);
+        expect(refused.body.error.code).toBe('API_INPUT_INVALID');
       }
       expect(
         (await api(sandbox, 'digest.stats.show', { identities: [target] })).body.stats[0]

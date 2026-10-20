@@ -10,8 +10,13 @@ pub enum Rule {
     IntervalDeadline,
     /// An interval member reached its flush count.
     FlushCount,
-    /// An `auto` member with held messages was offered a flush.
+    /// Before auto held messages: an `auto` member with held messages was offered a
+    /// flush. Retained rows keep this name; a tick no longer writes it.
     AutoIdlePoint,
+    /// An `auto` member below its cap was offered a flush that waits for it to be idle.
+    AutoHold,
+    /// An `auto` member reached its cap and was offered a flush that does not wait.
+    AutoCap,
     /// An `off` member with held messages was offered a flush.
     Off,
     /// An interval member's deadline had not been reached.
@@ -23,6 +28,8 @@ impl Rule {
             Self::IntervalDeadline => "interval_deadline",
             Self::FlushCount => "flush_count",
             Self::AutoIdlePoint => "auto_idle_point",
+            Self::AutoHold => "auto_hold",
+            Self::AutoCap => "auto_cap",
             Self::Off => "off",
             Self::NotDue => "not_due",
         }
@@ -32,6 +39,8 @@ impl Rule {
             Self::IntervalDeadline,
             Self::FlushCount,
             Self::AutoIdlePoint,
+            Self::AutoHold,
+            Self::AutoCap,
             Self::Off,
             Self::NotDue,
         ]
@@ -40,7 +49,7 @@ impl Rule {
     }
     fn mode(self) -> &'static str {
         match self {
-            Self::AutoIdlePoint => "auto",
+            Self::AutoIdlePoint | Self::AutoHold | Self::AutoCap => "auto",
             Self::Off => "off",
             _ => "interval",
         }

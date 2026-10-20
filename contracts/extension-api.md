@@ -1023,7 +1023,7 @@ claiming. Core never reads Squad configuration or installs provider-global hooks
 | `digest.policy.clear`      | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
 | `digest.policy.show`       | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
 | `digest.checklist.dueNow`  | `identityId`                                                                                          | `identityId`, `heldCount`, `throughSequence`                   |
-| `digest.checklist.flush`   | `identityId`                                                                                          | `identityId`, `state`                                          |
+| `digest.checklist.flush`   | `identityId`, optional `whenBusy` (boolean)                                                           | `identityId`, `state`                                          |
 | `digest.stats.show`        | `identities`: 1–256 active UUIDs                                                                      | `stats`: views in input order                                  |
 | `digest.checklist.read`    | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
 | `digest.checklist.history` | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | content-free settled checklist evidence                        |
@@ -1067,10 +1067,16 @@ Due-now grants no transport permission and starts no worker. No core scheduler e
 `digest.checklist.flush` offers one existing idle-delivery opportunity for the exact
 active identity UUID, without name or pane resolution. Core reuses its ordinary
 live-session, readiness, claim, transport and settlement checks; it is not a
-readiness grant. The operation reads the configured paste-to-Enter delay, starts
+readiness grant. The one option, `whenBusy` (a boolean, false by default; any other
+type or an unknown field is refused), replaces only the live-idle evidence with the
+exact verified live binding and session, so an extension's cap can offer a held
+backlog to an agent that is busy or never reports its activity. The approval and
+host guards, the claim, the seal and settlement are unchanged, `nothing_due` still
+means no range was marked, and `not_idle` then means no live session. It delivers
+what an ordinary message already delivers to a busy agent, never more. The operation reads the configured paste-to-Enter delay, starts
 no timer and returns no message or captured pane text. `state` is `nothing_due`
 when no unclaimed range is mechanically eligible, `not_idle` when no idle claim
-is admitted, `delivered` after successful settlement, `uncertain` after uncertain
+(or, with `whenBusy`, no live session) is admitted, `delivered` after successful settlement, `uncertain` after uncertain
 transport, or `unavailable` after definitely-unsent settlement. Errors remain
 ordinary API errors. A competing or uncertain sealed checklist is never replayed;
 the result is not a retry lease.
