@@ -34,7 +34,7 @@ fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
         for reader in [false, true] {
             let mut app = member_actions_with_lead();
             app.shell.tab = tab;
-            app.overview_view = crate::board::overview::monitor::View::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             paint(&app, 160, 36);
             if reader {
                 app.focus = app
@@ -99,7 +99,7 @@ fn member_note_placeholder_names_the_lead_and_keeps_the_subject_in_the_send_owne
         for width in [160, 60] {
             let mut app = member_actions_with_lead();
             app.shell.tab = tab;
-            app.overview_view = crate::board::overview::monitor::View::Agents;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             app.perform(&Action::parse("annotate lead").unwrap());
             let lines = paint(&app, width, 36);
             assert!(
@@ -193,8 +193,7 @@ fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retarge
         reference_inventory(&mut app);
         if surface == "squad" {
             app.shell.tab = OpsTab::Agents;
-            app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-            app.overview_view = crate::board::overview::monitor::View::Squads;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::All;
             app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
             app.workspace_reconcile();
         }

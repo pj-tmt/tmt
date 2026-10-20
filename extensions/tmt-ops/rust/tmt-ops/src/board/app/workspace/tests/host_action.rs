@@ -92,7 +92,7 @@ fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
         .squads[0]
         .lead = Some(MEMBER.into());
     app.shell.tab = tab;
-    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.overview_rows.borrow_mut().clear();
     app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
     app.workspace_reconcile();

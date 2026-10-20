@@ -146,8 +146,13 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     };
     use crate::action::ResizeBoundary as Boundary;
     let (columns, rows) = (Boundary::AgentsColumns, Boundary::AgentsRows);
-    app.pane_resize
-        .record_panes(placement.panes, columns, rows, frame.area());
+    app.pane_resize.record_panes(
+        placement.panes,
+        columns,
+        rows,
+        app.agents_list_min_columns(),
+        frame.area(),
+    );
     if matches!(app.shell.tab, OpsTab::Agents) {
         let usage = app.overview_usage_band(area);
         if usage.height > 1
@@ -163,7 +168,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             );
             app.pane_resize.record(
                 crate::board::pane_resize::Boundary {
-                    id: Boundary::OverviewUsage,
+                    id: Boundary::AgentsUsage,
                     hit: Rect::new(
                         area.x,
                         usage.bottom() + 2,
@@ -173,9 +178,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     total: area.height,
                     before: usage.height,
                     min,
-                    max: area.height.saturating_sub(
-                        crate::board::overview::composition::minimum_height(app, area.width),
-                    ),
+                    max: area
+                        .height
+                        .saturating_sub(crate::board::overview::composition::minimum_height()),
                 },
                 frame.area(),
             );
@@ -470,12 +475,23 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 agent.and_then(|agent| agent.model.as_deref()),
                             )
                         }
+                        // A squad's idle alert, else what it is doing now.
                         OpsTarget::Squad(room) => snapshot
                             .roster
                             .squads
                             .iter()
                             .find(|squad| &squad.room_id == room)
-                            .and_then(|squad| squad.idle_alert?.label(model_width))
+                            .map(|squad| {
+                                squad
+                                    .idle_alert
+                                    .and_then(|alert| alert.label(model_width))
+                                    .unwrap_or_else(|| {
+                                        let (now, _) = crate::board::overview::monitor::squad_now(
+                                            snapshot, squad,
+                                        );
+                                        crate::board::workspace::render::safe(&now)
+                                    })
+                            })
                             .unwrap_or_default(),
                         OpsTarget::Pool => String::new(),
                     },

@@ -10,7 +10,7 @@ const MINUTE: u64 = 60_000;
 /// marking it `over` and the squad's setting `after` (None = never read).
 fn idle_board(idle_for: u64, over: bool, setting: Option<IdleAlertSetting>) -> App {
     let mut app = board();
-    app.overview_view = crate::board::overview::monitor::View::Squads;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     let member = workspace.roster.members.get_mut(MEMBER).unwrap();
     member.state = Some("idle".into());

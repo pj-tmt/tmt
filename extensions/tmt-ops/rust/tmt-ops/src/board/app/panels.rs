@@ -83,6 +83,7 @@ impl App {
             placement,
             crate::action::ResizeBoundary::DigestColumns,
             crate::action::ResizeBoundary::DigestRows,
+            crate::board::conversation::layout::LIST_MIN_COLUMNS,
         )
     }
     pub(in crate::board) fn overview_usage_band(
@@ -105,14 +106,14 @@ impl App {
                 .shown(crate::config::OverviewPanel::Monitor)
             && self
                 .pane_resize
-                .adjusted(crate::action::ResizeBoundary::OverviewUsage)
+                .adjusted(crate::action::ResizeBoundary::AgentsUsage)
         {
             self.pane_resize.size(
-                crate::action::ResizeBoundary::OverviewUsage,
+                crate::action::ResizeBoundary::AgentsUsage,
                 area.height,
                 height,
                 height,
-                crate::board::overview::composition::minimum_height(self, area.width),
+                crate::board::overview::composition::minimum_height(),
             )
         } else {
             height

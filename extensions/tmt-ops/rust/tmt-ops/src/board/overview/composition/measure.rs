@@ -17,7 +17,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let scene = super::super::monitor::scene(app, snapshot);
     let selected_squad = match app.workspace.selected.as_ref() {
-        Some(OpsTarget::Squad(room)) => scene.squads.iter().find(|squad| &squad.room_id == room),
+        Some(OpsTarget::Squad(room)) => snapshot
+            .roster
+            .squads
+            .iter()
+            .find(|squad| &squad.room_id == room),
         _ => None,
     };
     let mut y = area.y;
@@ -36,12 +40,19 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     let timers = super::lower::Band::timers(app);
     if bottom.saturating_sub(y) >= CELLS && area.width >= 40 {
         let tokens = match selected_squad {
-            Some(squad) => squad.tokens,
-            None => scene
+            Some(squad) => app.overview_squad_usage(squad),
+            None => snapshot
+                .roster
                 .squads
                 .iter()
+                .filter(|squad| {
+                    app.workspace
+                        .visibility
+                        .shows_squad(&squad.room_id, &snapshot.preferences)
+                })
                 .try_fold((0u128, true), |(sum, exact), squad| {
-                    squad.tokens.map(|(tokens, e)| (sum + tokens, exact && e))
+                    app.overview_squad_usage(squad)
+                        .map(|(tokens, e)| (sum + tokens, exact && e))
                 }),
         };
         let tokens = tokens.map_or_else(

@@ -211,6 +211,14 @@ impl App {
         self.shell.tab == OpsTab::Agents
             && self.workspace.filter == crate::board::workspace::AgentsFilter::Agents
     }
+    /// The flat list keeps its token header whole; the tree yields earlier.
+    pub(in crate::board) fn agents_list_min_columns(&self) -> u16 {
+        if self.flat_agents() {
+            crate::board::conversation::layout::OVERVIEW_MIN_COLUMNS
+        } else {
+            crate::board::conversation::layout::LIST_MIN_COLUMNS
+        }
+    }
     pub(in crate::board) fn workspace_rows(&self) -> Rc<[OpsTreeRow]> {
         if let Some(rows) = self.frame_workspace_rows.borrow().as_ref() {
             return Rc::clone(rows);
@@ -1094,9 +1102,6 @@ impl App {
             return Effect::None;
         }
         self.workspace.filter = filter;
-        if filter == crate::board::workspace::AgentsFilter::Agents {
-            self.overview_view = crate::board::overview::monitor::View::Agents;
-        }
         self.workspace_reconcile();
         self.invalidate_frame_geometry();
         self.follow = true;

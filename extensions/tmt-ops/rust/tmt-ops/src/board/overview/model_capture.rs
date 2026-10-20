@@ -22,7 +22,7 @@ fn capture_model_columns() {
                     };
                     let mut app = populated_board(2, 4);
                     app.shell.tab = tab;
-                    app.overview_view = super::monitor::View::Agents;
+                    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
                     let view = app.view.as_mut().unwrap();
                     view.look = look;
                     let workspace = &mut view.home.as_mut().unwrap().workspace;

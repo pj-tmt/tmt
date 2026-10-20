@@ -669,7 +669,6 @@ pub struct App {
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
-    pub(in crate::board) overview_view: super::overview::monitor::View,
     /// Talk or Measure in the Agents tab's right column (`t`).
     pub(in crate::board) right_tab: super::shell::RightTab,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
@@ -2053,6 +2052,7 @@ impl App {
                 placement.panes,
                 Boundary::AgentsColumns,
                 Boundary::AgentsRows,
+                self.agents_list_min_columns(),
             );
         }
         Some(placement)

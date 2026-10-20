@@ -317,58 +317,42 @@ impl OpsUiAction {
 /// Stable names for retained pane ratios and explicitly authored resize actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ResizeBoundary {
-    OverviewColumns,
     AgentsColumns,
     AgentsRows,
+    AgentsUsage,
     DigestColumns,
     DigestRows,
-    OverviewUsage,
-    OverviewList,
-    OverviewLowerColumns,
-    OverviewLowerRows,
-    OverviewExchange,
-    OverviewTimers,
 }
 impl ResizeBoundary {
-    pub const ALL: [Self; 11] = [
-        Self::OverviewColumns,
+    pub const ALL: [Self; 5] = [
         Self::AgentsColumns,
         Self::AgentsRows,
+        Self::AgentsUsage,
         Self::DigestColumns,
         Self::DigestRows,
-        Self::OverviewUsage,
-        Self::OverviewList,
-        Self::OverviewLowerColumns,
-        Self::OverviewLowerRows,
-        Self::OverviewExchange,
-        Self::OverviewTimers,
     ];
     pub fn name(self) -> &'static str {
         match self {
-            Self::OverviewColumns => "overview-columns",
             Self::AgentsColumns => "agents-columns",
             Self::AgentsRows => "agents-rows",
+            Self::AgentsUsage => "agents-usage",
             Self::DigestColumns => "digest-columns",
             Self::DigestRows => "digest-rows",
-            Self::OverviewUsage => "overview-usage",
-            Self::OverviewList => "overview-list",
-            Self::OverviewLowerColumns => "overview-lower-columns",
-            Self::OverviewLowerRows => "overview-lower-rows",
-            Self::OverviewExchange => "overview-exchange",
-            Self::OverviewTimers => "overview-timers",
         }
     }
+    /// The current name, or the Overview name that the merged Agents tab kept under a new one.
     pub fn parse(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|id| id.name() == name)
+        Self::ALL
+            .into_iter()
+            .find(|id| id.name() == name)
+            .or(match name {
+                "overview-columns" => Some(Self::AgentsColumns),
+                "overview-usage" => Some(Self::AgentsUsage),
+                _ => None,
+            })
     }
     pub fn columns(self) -> bool {
-        matches!(
-            self,
-            Self::OverviewColumns
-                | Self::AgentsColumns
-                | Self::DigestColumns
-                | Self::OverviewLowerColumns
-        )
+        matches!(self, Self::AgentsColumns | Self::DigestColumns)
     }
     pub fn accepts(self, direction: &str) -> bool {
         direction == "reset"

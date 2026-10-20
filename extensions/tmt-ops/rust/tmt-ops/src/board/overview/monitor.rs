@@ -72,30 +72,48 @@ pub(in crate::board) fn values(
 pub(in crate::board) struct Cache {
     held: Option<(Key, Rc<Scene>)>,
 }
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(in crate::board) enum View {
-    Squads,
-    #[default]
-    Agents,
-}
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
     pub matching_agents: usize,
-    pub total_squads: usize,
     pub waiting: usize,
     pub summary: super::summary::Summary,
-    pub squads: Vec<Squad>,
 }
-pub(in crate::board) struct Squad {
-    pub room_id: String,
-    pub name: String,
-    pub lead: Option<String>,
-    /// Each member once: identity, its activity word, and whether Core's idle alert is over.
-    pub members: Vec<(String, Option<String>, bool)>,
-    pub tokens: Option<(u128, bool)>,
-    pub observation: crate::board::workspace::OpsObservation,
-    pub now: String,
-    pub pending: bool,
+/// What a squad is doing now: its lead's (else any member's) open request,
+/// otherwise their task line, and whether that is a request waiting on you.
+pub(in crate::board) fn squad_now(
+    snapshot: &OpsWorkspaceSnapshot,
+    squad: &crate::board::workspace::OpsSquad,
+) -> (String, bool) {
+    let rows: Vec<_> = squad
+        .lead
+        .iter()
+        .chain(
+            squad
+                .members
+                .iter()
+                .filter(|id| Some(*id) != squad.lead.as_ref()),
+        )
+        .filter_map(|id| {
+            snapshot.rows.get(&OpsTarget::Member {
+                room_id: Some(squad.room_id.clone()),
+                identity_id: id.clone(),
+            })
+        })
+        .collect();
+    let pending = rows.iter().find_map(|row| pending(row));
+    let task = rows.iter().find_map(|row| {
+        row["fields"]["task"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+    });
+    (
+        pending
+            .or(task)
+            .and_then(|text| text.lines().next())
+            .unwrap_or("—")
+            .to_owned(),
+        pending.is_some(),
+    )
 }
 
 fn pending(row: &serde_json::Value) -> Option<&str> {
@@ -146,113 +164,10 @@ pub(super) fn waits(snapshot: &OpsWorkspaceSnapshot, row: &OpsTreeRow) -> bool {
             .is_some_and(|member| member.waiting)
     }
 }
-fn squads(app: &App, snapshot: &OpsWorkspaceSnapshot, key: &Key) -> Vec<Squad> {
-    let matching: std::collections::BTreeSet<_> =
-        crate::board::workspace::identity_rows(snapshot, &key.query, None, &key.visibility)
-            .into_iter()
-            .filter_map(|row| match row.target {
-                OpsTarget::Member { identity_id, .. } => Some(identity_id),
-                _ => None,
-            })
-            .collect();
-    let mut squads: Vec<_> = snapshot
-        .roster
-        .squads
-        .iter()
-        .filter(|squad| {
-            key.visibility
-                .shows_squad(&squad.room_id, &snapshot.preferences)
-        })
-        .filter(|squad| {
-            key.query.is_empty()
-                || squad
-                    .name
-                    .to_lowercase()
-                    .contains(&key.query.to_lowercase())
-                || squad.members.iter().any(|id| matching.contains(id))
-        })
-        .map(|squad| {
-            let mut seen = std::collections::BTreeSet::new();
-            let members: Vec<_> = squad
-                .members
-                .iter()
-                .filter(|id| seen.insert(*id))
-                .map(|id| {
-                    // The same label and stale rule as the STATE cells: a
-                    // waiting request, otherwise core activity. A task state
-                    // never overrides it.
-                    let membership = squad.member_states.get(id);
-                    let label = crate::board::activity::Member {
-                        activity: snapshot
-                            .roster
-                            .members
-                            .get(id)
-                            .map(|member| member.activity)
-                            .unwrap_or_default(),
-                        waiting: membership.is_some_and(|state| state.waiting),
-                        idle_over: membership.is_some_and(|state| state.idle_over),
-                        task: None,
-                    }
-                    .label(key.activity_stale, 0);
-                    (id.clone(), Some(label.state.to_owned()), label.idle_over)
-                })
-                .collect();
-            let rows: Vec<_> = squad
-                .lead
-                .iter()
-                .chain(
-                    squad
-                        .members
-                        .iter()
-                        .filter(|id| Some(*id) != squad.lead.as_ref()),
-                )
-                .filter_map(|id| {
-                    snapshot.rows.get(&OpsTarget::Member {
-                        room_id: Some(squad.room_id.clone()),
-                        identity_id: id.clone(),
-                    })
-                })
-                .collect();
-            let pending = rows.iter().find_map(|row| pending(row));
-            let task = rows.iter().find_map(|row| {
-                row["fields"]["task"]
-                    .as_str()
-                    .filter(|text| !text.trim().is_empty())
-            });
-            Squad {
-                room_id: squad.room_id.clone(),
-                name: squad.name.clone(),
-                lead: squad.lead.clone(),
-                members,
-                tokens: app.overview_squad_usage(squad),
-                observation: squad.observation,
-                now: pending
-                    .or(task)
-                    .and_then(|text| text.lines().next())
-                    .unwrap_or("—")
-                    .to_owned(),
-                pending: pending.is_some(),
-            }
-        })
-        .collect();
-    squads.sort_by(|a, b| {
-        match (a.tokens, b.tokens) {
-            (Some((a, _)), Some((b, _))) => b.cmp(&a),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
-        .then_with(|| a.name.cmp(&b.name))
-        .then_with(|| a.room_id.cmp(&b.room_id))
-    });
-    squads
-}
-
 #[derive(PartialEq, Eq)]
 struct Key {
     order: Option<crate::config::OverviewSort>,
     query: String,
-    view: View,
     pins: std::collections::BTreeSet<String>,
     hidden: std::collections::BTreeSet<String>,
     digest_window: crate::config::DigestWindow,
@@ -275,7 +190,6 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
     let key = Key {
         order: app.workspace_order().overview,
         query: app.workspace.query.clone(),
-        view: app.overview_view,
         pins: snapshot.preferences.agent_pins.clone(),
         hidden: snapshot.preferences.hidden.clone(),
         digest_window: snapshot.preferences.digest_window,
@@ -357,43 +271,11 @@ pub(in crate::board) fn scene(app: &App, snapshot: &OpsWorkspaceSnapshot) -> Rc<
         .map(|(row, _)| row)
         .collect::<Vec<_>>()
         .into();
-    let squads = squads(app, snapshot, &key);
     let matching_agents = agents.len();
-    let rows = if key.view == View::Squads {
-        squads
-            .iter()
-            .map(|squad| OpsTreeRow {
-                target: OpsTarget::Squad(squad.room_id.clone()),
-                title: squad.name.clone(),
-                depth: 0,
-                lead: false,
-                state: None,
-                presence: None,
-                usage: None,
-                activity: None,
-                count: None,
-                observation: squad.observation,
-            })
-            .collect::<Vec<_>>()
-            .into()
-    } else {
-        agents
-    };
-    let total_squads = snapshot
-        .roster
-        .squads
-        .iter()
-        .filter(|squad| {
-            key.visibility
-                .shows_squad(&squad.room_id, &snapshot.preferences)
-        })
-        .count();
     let scene = Rc::new(Scene {
-        total_squads,
-        squads,
         matching_agents,
         waiting,
-        rows,
+        rows: agents,
         summary: super::summary::project(
             snapshot,
             &app.labels,

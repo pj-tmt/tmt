@@ -2,8 +2,7 @@
 use super::{
     app::{App, Effect},
     conversation::layout::{
-        CONVERSATION_MIN_COLUMNS, CONVERSATION_MIN_ROWS, LIST_MIN_COLUMNS, LIST_MIN_ROWS,
-        OVERVIEW_MIN_COLUMNS, Placement,
+        CONVERSATION_MIN_COLUMNS, CONVERSATION_MIN_ROWS, LIST_MIN_ROWS, Placement,
     },
 };
 use crate::action::ResizeBoundary as Id;
@@ -43,7 +42,10 @@ pub(super) fn ratios_decode(value: Option<&Value>) -> Option<Ratios> {
         if u32::from(ratio) > SCALE {
             return None;
         }
-        ratios.insert(id, ratio);
+        // A carried Overview ratio never replaces one saved under the current name.
+        if Id::ALL.iter().any(|known| known.name() == name) || !ratios.contains_key(&id) {
+            ratios.insert(id, ratio);
+        }
     }
     Some(ratios)
 }
@@ -294,7 +296,13 @@ impl State {
         }
     }
     /// Apply and register only an admitted pair. One-pane responsive layouts have no boundary.
-    pub fn panes(&self, mut placement: Placement, columns: Id, rows: Id) -> Placement {
+    pub fn panes(
+        &self,
+        mut placement: Placement,
+        columns: Id,
+        rows: Id,
+        list_min_columns: u16,
+    ) -> Placement {
         let (Some(mut before), Some(mut after)) = (placement.list, placement.conversation) else {
             return placement;
         };
@@ -305,11 +313,7 @@ impl State {
                 columns,
                 total,
                 before.width,
-                if columns == Id::OverviewColumns {
-                    OVERVIEW_MIN_COLUMNS
-                } else {
-                    LIST_MIN_COLUMNS
-                },
+                list_min_columns,
                 CONVERSATION_MIN_COLUMNS,
             );
             after.x = before.x + width + gap;
@@ -333,7 +337,14 @@ impl State {
         placement.conversation = Some(after);
         placement
     }
-    pub fn record_panes(&self, placement: Placement, columns: Id, rows: Id, clip: Rect) {
+    pub fn record_panes(
+        &self,
+        placement: Placement,
+        columns: Id,
+        rows: Id,
+        list_min_columns: u16,
+        clip: Rect,
+    ) {
         let (Some(before), Some(after)) = (placement.list, placement.conversation) else {
             return;
         };
@@ -343,11 +354,7 @@ impl State {
                 hit: Rect::new(before.right(), before.y, 1, before.height.min(after.height)),
                 total: before.width + after.width,
                 before: before.width,
-                min: if columns == Id::OverviewColumns {
-                    OVERVIEW_MIN_COLUMNS
-                } else {
-                    LIST_MIN_COLUMNS
-                },
+                min: list_min_columns,
                 max: (before.width + after.width).saturating_sub(CONVERSATION_MIN_COLUMNS),
             }
         } else {

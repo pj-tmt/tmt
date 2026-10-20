@@ -10,7 +10,6 @@ fn many_agents(count: usize) -> App {
     let mut app = populated_board(1, count);
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    app.overview_view = super::super::monitor::View::Agents;
     let first = app
         .workspace_snapshot()
         .unwrap()

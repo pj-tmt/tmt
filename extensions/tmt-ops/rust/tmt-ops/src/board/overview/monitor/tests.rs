@@ -4,7 +4,7 @@ use crate::{
         app::workspace::tests::{MEMBER, ROOM},
         app::{Effect, Request},
         shell::OpsTab,
-        workspace::{OpsMember, OpsMembershipState, OpsObservation},
+        workspace::{AgentsFilter, OpsMember, OpsMembershipState, OpsObservation},
     },
     config::{OpsKeyScope, OverviewColumn, OverviewSort},
 };
@@ -24,8 +24,8 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
         let mut app = crate::board::app::workspace::tests::populated_board(count, count);
         app.shell.tab = OpsTab::Agents;
         app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        for view in [View::Squads, View::Agents] {
-            app.overview_view = view;
+        for view in [AgentsFilter::All, AgentsFilter::Agents] {
+            app.workspace.filter = view;
             app.search.clear();
             app.workspace.selected = None;
             app.workspace_reconcile();
@@ -33,7 +33,7 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
             let shown = text(&buffer);
             if count == 1 {
                 assert!(
-                    shown.contains(if view == View::Squads {
+                    shown.contains(if view == AgentsFilter::All {
                         "1 squad · 1 agent"
                     } else {
                         "1 agent"
@@ -86,7 +86,6 @@ fn agents_use_available_height_before_reporting_overflow() {
     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    app.overview_view = View::Agents;
     app.workspace_reconcile();
     for height in [51, 24] {
         let buffer = paint(&mut app, 148, height);
@@ -155,9 +154,9 @@ fn agents_omit_the_waiting_note_when_none_are_waiting() {
 fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = board();
-    for view in [View::Squads, View::Agents] {
-        app.overview_view = view;
-        let expected = if view == View::Squads {
+    for view in [AgentsFilter::All, AgentsFilter::Agents] {
+        app.workspace.filter = view;
+        let expected = if view == AgentsFilter::All {
             ["1 of 1", "0 of 1"]
         } else {
             ["1 of 3", "0 of 3"]
@@ -190,7 +189,6 @@ fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-    app.overview_view = View::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     for member in snapshot.roster.members.values_mut() {
         member.waiting = false;
@@ -355,7 +353,7 @@ fn search_keeps_a_hidden_uuid_and_authored_filter_bindings_win() {
         .insert("v".into(), crate::action::Action::parse("search").unwrap());
     press(&mut app, KeyCode::Char('v'));
     assert!(app.searching);
-    assert!(app.overview_view == View::Agents);
+    assert!(app.workspace.filter == AgentsFilter::Agents);
 }
 #[test]
 fn authored_sort_changes_only_the_layer_order_and_retains_the_selected_uuid() {
@@ -639,18 +637,6 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
         "global waiting must not be attributed to this unobserved membership"
     );
     assert_eq!(scene.waiting, 1);
-    // The TEAM glyph shows the identity's global core activity (unknown in
-    // this fixture), never the global waiting request.
-    assert_eq!(
-        scene.squads[0]
-            .members
-            .iter()
-            .find(|(id, _, _)| id == MEMBER)
-            .unwrap()
-            .1
-            .as_deref(),
-        Some("unknown")
-    );
     assert!(
         snapshot.roster.shell_counts().waiting > 0,
         "global evidence stays in its own scope"
@@ -663,7 +649,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
     app.agents_filter(crate::board::workspace::AgentsFilter::All);
     assert!(matches!(app.workspace.selected, Some(OpsTarget::Squad(_))));
     press(&mut app, KeyCode::Char('f'));
-    assert_eq!(app.overview_view, View::Agents);
+    assert_eq!(app.workspace.filter, AgentsFilter::Agents);
     assert!(matches!(
         app.workspace.selected,
         Some(OpsTarget::Member { .. })
@@ -690,7 +676,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
         },
         std::time::Instant::now(),
     );
-    assert_eq!(app.overview_view, View::Squads);
+    assert_eq!(app.workspace.filter, AgentsFilter::All);
     app.view
         .as_mut()
         .unwrap()
@@ -705,8 +691,8 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
     press(&mut app, KeyCode::Char('v'));
     assert!(app.searching);
     assert_eq!(
-        app.overview_view,
-        View::Squads,
+        app.workspace.filter,
+        AgentsFilter::All,
         "authored v must not toggle the view"
     );
 }

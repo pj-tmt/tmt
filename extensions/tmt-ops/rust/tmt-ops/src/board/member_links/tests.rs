@@ -978,7 +978,7 @@ mod named_surface_tests {
             app.shell.tab = crate::board::shell::OpsTab::Agents;
             app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
             // The agents list shows no free text; a squad's "now" line is the task surface.
-            app.overview_view = crate::board::overview::monitor::View::Squads;
+            app.workspace.filter = crate::board::workspace::AgentsFilter::All;
             app.focus = 0;
         } else {
             app.shell.tab = crate::board::shell::OpsTab::Agents;

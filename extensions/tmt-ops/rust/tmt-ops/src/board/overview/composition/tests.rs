@@ -15,7 +15,7 @@ fn board() -> App {
     app
 }
 fn waiting(app: &mut App) {
-    app.overview_view = crate::board::overview::monitor::View::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     snapshot.roster.squads[0]
@@ -178,9 +178,11 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
         assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
         key(&mut app, KeyCode::Char('f'));
-        assert!(app.overview_view == crate::board::overview::monitor::View::Squads);
+        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Pinned);
         key(&mut app, KeyCode::Char('f'));
-        assert!(app.overview_view == crate::board::overview::monitor::View::Agents);
+        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::All);
+        key(&mut app, KeyCode::Char('f'));
+        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Agents);
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('e'));
         assert!(app.monitor_details.is_some());

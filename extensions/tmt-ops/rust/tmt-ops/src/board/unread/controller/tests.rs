@@ -358,7 +358,7 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
         crate::board::shell::OpsTab::Agents,
     ] {
         app.shell.tab = tab;
-        app.overview_view = crate::board::overview::monitor::View::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.overview_rows.borrow_mut().clear();
         app.workspace_reconcile();
         let rows = app.workspace_rows();

@@ -89,7 +89,6 @@ pub(super) struct Controls {
     ratios: super::pane_resize::Ratios,
     query: String,
     agents_filter: super::workspace::AgentsFilter,
-    overview_view: super::overview::monitor::View,
     quota_window: super::limits::QuotaWindow,
     chart: (u32, super::overview::chart::model::Each),
     order: Order,
@@ -100,7 +99,6 @@ impl Controls {
             ratios: app.pane_resize.ratios(),
             query: app.search.to_string(),
             agents_filter: app.workspace.filter,
-            overview_view: app.overview_view,
             quota_window: app.usage_chart.borrow().quota_window(),
             chart: app.usage_chart.borrow().chart_controls(),
             order: app.workspace_order(),
@@ -111,7 +109,6 @@ impl Controls {
         app.search = self.query.clone().into();
         app.workspace.query = self.query.clone();
         app.workspace.filter = self.agents_filter;
-        app.overview_view = self.overview_view;
         app.usage_chart
             .borrow_mut()
             .restore_quota_window(self.quota_window);
@@ -126,7 +123,6 @@ impl Controls {
         use crate::config::{OpsSort, OverviewDirection};
         json!({ "paneRatios": super::pane_resize::ratios_json(&self.ratios), "query": self.query,
             "agentsFilter": match self.agents_filter { AgentsFilter::All => "all", AgentsFilter::Agents => "agents", AgentsFilter::Pinned => "pinned" },
-            "overviewView": match self.overview_view { super::overview::monitor::View::Squads => "squads", super::overview::monitor::View::Agents => "agents" },
             "quotaWindow": self.quota_window.key(),
             "chart": {"rangeMinutes": self.chart.0, "eachMinutes": match self.chart.1 { super::overview::chart::model::Each::Auto => None, super::overview::chart::model::Each::Fixed(n) => Some(n) }},
             "sort": match self.order.agents { OpsSort::Name => "name", OpsSort::Attention => "attention", OpsSort::Members => "members" },
@@ -148,11 +144,6 @@ impl Controls {
                 "needs-you" => AgentsFilter::All,
                 "agents" => AgentsFilter::Agents,
                 "pinned" => AgentsFilter::Pinned,
-                _ => return None,
-            },
-            overview_view: match value.get("overviewView").map(Value::as_str) {
-                Some(Some("squads")) => super::overview::monitor::View::Squads,
-                None | Some(Some("agents")) => super::overview::monitor::View::Agents,
                 _ => return None,
             },
             chart: decode_chart(&value["chart"])

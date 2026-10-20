@@ -463,11 +463,13 @@ fn captures() -> Value {
                             app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
                         }
                         app.shell.tab = crate::board::shell::OpsTab::Agents;
-                        app.overview_view = if mode == "overview-squads" {
-                            crate::board::overview::monitor::View::Squads
-                        } else {
-                            crate::board::overview::monitor::View::Agents
-                        };
+                        if mode != "agents-pinned" {
+                            app.workspace.filter = if mode == "overview-squads" {
+                                crate::board::workspace::AgentsFilter::All
+                            } else {
+                                crate::board::workspace::AgentsFilter::Agents
+                            };
+                        }
                         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
                         app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
                         app.paste(if state == "matches" {
