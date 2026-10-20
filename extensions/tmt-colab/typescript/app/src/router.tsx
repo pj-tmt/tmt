@@ -570,10 +570,13 @@ type AppContext = {
   // The short-URL history resolves a prefix against the catalog the loaders last saw.
   rememberPages?: (pages: KnownPages) => void;
 };
+const pageOpenFailureTitle = (failure: { kind: 'retry' | 'large' }) =>
+  failure.kind === 'retry' ? text.openFailed : text.openTooLarge;
 /**
  * A page that could not open. A failure that reopening may cure is plain copy with a Retry that
- * runs the page's loader again, and the raw token moves to a small reference; only a refusal keeps
- * the red card (see `openFailure`). Return to space is always there.
+ * runs the page's loader again (the router then shows the same opening frame as a first open), and
+ * the raw token moves to a small reference; only a refusal keeps the red card (see `openFailure`).
+ * Return to space is always there.
  */
 function PageOpenFailure({
   failure,
@@ -581,28 +584,22 @@ function PageOpenFailure({
   failure: Exclude<ReturnType<typeof openFailure>, { kind: 'refused' }>;
 }) {
   const router = useRouter();
-  const [retrying, setRetrying] = useState(false);
   const retry = failure.kind === 'retry';
   return (
     <NoticeCard
-      state={retry ? 'waiting' : 'ended'}
+      state="inactive"
       stateLabel={text.openFailedLabel}
       eyebrow={text.product}
-      title={retry ? text.openFailed : text.openTooLarge}
+      title={pageOpenFailureTitle(failure)}
       testId="page-open-failure"
       actions={
         <>
           {retry && (
             <BrowserAction
               type="button"
-              variant="text"
+              variant="primary"
               label={text.openRetry}
-              busy={retrying}
-              busyMark={<LoaderCircle />}
-              onActivate={() => {
-                setRetrying(true);
-                void router.invalidate().finally(() => setRetrying(false));
-              }}
+              onActivate={() => void router.invalidate()}
             />
           )}
           <Link className={ui.action} data-variant="text" to="/">
@@ -612,10 +609,21 @@ function PageOpenFailure({
       }
     >
       <p>
+        {retry ? (
+          text.openFailedBody
+        ) : (
+          <>
+            {text.openTooLargeBefore}
+            <code className="tmt-ui-code">{text.openTooLargeCommand}</code>
+            {text.openTooLargeAfter}
+          </>
+        )}
+      </p>
+      <p>
         <small className="failure-reference">
           {text.failureCodeLabel}{' '}
           <code className="tmt-ui-code" data-failure-reference>
-            {failure.reference}
+            {retry ? failure.reference : text.openTooLargeLabel}
           </code>
         </small>
       </p>
@@ -640,7 +648,7 @@ const root = createRootRouteWithContext<AppContext>()({
     return (
       <>
         <AppHeader
-          title={failure && failure.kind !== 'refused' ? text.openFailed : text.error}
+          title={failure && failure.kind !== 'refused' ? pageOpenFailureTitle(failure) : text.error}
           headerRef={header}
         />
         <main>

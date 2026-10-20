@@ -41,7 +41,10 @@ for (const message of [
     await openAlphaFailing(page, message);
     await expect(failure(page)).toBeVisible();
     await expect(failure(page)).toContainText('This page could not open.');
+    await expect(failure(page)).toContainText('The page did not finish opening. Try again.');
+    // Retry is the filled first action; Return to space is the text link beside it.
     await expect(retry(page)).toBeVisible();
+    await expect(retry(page)).toHaveAttribute('data-variant', 'primary');
     await expect(app(page).getByRole('link', { name: 'Return to space' })).toBeVisible();
     // The technical detail is a small reference, never the sentence, and nothing is red or failed.
     await expect(failure(page).locator('[data-failure-reference]')).toHaveText(message);
@@ -103,22 +106,60 @@ test('a page over the read limits says so and offers no Retry', async ({ page })
   await mount(page);
   await openAlphaFailing(page, 'CAPACITY');
   await expect(failure(page)).toContainText('This page is too large to open here.');
+  await expect(failure(page)).toContainText(
+    'Export it with tmt colab export and open the copy as a new page.',
+  );
   await expect(retry(page)).toHaveCount(0);
   await expect(app(page).getByRole('link', { name: 'Return to space' })).toBeVisible();
-  await expect(failure(page).locator('[data-failure-reference]')).toHaveText('CAPACITY');
+  // A readable label, not the raw token; the header says what the card says.
+  await expect(failure(page).locator('[data-failure-reference]')).toHaveText('Page too large');
+  await expect(app(page).getByRole('heading', { level: 1 })).toHaveText(
+    'This page is too large to open here.',
+  );
 });
 
-for (const width of [1440, 390])
-  for (const [name, message] of [
-    ['retry', 'Sync disconnected'],
-    ['refused', 'Access ended'],
-    ['large', 'CAPACITY'],
-  ])
-    test(`captures: the ${name} open failure at ${width}`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 700 });
-      await mount(page);
-      await openAlphaFailing(page, message);
-      await expect(app(page).getByRole('heading', { level: 1 })).toBeVisible();
-      await expect(app(page).locator('.tmt-ui-notice')).toBeVisible();
-      await page.screenshot({ path: capturePath(`4012-open-failure-${name}-${width}.png`) });
+test('while Retry runs the page shows the same opening frame as a first open', async ({ page }) => {
+  await mount(page);
+  await openAlphaFailing(page, 'Sync disconnected');
+  await expect(failure(page)).toBeVisible();
+  await page.evaluate(() => {
+    window.failPages = undefined;
+    window.holdPages = new Promise<void>((resolve) => {
+      (window as unknown as { releasePages: () => void }).releasePages = resolve;
     });
+  });
+  await retry(page).click();
+  await expect(app(page).getByRole('status', { name: 'Opening page' })).toBeVisible();
+  await expect(failure(page)).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { releasePages: () => void }).releasePages());
+  await expect(body(page)).toBeVisible();
+});
+
+for (const theme of ['light', 'dark'] as const)
+  for (const width of [1440, 390])
+    for (const [name, message] of [
+      ['retry', 'Sync disconnected'],
+      ['retrying', 'Sync disconnected'],
+      ['large', 'CAPACITY'],
+      ['refused', 'Access ended'],
+    ])
+      test(`captures: the ${name} open failure at ${width} ${theme}`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 700 });
+        await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+        await mount(page);
+        await openAlphaFailing(page, message);
+        await expect(app(page).getByRole('heading', { level: 1 })).toBeVisible();
+        await expect(app(page).locator('.tmt-ui-notice')).toBeVisible();
+        if (name === 'retrying') {
+          await page.evaluate(() => {
+            window.failPages = undefined;
+            window.holdPages = new Promise<void>(() => {});
+          });
+          await retry(page).click();
+          await expect(app(page).getByRole('status', { name: 'Opening page' })).toBeVisible();
+        }
+        await page.mouse.move(0, 0);
+        await page.screenshot({
+          path: capturePath(`4012-open-failure-${name}-${width}-${theme}.png`),
+        });
+      });
