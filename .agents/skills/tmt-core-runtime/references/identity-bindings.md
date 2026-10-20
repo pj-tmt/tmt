@@ -220,7 +220,11 @@ delivery. They install and launch nothing.
 - Observation writes compare the complete expected observation inside the binding transaction,
   so a late update for a superseded conversation cannot win. Admission needs fresh live
   evidence; inconclusive admission keeps the previous observation, known-ended included. Clear
-  and in-process resume are nonterminal; end/compact must match the exact current key.
+  and in-process resume are nonterminal; end/compact must match the exact current key. One
+  exception: `tmt run` admits its process before the provider names the conversation, so in that
+  same Running process with its launch owner the first resumed or compacted start (Claude; embedded
+  Codex: compacted) names the unnamed key. An ownerless unnamed key, such as a replacement
+  process, waits for its own startup start.
   Provider end retains that key and launch owner in Unknown until a fresh start;
   the same live incarnation can then turn over its session. Only conclusive
   process loss/owned-child exit yields runtime Ended. Delivery probes can report

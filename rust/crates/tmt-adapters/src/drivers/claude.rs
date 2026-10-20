@@ -83,14 +83,11 @@ impl ClaudeObservation {
                     return current.admit(key, self.transition, RuntimeLiveness::Alive);
                 }
                 // A launch admits its process before the provider identifies
-                // the conversation. Its first resumed start is not a switch
-                // away from an already-known conversation.
+                // the conversation; its first resumed or compacted start names it.
                 if previous.provider_session.is_none()
-                    && current.launch_owner.is_some()
-                    && current.state == RuntimeState::Running
-                    && self.transition == SessionTransition::Resumed
+                    && let Some(next) = current.name_launch(key.clone(), self.transition)
                 {
-                    return current.admit(key, self.transition, RuntimeLiveness::Alive);
+                    return Some(next);
                 }
                 match self.transition {
                     SessionTransition::Compacted => {

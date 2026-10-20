@@ -193,6 +193,13 @@ impl CodexObservation {
         }
         if let Some(old) = &current.key {
             if old.incarnation == *process {
+                // A compaction names a launch-owned key that no start named yet.
+                if self.starting
+                    && self.transition == SessionTransition::Compacted
+                    && old.provider_session.is_none()
+                {
+                    return current.name_launch(key, self.transition);
+                }
                 if !self.starting || matches!(self.transition, SessionTransition::Compacted) {
                     return current.transition(&key, self.transition, None);
                 }
@@ -1232,6 +1239,88 @@ mod tests {
                 .as_bytes(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn an_embedded_compact_names_a_running_launch_owned_unnamed_key() {
+        let process = ProcessIncarnation::new(20, "embedded-launch").unwrap();
+        let owner = ProcessIncarnation::new(19, "embedded-owner").unwrap();
+        let unnamed = ObservedSessionKey {
+            incarnation: process.clone(),
+            provider_session: None,
+        };
+        let launched = BindingSessionState::default()
+            .admit_launched(
+                unnamed.clone(),
+                owner.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        let compact = start("compact", "thread");
+        let named = compact
+            .propose(&launched, &process, RuntimeLiveness::Alive, false)
+            .unwrap();
+        assert_eq!(
+            named,
+            BindingSessionState {
+                last_transition: Some(SessionTransition::Compacted),
+                state: RuntimeState::Running,
+                key: Some(ObservedSessionKey {
+                    incarnation: process.clone(),
+                    provider_session: Some(compact.session.clone()),
+                }),
+                launch_owner: Some(owner),
+            }
+        );
+        assert!(
+            compact
+                .propose(&named, &process, RuntimeLiveness::Alive, false)
+                .is_some()
+        );
+
+        // Shared mode keeps its exact-thread rule.
+        assert!(
+            compact
+                .propose(&launched, &process, RuntimeLiveness::Alive, true)
+                .is_none()
+        );
+        // Another process incarnation.
+        let other = ProcessIncarnation::new(21, "other").unwrap();
+        for liveness in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
+            assert!(
+                compact
+                    .propose(&launched, &other, liveness, false)
+                    .is_none()
+            );
+        }
+        // No launch owner: a replacement process that delivery admitted.
+        let replacement = BindingSessionState::default()
+            .admit(
+                unnamed.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        assert!(
+            compact
+                .propose(&replacement, &process, RuntimeLiveness::Alive, false)
+                .is_none()
+        );
+        // Not Running: after a provider end, and after the process ended.
+        let provider_end = launched
+            .transition(&unnamed, SessionTransition::Ended, None)
+            .unwrap();
+        let mut ended = launched.clone();
+        ended.state = RuntimeState::Ended;
+        for stopped in [provider_end, ended] {
+            assert!(
+                compact
+                    .propose(&stopped, &process, RuntimeLiveness::Alive, false)
+                    .is_none()
+            );
+        }
     }
 
     #[test]
