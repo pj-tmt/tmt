@@ -73,11 +73,15 @@ fn count(conversations: &Conversations, author: Option<&str>, needs_you: u32) ->
     }
 }
 
-/// The count and reading descriptors are one projection and share one cache fingerprint.
+/// The count, reading descriptors and passages are one projection and share one cache fingerprint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryProjection {
     pub summary: Summary,
     pub readings: Vec<crate::summary_readings::ReadingDescriptor>,
+    /// The pending items by rank, at most [`crate::limits::NEEDS_PASSAGES`].
+    pub needs: Vec<crate::summary_passages::Need>,
+    /// The page's newest comment, when it has one.
+    pub latest: Option<crate::summary_passages::Latest>,
 }
 
 #[cfg(test)]
@@ -86,6 +90,8 @@ impl From<Summary> for SummaryProjection {
         Self {
             summary,
             readings: Vec::new(),
+            needs: Vec::new(),
+            latest: None,
         }
     }
 }
@@ -124,6 +130,8 @@ pub fn summarize_details(source: &mut Source, page: &str) -> Result<SummaryProje
             u32::try_from(pending.len())?,
         ),
         readings,
+        needs: crate::summary_passages::needs(&report, &conversations, &pending),
+        latest: crate::summary_passages::latest(&conversations),
     })
 }
 

@@ -107,6 +107,7 @@ const details = (readings: { id: string; state: 'unread' | 'read' }[]): ReadingD
     why: 'Before Friday',
     ...reading,
   })),
+  needs: [],
 });
 
 it('asks about each source page of a reading item once and never about a page the list lacks', () => {

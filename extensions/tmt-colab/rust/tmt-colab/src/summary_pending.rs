@@ -204,4 +204,4 @@ pub(crate) fn items(
 
 #[cfg(test)]
 #[path = "summary_pending_tests.rs"]
-mod tests;
+pub(crate) mod tests;

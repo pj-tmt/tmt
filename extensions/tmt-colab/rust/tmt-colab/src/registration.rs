@@ -293,8 +293,13 @@ impl Registration {
                     .iter()
                     .map(|b| format!("{b:02x}"))
                     .collect();
-                serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
-                    "summary":projection.summary.json(),"readings":projection.readings})
+                let mut ready = serde_json::json!({"pageId":page,"state":"ready","fingerprint":digest,
+                    "summary":projection.summary.json(),"readings":projection.readings,
+                    "needs":projection.needs});
+                if let Some(latest) = &projection.latest {
+                    ready["latest"] = serde_json::json!(latest);
+                }
+                ready
             }
             crate::summary::CachedDetails::Unavailable => {
                 serde_json::json!({"pageId":page,"state":"unavailable"})
