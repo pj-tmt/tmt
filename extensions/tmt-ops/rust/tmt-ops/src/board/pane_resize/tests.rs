@@ -88,6 +88,35 @@ fn unknown_pane_names_do_not_discard_recognized_ratios() {
     );
 }
 #[test]
+fn overview_boundary_names_map_onto_the_merged_agents_tab_or_are_dropped() {
+    assert_eq!(Id::parse("overview-columns"), Some(Id::AgentsColumns));
+    assert_eq!(Id::parse("overview-usage"), Some(Id::AgentsUsage));
+    for gone in [
+        "overview-list",
+        "overview-lower-columns",
+        "overview-lower-rows",
+        "overview-exchange",
+        "overview-timers",
+    ] {
+        assert_eq!(Id::parse(gone), None, "{gone}");
+    }
+    // A saved Overview ratio is carried; one saved under the current name wins.
+    assert_eq!(
+        ratios_decode(Some(
+            &json!({"overview-columns":4100,"overview-usage":3000})
+        )),
+        Some([(Id::AgentsColumns, 4100), (Id::AgentsUsage, 3000)].into())
+    );
+    assert_eq!(
+        ratios_decode(Some(
+            &json!({"agents-columns":4700,"overview-columns":4100})
+        )),
+        Some([(Id::AgentsColumns, 4700)].into())
+    );
+    assert!(crate::action::Action::parse("resize-pane overview-columns left").is_ok());
+    assert!(crate::action::Action::parse("resize-pane overview-list down").is_err());
+}
+#[test]
 fn clipped_targets_cannot_start_and_a_completed_missing_boundary_ends_drag() {
     let state = State::default();
     let b = boundary(Id::AgentsColumns);
@@ -347,7 +376,6 @@ fn painted_panes_drag_without_row_effects_and_keyboard_uses_the_same_geometry() 
         (OpsTab::Agents, 100, Id::AgentsRows),
         (OpsTab::Digest, 160, Id::DigestColumns),
         (OpsTab::Digest, 100, Id::DigestRows),
-        (OpsTab::Overview, 160, Id::OverviewColumns),
     ] {
         let mut app = app(tab);
         paint(&mut app, width, 51);
@@ -487,7 +515,7 @@ fn retained_controls_carry_ratios_but_not_drag_or_hover() {
     );
     let controls = Controls::capture(&first);
     let value = controls.json();
-    assert_eq!(value["paneRatios"]["agents-columns"], 4100);
+    assert_eq!(value["paneRatios"]["agents-columns"], 4000);
     let mut next = app(OpsTab::Agents);
     Controls::decode(&value).unwrap().apply(&mut next);
     assert_eq!(next.pane_resize.ratios(), first.pane_resize.ratios());
@@ -501,7 +529,7 @@ fn retained_controls_carry_ratios_but_not_drag_or_hover() {
 #[test]
 fn tiny_one_pane_and_hidden_conversation_have_no_phantom_boundary() {
     use crate::board::shell::OpsTab;
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         for (width, height) in [(0, 0), (60, 8), (100, 8)] {
             let mut app = app(tab);
             paint(&mut app, width, height);
@@ -511,7 +539,7 @@ fn tiny_one_pane_and_hidden_conversation_have_no_phantom_boundary() {
             );
         }
     }
-    let mut app = app(OpsTab::Overview);
+    let mut app = app(OpsTab::Agents);
     let mut policy = crate::config::OverviewPanels::default();
     policy.set_side_shown(false).unwrap();
     app.view
@@ -524,18 +552,22 @@ fn tiny_one_pane_and_hidden_conversation_have_no_phantom_boundary() {
         .preferences
         .overview_panels = Some(crate::config::PanelSetting::configured(policy));
     paint(&mut app, 160, 51);
-    assert!(!app.pane_resize.frame.borrow().iter().any(|b| matches!(
-        b.id,
-        Id::OverviewColumns | Id::OverviewExchange | Id::OverviewTimers
-    )));
+    assert!(
+        !app.pane_resize
+            .frame
+            .borrow()
+            .iter()
+            .any(|b| b.id == Id::AgentsColumns)
+    );
 }
 
 #[test]
-fn overview_section_rules_are_the_only_horizontal_resize_targets() {
+fn the_usage_rule_is_the_only_horizontal_resize_target_of_the_flat_list() {
     use crate::board::shell::OpsTab;
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         paint(&mut app, width, 51);
         let ids: Vec<_> = app
             .pane_resize
@@ -544,11 +576,7 @@ fn overview_section_rules_are_the_only_horizontal_resize_targets() {
             .iter()
             .map(|b| b.id)
             .collect();
-        assert!(ids.contains(&Id::OverviewUsage), "{width}: {ids:?}");
-        assert!(!ids.contains(&Id::AgentsColumns));
-        if width < 140 {
-            assert!(ids.contains(&Id::OverviewList), "{width}: {ids:?}");
-        }
+        assert!(ids.contains(&Id::AgentsUsage), "{width}: {ids:?}");
         let boundaries = app.pane_resize.frame.borrow().clone();
         for b in boundaries {
             if b.id.columns() {
@@ -593,7 +621,7 @@ fn capture_pane_resize_packet() {
     use tmt_cli_style::{Depth, Theme, theme::Base};
     let output = std::env::var("TMT_RESIZE_PACKET").expect("task-owned evidence path");
     let mut captures = Vec::new();
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         for width in [160, 148, 103, 100, 60] {
             for (name, base, depth) in [
                 ("tmt", Base::Tmt, Depth::TrueColor),
@@ -700,11 +728,12 @@ fn tab_keeps_switching_panes_and_only_an_authored_resize_binding_adjusts_sizes()
 }
 
 #[test]
-fn growing_usage_never_hides_the_existing_list_timers_or_digest() {
+fn growing_usage_never_hides_the_existing_list() {
     use crate::board::shell::OpsTab;
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         let original = paint(&mut app, width, 51);
         let text = |buffer: &Buffer| {
             buffer
@@ -714,18 +743,14 @@ fn growing_usage_never_hides_the_existing_list_timers_or_digest() {
                 .collect::<Vec<_>>()
                 .join("\n")
         };
-        assert!(text(&original).contains("── Digest"));
-        app.pane_resize
-            .restore([(Id::OverviewUsage, 10_000)].into());
+        assert!(text(&original).contains("AGENT"));
+        app.pane_resize.restore([(Id::AgentsUsage, 10_000)].into());
         let clamped = paint(&mut app, width, 51);
         let shown = text(&clamped);
-        assert!(
-            shown.contains("── Timers") && shown.contains("── Digest"),
-            "{width}\n{shown}"
-        );
+        assert!(shown.contains("AGENT"), "{width}\n{shown}");
         assert!(app.scrolls.visible(crate::config::Pane::Rows));
         assert_eq!(
-            app.pane_resize.ratios()[&Id::OverviewUsage],
+            app.pane_resize.ratios()[&Id::AgentsUsage],
             10_000,
             "clamping is not publication"
         );
@@ -794,17 +819,11 @@ fn every_visible_boundary_uses_real_painted_hits_and_restores_its_default() {
     use crate::board::shell::OpsTab;
     let _no_commands = crate::runner::forbid_commands();
     for (tab, width, id) in [
-        (OpsTab::Overview, 148, Id::OverviewColumns),
         (OpsTab::Agents, 160, Id::AgentsColumns),
         (OpsTab::Agents, 100, Id::AgentsRows),
         (OpsTab::Digest, 160, Id::DigestColumns),
         (OpsTab::Digest, 100, Id::DigestRows),
-        (OpsTab::Overview, 148, Id::OverviewUsage),
-        (OpsTab::Overview, 103, Id::OverviewList),
-        (OpsTab::Overview, 103, Id::OverviewLowerColumns),
-        (OpsTab::Overview, 60, Id::OverviewLowerRows),
-        (OpsTab::Overview, 148, Id::OverviewExchange),
-        (OpsTab::Overview, 148, Id::OverviewTimers),
+        (OpsTab::Agents, 148, Id::AgentsUsage),
     ] {
         let mut app = populated_app(tab, crate::look::Look::default());
         paint(&mut app, width, 51);
@@ -859,24 +878,6 @@ fn every_visible_boundary_uses_real_painted_hits_and_restores_its_default() {
 }
 
 #[test]
-fn stored_stacked_lower_ratio_does_not_change_the_side_by_side_layout() {
-    use crate::board::shell::OpsTab;
-    let mut app = populated_app(OpsTab::Overview, crate::look::Look::default());
-    let original = paint(&mut app, 103, 51);
-    app.pane_resize
-        .restore([(Id::OverviewLowerRows, 7000)].into());
-    assert_eq!(paint(&mut app, 103, 51), original);
-    paint(&mut app, 60, 51);
-    assert!(
-        app.pane_resize
-            .frame
-            .borrow()
-            .iter()
-            .any(|b| b.id == Id::OverviewLowerRows)
-    );
-}
-
-#[test]
 fn pointer_events_clear_a_drag_hover_on_terminals_without_motion_events() {
     use crate::board::shell::OpsTab;
     let mut app = app(OpsTab::Agents);
@@ -906,40 +907,18 @@ fn pointer_events_clear_a_drag_hover_on_terminals_without_motion_events() {
 }
 
 #[test]
-fn empty_wide_exchange_can_resize_without_borrowing_a_recipient() {
-    use crate::board::shell::OpsTab;
-    let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
-    app.shell.tab = OpsTab::Overview;
-    app.overview_view = crate::board::overview::monitor::View::Squads;
-    paint(&mut app, 148, 51);
-    assert!(app.conversation_target().is_none());
-    assert!(
-        app.pane_resize
-            .frame
-            .borrow()
-            .iter()
-            .any(|b| b.id == Id::OverviewExchange)
-    );
-    let selected = app.workspace.selected.clone();
-    app.perform(&crate::action::Action::parse("resize-pane overview-exchange down").unwrap());
-    paint(&mut app, 148, 51);
-    assert_eq!(app.workspace.selected, selected);
-    assert!(app.input.is_none() && app.menu.is_none());
-    assert!(app.conversation_target().is_none());
-}
-
-#[test]
 fn minimum_column_widths_keep_required_table_fields_whole() {
     use crate::board::shell::OpsTab;
-    let mut app = populated_app(OpsTab::Overview, crate::look::Look::default());
-    app.pane_resize.restore([(Id::OverviewColumns, 0)].into());
+    let mut app = populated_app(OpsTab::Agents, crate::look::Look::default());
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    app.pane_resize.restore([(Id::AgentsColumns, 0)].into());
     let buffer = paint(&mut app, 148, 51);
     let list_width = app
         .pane_resize
         .frame
         .borrow()
         .iter()
-        .find(|b| b.id == Id::OverviewColumns)
+        .find(|b| b.id == Id::AgentsColumns)
         .unwrap()
         .before;
     let header = buffer
@@ -960,40 +939,6 @@ fn minimum_column_widths_keep_required_table_fields_whole() {
     assert_eq!(
         list_width,
         crate::board::conversation::layout::OVERVIEW_MIN_COLUMNS
-    );
-    app.pane_resize
-        .restore([(Id::OverviewLowerColumns, 0)].into());
-    paint(&mut app, 103, 51);
-    assert_eq!(
-        app.pane_resize
-            .frame
-            .borrow()
-            .iter()
-            .find(|b| b.id == Id::OverviewLowerColumns)
-            .unwrap()
-            .before,
-        crate::board::timer_rows::MIN_CELLS
-    );
-    let row = crate::board::timer_rows::Row {
-        id: "c1".into(),
-        squad: "tmt-core".into(),
-        schedule: "every 30m".into(),
-        next: Some("in 9999m".into()),
-        purpose: "purpose".into(),
-        dim: false,
-    };
-    let shown = crate::board::timer_rows::line(
-        &row,
-        usize::from(crate::board::timer_rows::MIN_CELLS),
-        crate::look::Look::default(),
-    )
-    .to_string();
-    assert!(
-        shown.contains("c1")
-            && shown.contains("tmt-core")
-            && shown.contains("every 30m")
-            && shown.contains("in 9999m"),
-        "{shown}"
     );
 }
 

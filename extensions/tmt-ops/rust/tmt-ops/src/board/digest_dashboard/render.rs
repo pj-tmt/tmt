@@ -233,6 +233,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         placement,
         Boundary::DigestColumns,
         Boundary::DigestRows,
+        crate::board::conversation::layout::LIST_MIN_COLUMNS,
         frame.area(),
     );
     if let (Some(list), Some(detail)) = (placement.list, placement.conversation)

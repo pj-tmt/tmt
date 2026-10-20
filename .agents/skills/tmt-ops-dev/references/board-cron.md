@@ -17,7 +17,7 @@ uses the invoker's socket and caches failures, falling back to pane ID.
 
 The workspace's Timers action opens `Overlay::CronList`. A selected squad supplies
 its frozen room UUID; a member supplies its owner UUID and, in Agents, the observed
-room UUID. Overview owner counts open the same owner's all-room list. Counts derive
+room UUID. The flat list's owner counts open the same owner's all-room list. Counts derive
 once from the admitted job snapshot, deduplicating room/job keys; on with a valid
 owner is active independently of clock state. A failed read makes counts unknown,
 while retaining prior jobs with the failure. Empty global owner lists cannot invent
@@ -58,7 +58,7 @@ schedule fields from edits; owner and schedule input are trimmed at submission.
 Stored multiline/control-bearing or oversized messages remain intact. Submission
 resolves owner names through `identity show`.
 
-Overview, Agents and conversation reuse `overview::cron_counts::Summary`; room
+The flat list, tree and conversation reuse `overview::cron_counts::Summary`; room
 context narrows owner counts in Agents and is never inferred from a display name.
 Count clicks freeze the painted UUID scope and reject superseded geometry.
 The shared cron projection retains earliest active-slot and next-run detail for

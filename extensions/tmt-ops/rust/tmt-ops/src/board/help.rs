@@ -208,7 +208,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     ];
     if matches!(
         app.shell.tab,
-        super::shell::OpsTab::Overview | super::shell::OpsTab::Digest
+        super::shell::OpsTab::Agents | super::shell::OpsTab::Digest
     ) {
         sections.push(section("usage-chart", "usage chart", &[
             ("controls", "focus the chart control with its effective binding; Tab changes fields, Enter opens Range or Each, arrows choose and Enter applies; Esc closes"),
@@ -219,7 +219,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     }
     if matches!(
         app.shell.tab,
-        super::shell::OpsTab::Overview | super::shell::OpsTab::Digest
+        super::shell::OpsTab::Agents | super::shell::OpsTab::Digest
     ) && super::home::limits_enabled(app)
         && app.limits.as_ref().is_none_or(|values| !values.is_empty())
     {

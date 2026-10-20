@@ -354,11 +354,11 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
     snapshot.rows.insert(other_target.clone(), json!({"id":other,"name":"aaa-waiting","state":"working","waitingOnYou":[{"requestId":"waiting","preparedAtMs":50}]}));
     snapshot.preferences.agent_pins.insert(other.into());
     for tab in [
-        crate::board::shell::OpsTab::Overview,
+        crate::board::shell::OpsTab::Agents,
         crate::board::shell::OpsTab::Agents,
     ] {
         app.shell.tab = tab;
-        app.overview_view = crate::board::overview::monitor::View::Agents;
+        app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         app.overview_rows.borrow_mut().clear();
         app.workspace_reconcile();
         let rows = app.workspace_rows();
@@ -447,12 +447,14 @@ fn unread_squad_maximum_label_is_whole_and_tokens_align_with_the_header() {
             .collect();
         let header = lines
             .iter()
-            .find(|line| line.contains("SQUAD") && line.contains("TEAM"))
+            .find(|line| line.contains("SQUAD / AGENT") && line.contains("STATE"))
             .unwrap();
         let token_end = header.find("TOK 1h").unwrap() + "TOK 1h".len() - 1;
         let row = lines
             .iter()
-            .find(|line| line.contains("product") && line.contains("50+ unread"))
+            .find(|line| {
+                line.contains(" product ") && line.contains("50+ unread") && !line.contains(" · ")
+            })
             .unwrap();
         assert!(row.contains("● 50+ unread"), "{row}");
         assert_eq!(row.chars().nth(token_end), Some('—'), "{header}\n{row}");

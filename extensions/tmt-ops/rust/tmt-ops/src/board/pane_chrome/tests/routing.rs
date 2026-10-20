@@ -28,25 +28,6 @@ fn tab_and_both_backtab_encodings_toggle_existing_panes_without_changing_selecti
 }
 
 #[test]
-fn compact_overview_tab_never_enters_a_hidden_pane_or_changes_destination() {
-    use crate::board::shell::OpsTab;
-    for width in [60, 100] {
-        let mut app = app(Depth::None);
-        app.shell.tab = OpsTab::Overview;
-        app.set_body_width(width);
-        let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
-        terminal
-            .draw(|frame| crate::board::view::render(frame, &app))
-            .unwrap();
-        for code in [KeyCode::Tab, KeyCode::BackTab] {
-            app.key(KeyEvent::new(code, KeyModifiers::NONE));
-            assert_eq!(app.focused(), Pane::Rows);
-            assert_eq!(app.shell.tab, OpsTab::Overview);
-        }
-    }
-}
-
-#[test]
 fn raw_backtab_remains_owned_by_typing_search_and_overlay_before_base_bindings() {
     let mut app = app(Depth::None);
     app.set_body_width(160);
@@ -99,7 +80,10 @@ fn title_click_and_content_click_focus_the_painted_pane_and_stale_titles_are_ref
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
             .unwrap();
-        let area = app.conversation.borrow().area;
+        let area = app
+            .workspace_placement(app.conversation.borrow().area)
+            .and_then(|placement| placement.list)
+            .unwrap();
         let content = app.conversation.borrow().pane.unwrap();
         let click = |x, y| MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),

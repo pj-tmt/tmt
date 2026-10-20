@@ -98,7 +98,7 @@ fn editor_changes_only_the_winning_host_or_exact_section() {
         "swap down"
     );
     let (_, source) = config
-        .host_action_binding(OpsKeyScope::Overview, Some(&row), Some(&row), None, None)
+        .host_action_binding(OpsKeyScope::Member, Some(&row), Some(&row), None, None)
         .unwrap();
     assert_eq!(source, "bind.tmux.j");
     config.set_host_action(&source, "swap up").unwrap();

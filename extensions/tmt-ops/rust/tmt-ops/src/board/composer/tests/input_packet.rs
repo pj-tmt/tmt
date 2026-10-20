@@ -17,7 +17,7 @@ fn capture_conversation_input_packet() {
             ("terminal", Base::Terminal, Depth::Ansi16),
             ("NO_COLOR", Base::Tmt, Depth::None),
         ] {
-            for tab in [OpsTab::Agents, OpsTab::Overview] {
+            for tab in [OpsTab::Agents] {
                 for width in [160, 100, 60] {
                     for scene in [
                         "idle",
@@ -30,7 +30,7 @@ fn capture_conversation_input_packet() {
                     ] {
                         let mut app = crate::board::app::workspace::tests::board();
                         app.shell.tab = tab;
-                        if tab == OpsTab::Overview && width < 140 {
+                        if tab == OpsTab::Agents && width < 140 {
                             app.focus = 1; // Enter the existing compact reader path before editing.
                         }
                         let look = crate::look::Look {
@@ -97,7 +97,7 @@ fn capture_conversation_input_packet() {
                         );
                         assert_eq!(
                             app.shell.tab,
-                            if tab == OpsTab::Overview && width < 140 {
+                            if tab == OpsTab::Agents && width < 140 {
                                 OpsTab::Agents
                             } else {
                                 tab

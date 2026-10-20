@@ -177,15 +177,21 @@ pub struct OpsWorkspace {
 /// Session-local tree scope; it never changes membership or saved preferences.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AgentsFilter {
+    /// The Squads chip: the whole squad/member tree.
     #[default]
     All,
+    /// The Agents chip: Overview's flat attention list of agents.
+    Agents,
+    /// The Pinned chip: pinned squads and individually pinned agents.
     Pinned,
 }
 
 impl AgentsFilter {
+    /// `f` cycles Squads, Agents, Pinned.
     pub fn next(self) -> Self {
         match self {
-            Self::All => Self::Pinned,
+            Self::All => Self::Agents,
+            Self::Agents => Self::Pinned,
             Self::Pinned => Self::All,
         }
     }
@@ -541,7 +547,7 @@ impl OpsWorkspace {
         // identities and their containing group.
         let show_pool = self.visibility.scope.is_empty()
             && match self.filter {
-                AgentsFilter::All => true,
+                AgentsFilter::All | AgentsFilter::Agents => true,
                 AgentsFilter::Pinned => !pool.is_empty(),
             }
             && (query.is_empty()

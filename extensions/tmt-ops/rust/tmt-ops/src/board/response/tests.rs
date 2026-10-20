@@ -185,7 +185,8 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
     const RAW: &str = "full question\n\n\"漢字\"";
     for case in ["unacquired", "failed", "acquired", "replaced", "refused"] {
         let mut app = board();
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
+        app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
         observe_waiting_member(&mut app);
         let target = app.workspace.selected.clone().unwrap();
         app.view
@@ -199,7 +200,21 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
             .get_mut(&target)
             .unwrap()["waitingOnYou"] =
             json!([{"requestId":"held-question","preview":"short preview","preparedAtMs":1}]);
+        app.workspace_reconcile();
+        // The Replies pane must be painted before it can ask for a body.
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36))
+            .unwrap()
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
         app.perform(&crate::action::Action::parse("view-reply").unwrap());
+        eprintln!(
+            "DBG reader={} notice={:?} idx={} vis={} tgt={:?}",
+            app.row_details.reader.is_some(),
+            app.notice,
+            app.selected,
+            app.scrolls.visible(crate::config::Pane::Replies),
+            app.conversation_target()
+        );
         let source = app.detail_read().unwrap();
         assert_eq!(source.kind, crate::board::home_leads::Kind::Question);
         if case != "unacquired" {

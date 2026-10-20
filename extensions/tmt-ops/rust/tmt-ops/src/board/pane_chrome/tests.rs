@@ -12,7 +12,7 @@ fn digest_panes_share_focus_chrome_without_stacked_rules_or_a_false_back_hint() 
     for depth in [Depth::TrueColor, Depth::None] {
         for (width, height) in [(80, 36), (100, 35), (100, 36), (100, 37), (160, 36)] {
             let mut app = app(depth);
-            app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+            app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
             assert_eq!(app.shell.tab, OpsTab::Digest);
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             let mut draw = |app: &mut App| {

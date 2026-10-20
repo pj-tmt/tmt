@@ -1,9 +1,9 @@
-//! Narrow Timers/Digest band below the primary list viewport.
+//! The Timers module of the Measure column: the soonest timers and the link to all of them.
 use crate::{
     board::{
         app::{App, Hit, HitTarget},
-        divider, empty_state,
-        overview::{digest, timers},
+        empty_state,
+        overview::timers,
         section_rule, timer_rows,
     },
     look::Look,
@@ -12,163 +12,22 @@ use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
-const TIMER_CELLS: u16 = 62;
-const DIGEST_MIN: u16 = 32;
-
 pub(in crate::board) struct Band {
     timers: timers::Model,
-    digest: Option<[digest::Metric; 5]>,
-    split: bool,
     pub height: usize,
 }
 impl Band {
     pub(super) fn timers(app: &App) -> Self {
         let timers = timers::project(app);
         let height = timers.height();
-        Self {
-            timers,
-            digest: None,
-            split: false,
-            height,
-        }
+        Self { timers, height }
     }
-    pub fn new(app: &App, frame_width: u16, width: u16) -> Option<Self> {
-        // S4 introduces the final wide right column with the Digest matrix.
-        if frame_width >= 140 || width == 0 {
-            return None;
-        }
-        let timers = timers::project(app);
-        let digest = app
-            .overview_panels()
-            .shown(crate::config::OverviewPanel::Digest)
-            .then(|| {
-                let scene = super::super::monitor::scene(
-                    app,
-                    app.workspace_snapshot().expect("admitted workspace"),
-                );
-                digest::rows(app, &scene.summary)
-            });
-        let split = digest.is_some() && width >= TIMER_CELLS + 1 + DIGEST_MIN;
-        let height = if digest.is_none() {
-            timers.height()
-        } else if split {
-            timers.height().max(6)
-        } else {
-            timers.height() + 1 + 6
-        };
-        Some(Self {
-            timers,
-            digest,
-            split,
-            height,
-        })
+    /// How many timers the band's scope holds.
+    pub fn total(&self) -> usize {
+        self.timers.total
     }
-    pub fn rows_adjusted(&self, app: &App) -> bool {
-        !self.split
-            && self.digest.is_some()
-            && app
-                .pane_resize
-                .adjusted(crate::action::ResizeBoundary::OverviewLowerRows)
-    }
-    fn timer_height(&self, app: &App, height: u16) -> usize {
-        if self.digest.is_none() {
-            return self.timers.height();
-        }
-        app.pane_resize.size(
-            crate::action::ResizeBoundary::OverviewLowerRows,
-            height.saturating_sub(1),
-            self.timers.height() as u16,
-            self.timers.height() as u16,
-            6,
-        ) as usize
-    }
-    pub fn register(&self, app: &App, area: Rect, available: u16, clip: Rect) {
-        if self.split {
-            let total = area.width.saturating_sub(1);
-            let before = app.pane_resize.size(
-                crate::action::ResizeBoundary::OverviewLowerColumns,
-                total,
-                TIMER_CELLS,
-                timer_rows::MIN_CELLS,
-                DIGEST_MIN,
-            );
-            app.pane_resize.record(
-                crate::board::pane_resize::Boundary {
-                    id: crate::action::ResizeBoundary::OverviewLowerColumns,
-                    hit: Rect::new(area.x + before, area.y, 1, area.height),
-                    total,
-                    before,
-                    min: timer_rows::MIN_CELLS,
-                    max: total.saturating_sub(DIGEST_MIN),
-                },
-                clip,
-            );
-        } else if self.digest.is_some() {
-            let total = available.saturating_sub(1);
-            let before = self.timer_height(app, available) as u16;
-            app.pane_resize.record(
-                crate::board::pane_resize::Boundary {
-                    id: crate::action::ResizeBoundary::OverviewLowerRows,
-                    hit: Rect::new(area.x, area.y + before + 1, area.width, 1),
-                    total,
-                    before,
-                    min: self.timers.height() as u16,
-                    max: total.saturating_sub(6),
-                },
-                clip,
-            );
-        }
-    }
-    pub fn paint(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize, height: u16) {
-        let look = app.look();
-        if self.split {
-            let timer_cells = app.pane_resize.size(
-                crate::action::ResizeBoundary::OverviewLowerColumns,
-                slot.width.saturating_sub(1),
-                TIMER_CELLS,
-                timer_rows::MIN_CELLS,
-                DIGEST_MIN,
-            );
-            let timer = Rect {
-                width: timer_cells,
-                ..slot
-            };
-            self.timer(frame, app, timer, row, look);
-            divider::paint(
-                frame.buffer_mut(),
-                Rect::new(slot.x + timer_cells, slot.y, 1, 1),
-                row == 0,
-                look,
-            );
-            let area = Rect::new(
-                slot.x + timer_cells + 1,
-                slot.y,
-                slot.width.saturating_sub(timer_cells + 1),
-                1,
-            );
-            self.digest(
-                frame,
-                app,
-                area,
-                row,
-                app.focused() == crate::config::Pane::Rows,
-                look,
-            );
-        } else {
-            let timer_height = self.timer_height(app, height);
-            if row < timer_height {
-                self.timer(frame, app, slot, row, look);
-            } else if row > timer_height {
-                self.digest(
-                    frame,
-                    app,
-                    slot,
-                    row - timer_height - 1,
-                    app.focused() == crate::config::Pane::Rows,
-                    look,
-                );
-            }
-        }
+    pub fn paint(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize, _height: u16) {
+        self.timer(frame, app, slot, row, app.look());
     }
     fn timer(&self, frame: &mut Frame, app: &App, slot: Rect, row: usize, look: Look) {
         if row == 0 {
@@ -239,32 +98,4 @@ impl Band {
             }
         }
     }
-    fn digest(
-        &self,
-        frame: &mut Frame,
-        app: &App,
-        slot: Rect,
-        row: usize,
-        focused: bool,
-        look: Look,
-    ) {
-        let Some(metrics) = &self.digest else {
-            return;
-        };
-        if row == 0 {
-            section_rule::paint(
-                frame.buffer_mut(),
-                slot,
-                "Digest",
-                Line::default(),
-                focused,
-                look,
-            );
-        } else if let Some(metric) = metrics.get(row - 1) {
-            metric.paint(frame, app, slot);
-        }
-    }
 }
-
-#[cfg(test)]
-mod tests;

@@ -61,8 +61,8 @@
   Digest Details; the board never opens its sources and never fetches prices itself.
   Details observation times use the shared relative-age wording plus local `HH:MM`;
   absent, zero, future or invalid instants show `unknown`, never a fabricated age.
-  The Overview Digest panel (`overview/summary.rs`) calls it over the visible roster, so
-  its `(N of M)` agrees with the line's agent counts; the held Overview scene is keyed by
+  The Measure Digest table (`overview/summary.rs`) calls it over the visible roster, so
+  its `(N of M)` agrees with the line's agent counts; the held scene is keyed by
   the Digest window and appends the shared `savings_caption` only when it fits whole.
   The Config-selected Digest window changes only that supplier's argv (`--window` for
   7d/lifetime); other sources keep their argv. The reader starts with the saved window,
@@ -147,7 +147,7 @@ board's copy is. A member's activity is stale when the roster observation is not
 complete (a failed reload marks it stale at once) or when the read is older than
 `activity::stale_after`, `max(refresh interval, 5 s) + 10 s`: 15 s by default and
 with refresh off, 70 s for a 60 s interval. `OpsWorkspaceSnapshot::activity_stale`
-is the one decision for STATE cells, counters and TEAM glyphs; the Overview scene
+is the one decision for STATE cells, counters and TEAM glyphs; the held scene
 cache keys on it. Only a successful global read renews `read_at`; the change
 cursor, labels and other reads never do, and refresh off is never turned on to
 stay fresh. Stale never becomes idle. Painting a label or TEAM glyph records
@@ -240,8 +240,8 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   retained boundary and interval/range. There is no historical paging contract
   or session-long page cache. Range
   changes and each new closed boundary preempt through the existing generation
-  while the Overview or Digest Usage surface is enabled. Leaving it cancels the
-  demand. Overview's visible quota requests a separate fixed four-hour window
+  while the Agents or Digest Usage surface is enabled. Leaving it cancels the
+  demand. The Agents tab's visible quota requests a separate fixed four-hour window
   at five-minute resolution (48 buckets), independent of chart Each/Range. The
   quota cache remains independent of token interval/range pairs;
   inactive demand releases its corresponding cache. Quota choice changes require no source
@@ -336,7 +336,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   warmup; measured zero admits it without a share denominator. Narrow widths,
   disabled sampling and search with no shown sampling squads keep their height.
 - Provider limits: `board::limits` owns the quota data and calculations;
-  `home::limits` owns one admitted cell-fill strip reused by Overview and Digest. A provider is a driver ID from the listing; no Ops
+  `home::limits` owns one admitted cell-fill strip reused by Agents and Digest. A provider is a driver ID from the listing; no Ops
   code spells a driver (the #440 guard). The HOME usage receipt's one `ls` also
   carries each session's `resume.consumption.rateLimits` when Core has them
   (percent used, so the board shows percent left). For a provider whose
@@ -356,7 +356,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   30 minutes, starts a new cycle) and needs 1 h of samples. A reading older than 2
   h, or whose week has already reset, is shown only as `no reading for <age>`.
   Only windows of about 7 days and 5 hours are shown, so the labels are exact.
-  These held estimates continue to serve Digest. Overview uses one selected
+  These held estimates continue to serve Digest. Agents uses one selected
   window and the fixed two-hour API-backed projection described in
   [board-home.md](board-home.md#usage-and-verification); its four-hour quota tier
   shares Rate's verified suffix/bridge admission without replacing token history.

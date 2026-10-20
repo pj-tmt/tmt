@@ -10,11 +10,12 @@ use ratatui::{
 };
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     app
 }
 fn waiting(app: &mut App) {
-    app.overview_view = crate::board::overview::monitor::View::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     snapshot.roster.squads[0]
@@ -93,6 +94,7 @@ fn global_timers_need_no_uuid_and_new_stays_refused() {
 fn removed_count_cells_cannot_retain_their_old_timer_authority() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.cron.replace(Ok(crate::board::cronboard::test_cron(
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,
@@ -104,7 +106,8 @@ fn removed_count_cells_cannot_retain_their_old_timer_authority() {
         .first()
         .cloned()
         .expect("positive control: an actual count hit");
-    app.shell.tab = OpsTab::Overview;
+    // The flat list paints no count cell.
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     paint(&mut app, 100, 36);
     assert!(app.cron_scope_hits.borrow().is_empty());
     let selected = app.workspace.selected.clone();
@@ -176,9 +179,11 @@ fn eight_rows_keep_view_details_and_usage_keys_without_a_table_header() {
         assert!(!text.contains("Subscriptions") && !text.contains("Digest status"));
         assert!(app.hits.borrow().iter().any(|hit| hit.row() == Some(0)));
         key(&mut app, KeyCode::Char('f'));
-        assert!(app.overview_view == crate::board::overview::monitor::View::Squads);
+        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Pinned);
         key(&mut app, KeyCode::Char('f'));
-        assert!(app.overview_view == crate::board::overview::monitor::View::Agents);
+        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::All);
+        key(&mut app, KeyCode::Char('f'));
+        assert!(app.workspace.filter == crate::board::workspace::AgentsFilter::Agents);
         assert_eq!(app.workspace.selected, selected);
         key(&mut app, KeyCode::Char('e'));
         assert!(app.monitor_details.is_some());
@@ -241,13 +246,8 @@ fn authored_selected_scope_timers_never_widens_a_hidden_missing_or_other_tab_sco
     });
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     assert!(app.cron_list.is_none());
-    for tab in [
-        crate::board::shell::OpsTab::Agents,
-        crate::board::shell::OpsTab::Digest,
-    ] {
-        app.shell.tab = tab;
-        app.workspace.selected = None;
-        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-        assert!(app.cron_list.is_none());
-    }
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    app.workspace.selected = None;
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(app.cron_list.is_none());
 }

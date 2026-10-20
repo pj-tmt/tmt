@@ -31,6 +31,7 @@ pub(in crate::board) struct Painted {
     pub state: Option<Rect>,
     pub task: Option<Rect>,
     pub timers: Option<Rect>,
+    pub model: Option<Rect>,
 }
 
 fn style(look: Look, selected: bool, value: Style) -> Style {
@@ -142,6 +143,7 @@ pub(in crate::board) fn paint(
                 )
             }
             AgentsField::Model => {
+                painted.model = Some(cell);
                 Line::styled(fit(&row.model, Align::Left), look.role(Role::Muted))
             }
         };

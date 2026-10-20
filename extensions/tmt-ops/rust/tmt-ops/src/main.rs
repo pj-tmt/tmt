@@ -222,7 +222,7 @@ fn grammar() -> Command {
                     .help("Retain this board's view in a named layer (1–32 lowercase letters, digits or hyphens)"))
                 .arg(Arg::new("tab").long("tab").value_name("overview|agents|digest")
                     .value_parser(config::StartupTab::flag)
-                    .help("Open this tab (also 1, 2 or 3), overriding the startup preference and retained tab"))
+                    .help("Open this tab (also 1 or 2), overriding the startup preference and retained tab"))
                 .arg(Arg::new("reset-view").long("reset-view").action(ArgAction::SetTrue)
                     .help("Clear the selected view layer before opening the board (terminal required)"))
                 .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
@@ -1497,12 +1497,10 @@ mod tests {
     #[test]
     fn startup_tab_flag_admits_fixed_destinations_and_rejects_invalid_values() {
         for (name, expected) in [
-            ("overview", config::StartupTab::Overview),
-            ("1", config::StartupTab::Overview),
             ("agents", config::StartupTab::Agents),
-            ("2", config::StartupTab::Agents),
+            ("1", config::StartupTab::Agents),
             ("digest", config::StartupTab::Digest),
-            ("3", config::StartupTab::Digest),
+            ("2", config::StartupTab::Digest),
         ] {
             let parsed = grammar()
                 .try_get_matches_from(["tmt-ops", "ui", "--tab", name])
@@ -1521,7 +1519,7 @@ mod tests {
                 .try_get_matches_from(["tmt-ops", "ui", "--tab", name])
                 .unwrap_err()
                 .to_string();
-            assert!(error.contains("Tab must be overview, agents or digest"));
+            assert!(error.contains("Tab must be agents or digest"));
         }
         assert!(
             grammar()

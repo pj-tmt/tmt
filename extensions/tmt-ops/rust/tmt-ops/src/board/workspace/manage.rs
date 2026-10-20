@@ -412,8 +412,8 @@ fn room(app: &App, id: &str) -> Option<RoomTarget> {
     })
 }
 
-fn flat_member_context(tab: OpsTab, room_id: Option<&str>) -> bool {
-    tab != OpsTab::Agents || room_id.is_none()
+fn flat_member_context(tab: OpsTab, flat_agents: bool, room_id: Option<&str>) -> bool {
+    tab != OpsTab::Agents || flat_agents || room_id.is_none()
 }
 
 fn context_text(text: &str) -> String {
@@ -649,7 +649,7 @@ impl App {
         let flat = matches!(
             self.workspace.selected.as_ref(),
             Some(OpsTarget::Member { room_id, .. })
-                if flat_member_context(self.shell.tab, room_id.as_deref())
+                if flat_member_context(self.shell.tab, self.flat_agents(), room_id.as_deref())
         );
         if let Some((identity_id, _)) = chosen
             && (!flat

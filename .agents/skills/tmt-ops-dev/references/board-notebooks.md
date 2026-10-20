@@ -101,7 +101,7 @@ entry; the underlying bytes and request-source authority remain unchanged.
 Unavailable/expired source is not an annotatable response.
 
 `board::conversation` owns one session per sender/recipient UUID and paints the
-same selected-agent response in the workspace Overview and Agents detail area. Each session
+same selected-agent response in the Agents detail area for both list modes. Each session
 retains the response, source anchor, follow state and Markdown render cache keyed
 by source, width and look. Bounded outgoing turns use typed acceptance and exact
 request correlation, without a transcript store. A later question from the same agent is a
@@ -141,7 +141,7 @@ separate these observations from replies. Pending and observed-empty pane reads 
 an empty conversation requires both sources observed empty. Pane text creates no
 request-source, reply, acknowledgment or annotation authority. The existing
 UUID/revision/cancellation fences reject obsolete reads, and the shared viewport
-keeps long captures scrollable without displacing the composer. Overview keeps its
+keeps long captures scrollable without displacing the composer. The flat Agents list keeps its
 question-only presentation and does not acquire or paint these captures.
 
 Unread markers are separate from Core acknowledgments. After a successful draw,
@@ -163,7 +163,7 @@ all-party title waits for #3217's read contract. It creates no other-pair rows o
 qualification sentence. The existing conversation session supplies grouped
 exchanges and pane-output observations. Its filled three-row input follows the
 last observed group with one blank row above; only overflow pins it to the bottom.
-The same InputField/editor owns Overview, member focus and squad focus, with no
+The same InputField/editor owns the flat list, member focus and squad focus, with no
 frame or title rule. Factory Enter replies to an observed exact question or
 messages the selected member/current squad lead from either pane; active Enter
 submits, and Esc keeps the draft and returns to the originating list. Common pool

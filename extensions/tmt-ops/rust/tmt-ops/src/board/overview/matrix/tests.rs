@@ -8,8 +8,10 @@ use crate::board::{
 };
 fn many_agents(count: usize) -> App {
     let mut app = populated_board(1, count);
-    app.shell.tab = OpsTab::Overview;
-    app.overview_view = super::super::monitor::View::Agents;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    // The matrix is the Measure view of the right column.
+    app.right_tab = crate::board::shell::RightTab::Measure;
     let first = app
         .workspace_snapshot()
         .unwrap()
@@ -79,7 +81,8 @@ fn native_wide_table_draws_one_three_and_many_identities_below_the_all_row() {
                     .take_while(|line| !line.trim().is_empty())
                     .collect();
                 assert!(rows[0].trim_start().starts_with("all "));
-                let available = usize::from(buffer.area.height).saturating_sub(header + 2);
+                // Two footer rows follow the matrix.
+                let available = usize::from(buffer.area.height).saturating_sub(header + 3);
                 let shown = count.min(available.saturating_sub(1));
                 assert_eq!(rows.len(), shown + 1, "{width}/{count}: {rows:?}");
                 assert!(
@@ -134,7 +137,8 @@ fn capture_digest_identity_rows() {
 #[test]
 fn matrix_reuses_values_in_fixed_units_without_writing_preferences() {
     let mut app = valued_board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     capture::populate_final(&mut app, "squads");
     let saved = app.workspace_snapshot().unwrap().preferences.clone();
     let matrix = Matrix::project(&app, 5);
@@ -166,7 +170,8 @@ fn matrix_reuses_values_in_fixed_units_without_writing_preferences() {
 #[test]
 fn rank_and_all_totals_use_unique_scoped_hour_identities_and_grow_by_rows() {
     let mut app = populated_board(2, 6);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     capture::populate_lower_band(&mut app, "squads");
     capture::populate_final(&mut app, "squads");
     let wide = Matrix::project(&app, 5);
@@ -206,7 +211,8 @@ fn rank_and_all_totals_use_unique_scoped_hour_identities_and_grow_by_rows() {
 #[test]
 fn a_different_supplier_window_never_changes_the_fixed_twenty_four_hour_captions() {
     let mut app = valued_board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let mut document = valued_document();
     document["members"][0]["savings"]["window"] = serde_json::json!("7d");
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
@@ -238,6 +244,10 @@ fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
                         theme: Theme::new(base),
                         depth,
                     };
+                    // One pane at a time below 100 cells: Measure is the right pane.
+                    if width < 100 {
+                        app.focus = 1;
+                    }
                     let buffer = paint(&mut app, width, 51);
                     let lines: Vec<String> = buffer
                         .content
@@ -247,7 +257,12 @@ fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
                     let cost = lines
                         .iter()
                         .find(|line| line.contains("cost avoided"))
-                        .expect("the narrow Digest cost row is visible");
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{width}/{count}: the narrow Digest cost row is visible\n{}",
+                                lines.join("\n")
+                            )
+                        });
                     assert!(cost.contains("cost avoided 24h"), "{width}/{count}: {cost}");
                     assert!(!cost.contains("cost avoided 2…"));
                     assert!(cost.contains("≈ $"), "cost remains an estimate: {cost}");

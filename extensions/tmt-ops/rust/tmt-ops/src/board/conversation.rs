@@ -496,19 +496,16 @@ impl App {
 
 pub(in crate::board) struct LinkPreview {
     pub(in crate::board) value: String,
-    key: String,
-    wording: String,
 }
 pub(in crate::board) fn link_preview(
     app: &App,
     row: &serde_json::Value,
     bindings: &crate::action::Bindings,
 ) -> Option<LinkPreview> {
-    let (key, action) = bindings.get("o").map(|action| ("o", action)).or_else(|| {
+    let action = bindings.get("o").or_else(|| {
         bindings
-            .iter()
-            .find(|(_, action)| action.verb == crate::action::Verb::Open)
-            .map(|(key, action)| (key.as_str(), action))
+            .values()
+            .find(|action| action.verb == crate::action::Verb::Open)
     })?;
     if action.verb == crate::action::Verb::Open
         && action.args.is_empty()
@@ -526,15 +523,8 @@ pub(in crate::board) fn link_preview(
         )
     }
     .unwrap_or_else(|error| format!("Unavailable: {error}"));
-    let wording = if action.verb == crate::action::Verb::Open && action.args.is_empty() {
-        "open $link"
-    } else {
-        &action.text
-    };
     Some(LinkPreview {
         value: sanitize(&value),
-        key: key.into(),
-        wording: sanitize(wording),
     })
 }
 
@@ -672,7 +662,7 @@ fn render_target(
         .unwrap_or("–");
     let room = match &target {
         RowTarget::Workspace(super::workspace::OpsTarget::Member { room_id, .. })
-            if app.shell.tab != super::shell::OpsTab::Overview =>
+            if !app.flat_agents() =>
         {
             room_id.as_deref()
         }

@@ -9,7 +9,7 @@ description: Build and verify the Ops extension (`tmt-ops`, the board, notebook,
 
 `board/view.rs` owns frame orchestration and one frame-level hit/scroll-map reset.
 The interactive board acquires the global workspace once and selects its
-Overview, Agents or Digest destination through `shell::OpsShell`.
+Agents or Digest destination through `shell::OpsShell`.
 
 | Module                | Responsibility                                               |
 | --------------------- | ------------------------------------------------------------ |
@@ -21,7 +21,7 @@ Overview, Agents or Digest destination through `shell::OpsShell`.
 | `conversation`        | Shared selected-agent response, source and follow state      |
 | `view::waiting`       | WP1 composer and completion geometry                         |
 | `view::header/footer` | Summary, meters and effective action hints                   |
-| `home::limits/paint`  | Existing Overview quota/usage presentation over held data    |
+| `home::limits/paint`  | Existing Usage-band quota presentation over held data        |
 | `view::overlays`      | Shared overlay dispatch                                      |
 
 `board/row_detail.rs` owns the shared in-place detail projection and renderer,

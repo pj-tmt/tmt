@@ -751,7 +751,7 @@ fn workspace(app: &mut App, width: u16, height: u16) {
 }
 
 #[test]
-fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed_question() {
+fn switching_shell_keeps_uuid_and_link_while_the_flat_list_discusses_only_an_observed_question() {
     use crate::board::shell::OpsTab;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = workspace_fixture();
@@ -769,10 +769,9 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
         .unwrap()["fields"]["link"] = json!("https://example.test/pr");
     let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     for (key, tab) in [
-        ('2', OpsTab::Agents),
-        ('1', OpsTab::Overview),
-        ('3', OpsTab::Digest),
-        ('2', OpsTab::Agents),
+        ('1', OpsTab::Agents),
+        ('2', OpsTab::Digest),
+        ('1', OpsTab::Agents),
     ] {
         app.focus = 0;
         app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
@@ -787,17 +786,18 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
             .backend()
             .buffer()
             .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>();
+            .chunks(160)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
         if tab == OpsTab::Digest {
             assert!(text.contains("Details"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
                 "Digest shows status details"
             );
-        } else if tab == OpsTab::Overview {
-            assert!(text.contains("No question observed."), "{text}");
+        } else if tab == OpsTab::Agents {
+            assert!(text.contains("(no response in loaded history)"), "{text}");
             assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
                 !text.contains("worker line 089"),
@@ -808,13 +808,7 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
                 crate::action::Verb::Open
             );
         } else {
-            assert!(
-                text.contains("https://example.test/pr")
-                    && !text.contains("(press ")
-                    && !text.contains("$link"),
-                "{tab:?}: {text}"
-            );
-            assert!(text.contains("worker line 089"), "{tab:?}: {text}");
+            unreachable!()
         }
         assert_eq!(app.workspace.selected.as_ref(), Some(&selected));
         assert!(app.conversation.borrow().pane.is_some());
@@ -943,9 +937,32 @@ fn focus_uses_held_identity_stat_tiles_and_uuid_fenced_details_action() {
     let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
     assert!(screen.contains("product · member"));
     assert!(screen.contains("runtime-long-界") && screen.contains("model-long-value"));
+    // The cells are the Measure view of the same agent.
+    assert!(!screen.contains("TIMERS"));
+    app.right_tab = crate::board::shell::RightTab::Measure;
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let measure: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
     for caption in ["TOK 1h", "STATE", "DIGEST", "TIMERS"] {
-        assert!(screen.contains(caption));
+        assert!(measure.contains(caption));
     }
+    app.right_tab = crate::board::shell::RightTab::Talk;
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
     assert!(!screen.contains(" Details   Links "));
     assert!(
         app.conversation.borrow().header_hits.is_empty(),
@@ -1429,48 +1446,6 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
     );
     workspace(&mut app, 160, 36);
     assert!(draw(&app, 160, 36).contains("Agents-only pane capture"));
-    let selected = app.workspace.selected.clone().unwrap();
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .rows
-        .get_mut(&selected)
-        .unwrap()["waitingOnYou"] = json!([{"requestId":"req_55555555-5555-4555-8555-555555555555","preparedAtMs":1000,"preview":"A real waiting question keeps Overview's response viewport visible."}]);
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
-    workspace(&mut app, 160, 36);
-    assert!(
-        app.scrolls.visible(Pane::Replies),
-        "a waiting Overview question really paints the shared viewport"
-    );
-    assert!(
-        app.pane_output_read().is_none(),
-        "Overview keeps its existing question-only owner"
-    );
-    assert!(
-        !draw(&app, 160, 36).contains("Agents-only pane capture"),
-        "cached Agents captures never leak into Overview"
-    );
-    assert!(
-        !app.conversation
-            .borrow()
-            .sessions
-            .values()
-            .any(|session| session.transcript_context.enabled)
-    );
-    app.view
-        .as_mut()
-        .unwrap()
-        .home
-        .as_mut()
-        .unwrap()
-        .workspace
-        .rows
-        .get_mut(&selected)
-        .unwrap()["waitingOnYou"] = json!([]);
     app.shell.tab = crate::board::shell::OpsTab::Digest;
     workspace(&mut app, 160, 36);
     assert!(

@@ -67,13 +67,14 @@ fn keyboard_preview_follows_the_current_fold_without_an_intermediate_paint() {
 }
 
 #[test]
-fn overview_preview_keeps_its_anchor_and_scrolls_without_changing_the_draft() {
+fn flat_list_preview_keeps_its_anchor_and_scrolls_without_changing_the_draft() {
     let mut app = crate::board::app::workspace::tests::board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
     draw(&mut app, 160, 36);
     app.perform(&crate::action::Action::parse("talk").unwrap());
-    assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Overview);
+    assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Agents);
     let raw = (0..100)
         .map(|line| format!("line {line} 漢字\r\n"))
         .collect::<String>();
@@ -85,7 +86,7 @@ fn overview_preview_keeps_its_anchor_and_scrolls_without_changing_the_draft() {
     assert!(!draw(&mut app, 160, 36));
     assert!(
         app.paste_preview_shown(),
-        "painting keeps the Overview anchor"
+        "painting keeps the flat list anchor"
     );
     key(&mut app, KeyCode::PageDown);
     draw(&mut app, 160, 36);

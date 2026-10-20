@@ -158,7 +158,8 @@ fn the_agent_details_and_subscription_windows_close_on_an_outside_press() {
     click(&mut app, 0, 0);
     assert!(app.monitor_details.is_none());
 
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     assert_eq!(app.open_quota_details(), Effect::None);
     assert!(app.quota_details.is_some());
     paint(&app);

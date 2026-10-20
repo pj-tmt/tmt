@@ -46,7 +46,7 @@ regions once. `view::panes` dispatches workspace snapshots to `workspace::render
 before independent row/pane painters. `board/mod.rs` receives input, snapshots
 and deferred events on one channel; snapshots wake painting directly. Redraws
 follow state/input/resize changes and changed clock text/spinner frames. Each
-paint registers only visible dynamic label budgets and Overview quota rows;
+paint registers only visible dynamic label budgets and Usage-band quota rows;
 clock checks reuse those projections without roster traversal or source reads.
 Clipped countdown suffixes and hidden members do not wake the frame. Geometry
 invalidation clears this registry, and painting sets the next comparison base.
@@ -142,7 +142,7 @@ state only, no squad data or durable preference policy.
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
   state colors (waiting, working, review, blocked) paint in `text` unless the cell is a
   single mark glyph (`MARKS`; a dim or muted mark still becomes `text`). Surfaces name no
-  word/mark classes. Agents/Overview State rectangles are frame-local exclusions
+  word/mark classes. Agents State rectangles are frame-local exclusions
   supplied to that same pass while no blocking overlay is present; the state word
   keeps its foreground under the selection background. Resize/model replacement
   and each frame clear these rectangles. The reverse
@@ -239,7 +239,7 @@ no raw key interception or default binding is added.
 
 ## Workspace and retained identity
 
-`board::shell` selects Overview/Agents/Digest without loading a second roster.
+`board::shell` selects Agents/Digest without loading a second roster.
 `board::keycap` projects effective configured keys through the shared style
 keycap painter; tab, filter, search and Snapshots hosts retain their activation
 and geometry owners. Snapshots uses the existing recovery controller on every tab,
@@ -259,7 +259,7 @@ Ordinary restart reads the selected disposable view layer under the existing
 per-user Ops cache after the opening frame. The default keeps `board/view.json`;
 `ui --view <name>` selects `board/views/<name>.json` (1–32 lowercase ASCII letters,
 digits or hyphens). Each bounded 64 KiB file retains destination, expanded squad
-UUIDs, pool expansion, exact UUID selection, committed search, Overview/Agents
+UUIDs, pool expansion, exact UUID selection, committed search, Agents
 filters and sort, authored chart Range/Each, the shared quota-window choice, and pane scroll offsets clamped
 by the next draw. Missing or unknown quota choices restore the default 7d without
 discarding other valid controls. Old v1 hints
@@ -273,8 +273,8 @@ optional layer caption, which ellipsizes first and disappears only when no name
 cell fits.
 For destination/selection, exec Resume wins. On cold start, `ui --tab` wins over
 global `board.startup_tab` (default `last`), then an explicit startup squad, then
-the retained hint. Fixed choices are `overview`, `agents` and `digest`; the flag
-also accepts `1`, `2` and `3`. An explicit destination keeps compatible expansion
+the retained hint. Fixed choices are `agents` and `digest`; the flag
+also accepts `1` and `2`, and the retired `overview` opens Agents. An explicit destination keeps compatible expansion
 hints without restoring a selection from another destination. Invalid authored
 startup preferences are ignored with a notice; the original bytes are retained.
 The global Ops Config editor exposes this preference as `startup tab`.
@@ -384,7 +384,7 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
 - A visible conversation reserves its composer inside that pane, anchored to
   the exact selected membership. A note can be delivered to the squad lead;
   Status has no message draft key. Neither changes the conversation owning its
-  input band. Compact Overview moves an explicit message to Agents.
+  input band. A compact Agents tab moves an explicit message to the conversation pane.
   `view::waiting` removes only hits covered by the opaque band, preserving
   independent pointer scrolling in other panes. Headers derive from actual
   Compose recipients/subjects; sender, recipient and source fences run at submit.
@@ -444,7 +444,7 @@ member-row admission; no selected member exposes only context actions. Workspace
 `checklist::{controller,forms,surface,load}` owns one centered square modal and its
 room chooser, independent filters, item selection, authored fields and exact
 confirmation. A visible selected squad or its member in Agents/Digest freezes
-the acquired room UUID; Overview, Common pool and hidden/missing targets require an explicit
+the acquired room UUID; the flat list, Common pool and hidden/missing targets require an explicit
 room choice. Closing retains workspace UUID selection and focus without legacy
 row-index restoration. Default scope is Open / Squad-wide / archived excluded.
 The unfiltered total uses the same archive scope as the matched count. Item Enter

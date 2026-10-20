@@ -346,11 +346,11 @@ fn stored_finals_render_in_full_and_keep_their_source_after_wrapping_and_resize(
         let mut terminal = Terminal::new(TestBackend::new(width, 44)).unwrap();
         terminal
             .draw(|frame| {
-                super::super::exchange::render_for(
+                super::super::exchange::render(
                     frame,
                     &app,
                     frame.area(),
-                    &super::super::exchange::Surface::Agents {
+                    &super::super::exchange::Surface {
                         target: target.clone(),
                         interactive: true,
                     },

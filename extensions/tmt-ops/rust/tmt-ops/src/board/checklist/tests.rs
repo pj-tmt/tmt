@@ -60,7 +60,7 @@ fn app_checklist_text_captures_q_digits_and_its_buttons_allow_destination_keys()
         .select("cancel");
     assert!(!app.checklist.as_ref().unwrap().owns_typing());
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
         Effect::None
     );
     assert_eq!(app.shell.tab, OpsTab::Digest);
@@ -208,7 +208,10 @@ fn workspace_checklist_requires_a_room_choice_without_visible_squad_authority() 
     for context in ["overview", "pool", "hidden", "missing"] {
         let mut app = workspace::board();
         match context {
-            "overview" => app.shell.tab = OpsTab::Overview,
+            "overview" => {
+                app.shell.tab = OpsTab::Agents;
+                app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+            }
             "pool" => app.workspace.selected = Some(OpsTarget::Pool),
             "hidden" => app.workspace.query = "no matching identity".into(),
             "missing" => {

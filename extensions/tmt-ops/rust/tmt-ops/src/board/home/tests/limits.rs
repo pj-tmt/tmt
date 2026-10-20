@@ -17,7 +17,8 @@ const HOUR: u64 = 3_600_000;
 fn app(usage_enabled: bool) -> App {
     let mut app = crate::board::app::workspace::tests::board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let view = app.view.as_mut().unwrap();
     view.home_rate.insert(
         "product".into(),
@@ -218,12 +219,14 @@ fn help_explains_the_row_only_where_it_can_show() {
     );
     assert!(text.contains("older than 2 hours"), "{text}");
     assert!(section(&app(false)).is_none());
+    // Agents carries the same Usage band, so it explains the row too.
     let mut hidden = app(true);
     hidden.shell.tab = crate::board::shell::OpsTab::Agents;
-    assert!(section(&hidden).is_none());
+    assert!(section(&hidden).is_some());
     hidden.shell.tab = crate::board::shell::OpsTab::Digest;
     assert!(section(&hidden).is_some());
-    hidden.shell.tab = crate::board::shell::OpsTab::Overview;
+    hidden.shell.tab = crate::board::shell::OpsTab::Agents;
+    hidden.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     hidden.set_limits(Vec::new());
     assert!(section(&hidden).is_none());
 }

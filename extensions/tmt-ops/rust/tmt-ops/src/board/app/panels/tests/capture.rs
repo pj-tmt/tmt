@@ -10,7 +10,7 @@ fn capture_panel_policy_packet() {
     let _no_commands = crate::runner::forbid_commands();
     crate::status::with_now_ms(1_791_600_000_000, || {
         let mut frames = Vec::new();
-        for tab in [OpsTab::Overview, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             for scene in ["default", "picker", "edited", "reset", "saving", "failed"] {
                 for width in [160, 100, 60] {
                     for (base, depth) in [

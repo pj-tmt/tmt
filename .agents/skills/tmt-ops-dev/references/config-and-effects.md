@@ -140,7 +140,7 @@ to App and ephemeral reload carry, never Config or retained view hints.
 `workspace.overview_sort` names an existing identity sort field;
 `workspace.overview_reverse` reverses its initial direction; optional
 `workspace.agent_pins` retains up to 1,024 canonical identity UUIDs. Pinned agents
-precede the regular Overview Agents order and appear in the Agents Pinned tree.
+precede the regular flat Agents order and appear in the Agents Pinned tree.
 `workspace.digest_window` selects 24h (default), 7d or lifetime (shown as all time)
 for every Digest estimate surface, through the same format-preserving Config CAS;
 `workspace.savings_unit` (`tokens` default, `percent`, `cost`) is the sibling key on the
@@ -153,7 +153,7 @@ installation requires an explicit upgrade. One effective action table resolves d
 dispatch, footer and help. Retired pane/view/tab keys get located notices; authored
 bytes remain intact. The shell has no legacy mode or factory-view picker.
 
-Workspace settings → Panels previews Overview and Digest independently, with
+Workspace settings → Panels previews Agents and Digest independently, with
 show/hide, order, a separate Conversation/Details switch and Reset to default.
 Save uses the existing asynchronous workspace preference CAS; a changed source
 retains the draft and error. Cancel drops the preview. Closing a pending save
@@ -161,22 +161,22 @@ neither cancels its admitted write nor applies a late result to a reopened picke
 
 `workspace.overview_panels` stores `order`, `hidden` and `conversation` over IDs
 `summary`, `digest`, `subscriptions`, `usage`, `monitor`, `exchanges`.
-Overview exposes only Usage, inline quota, Squads / Agents and Conversation in
-its picker, plus the Digest toggle; fixed positions ignore retained vertical
+Agents exposes only Usage, inline quota, the list and the side column in
+its picker (a hidden list collapses the list rows, a hidden side column the replies); fixed positions ignore retained vertical
 order. Retired Summary and Recent controls remain absent. Usage has a fixed full-width header position and `subscriptions`
 controls quota cells inside its provider rows. Their order entries are retained
 in the stored complete ID set, but the picker identifies them as fixed and refuses
 move actions. Digest retains independently movable panels.
-Authored `overview-filter` actions receive a located retirement notice. Their
-text stays intact and is not applied; choose `overview-view` explicitly for
-Squads/Agents.
+Authored `overview`, `overview-view` and `overview-filter` actions receive a located
+retirement notice. Their text stays intact and is not applied; the `agents-filter`
+(`f`) and `talk-measure` (`t`) actions replace them.
 
-The explicit `all-timers` action opens the all-room read context and is Overview's
-new default `c`. Authored `timers` keeps the selected scope, and compatible global,
+The explicit `all-timers` action opens the all-room read context and is the
+default `c` when nothing is selected. Authored `timers` keeps the selected scope, and compatible global,
 host and section overrides retain their normal precedence. The preview advertises
 only a key that actually resolves to `all-timers`.
-Overview list and reader factory defaults resolve Enter to `reply`. The internal
-Overview reader context inherits reader scrolling before the existing authored
+The flat list and reader factory defaults resolve Enter to `reply`. The internal
+reader context inherits reader scrolling before the existing authored
 key merge. Authored global, host and section overrides keep their meaning;
 Agents/Digest reader defaults remain independent. The filled input advertises the
 effective admitted Reply/Talk start key, and pointer focus uses that same action.
@@ -218,7 +218,7 @@ membership target; unsupported legacy actions are reported rather than remapped.
   `board::theme_picker`. The session reads its Config at opening and keeps that baseline
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
-  switches board/squad scope (Overview/Common pool have board scope only; a masking squad base is
+  switches board/squad scope (the flat list and Common pool have board scope only; a masking squad base is
   named). Pickers open in all-boards scope, even when a squad override masks it;
   the notice directs an intentional this-squad edit. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
@@ -380,9 +380,7 @@ acceptance removes it; uncertain acceptance retains it for manual inspection.
 One `dispatch.show` read can recover lost output. There is no automatic resend or wake retry. An explicit status notification retry first recovers uncertain acceptance; after the owned invocation has closed and a definitive missing receipt, it may create only the same frozen operation/intent again. Confirmed acceptance is never created again. Feedback distinguishes each recipient's queued or
 unavailable acceptance without claiming delivery or processing.
 
-The per-layer view-state controls store the Overview list choice as `overviewView`
-(`squads` or `agents`). A file written before the list redesign keeps its committed
-query, Agents filter, sort and scroll controls and defaults the new choice to Agents;
-an explicit saved Squads or Agents choice remains unchanged;
-the removed `overviewFilter` is not reinterpreted as a list choice. A present invalid
-new choice is refused by the existing control decoder. Config remains unchanged.
+The per-layer view-state controls store the list choice as `agentsFilter`
+(`all`, `agents` or `pinned`). A file written with the removed `overviewView` or
+`overviewFilter` keeps its committed query, sort and scroll controls and ignores those
+keys. A present invalid choice is refused by the existing control decoder. Config remains unchanged.

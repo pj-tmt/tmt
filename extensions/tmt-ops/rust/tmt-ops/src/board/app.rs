@@ -283,6 +283,8 @@ pub enum Choice {
     /// A visible but disabled dropdown choice, with the reason it is unavailable.
     Unavailable(String),
     AgentsFilter(super::workspace::AgentsFilter),
+    /// A click on a Talk/Measure chip selects that pane; the `t` key toggles.
+    RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
@@ -301,7 +303,6 @@ pub enum Choice {
     UsageReportSince(super::usage_report::Since),
     /// A click on a painted Digest estimate: the next unit.
     SavingsUnit,
-    OverviewView(super::overview::monitor::View),
     ClearSearch,
     Panels,
     Checklist,
@@ -670,7 +671,8 @@ pub struct App {
     pub(super) workspace_form: Option<super::workspace::manage::Draft>,
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
-    pub(in crate::board) overview_view: super::overview::monitor::View,
+    /// Talk or Measure in the Agents tab's right column (`t`).
+    pub(in crate::board) right_tab: super::shell::RightTab,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,
@@ -1953,14 +1955,14 @@ impl App {
         self.view.as_ref().map(|view| &view.board)
     }
 
-    /// Logical placement survives invalidating pointer rectangles. A refresh
-    /// must not turn a retained Reader focus into a list/Host key scope.
-    fn conversation_area(&self) -> ratatui::layout::Rect {
-        let mut area = self.conversation.borrow().area;
-        if self.body_width > 0 {
-            area.width = self.body_width;
-        }
-        area
+    /// Reader focus alone may come from Tab. The existing UUID draft owner
+    /// distinguishes an explicit message reveal without another open flag.
+    fn conversation_revealed(&self) -> bool {
+        self.focused() == Pane::Replies
+            && self
+                .input
+                .as_ref()
+                .is_some_and(|input| input.draft_key.is_some())
     }
 
     pub fn collapsed_panes(&self) -> BTreeSet<Pane> {
@@ -1969,16 +1971,12 @@ impl App {
         }
         let mut collapsed = BTreeSet::new();
         match self.shell.tab {
-            super::shell::OpsTab::Overview => {
-                let placement = self.overview_placement(self.conversation_area());
-                if placement.list.is_none()
-                    || !self
-                        .overview_panels()
-                        .shown(crate::config::OverviewPanel::Monitor)
-                {
+            super::shell::OpsTab::Agents => {
+                let policy = self.overview_panels();
+                if !policy.shown(crate::config::OverviewPanel::Monitor) {
                     collapsed.insert(Pane::Rows);
                 }
-                if placement.conversation.is_none() {
+                if !policy.side_shown() && !self.conversation_revealed() {
                     collapsed.insert(Pane::Replies);
                 }
             }
@@ -1991,7 +1989,6 @@ impl App {
                     collapsed.insert(Pane::Replies);
                 }
             }
-            _ => {}
         }
         collapsed
     }
@@ -2008,30 +2005,56 @@ impl App {
     pub(in crate::board) fn workspace_placement(
         &self,
         area: ratatui::layout::Rect,
-    ) -> Option<super::conversation::layout::WorkspacePlacement> {
+    ) -> Option<super::conversation::layout::Placement> {
         use super::conversation::layout::{self, Preference};
         let snapshot = self.workspace_snapshot()?;
-        let mut placement = if self.shell.tab == super::shell::OpsTab::Overview {
-            self.overview_placement(area).into()
-        } else if self.shell.tab == super::shell::OpsTab::Agents {
-            layout::agents_tree(
-                area,
+        let mut placement = if self.shell.tab == super::shell::OpsTab::Agents {
+            // The Usage band is the top of the tab, as on Overview; the columns sit below it.
+            let usage = self.overview_usage_band(area);
+            let below = ratatui::layout::Rect::new(
+                area.x,
+                area.y + usage.height,
+                area.width,
+                area.height.saturating_sub(usage.height),
+            );
+            let mut placement = layout::agents_tree(
+                below,
                 match snapshot.preferences.layout {
                     crate::config::OpsLayout::Auto => Preference::Auto,
                     crate::config::OpsLayout::Side => Preference::Side,
                     crate::config::OpsLayout::Stack => Preference::Stack,
                 },
                 self.focused() == Pane::Replies,
-            )
+            );
+            // The Panels list and side switches claim the whole body for the other pane.
+            let policy = self.overview_panels();
+            let whole = match (placement.list, placement.conversation) {
+                (Some(list), Some(conversation)) => list.union(conversation),
+                (Some(only), None) | (None, Some(only)) => only,
+                (None, None) => below,
+            };
+            if !policy.shown(crate::config::OverviewPanel::Monitor) {
+                placement = layout::Placement {
+                    list: None,
+                    conversation: Some(whole),
+                };
+            } else if !policy.side_shown() && !self.conversation_revealed() {
+                placement = layout::Placement {
+                    list: Some(whole),
+                    conversation: None,
+                };
+            }
+            placement
         } else {
-            self.digest_placement(area).into()
+            self.digest_placement(area)
         };
         use crate::action::ResizeBoundary as Boundary;
         if self.shell.tab == super::shell::OpsTab::Agents {
-            placement.panes = self.pane_resize.panes(
-                placement.panes,
+            placement = self.pane_resize.panes(
+                placement,
                 Boundary::AgentsColumns,
                 Boundary::AgentsRows,
+                self.agents_list_min_columns(),
             );
         }
         Some(placement)
@@ -2068,17 +2091,6 @@ impl App {
     fn restore_focus(&mut self) {
         if self.workspace_snapshot().is_some() {
             self.focus = self.focus.min(self.focus_panes().len().saturating_sub(1));
-            if self.focus == 1
-                && self.shell.tab == super::shell::OpsTab::Overview
-                && self.overview_panels().side_shown()
-                && self
-                    .overview_placement(self.conversation_area())
-                    .conversation
-                    .is_none()
-            {
-                self.shell.tab = super::shell::OpsTab::Agents;
-                self.invalidate_frame_geometry();
-            }
             if self.collapsed_panes().contains(&self.focused()) {
                 self.next_pane();
             }
@@ -2792,6 +2804,7 @@ impl App {
             }
             Choice::Unavailable(reason) => self.say(reason),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
+            Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
                 if self
                     .workspace_snapshot()
@@ -2831,7 +2844,6 @@ impl App {
                 Effect::None
             }
             Choice::SavingsUnit => self.cycle_savings_unit(),
-            Choice::OverviewView(view) => self.select_overview_view(view),
             Choice::ClearSearch => {
                 super::search_field::clear(&mut self.search, &mut self.searching);
                 self.clamp();
@@ -3668,8 +3680,7 @@ impl App {
             && matches!(
                 action.verb,
                 Verb::Ui(
-                    crate::action::OpsUiAction::Overview
-                        | crate::action::OpsUiAction::Agents
+                    crate::action::OpsUiAction::Agents
                         | crate::action::OpsUiAction::DigestDashboard
                 )
             )
@@ -3966,12 +3977,6 @@ impl App {
         if (self.scrolls.visible(Pane::Rows) || self.conversation.borrow().pane.is_some())
             && let Some(placement) = self.workspace_placement(self.conversation.borrow().area)
         {
-            if placement
-                .agents
-                .is_some_and(|bands| bands.filters.contains((column, row).into()))
-            {
-                return Some(Pane::Rows);
-            }
             for (pane, area) in [
                 (Pane::Rows, placement.list),
                 (Pane::Replies, placement.conversation),
@@ -4203,10 +4208,8 @@ impl App {
                 .map(|(_, choice)| choice.clone());
             if let Some(choice) = strip {
                 // Scope controls and the savings figure work on every tab that paints them.
-                let visibility = matches!(
-                    choice,
-                    Choice::SavingsUnit | Choice::OverviewView(_) | Choice::ClearSearch
-                ) || matches!(&choice, Choice::Action(action) if matches!(action.verb,
+                let visibility = matches!(choice, Choice::SavingsUnit | Choice::ClearSearch)
+                    || matches!(&choice, Choice::Action(action) if matches!(action.verb,
                     Verb::Ui(crate::action::OpsUiAction::ClearScope | crate::action::OpsUiAction::RevealHidden | crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)));
                 if !self.searching && (self.shell.tab == super::shell::OpsTab::Agents || visibility)
                 {
@@ -4319,9 +4322,8 @@ impl App {
         });
         if let (MouseEventKind::Down(MouseButton::Left), Some(hit)) = (event.kind, tab) {
             let action = match hit.tab {
-                0 => crate::action::OpsUiAction::Overview,
-                1 => crate::action::OpsUiAction::Agents,
-                2 => crate::action::OpsUiAction::DigestDashboard,
+                0 => crate::action::OpsUiAction::Agents,
+                1 => crate::action::OpsUiAction::DigestDashboard,
                 _ => return Effect::None,
             };
             self.focus = 0;

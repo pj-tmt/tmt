@@ -24,7 +24,7 @@ pub(in crate::board) fn paint(
     let prefix = key
         .as_deref()
         .map(|key| super::keycap::span(key, false, look));
-    let prefix_width = prefix.as_ref().map_or(0, |span| span.width() + 1);
+    let prefix_width = prefix.as_ref().map_or(0, |span| span.width());
     let prefix_width = if prefix_width <= usize::from(area.width) {
         prefix_width
     } else {
@@ -47,7 +47,7 @@ pub(in crate::board) fn paint(
         area.height,
     );
     let groups = [chip_group::ChipGroup {
-        label: " ".into(),
+        label: String::new(),
         choices: options
             .iter()
             .enumerate()
@@ -62,7 +62,7 @@ pub(in crate::board) fn paint(
             })
             .collect(),
     }];
-    let chips = 1 + options
+    let chips = options
         .iter()
         .map(|(_, label)| unicode_width::UnicodeWidthStr::width(*label) + 3)
         .sum::<usize>();
@@ -76,10 +76,11 @@ pub(in crate::board) fn paint(
         app,
         None,
     );
-    let x = area.x.saturating_add(chips as u16 + 1);
-    let available = area.width.saturating_sub(chips as u16 + 1);
+    // The search field sits at the right end of the rule, one dash before the divider.
+    let available = area.width.saturating_sub(chips as u16 + 2);
     let search_width = available.min(34);
     if search_width > 0 {
+        let x = area.right() - 1 - search_width;
         let search = Rect::new(x, area.y, search_width, area.height.min(1));
         let search_key = super::keycap::key(app, crate::action::OpsUiAction::Search, "/");
         let clear = super::search_field::paint(
@@ -148,7 +149,7 @@ mod tests {
                             &options,
                             0,
                             &app,
-                            crate::action::OpsUiAction::OverviewView,
+                            crate::action::OpsUiAction::AgentsFilter,
                             None,
                         );
                         let mut slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
@@ -261,7 +262,7 @@ mod tests {
                     &options,
                     1,
                     &app,
-                    crate::action::OpsUiAction::OverviewView,
+                    crate::action::OpsUiAction::AgentsFilter,
                     None,
                 );
                 for hit in hits {

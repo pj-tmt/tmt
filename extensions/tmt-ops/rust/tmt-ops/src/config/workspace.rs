@@ -138,17 +138,15 @@ pub enum OpsLayout {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OpsKeyScope {
-    Overview,
     Squad,
     Member,
     Pool,
     Reader,
-    OverviewReader,
 }
 
 impl OpsKeyScope {
     pub(crate) fn is_reader(self) -> bool {
-        matches!(self, Self::Reader | Self::OverviewReader)
+        self == Self::Reader
     }
 }
 
@@ -162,9 +160,8 @@ pub struct WorkspaceKeys {
 pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     let mut entries = if scope.is_reader() {
         vec![
-            ("1", "overview"),
-            ("2", "agents"),
-            ("3", "digest-dashboard"),
+            ("1", "agents"),
+            ("2", "digest-dashboard"),
             ("up", "scroll-up"),
             ("k", "scroll-up"),
             ("down", "scroll-down"),
@@ -188,9 +185,8 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
         ]
     } else {
         vec![
-            ("1", "overview"),
-            ("2", "agents"),
-            ("3", "digest-dashboard"),
+            ("1", "agents"),
+            ("2", "digest-dashboard"),
             ("up", "previous"),
             ("down", "next"),
             ("left", "fold"),
@@ -209,6 +205,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("ctrl-r", "refresh"),
             (",", "settings"),
             ("c", "timers"),
+            ("t", "talk-measure"),
             ("n", "create-squad"),
             ("u", "usage-controls"),
             ("esc", "clear-scope"),
@@ -217,23 +214,6 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
     };
     match scope {
         OpsKeyScope::Reader => {}
-        OpsKeyScope::OverviewReader => entries.extend([
-            ("enter", "reply"),
-            ("c", "all-timers"),
-            ("f", "overview-view"),
-        ]),
-        OpsKeyScope::Overview => entries.extend([
-            ("c", "all-timers"),
-            ("enter", "reply"),
-            ("j", "jump"),
-            ("o", "open"),
-            ("e", "monitor-details"),
-            ("f", "overview-view"),
-            ("p", "pin"),
-            ("m", "manage"),
-            ("x", "remove-membership"),
-            ("D", "digest"),
-        ]),
         OpsKeyScope::Squad => entries.extend([
             ("j", "jump"),
             ("o", "open"),
@@ -282,9 +262,14 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
 }
 
 pub(crate) fn admit_action(action: &Action, path: &str) -> Result<(), SquadError> {
-    if action.verb == Verb::OverviewFilter {
+    if let Verb::Retired(name) = action.verb {
+        let instead = match name {
+            "overview" => "the Overview tab was merged into Agents; use 'agents'",
+            "overview-view" => "the Squads/Agents switch is now 'agents-filter'",
+            _ => "choose 'agents-filter' for Squads/Agents/Pinned explicitly",
+        };
         return Err(invalid(format!(
-            "`{path}`: 'overview-filter' is retired; choose 'overview-view' for Squads/Agents explicitly. The authored binding is preserved for migration."
+            "`{path}`: '{name}' is retired; {instead}. The authored binding is preserved for migration."
         )));
     }
     if action.verb == Verb::Ui(OpsUiAction::AgentsFilter) && !action.args.is_empty() {
@@ -726,7 +711,7 @@ impl Config {
                 notices.push(error.message);
                 if matches!(
                     action.verb,
-                    Verb::OverviewFilter | Verb::Ui(OpsUiAction::AgentsFilter)
+                    Verb::Retired(_) | Verb::Ui(OpsUiAction::AgentsFilter)
                 ) {
                     effective.remove(&key);
                     sources.remove(&key);
@@ -848,18 +833,18 @@ mod tests {
         let config = config("[bind]\nj='copy'\ns='talk'\n[bind.tmux]\nj='open'\n");
         let section: Bindings = [("j".into(), Action::parse("run /usr/bin/true").unwrap())].into();
         let defaults = config
-            .workspace_keys(OpsKeyScope::Overview, None, None)
+            .workspace_keys(OpsKeyScope::Member, None, None)
             .unwrap()
             .bindings;
         assert_eq!(defaults["j"].verb, Verb::Copy);
         assert_eq!(defaults["s"].verb, Verb::Talk);
         let hosted = config
-            .workspace_keys(OpsKeyScope::Overview, Some("tmux"), None)
+            .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
             .unwrap()
             .bindings;
         assert_eq!(hosted["j"].verb, Verb::Open);
         let scoped = config
-            .workspace_keys(OpsKeyScope::Overview, Some("tmux"), Some(&section))
+            .workspace_keys(OpsKeyScope::Member, Some("tmux"), Some(&section))
             .unwrap()
             .bindings;
         assert_eq!(scoped["j"].verb, Verb::Run);
@@ -892,9 +877,8 @@ mod tests {
         }
     }
     #[test]
-    fn overview_view_default_yields_to_all_explicit_binding_scopes() {
+    fn agents_filter_default_yields_to_all_explicit_binding_scopes() {
         let config = config("[bind]\nv='search'\n[bind.tmux]\nv='talk'\n");
-        assert_eq!(defaults(OpsKeyScope::Overview)["f"].text, "overview-view");
         for scope in [
             OpsKeyScope::Reader,
             OpsKeyScope::Member,
@@ -907,7 +891,12 @@ mod tests {
                 assert_eq!(defaults(scope)["f"].text, "agents-filter");
             }
         }
-        for scope in [OpsKeyScope::Overview, OpsKeyScope::OverviewReader] {
+        for scope in [
+            OpsKeyScope::Reader,
+            OpsKeyScope::Member,
+            OpsKeyScope::Squad,
+            OpsKeyScope::Pool,
+        ] {
             assert_eq!(
                 config.workspace_keys(scope, None, None).unwrap().bindings["v"].text,
                 "search"
@@ -934,21 +923,19 @@ mod tests {
     }
 
     #[test]
-    fn factory_t_is_unassigned_but_authored_t_keeps_its_precedence() {
+    fn factory_t_switches_talk_and_measure_outside_readers_and_authored_t_keeps_its_precedence() {
         for scope in [
-            OpsKeyScope::Overview,
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
             OpsKeyScope::Pool,
             OpsKeyScope::Reader,
         ] {
-            assert!(
-                !config("")
-                    .workspace_keys(scope, None, None)
-                    .unwrap()
-                    .bindings
-                    .contains_key("t")
-            );
+            let factory = config("").workspace_keys(scope, None, None).unwrap();
+            if scope.is_reader() {
+                assert!(!factory.bindings.contains_key("t"), "{scope:?}");
+            } else {
+                assert_eq!(factory.bindings["t"].text, "talk-measure", "{scope:?}");
+            }
             let configured = config("[bind]\nt='talk'\n[bind.tmux]\nt='copy'\n");
             assert_eq!(
                 configured
@@ -1044,9 +1031,8 @@ mod tests {
         for scope in [OpsKeyScope::Member, OpsKeyScope::Reader] {
             let defaults = defaults(scope);
             for (event, verb) in [
-                ("1", "overview"),
-                ("2", "agents"),
-                ("3", "digest-dashboard"),
+                ("1", "agents"),
+                ("2", "digest-dashboard"),
                 ("v", "view-reply"),
             ] {
                 assert_eq!(defaults[event].text, verb);
@@ -1086,7 +1072,6 @@ mod tests {
     #[test]
     fn backtab_defaults_share_tab_action_per_scope_and_authored_bindings_win() {
         for scope in [
-            OpsKeyScope::Overview,
             OpsKeyScope::Squad,
             OpsKeyScope::Member,
             OpsKeyScope::Pool,
@@ -1106,16 +1091,6 @@ mod tests {
     #[test]
     fn every_approved_scope_has_its_real_keys_without_legacy_fallbacks() {
         let config = config("");
-        let overview = config
-            .workspace_keys(OpsKeyScope::Overview, None, None)
-            .unwrap()
-            .bindings;
-        assert!(!overview.contains_key("s"));
-        assert!(!overview.contains_key("S"));
-        assert_eq!(overview["j"].text, "jump");
-        assert_eq!(overview["x"].text, "remove-membership");
-        assert_eq!(overview["n"].text, "create-squad");
-        assert_eq!(overview["p"].text, "pin");
         let squad = config
             .workspace_keys(OpsKeyScope::Squad, None, None)
             .unwrap()
@@ -1131,8 +1106,8 @@ mod tests {
         assert_eq!(member["x"].text, "remove-membership");
         assert_eq!(squad["w"].text, "workspace-snapshots");
         assert!(!member.contains_key("A"));
-        assert_eq!(overview["left"].text, "fold");
-        assert_eq!(overview["right"].text, "expand");
+        assert_eq!(squad["left"].text, "fold");
+        assert_eq!(squad["right"].text, "expand");
     }
     #[test]
     fn snapshot_default_yields_to_explicit_global_host_and_section_bindings() {
@@ -1160,10 +1135,6 @@ mod tests {
                 Verb::Copy
             );
         }
-        assert_eq!(
-            defaults(OpsKeyScope::Overview)["w"].text,
-            "workspace-snapshots"
-        );
         assert_eq!(
             defaults(OpsKeyScope::Reader)["w"].text,
             "workspace-snapshots"
@@ -1198,12 +1169,7 @@ mod tests {
                 .verb,
             Verb::Copy
         );
-        for scope in [
-            OpsKeyScope::Overview,
-            OpsKeyScope::Squad,
-            OpsKeyScope::Pool,
-            OpsKeyScope::Reader,
-        ] {
+        for scope in [OpsKeyScope::Squad, OpsKeyScope::Pool, OpsKeyScope::Reader] {
             assert!(!defaults(scope).contains_key("r"));
         }
     }
@@ -1239,10 +1205,10 @@ mod tests {
             let config = config(text);
             let before = config.document.to_string();
             let keys = config
-                .workspace_keys(OpsKeyScope::Overview, Some("tmux"), None)
+                .workspace_keys(OpsKeyScope::Member, Some("tmux"), None)
                 .unwrap();
             assert!(keys.notices.iter().any(
-                |notice| notice.contains("overview-filter") && notice.contains("overview-view")
+                |notice| notice.contains("overview-filter") && notice.contains("agents-filter")
             ));
             assert!(!keys.bindings.contains_key("f"));
             assert_eq!(config.document.to_string(), before);
@@ -1715,10 +1681,7 @@ mod tests {
     }
 
     #[test]
-    fn pin_view_overview_list_and_reader_share_the_view_toggle_default() {
-        for scope in [OpsKeyScope::Overview, OpsKeyScope::OverviewReader] {
-            assert_eq!(defaults(scope)["f"].text, "overview-view");
-        }
+    fn member_defaults_keep_view_reply_and_pin() {
         assert_eq!(defaults(OpsKeyScope::Member)["v"].text, "view-reply");
         assert_eq!(defaults(OpsKeyScope::Member)["p"].text, "pin");
     }
@@ -1810,13 +1773,9 @@ mod tests {
     #[test]
     fn overview_sort_keys_are_authored_only() {
         let cfg = config("[bind]\ns='sort'\nS='reverse-sort'");
-        let keys = cfg
-            .workspace_keys(OpsKeyScope::Overview, None, None)
-            .unwrap();
+        let keys = cfg.workspace_keys(OpsKeyScope::Member, None, None).unwrap();
         assert_eq!(keys.bindings["s"].text, "sort");
         assert_eq!(keys.bindings["S"].text, "reverse-sort");
-        assert!(!defaults(OpsKeyScope::Overview).contains_key("s"));
-        assert!(!defaults(OpsKeyScope::Overview).contains_key("S"));
     }
     #[test]
     fn panel_policy_errors_fall_back_with_one_notice_without_relaxing_other_keys() {

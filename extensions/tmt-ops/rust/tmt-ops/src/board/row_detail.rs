@@ -266,15 +266,14 @@ impl App {
             }
         };
         let sender = self.view.as_ref().and_then(|view| view.me_id.clone());
-        // Overview discusses the acquired request the member is waiting on,
+        // The flat list discusses the acquired request the member is waiting on,
         // not an unrelated newer response to one of our outgoing messages.
-        let overview =
-            self.workspace_snapshot().is_some() && self.shell.tab == super::shell::OpsTab::Overview;
-        if overview && let Some(question) = self.pending_question(target, None) {
+        let flat = self.workspace_snapshot().is_some() && self.flat_agents();
+        if flat && let Some(question) = self.pending_question(target, None) {
             detail.reply = Some(question);
             return Some(detail.additional(visible));
         }
-        if overview {
+        if flat {
             // A board decision without an observed request is not a transcript.
             return Some(detail.additional(visible));
         }
