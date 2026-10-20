@@ -8,6 +8,14 @@ shared by the native shell validator and browser fold validator. Expected result
 cover item order, complete replacement, summary attribution and reading references;
 they establish no target access or signature authority.
 
+`work-v1.json` contains closed work values (an ordinary page's summary and task list), detached
+actions and derived values, shared by the native work validator, the isolated decoder and the
+browser fold validator. The cases were authored with an independent throwaway model of the
+contract rules, not generated from either implementation. They cover task numbering (a removed
+number is never reused), the state and reason rules, the text, count and byte bounds at their
+exact edges, the whole-replacement `task.set`, summary attribution and the derived stage,
+progress, who and sign-off; the work-in-progress limit is an admission rule and appears in none.
+
 `attachment-reference.py` independently frames descriptors/manifests, freezes
 strict selectors/creation-publication records and seals asset envelopes with
 Python cryptography over public RFC8032 fixture keys. Namespace and page-revision

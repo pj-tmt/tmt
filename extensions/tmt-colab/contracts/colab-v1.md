@@ -957,10 +957,10 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                                                                                         | Fold and authority                                                                   |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `layout`, `layoutReason` | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                            | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                                                                                                      | Fold and authority                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `originalAuthor`, `creationRecipient`, `layout`, `layoutReason`, `work` ([Work](#work-4050)) | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                                                                                         | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
 bytes without control characters. It is a publisher-asserted display-only label,
@@ -2477,6 +2477,89 @@ page and anchor items carry no read state. List/search use its title and needs-y
 treat shell references as authored questions or pending readings. No Today
 integration or migration of older collection data exists. Native and browser
 consume the shared `shell-v1.json` vectors.
+
+### Work (#4050)
+
+An ordinary HTML page may carry work: a two-line summary and a task list, in the content
+document's `meta.work` beside its HTML. A page with tasks is just a page; there is no other
+tracker concept. A shell page never carries work (it keeps its own summary), and a page with
+`meta.work` has no `pageType`. The isolated native decoder and the browser fold validate the
+value on every incoming state and prepared action, so raw Yjs cannot bypass the schema. Writing a
+page's HTML source and rotating its epoch keep the value exactly. A page that has had no work carries no `meta.work`; its first action starts from the
+empty value, and an action that leaves it empty writes nothing.
+
+```json
+{
+  "version": 1,
+  "next": 4,
+  "summary": { "line1": "", "line2": "", "attribution": {} },
+  "tasks": { "T-3": {} },
+  "order": ["T-3"]
+}
+```
+
+`version` is `1`. `next` is the number the next task takes, from 1 to 10000000. `tasks` maps
+`T-<n>` (a decimal number from 1 to 9999999 without a leading zero, always below `next`) to a
+task; a removed number is never handed out again, so `next` only grows. `order` lists every task
+ID once, in creation order; there is no move action. There are at most 256 tasks. The whole
+value, encoded as compact UTF-8 JSON with lexically sorted ASCII field and ID keys and integral
+numbers normalized, is at most 131072 bytes, so a replacement stays within one update. Existing
+update, history and transport limits apply too.
+
+The optional `summary` is the shell's `{line1,line2,attribution}`: `line1` at most 24 and
+`line2` at most 60 Unicode code points (where it stands, and what comes next), the same inert-text
+rules, and attribution that the write owner records (its authenticated writer UUID, owner-clock
+Unix milliseconds and the optional Core-resolved `displayAgent`, never proof of agent authority).
+An action cannot supply attribution.
+
+A task is a closed object whose optional fields are omitted, never `null`:
+
+| Field          | Value                                                                                                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`        | Required; 1 to 120 code points of inert text                                                                                                                                 |
+| `state`        | Required; `todo`, `in-progress`, `blocked`, `in-review` or `done`                                                                                                            |
+| `detail`       | The spec: scope and what to do, at most 4096 UTF-8 bytes of plain text; line feeds allowed, no other control characters                                                      |
+| `reason`       | Present exactly when `state` is `blocked`: 1 to 256 bytes of inert text                                                                                                      |
+| `assignee`     | `{kind:"agent",name,id?}` (the shell's display-metadata shape) or `{kind:"person",name}`; a name is 1 to 128 bytes                                                           |
+| `acceptance`   | 1 to 8 criteria, each `{kind:"test",name}` (a test name), `{kind:"check",command,result?}` (a command and, once run, its result) or `{kind:"person",who}` (a person or lead) |
+| `needsSignoff` | `true` when the task waits for the owner's sign-off; omitted otherwise                                                                                                       |
+| `externalId`   | At most 128 bytes: the external issue a driver syncs; no driver exists yet                                                                                                   |
+
+Text is inert and contains no control characters (except the line feeds of `detail`) or unpaired
+surrogates. A criterion records what makes the task acceptable; nothing in this version ticks it
+or runs a command. `needsSignoff` is stored and counted, and only that: nothing lets the owner act
+on it or gates a state change on it, so it is display data until the owner can answer it.
+
+Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
+becomes an ordinary signed content publication. The seven closed bodies are:
+
+| Action          | Body                                                                     | Effect                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `task.add`      | `{task:{title,detail?,assignee?,acceptance?,needsSignoff?,externalId?}}` | Add a `todo` task as `T-<next>` and count `next` on; the caller never chooses the ID, and it is returned.                |
+| `task.set`      | `{taskId,title,detail?,acceptance?,needsSignoff?,externalId?}`           | Replace the editable fields as a whole (an omitted optional is cleared); never state, reason or assignee.                |
+| `task.state`    | `{taskId,state,reason?}`                                                 | Set the state; `reason` is required for `blocked` and refused for any other state, and a move out of `blocked` drops it. |
+| `task.assign`   | `{taskId,assignee?}`                                                     | Set the assignee; omitted clears it.                                                                                     |
+| `task.remove`   | `{taskId}`                                                               | Remove the task and its order entry; its number is never reused.                                                         |
+| `summary.set`   | `{line1,line2}`                                                          | Set both lines and system attribution.                                                                                   |
+| `summary.clear` | `{}`                                                                     | Remove the summary; absent already is a valid no-op.                                                                     |
+
+Extra or missing fields, invalid types, `null` optionals, overlimits, a caller-chosen or unknown
+task ID, an unknown state or kind, a `reason` without `blocked` (or `blocked` without one), a
+shell page and any caller-supplied attribution refuse the whole action with
+`COLAB_INPUT_INVALID`, leaving the base untouched. A changed revision is `COLAB_STALE_BASE`: read
+again, without an automatic retry. The revision fence, not a caller ID, makes a retried
+`task.add` safe: after a publication that did commit, the repeat is stale. An action that changes
+nothing is a no-op with the ordinary no-op receipt. The page's own HTML is unchanged by every
+action.
+
+Derived values are computed from the tasks and never stored or edited. The stage is
+`discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
+is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
+once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser
+folds the value and validates it and shows nothing new; the work-in-progress limit, the
+`tmt colab task` and `tmt colab summary` commands and the list columns follow in the next change.
+Page export does not include work yet. Native and browser consume the shared `work-v1.json`
+vectors.
 
 ### Answer blocks
 

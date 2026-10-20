@@ -43,7 +43,7 @@ pub fn multiline(value: &Value, bytes: usize) -> Result<&str> {
     Ok(value)
 }
 /// Non-empty inert text of at most `bytes` UTF-8 bytes.
-pub fn named(value: &Value, bytes: usize) -> Result<&str> {
+pub fn nonempty(value: &Value, bytes: usize) -> Result<&str> {
     let value = plain(value, bytes)?;
     require(!value.is_empty())?;
     Ok(value)

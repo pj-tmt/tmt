@@ -8,7 +8,7 @@ import {
   coreIdentity,
   keys,
   multiline,
-  named,
+  nonempty,
   object,
   plain,
   requireValue,
@@ -88,27 +88,27 @@ function assignee(value: unknown) {
   const who = object(value);
   if (who.kind === 'agent') {
     keys(who, ['kind', 'name'], ['id']);
-    named(who.name, NAME_BYTES);
+    nonempty(who.name, NAME_BYTES);
     if (Object.hasOwn(who, 'id')) coreIdentity(who.id);
   } else {
     requireValue(who.kind === 'person');
     keys(who, ['kind', 'name']);
-    named(who.name, NAME_BYTES);
+    nonempty(who.name, NAME_BYTES);
   }
 }
 function criterion(value: unknown) {
   const item = object(value);
   if (item.kind === 'test') {
     keys(item, ['kind', 'name']);
-    named(item.name, CRITERION_BYTES);
+    nonempty(item.name, CRITERION_BYTES);
   } else if (item.kind === 'check') {
     keys(item, ['kind', 'command'], ['result']);
-    named(item.command, CRITERION_BYTES);
-    if (Object.hasOwn(item, 'result')) named(item.result, RESULT_BYTES);
+    nonempty(item.command, CRITERION_BYTES);
+    if (Object.hasOwn(item, 'result')) nonempty(item.result, RESULT_BYTES);
   } else {
     requireValue(item.kind === 'person');
     keys(item, ['kind', 'who']);
-    named(item.who, NAME_BYTES);
+    nonempty(item.who, NAME_BYTES);
   }
 }
 /** The fields a person or agent edits: everything except state, reason and assignee. */
@@ -122,7 +122,7 @@ function editable(value: Record<string, unknown>) {
     list.forEach(criterion);
   }
   if (Object.hasOwn(value, 'needsSignoff')) requireValue(value.needsSignoff === true);
-  if (Object.hasOwn(value, 'externalId')) named(value.externalId, EXTERNAL_ID_BYTES);
+  if (Object.hasOwn(value, 'externalId')) nonempty(value.externalId, EXTERNAL_ID_BYTES);
 }
 export function validateTask(value: unknown): asserts value is Task {
   const task = keys(
@@ -135,7 +135,7 @@ export function validateTask(value: unknown): asserts value is Task {
   // A blocked task says why, and only a blocked task does.
   if (Object.hasOwn(task, 'reason')) {
     requireValue(task.state === 'blocked');
-    named(task.reason, REASON_BYTES);
+    nonempty(task.reason, REASON_BYTES);
   } else requireValue(task.state !== 'blocked');
   if (Object.hasOwn(task, 'assignee')) assignee(task.assignee);
 }

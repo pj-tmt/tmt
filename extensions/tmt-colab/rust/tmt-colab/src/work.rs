@@ -3,7 +3,7 @@
 //! work-in-progress limit is the write owner's admission rule over the whole space, never a rule
 //! of this value, so no published state is ever invalid for it (contract: Work).
 use crate::closed::{
-    Invalid, canonical, integer, keys, multiline, named, object, plain, require, text,
+    Invalid, canonical, integer, keys, multiline, nonempty, object, plain, require, text,
 };
 use crate::summary_lines;
 use serde_json::{Value, json};
@@ -57,7 +57,7 @@ fn assignee(value: &Value) -> Result<()> {
         }
         "person" => {
             keys(value, &["kind", "name"], &[])?;
-            named(&value["name"], WORK_NAME_BYTES).map(drop)
+            nonempty(&value["name"], WORK_NAME_BYTES).map(drop)
         }
         _ => Err(Invalid),
     }
@@ -66,18 +66,18 @@ fn criterion(value: &Value) -> Result<()> {
     match text(&value["kind"])? {
         "test" => {
             keys(value, &["kind", "name"], &[])?;
-            named(&value["name"], WORK_CRITERION_BYTES).map(drop)
+            nonempty(&value["name"], WORK_CRITERION_BYTES).map(drop)
         }
         "check" => {
             keys(value, &["kind", "command"], &["result"])?;
-            named(&value["command"], WORK_CRITERION_BYTES)?;
-            value
-                .get("result")
-                .map_or(Ok(()), |result| named(result, WORK_RESULT_BYTES).map(drop))
+            nonempty(&value["command"], WORK_CRITERION_BYTES)?;
+            value.get("result").map_or(Ok(()), |result| {
+                nonempty(result, WORK_RESULT_BYTES).map(drop)
+            })
         }
         "person" => {
             keys(value, &["kind", "who"], &[])?;
-            named(&value["who"], WORK_NAME_BYTES).map(drop)
+            nonempty(&value["who"], WORK_NAME_BYTES).map(drop)
         }
         _ => Err(Invalid),
     }
@@ -104,7 +104,7 @@ fn editable(value: &Value) -> Result<()> {
         require(flag == &Value::Bool(true))?;
     }
     if let Some(id) = value.get("externalId") {
-        named(id, WORK_EXTERNAL_ID_BYTES)?;
+        nonempty(id, WORK_EXTERNAL_ID_BYTES)?;
     }
     Ok(())
 }
@@ -128,7 +128,7 @@ pub fn validate_task(value: &Value) -> Result<()> {
     match value.get("reason") {
         Some(reason) => {
             require(state == "blocked")?;
-            named(reason, WORK_REASON_BYTES)?;
+            nonempty(reason, WORK_REASON_BYTES)?;
         }
         None => require(state != "blocked")?,
     }

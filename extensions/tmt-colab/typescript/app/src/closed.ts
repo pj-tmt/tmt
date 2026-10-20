@@ -53,7 +53,7 @@ export function multiline(value: unknown, bytes: number): asserts value is strin
   );
 }
 /** Non-empty inert text of at most `bytes` UTF-8 bytes. */
-export function named(value: unknown, bytes: number): asserts value is string {
+export function nonempty(value: unknown, bytes: number): asserts value is string {
   plain(value, bytes);
   requireValue(value.length > 0);
 }

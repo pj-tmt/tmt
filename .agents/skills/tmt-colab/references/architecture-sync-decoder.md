@@ -120,6 +120,21 @@ Hosted owns the serialized own-record sender, never Firebase or content writes.
   The [Shell pages contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#shell-pages-3648)
   owns roots, action grammar, attribution and shared validation vectors.
 
+- `work.rs` and browser `work.ts` own the closed work value an ordinary page carries in
+  `meta.work` (a two-line summary and a task list) and its detached trial actions and derived
+  values; `closed.rs`/`closed.ts` and `summary_lines.rs`/`summary-lines.ts` hold the checks the
+  shell and work values share (`summary.rs` is the unrelated list summary). The decoder treats a
+  shell edit and a work edit as one `StructuredEdit`, admits `meta.work` only on a page that is
+  not a shell, and carries it through `BaselineInput`, so a fresh epoch baseline and an HTML
+  source write keep it. `page::read_work` and `page::prepare_structured_publication` are the page
+  owner's read and write; the work-in-progress limit is the write owner's admission rule and
+  never a property of the value, so no published state is invalid for it. The browser fold
+  validates the value and projects it through the Worker and the parent's prepared-content
+  check; the browser shows nothing new yet. The
+  [Work contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#work-4050) owns the
+  schema, limits, actions and derived values, and `work-v1.json` is shared by Rust and
+  TypeScript.
+
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.

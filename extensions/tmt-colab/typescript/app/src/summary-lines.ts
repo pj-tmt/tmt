@@ -1,7 +1,7 @@
 /** The two-line summary an author writes on a structured page value (`shell`, `work`):
  * `{line1,line2,attribution}`. The admitted writer supplies attribution; an action body never
  * does. Mirrors `summary_lines.rs`. */
-import { coreIdentity, id, keys, named, plain, requireValue } from './closed.js';
+import { coreIdentity, id, keys, nonempty, plain, requireValue } from './closed.js';
 
 export const SUMMARY_LINE1_POINTS = 24;
 export const SUMMARY_LINE2_POINTS = 60;
@@ -33,7 +33,7 @@ export function validateAttribution(value: unknown): asserts value is Attributio
   requireValue(Number.isSafeInteger(author.timeMs) && (author.timeMs as number) >= 0);
   if (Object.hasOwn(author, 'displayAgent')) {
     const agent = keys(author.displayAgent, ['name'], ['id']);
-    named(agent.name, 128);
+    nonempty(agent.name, 128);
     if (Object.hasOwn(agent, 'id')) coreIdentity(agent.id);
   }
 }
