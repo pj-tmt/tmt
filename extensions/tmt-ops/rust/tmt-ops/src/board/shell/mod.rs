@@ -19,6 +19,24 @@ impl OpsTab {
     }
 }
 
+/// The right column of the Agents tab: the selected agent's conversation, or the measures of the
+/// selected squad (all agents when the Agents chip is active).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RightTab {
+    #[default]
+    Talk,
+    Measure,
+}
+
+impl RightTab {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Talk => Self::Measure,
+            Self::Measure => Self::Talk,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpsInputOwner {
     List,

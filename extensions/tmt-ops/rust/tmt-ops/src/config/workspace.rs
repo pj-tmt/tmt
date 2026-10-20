@@ -209,6 +209,7 @@ pub(crate) fn defaults(scope: OpsKeyScope) -> Bindings {
             ("ctrl-r", "refresh"),
             (",", "settings"),
             ("c", "timers"),
+            ("t", "talk-measure"),
             ("n", "create-squad"),
             ("u", "usage-controls"),
             ("esc", "clear-scope"),
@@ -934,7 +935,7 @@ mod tests {
     }
 
     #[test]
-    fn factory_t_is_unassigned_but_authored_t_keeps_its_precedence() {
+    fn factory_t_switches_talk_and_measure_outside_readers_and_authored_t_keeps_its_precedence() {
         for scope in [
             OpsKeyScope::Overview,
             OpsKeyScope::Squad,
@@ -942,13 +943,12 @@ mod tests {
             OpsKeyScope::Pool,
             OpsKeyScope::Reader,
         ] {
-            assert!(
-                !config("")
-                    .workspace_keys(scope, None, None)
-                    .unwrap()
-                    .bindings
-                    .contains_key("t")
-            );
+            let factory = config("").workspace_keys(scope, None, None).unwrap();
+            if scope.is_reader() {
+                assert!(!factory.bindings.contains_key("t"), "{scope:?}");
+            } else {
+                assert_eq!(factory.bindings["t"].text, "talk-measure", "{scope:?}");
+            }
             let configured = config("[bind]\nt='talk'\n[bind.tmux]\nt='copy'\n");
             assert_eq!(
                 configured

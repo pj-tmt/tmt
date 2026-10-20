@@ -209,7 +209,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
     }
     app.conversation.borrow_mut().pane = placement.conversation;
     if let Some(detail) = placement.conversation {
-        if app.shell.tab == OpsTab::Agents {
+        if app.shell.tab == OpsTab::Agents
+            && app.right_tab == crate::board::shell::RightTab::Measure
+        {
+            crate::board::overview::composition::measure::render(frame, app, detail);
+        } else if app.shell.tab == OpsTab::Agents {
             crate::board::agents_focus::render(frame, app, detail);
         } else if let Some(target) = app.workspace_retained_search_target() {
             if matches!(target, OpsTarget::Member { .. }) {

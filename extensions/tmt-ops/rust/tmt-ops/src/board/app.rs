@@ -671,6 +671,8 @@ pub struct App {
     pub(in crate::board) cron_scope_hits: RefCell<Vec<TimerHit>>,
     pub(in crate::board) view_layer: super::view_state::Layer,
     pub(in crate::board) overview_view: super::overview::monitor::View,
+    /// Talk or Measure in the Agents tab's right column (`t`).
+    pub(in crate::board) right_tab: super::shell::RightTab,
     pub(in crate::board) overview_rows: RefCell<super::overview::monitor::Cache>,
     pub(in crate::board) agents_layout: RefCell<super::workspace::columns::AgentsLayout>,
     pub(in crate::board) workspace_strip_hits: RefCell<Vec<(ratatui::layout::Rect, Choice)>>,

@@ -63,6 +63,10 @@ impl Band {
             height,
         })
     }
+    /// How many timers the band's scope holds.
+    pub fn total(&self) -> usize {
+        self.timers.total
+    }
     pub fn rows_adjusted(&self, app: &App) -> bool {
         !self.split
             && self.digest.is_some()

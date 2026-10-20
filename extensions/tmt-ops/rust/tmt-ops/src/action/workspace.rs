@@ -26,6 +26,7 @@ pub enum OpsUiAction {
     ReverseSort,
     OverviewView,
     AgentsFilter,
+    TalkMeasure,
     Timers,
     AllTimers,
     WorkspaceSnapshots,
@@ -196,6 +197,13 @@ const SPECS: &[OpsUiSpec] = &[
         "overview-view",
         "squads/agents",
         "switch Overview between squads and agents",
+        11
+    ),
+    spec!(
+        TalkMeasure,
+        "talk-measure",
+        "talk/measure",
+        "switch the right column between Talk and Measure",
         11
     ),
     spec!(

@@ -937,6 +937,12 @@ impl App {
                 return self.select_overview_view(self.overview_view.next());
             }
             OverviewView => return Effect::None,
+            TalkMeasure if self.shell.tab == OpsTab::Agents => {
+                self.right_tab = self.right_tab.next();
+                self.invalidate_frame_geometry();
+                return Effect::None;
+            }
+            TalkMeasure => return Effect::None,
             MonitorDetails => return self.overview_details(),
             WorkspaceSnapshots => return self.open_recovery(),
             DiscoverAgents => return self.open_discovery(),

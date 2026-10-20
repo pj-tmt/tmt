@@ -2979,6 +2979,7 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
 }
 
 mod member_actions;
+mod talk_measure;
 mod member_rename;
 mod membership_context;
 mod navigation;
