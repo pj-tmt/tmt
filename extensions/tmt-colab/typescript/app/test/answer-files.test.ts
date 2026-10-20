@@ -55,7 +55,7 @@ it('a file in transfer holds back its own question alone', async () => {
   expect(files.uploading('q1')).toBe(false);
 });
 
-it('leaving the group releases what its drafts stored and stops notifying', async () => {
+it('leaving the group releases what its drafts stored, and the group stays usable', async () => {
   const bound = binding();
   const files = new AnswerFiles(() => bound);
   const notified = vi.fn();
@@ -63,11 +63,19 @@ it('leaving the group releases what its drafts stored and stops notifying', asyn
   const draft = files.draft('q1');
   await draft.add([file('kept.png')]);
   await draft.prepare();
-  notified.mockClear();
   files.dispose();
   expect(bound.discard).toHaveBeenCalledTimes(1);
-  await draft.add([file('late.png')]);
-  expect(notified).not.toHaveBeenCalled();
-  // A new draft after disposal is a new one.
-  expect(files.draft('q1')).not.toBe(draft);
+  // A strict-mode mount, cleanup, mount cycle disposes a group that is still mounted: its draft is
+  // the same one, and a file added afterwards shows and notifies the group.
+  expect(files.draft('q1')).toBe(draft);
+  notified.mockClear();
+  await draft.add([file('later.png')]);
+  expect(draft.getSnapshot().chips.map((chip) => chip.filename)).toEqual(['later.png']);
+  expect(notified).toHaveBeenCalled();
+  // Each of several drafts is released once.
+  const other = files.draft('q2');
+  await other.add([file('b.png')]);
+  await other.prepare();
+  files.dispose();
+  expect(bound.discard).toHaveBeenCalledTimes(2);
 });

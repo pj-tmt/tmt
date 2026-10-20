@@ -7,7 +7,6 @@ import type { AttachmentBinding } from './attachment-service.js';
  * stored or sent until the group's Send. */
 export class AnswerFiles {
   #drafts = new Map<string, AttachmentDraft>();
-  #stops: (() => void)[] = [];
   #listeners = new Set<() => void>();
   #version = 0;
   /** The binding is read at each use: it may appear or be replaced while the group lives. */
@@ -17,7 +16,7 @@ export class AnswerFiles {
     let draft = this.#drafts.get(question);
     if (!draft) {
       draft = new AttachmentDraft(this.source);
-      this.#stops.push(draft.subscribe(() => this.#changed()));
+      draft.subscribe(() => this.#changed());
       this.#drafts.set(question, draft);
     }
     return draft;
@@ -35,11 +34,10 @@ export class AnswerFiles {
     this.#version++;
     for (const listener of this.#listeners) listener();
   }
-  /** Leaving the group unsent releases what its drafts stored; the local bytes just drop. */
+  /** Leaving the group unsent releases what its drafts stored; the local bytes just drop. The
+   * drafts and their subscriptions stay, as `AttachmentDraft.dispose` leaves its own usable: a
+   * strict-mode mount, cleanup, mount cycle disposes a group that is still mounted. */
   dispose() {
-    for (const stop of this.#stops) stop();
     for (const draft of this.#drafts.values()) draft.dispose();
-    this.#stops = [];
-    this.#drafts.clear();
   }
 }
