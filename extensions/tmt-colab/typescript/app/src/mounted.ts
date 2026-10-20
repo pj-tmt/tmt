@@ -218,10 +218,11 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
       drafts,
       management,
       remotePresence,
-      async spaceHome() {
+      async spaceHome(signal) {
+        const readSignal = scopedSignal(signal);
         const read = (client: ManagementClient) =>
           managed(client, async () => {
-            const { boot, log } = await client.snapshot(lifetime.signal);
+            const { boot, log } = await client.snapshot(readSignal);
             return {
               title: text.product,
               projects: boot.projects,
@@ -254,7 +255,7 @@ export async function mountedTransport(signal?: AbortSignal): Promise<{
           if (!endedSession(error)) throw error;
           // The list read refreshes the same device once, like a page read, so Back from a page
           // after the session ended lands on the list.
-          await owner.reconnect(client.registration, lifetime.signal);
+          await owner.reconnect(client.registration, readSignal);
           return read(managementClient);
         }
       },

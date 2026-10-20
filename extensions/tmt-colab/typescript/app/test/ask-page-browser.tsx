@@ -43,6 +43,9 @@ let dispatched: RemoteDouble[];
 let actions: string[];
 let projectRequests: ProjectChange[];
 let spaceHomeReads: number;
+let spaceHomeRunning: number;
+let spaceHomeAborted: number;
+let releaseSpaceHome: (() => void) | undefined;
 let answerAttempts: {
   input: Parameters<AskBinding['prepare']>[0];
   selection: ReturnType<typeof selection>;
@@ -233,7 +236,14 @@ export async function mount(
     strict?: boolean;
     /** The viewer writes projects: the space's names and the ones this page is in. */
     /** `deepLink`: the page was opened by a link, so no list was loaded before it. */
-    projects?: { names: string[]; current: string[]; fail?: boolean; deepLink?: boolean };
+    projects?: {
+      names: string[];
+      current: string[];
+      fail?: boolean;
+      deepLink?: boolean;
+      /** The first owner-list read waits until it is aborted or `releaseSpaceHome()`. */
+      slowRead?: boolean;
+    };
     /** The page is readable by anyone who holds its link. */
     shared?: boolean;
     /** The Remote door cannot be read, so the header shows its attention mark. */
@@ -262,6 +272,9 @@ export async function mount(
   actions = [];
   projectRequests = [];
   spaceHomeReads = 0;
+  spaceHomeRunning = 0;
+  spaceHomeAborted = 0;
+  releaseSpaceHome = undefined;
   answerAttempts = [];
   readRefusal = undefined;
   records = options.pastReplies
@@ -918,8 +931,22 @@ export async function mount(
   const transport: PageTransport = {
     management: options.management ?? projectPort,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
-    async spaceHome() {
+    async spaceHome(signal) {
       spaceHomeReads++;
+      if (options.projects?.slowRead && spaceHomeReads === 1) {
+        spaceHomeRunning++;
+        try {
+          await new Promise<void>((resolve, reject) => {
+            releaseSpaceHome = resolve;
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        } catch (error) {
+          spaceHomeAborted++;
+          throw error;
+        } finally {
+          spaceHomeRunning--;
+        }
+      }
       return {
         title: 'Fixture space',
         ...(projectState ? { projects: [...projectState.names] } : {}),
@@ -1031,7 +1058,16 @@ export function proof() {
 }
 /** What the page's own project picker wrote and how often it read the owner list. */
 export function projectProof() {
-  return { requests: structuredClone(projectRequests), spaceHomeReads };
+  return {
+    requests: structuredClone(projectRequests),
+    spaceHomeReads,
+    spaceHomeRunning,
+    spaceHomeAborted,
+  };
+}
+/** Lets the waiting first owner-list read finish. */
+export function releaseProjectRead() {
+  releaseSpaceHome?.();
 }
 export function answerBatchProof() {
   return structuredClone(answerAttempts);

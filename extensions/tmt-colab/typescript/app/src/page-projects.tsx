@@ -1,7 +1,7 @@
 import { BrowserMenu } from '@tmt/browser-ui/react';
 import { Tag } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { rememberedPages } from './quick-switcher-source.js';
+import { rememberPages, rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
 import { pageTitle } from './page-index.js';
 import { applyProjectChanges, projectCounts, withProject } from './projects.js';
@@ -61,10 +61,11 @@ export function PageProjectsMenu({
 
 /**
  * The page's own projects, after its title: the current ones as small chips and the same picker as
- * the list row (#4116). The chips come from the list the space home last loaded, so opening a page
- * reads nothing extra; a page opened by a link shows none until the picker is used. The owner list is
- * read when the picker opens (after showing what is known) and again after each write. A viewer who
- * cannot write projects shows nothing.
+ * the list row (#4116). The chips come from the list the space home last loaded, so arriving from the
+ * list reads nothing extra. A page opened by a link has no list yet: it is read once on open, and
+ * leaving the page cancels that read (#4130). The owner list is also read when the picker opens
+ * (after showing what is known) and again after each write. A viewer who cannot write projects shows
+ * nothing.
  */
 export function PageProjects({
   transport,
@@ -96,22 +97,46 @@ export function PageProjects({
   // A new transport (a refreshed session) is read through, never a reason to read the list again.
   const latest = useRef(transport);
   latest.current = transport;
-  const mounted = useRef(true);
+  // Leaving the page cancels whatever list read is still running.
+  const leaving = useRef<AbortController | undefined>(undefined);
+  const reading = useRef<Promise<void> | undefined>(undefined);
   useEffect(() => {
-    mounted.current = true;
+    const controller = (leaving.current = new AbortController());
     return () => {
-      mounted.current = false;
+      controller.abort();
+      reading.current = undefined;
     };
   }, []);
   const known = home?.pages ?? rememberedPages(transport, space);
-  const load = useCallback(async () => {
-    try {
-      const next = await latest.current.spaceHome();
-      if (mounted.current) setHome(next);
-    } catch {
-      // The picker keeps what it showed: the page itself is unaffected.
+  // One read at a time: a request that finds one running joins it.
+  const load = useCallback(() => {
+    const read = async () => {
+      const signal = leaving.current?.signal;
+      try {
+        const next = await latest.current.spaceHome(signal);
+        if (signal?.aborted) return;
+        rememberPages(latest.current, spaceRef.current, next.pages);
+        setHome(next);
+      } catch {
+        // The picker keeps what it showed: the page itself is unaffected.
+      }
+    };
+    if (!reading.current) {
+      const run: Promise<void> = read().finally(() => {
+        if (reading.current === run) reading.current = undefined;
+      });
+      reading.current = run;
     }
+    return reading.current;
   }, []);
+  const spaceRef = useRef(space);
+  spaceRef.current = space;
+  // A page opened by a link has no list to show chips from: read it once.
+  useEffect(() => {
+    if (port && !rememberedPages(transport, space)) void load();
+    // Only the page opening reads; later reads are the picker's and the writes'.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, space, !!port]);
   const first = useRef(request);
   useEffect(() => {
     if (request === first.current || !port) return;
@@ -120,7 +145,8 @@ export function PageProjects({
     if (known) {
       setOpened((count) => count + 1);
       void load();
-    } else void load().then(() => mounted.current && setOpened((count) => count + 1));
+    } else
+      void load().then(() => !leaving.current?.signal.aborted && setOpened((count) => count + 1));
     // Only a new request opens the picker: the data it finds is read as it stands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request]);
