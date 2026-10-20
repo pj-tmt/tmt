@@ -94,6 +94,7 @@ fn global_timers_need_no_uuid_and_new_stays_refused() {
 fn removed_count_cells_cannot_retain_their_old_timer_authority() {
     let mut app = board();
     app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::All;
     app.cron.replace(Ok(crate::board::cronboard::test_cron(
         vec![],
         tmt_ops::cron::ClockStatus::NoClock,
@@ -105,7 +106,7 @@ fn removed_count_cells_cannot_retain_their_old_timer_authority() {
         .first()
         .cloned()
         .expect("positive control: an actual count hit");
-    app.shell.tab = OpsTab::Agents;
+    // The flat list paints no count cell.
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     paint(&mut app, 100, 36);
     assert!(app.cron_scope_hits.borrow().is_empty());
@@ -245,10 +246,7 @@ fn authored_selected_scope_timers_never_widens_a_hidden_missing_or_other_tab_sco
     });
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     assert!(app.cron_list.is_none());
-    for tab in [
-        crate::board::shell::OpsTab::Agents,
-        crate::board::shell::OpsTab::Digest,
-    ] {
+    for tab in [crate::board::shell::OpsTab::Digest] {
         app.shell.tab = tab;
         app.workspace.selected = None;
         app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));

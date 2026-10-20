@@ -284,10 +284,9 @@ fn long_ranges_render_exact_buckets_and_reject_old_or_inactive_demand() {
                         "unavailable chart adds no clock"
                     );
                 }
+                // Agents shows the same Usage band, so it asks for the same history.
                 app.shell.tab = OpsTab::Agents;
-                assert!(app.retained_history_request().is_none());
-                let read = fixtures::retained(&app, selection);
-                assert!(!app.apply_history(read, std::time::Instant::now()));
+                assert_eq!(app.retained_history_request(), Some(request));
                 app.shell.tab = OpsTab::Digest;
                 assert_eq!(app.retained_history_request(), Some(request));
                 paint(&mut app, 148, 51);
@@ -422,7 +421,7 @@ fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
                 .iter()
                 .any(|hit| matches!(hit.target, Target::Bar(_)))
         );
-        assert!(narrow.contains("Overview"));
+        assert!(narrow.contains("Agents"));
         assert!(
             app.usage_chart
                 .borrow()
@@ -431,12 +430,6 @@ fn resize_reader_agents_and_custom_binding_remove_old_chart_authority() {
                 .all(|hit| hit.target == Target::Controls)
         );
         press(&mut app, KeyCode::Char('2'));
-        assert!(
-            !app.workspace_bindings()
-                .values()
-                .any(|action| action.verb == Verb::Ui(OpsUiAction::UsageControls))
-        );
-        press(&mut app, KeyCode::Char('3'));
         app.focus = 1;
         assert!(
             !app.workspace_bindings()
@@ -621,7 +614,7 @@ fn overview_panels_preserve_the_wide_reader_and_explicit_talk_placement() {
             .borrow()
             .pane
             .expect("Overview reserves the wide conversation beside its panels");
-        assert_eq!(pane.width, 63);
+        assert_eq!(pane.width, 84);
         assert!(!app.collapsed_panes().contains(&Pane::Replies));
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.focused(), Pane::Replies);

@@ -10,6 +10,8 @@ fn many_agents(count: usize) -> App {
     let mut app = populated_board(1, count);
     app.shell.tab = OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    // The matrix is the Measure view of the right column.
+    app.right_tab = crate::board::shell::RightTab::Measure;
     let first = app
         .workspace_snapshot()
         .unwrap()
@@ -79,7 +81,8 @@ fn native_wide_table_draws_one_three_and_many_identities_below_the_all_row() {
                     .take_while(|line| !line.trim().is_empty())
                     .collect();
                 assert!(rows[0].trim_start().starts_with("all "));
-                let available = usize::from(buffer.area.height).saturating_sub(header + 2);
+                // Two footer rows follow the matrix.
+                let available = usize::from(buffer.area.height).saturating_sub(header + 3);
                 let shown = count.min(available.saturating_sub(1));
                 assert_eq!(rows.len(), shown + 1, "{width}/{count}: {rows:?}");
                 assert!(
@@ -241,6 +244,10 @@ fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
                         theme: Theme::new(base),
                         depth,
                     };
+                    // One pane at a time below 100 cells: Measure is the right pane.
+                    if width < 100 {
+                        app.focus = 1;
+                    }
                     let buffer = paint(&mut app, width, 51);
                     let lines: Vec<String> = buffer
                         .content
@@ -250,7 +257,7 @@ fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
                     let cost = lines
                         .iter()
                         .find(|line| line.contains("cost avoided"))
-                        .expect("the narrow Digest cost row is visible");
+                        .unwrap_or_else(|| panic!("{width}/{count}: the narrow Digest cost row is visible\n{}", lines.join("\n")));
                     assert!(cost.contains("cost avoided 24h"), "{width}/{count}: {cost}");
                     assert!(!cost.contains("cost avoided 2…"));
                     assert!(cost.contains("≈ $"), "cost remains an estimate: {cost}");
