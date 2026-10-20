@@ -2,7 +2,7 @@ import { encodeBinary, Envelope, exactKeys, generatedId, requireValue } from '@t
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
-import { sealOwnUpdate } from './own-seal.js';
+import { sealOwnUpdate, sealedRevision } from './own-seal.js';
 import { record as durableRecord } from './storage.js';
 import {
   OwnAppendRefused,
@@ -244,6 +244,16 @@ export class Writer {
     if (state.pending) {
       exactKeys(state.pending, ['id', 'entry']);
       generatedId(state.pending.id);
+      const head = c.admission.head;
+      requireValue(head !== null);
+      if (sealedRevision(state.pending.entry) < head.revision) {
+        // Another page was created or shared since it was sealed. Its membership revision is part
+        // of the signed header, so no retry of these bytes is ever admitted. Its sender was told it
+        // was not accepted; the next write seals at the stream's head under the current revision.
+        state.pending = null;
+        await this.record(this.key, state);
+        return state;
+      }
       // Includes signature/scope/authority checks on restored data.
       await this.#append(c, state, state.pending.entry);
       state.completed.push(state.pending.id);

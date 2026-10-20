@@ -1,6 +1,13 @@
-import { decodeHeader, encodeBinary, Envelope, requireValue } from '@tmt/colab-client';
+import {
+  binary,
+  decimal,
+  decodeHeader,
+  encodeBinary,
+  Envelope,
+  requireValue,
+} from '@tmt/colab-client';
 import type { Admission } from './admission.js';
-import type { ObjectEntry } from './objects.js';
+import { UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
 
 /** Admission owns fresh issuer/role/lifetime checks; sealing never recreates that policy. */
 export type OwnAuthor = (device: string, revision: string) => Uint8Array | Promise<Uint8Array>;
@@ -36,4 +43,11 @@ export async function sealOwnUpdate(
     envelopeHash: encodeBinary(await envelope.hash()),
     envelope: encodeBinary(envelope.toJson()),
   };
+}
+
+/** The membership revision a sealed own entry cites. The serve admits an append only at its current
+ * membership head, so an entry that cites an earlier one can never be taken. */
+export function sealedRevision(entry: ObjectEntry): bigint {
+  const envelope = Envelope.fromJson(binary(entry.envelope, UPDATE_ENVELOPE_BYTES));
+  return decimal(decodeHeader(envelope.header()).context.membershipRevision);
 }

@@ -4,6 +4,8 @@ import * as c from '@tmt/colab-client';
 import { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
 import { OwnAppendRefused } from '../src/own-publication.js';
+import type { ObjectEntry } from '../src/objects.js';
+import { sealedRevision } from '../src/own-seal.js';
 import { Writer, memoryRecords } from '../src/writer.js';
 
 // Which author a write is checked against follows the chain its device holds: a link's device is
@@ -350,7 +352,7 @@ async function writerOver(appends: (Error | undefined)[]) {
     locks: { request: (_key: string, _o: unknown, fn: () => unknown) => fn() },
   });
   let head = 4n;
-  const appended: { seq: string; envelope: string }[] = [];
+  const appended: ObjectEntry[] = [];
   const connection = {
     ready: Promise.resolve(),
     active: true,
@@ -366,7 +368,7 @@ async function writerOver(appends: (Error | undefined)[]) {
             : {},
       ),
     },
-    append: vi.fn(async (entry: { seq: string; envelope: string }) => {
+    append: vi.fn(async (entry: ObjectEntry) => {
       appended.push(entry);
       const failure = appends.shift();
       if (failure) throw failure;
@@ -386,6 +388,7 @@ async function writerOver(appends: (Error | undefined)[]) {
     writer,
     save,
     appended,
+    admission: w.admission,
     saved: () =>
       records<{
         pending: { entry: { seq: string; envelope: string } } | null;
@@ -424,6 +427,25 @@ it('keeps an append whose outcome is unknown and retries exactly those bytes fir
     expect(w.appended[1]).toEqual(kept!.entry);
     expect(w.appended[1].envelope).toBe(w.appended[0].envelope);
     expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5', '6']);
+    expect((await w.saved())?.pending).toBeNull();
+  } finally {
+    w.writer.close();
+  }
+});
+
+it('drops a kept append sealed before the membership head moved, and seals the next write under the new one (#4088)', async () => {
+  // Creating or sharing another page moves the membership head under an open session; the write that
+  // met the change fails, and a retry of its exact bytes would cite the old revision for ever.
+  const w = await writerOver([new Error('RESYNC_REQUIRED'), undefined]);
+  try {
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
+    expect((await w.saved())?.pending?.entry.seq).toBe('5');
+    // The reopened session has caught up to the new head.
+    w.admission.head = { revision: REVISION + 1n };
+    await w.save();
+    expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5']);
+    const [stale, fresh] = w.appended.map((entry) => sealedRevision(entry));
+    expect([stale, fresh]).toEqual([REVISION, REVISION + 1n]);
     expect((await w.saved())?.pending).toBeNull();
   } finally {
     w.writer.close();

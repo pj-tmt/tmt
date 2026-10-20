@@ -535,6 +535,112 @@ fn unknown_revoke_before_genesis_is_tombstone_only_and_never_signs_on_replay() {
     );
 }
 
+/// A live owner session that was admitted before the membership head moved (another page was
+/// created or shared meanwhile) seals its next append at the revision it knew. That is a stale view,
+/// not a verdict on the device: the serve answers `RESYNC_REQUIRED` so the client catches up, never
+/// `DENIED`, which the client treats as lost access (#4088).
+#[test]
+fn an_append_citing_an_older_membership_revision_asks_for_a_resync_not_a_denial() {
+    use tmt_colab::{
+        registration::OwnerAdmission,
+        store::owner::Mutation,
+        sync::{Access, Admission, Code as SyncCode, SyncScope},
+    };
+    use tmt_colab_model::object;
+    let mut f = Fixture::new();
+    register(
+        &mut f,
+        Some(&context(DEVICE, 1)),
+        &request(DEVICE, NOW),
+        NOW,
+    )
+    .unwrap();
+    let key = Keyring::read(&f.layout).unwrap();
+    let mut store = Store::open(&f.layout).unwrap();
+    store.create_page(OTHER).unwrap();
+    let registration = Arc::new(Mutex::new(f.service.take().unwrap()));
+    let admission = OwnerAdmission(Arc::clone(&registration));
+    let share = |store: &mut Store, operation: &str, digest: u8, expected_revision: u64| {
+        let _registration = registration.lock().unwrap();
+        store
+            .owner_transaction(
+                &key.space_id,
+                &key.owner_public(),
+                Mutation {
+                    operation_id: operation,
+                    digest: [digest; 32],
+                    expected_revision,
+                },
+                |tx| {
+                    if expected_revision == 1 {
+                        tx.put_epoch_secret(OTHER, 1, &[12; 32])?;
+                    }
+                    tx.append_statement(&key.sign_statement(
+                        tx.head(),
+                        "page.history",
+                        &serde_json::to_vec(&json!({"pageId":OTHER,"mode":"shared"}))?,
+                    )?)?;
+                    Ok(vec![])
+                },
+            )
+            .unwrap();
+    };
+    share(&mut store, OTHER, 116, 1);
+    let scope = SyncScope {
+        space: key.space_id.clone(),
+        page: OTHER.into(),
+        epoch: "1".into(),
+    };
+    let append = |revision: &str| object::Context {
+        space: key.space_id.clone(),
+        page: OTHER.into(),
+        epoch: "1".into(),
+        kind: "update".into(),
+        namespace: "content".into(),
+        author_device: DEVICE.into(),
+        membership_revision: revision.into(),
+        stream_seq: "1".into(),
+        prev_hash: [0; 32],
+    };
+    // The head is 2 and the session knows it.
+    assert!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&append("2")))
+            .is_ok()
+    );
+    // Another page's creation or sharing moves the head to 3 under the live session.
+    share(&mut store, "40000000-0000-4000-8000-000000000153", 117, 2);
+    assert_eq!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&append("2")))
+            .unwrap_err(),
+        SyncCode::ResyncRequired,
+        "a stale membership revision is no verdict on the device"
+    );
+    assert!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&append("3")))
+            .is_ok()
+    );
+    // A revision the serve has not reached is not a stale view: it stays refused.
+    assert_eq!(
+        admission
+            .authorize(DEVICE, &scope, Access::Append(&append("4")))
+            .unwrap_err(),
+        SyncCode::Denied
+    );
+    assert!(admission.authorize(DEVICE, &scope, Access::Read).is_ok());
+    drop(admission);
+    Arc::try_unwrap(registration)
+        .ok()
+        .unwrap()
+        .into_inner()
+        .unwrap()
+        .close()
+        .unwrap();
+    store.close().unwrap();
+}
+
 #[test]
 fn archive_preserves_reads_and_delete_denies_admission_catchup_and_queued_delivery() {
     use tmt_colab::{
