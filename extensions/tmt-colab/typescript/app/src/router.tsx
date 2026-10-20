@@ -2031,12 +2031,15 @@ function Page() {
           <span>
             <label htmlFor="source-edit">{text.source}</label>
             {snapshot.binding && !archived && (
-              <button
-                disabled={saving || !!liveError || draft === base.current}
-                onClick={() => void save()}
-              >
-                {saving ? text.saving : text.save}
-              </button>
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.save}
+                busy={saving}
+                busyMark={<LoaderCircle />}
+                disabled={!!liveError || draft === base.current}
+                onActivate={() => void save()}
+              />
             )}
           </span>
           {/* Save problems take priority over routine usage in this one notice slot. */}

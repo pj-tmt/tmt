@@ -1,4 +1,5 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
+import { LoaderCircle } from 'lucide-react';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { Review } from '../questions.js';
 import type { ReviewOutcome } from '../review-actions.js';
@@ -54,15 +55,25 @@ export function ReviewCard({
   const working = outcome?.state === 'working';
   const busy = disabled || working;
   const closed = state.kind === 'closed';
+  // Work in flight fences every action without greying it; only the one pressed carries the mark,
+  // in a slot every action reserves, so nothing moves when the mark shows.
+  const [pressed, setPressed] = useState<string>();
+  useEffect(() => {
+    if (!working) setPressed(undefined);
+  }, [working]);
   const action = (label: string, onActivate: () => void, options: { disabled?: boolean } = {}) => (
     <BrowserAction
       key={label}
       type="button"
       variant="text"
       label={label}
-      disabled={options.disabled ?? busy}
+      busy={working}
+      busyMark={pressed === label ? <LoaderCircle /> : <span />}
+      disabled={options.disabled ?? disabled}
       onActivate={(event) => {
-        if (event.isTrusted) onActivate();
+        if (!event.isTrusted) return;
+        setPressed(label);
+        onActivate();
       }}
     />
   );
@@ -73,16 +84,12 @@ export function ReviewCard({
       : changing
         ? [
             action(text.reviewChangeSend, () => requestChange(change), {
-              disabled: busy || !change.trim(),
+              disabled: disabled || !change.trim(),
             }),
-            action(
-              text.reviewCancel,
-              () => {
-                setChanging(false);
-                setChange('');
-              },
-              { disabled: working },
-            ),
+            action(text.reviewCancel, () => {
+              setChanging(false);
+              setChange('');
+            }),
           ]
         : [
             action(text.reviewConfirm, () => confirm(noting ? note : '')),
@@ -160,7 +167,6 @@ export function ReviewCard({
             {recipient ? agentSentence(text.reviewTo, recipient) : text.reviewNoRecipient}
           </p>
         )}
-        {outcome?.state === 'working' && <p role="status">{text.reviewSaving}</p>}
         {/* A failure that predates the section closing says nothing about a closed section. */}
         {outcome?.state === 'failed' && outcome.step === 'reopening' && (
           <p role="alert">{text.reviewReopenFailed}</p>

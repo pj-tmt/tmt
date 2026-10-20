@@ -423,7 +423,8 @@ test('status copy preserves every ledger outcome and explicit trusted tracking a
     'abandon:00000000-0000-4000-8000-000000000043',
   ]);
   for (const [state, label, supporting] of [
-    ['dispatching', 'sending…', ''],
+    // A dispatching ask is a wordless mark that shows after the busy-mark delay.
+    ['dispatching', '', ''],
     ['accepted', 'Sent', ''],
     ['held', 'Waiting for approval', text.askHeld],
     ['timeout', 'Sent', ''],

@@ -5,7 +5,7 @@ import type { EditOutcome } from './link-edit.js';
 import { saveMessage } from './save.js';
 import { SaveNotice, type SaveProblem } from './save-notice.js';
 import { text } from './strings.js';
-import { Diamond, X } from 'lucide-react';
+import { Diamond, LoaderCircle, X } from 'lucide-react';
 
 /** What a hosted request can end as before the page answers it. A request that was sent is
  * answered by the page like a native one (`EditOutcome`), so it has no state here. Provider
@@ -139,9 +139,15 @@ export function ReaderSource({
       <div className="source">
         <span>
           <label htmlFor="source-edit">{text.source}</label>
-          <button disabled={saving || draft === base.current} onClick={() => void save()}>
-            {saving && !problem ? text.saving : text.save}
-          </button>
+          <BrowserAction
+            type="button"
+            variant="text"
+            label={text.save}
+            busy={saving}
+            busyMark={problem ? <span /> : <LoaderCircle />}
+            disabled={draft === base.current}
+            onActivate={() => void save()}
+          />
         </span>
         {request && <EditRequestNotice outcome={request} />}
         {problem && (

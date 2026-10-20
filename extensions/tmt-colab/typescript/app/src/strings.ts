@@ -118,7 +118,6 @@ export const text = {
   reviewChangeSend: 'Send',
   reviewCancel: 'Cancel',
   reviewReopen: 'Reopen',
-  reviewSaving: 'Saving…',
   reviewFailed: 'Could not finish this. Nothing was lost; try again.',
   reviewReopenFailed: 'Could not reopen this section. Try again.',
   reviewCommentKept: 'Your comment is saved but the section is not closed yet. Confirm again.',
@@ -260,13 +259,11 @@ export const text = {
   filesEmpty: 'No files yet.',
   filesListLabel: 'Page files',
   filesAdd: 'Add to page',
-  filesAdding: 'Adding…',
   filesReady: 'Ready to add',
   filesAgainPageChanged: 'The page changed. Add to upload it again.',
   filesAgainNotStored: 'No longer stored. Add to upload it again.',
   filesTooMany: (name: string) => `${name} was not added. Add up to 16 files at a time.`,
   filesFull: 'A page holds up to 128 files. Remove one to add more.',
-  filesRemoving: 'Removing…',
   filesResealing: 'Securing after a key change. Still available.',
   filesRemoveFailed: 'Could not remove this file.',
   filesBlocked: {
@@ -386,7 +383,6 @@ export const text = {
   askWaiting: 'Waiting for {agent}',
   askNoReply: 'No reply yet from {agent}',
   agentSent: 'Sent',
-  agentSending: 'sending…',
   agentActivityWorking: (elapsed: string) => `is working · ${elapsed}`,
   agentQueued: (elapsed: string) => `is finishing an earlier turn · ${elapsed}`,
   agentFinished: (elapsed: string) => `finished without replying · ${elapsed} ago`,
@@ -532,7 +528,6 @@ export const text = {
     'This address does not match the pinned space. Return to the original space address.',
   noWraps: 'This device has no verified page key yet. The page remains blocked.',
   save: 'Save source',
-  saving: 'Saving…',
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
   saveTooLarge: (size: number, limit: number) =>

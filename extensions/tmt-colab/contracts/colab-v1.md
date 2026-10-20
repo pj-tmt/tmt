@@ -2026,7 +2026,8 @@ shows plain `Sent`, without animation. A valid working state whose phase time is
 missing or later than its owner observation also keeps plain `Sent` on this line:
 the current Ask's turn cannot be classified, while shared chips still show the
 known agent-wide working state. Unknown, ended, stale and refused telemetry keep
-their existing unknown behavior. Sending shows `sending…`; held, refused,
+their existing unknown behavior. Sending shows a wordless pending mark that follows the
+[busy-mark delay](../../../design/gui-style.md#transient-states); held, refused,
 uncertain and failed outcomes keep their existing delivery actions. A verified reply,
 including an empty reply, replaces the line. Presence and runningDriver never prove
 working, delivery, completion or admission, and no activity observation dispatches.

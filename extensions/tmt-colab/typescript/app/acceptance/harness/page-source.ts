@@ -16,11 +16,10 @@ export async function openSource(page: Page) {
   await (await pageAction(page, 'Source')).click({ timeout: 60_000 });
   return source(page);
 }
-// A save is done when the editor leaves "Saving…": the reply arrives after the serve has combined
-// the new tail, so a CLI write that follows sees room for its own update.
+// A save is done when the Save action leaves its busy state: the reply arrives after the serve has
+// combined the new tail, so a CLI write that follows sees room for its own update.
 export async function save(page: Page) {
-  await page.getByRole('button', { name: text.save, exact: true }).click();
-  await expect(page.getByRole('button', { name: text.saving, exact: true })).toHaveCount(0, {
-    timeout: 120_000,
-  });
+  const action = page.getByRole('button', { name: text.save, exact: true });
+  await action.click();
+  await expect(action).not.toHaveAttribute('aria-busy', 'true', { timeout: 120_000 });
 }
