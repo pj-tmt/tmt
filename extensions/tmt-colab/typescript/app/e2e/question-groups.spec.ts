@@ -513,6 +513,9 @@ for (const width of [1440, 390])
         await capture('answered');
         await run(page, 'questionGroup', { count: 12, darkPage, longLabels: true, lone: true });
         await expect(rows).toHaveCount(12);
+        // A remounted group stays `visibility: hidden` until its slot is placed on the page, and
+        // `focus()` on a hidden row does nothing (the ArrowUp then lands on the body).
+        await expect(rows.first()).toBeVisible();
         await rows.first().focus();
         await rows.first().press('ArrowUp');
         await expect(rows.nth(11)).toBeFocused();
