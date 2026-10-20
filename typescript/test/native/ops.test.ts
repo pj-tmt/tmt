@@ -5760,9 +5760,9 @@ describe('large board responsiveness', () => {
           sort: 'name',
           reversed: false,
           agentsFilter: 'all',
-          overviewView: 'agents',
         });
         expect(retained.controls).not.toHaveProperty('overviewFilter');
+        expect(retained.controls).not.toHaveProperty('overviewView');
         expect(retained).not.toHaveProperty('scope');
         expect(retained).not.toHaveProperty('revealHidden');
         expect(readFileSync(defaultFile, 'utf8')).toBe(defaultBytes);
@@ -5892,7 +5892,7 @@ describe('large board responsiveness', () => {
         const loads = first.filter((r) => r.stage === 'load').length;
         const before = tmux(['capture-pane', '-p', '-t', pane]);
         const pressed = Date.now();
-        tmux(['send-keys', '-t', pane, '1']);
+        tmux(['send-keys', '-t', pane, '2']);
         await vi.waitFor(
           () => {
             expect(tmux(['capture-pane', '-p', '-t', pane])).not.toBe(before);
