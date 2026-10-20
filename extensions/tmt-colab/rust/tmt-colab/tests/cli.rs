@@ -5325,7 +5325,10 @@ fn a_release_replacement_keeps_human_foreground_output_instead_of_printing_json(
     let deadline = Instant::now() + Duration::from_secs(10);
     let output = loop {
         let output = fs::read_to_string(&serving.out).unwrap();
-        if output.matches("Colab is running in this terminal").count() == 2 {
+        // The success line is written before the LOCAL SPACE detail (serve.rs), so wait for both.
+        if output.matches("Colab is running in this terminal").count() == 2
+            && output.matches("LOCAL SPACE").count() == 2
+        {
             break output;
         }
         assert!(
