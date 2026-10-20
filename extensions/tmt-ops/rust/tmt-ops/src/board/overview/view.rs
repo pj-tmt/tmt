@@ -43,7 +43,24 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             format!("~{n}")
         }
     };
-    let count = if !app.workspace.query.is_empty() {
+    let search_count = (!app.workspace.query.is_empty()).then(|| {
+        format!(
+            "{} of {}",
+            observed(if agents {
+                scene.matching_agents
+            } else {
+                scene.squads.len()
+            }),
+            observed(if agents {
+                scene.summary.total
+            } else {
+                scene.total_squads
+            }),
+        )
+    });
+    let count = if !app.workspace.query.is_empty() && !app.searching {
+        Line::default()
+    } else if !app.workspace.query.is_empty() {
         Line::styled(
             format!(
                 "{} of {} {}",
@@ -207,13 +224,14 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 slot,
                 &[("agents", "Agents"), ("squads", "Squads")],
                 usize::from(!agents),
-                &app.search,
                 app,
                 crate::action::OpsUiAction::OverviewView,
+                search_count.as_deref(),
             ) {
                 let choice = match hit.id.as_str() {
                     "agents" => Choice::OverviewView(monitor::View::Agents),
                     "squads" => Choice::OverviewView(monitor::View::Squads),
+                    "clear-search" => Choice::ClearSearch,
                     _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
                 };
                 app.workspace_strip_hits

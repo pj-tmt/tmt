@@ -25,6 +25,7 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
         app.shell.tab = OpsTab::Overview;
         for view in [View::Squads, View::Agents] {
             app.overview_view = view;
+            app.search.clear();
             app.workspace.selected = None;
             app.workspace_reconcile();
             let buffer = paint(&mut app, 103, 51);
@@ -42,20 +43,12 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
             } else {
                 assert!(shown.contains(&format!("{count} agents")), "{shown}");
             }
-            app.workspace.query = "agent-00000".into();
+            app.search = "agent-00000".into();
+            app.workspace_reconcile();
             app.overview_rows.borrow_mut().clear();
             let filtered = text(&paint(&mut app, 103, 51));
             assert!(
-                filtered.contains(&format!(
-                    "{} of {count} {}",
-                    usize::from(count > 0),
-                    match (view, count) {
-                        (View::Squads, 1) => "squad",
-                        (View::Squads, _) => "squads",
-                        (View::Agents, 1) => "agent",
-                        (View::Agents, _) => "agents",
-                    }
-                )),
+                filtered.contains(&format!("{} of {count}", usize::from(count > 0))),
                 "{filtered}"
             );
             if count == 1 {
@@ -70,14 +63,7 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
                     .observation = OpsObservation::Partial;
                 app.overview_rows.borrow_mut().clear();
                 let partial = text(&paint(&mut app, 103, 51));
-                assert!(
-                    partial.contains(if view == View::Squads {
-                        "~1 of ~1 squad"
-                    } else {
-                        "~1 of ~1 agent"
-                    }),
-                    "{partial}"
-                );
+                assert!(partial.contains("~1 of ~1"), "{partial}");
                 app.view
                     .as_mut()
                     .unwrap()
@@ -170,9 +156,9 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
     for view in [View::Squads, View::Agents] {
         app.overview_view = view;
         let expected = if view == View::Squads {
-            ["1 of 1 squad", "0 of 1 squad"]
+            ["1 of 1", "0 of 1"]
         } else {
-            ["1 of 3 agents", "0 of 3 agents"]
+            ["1 of 3", "0 of 3"]
         };
         for (query, expected) in ["worker", "no-such-agent"].into_iter().zip(expected) {
             app.search = query.into();
@@ -188,12 +174,12 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
                 .iter()
                 .position(|line| line.contains("Agents") && line.contains("Squads"))
                 .unwrap();
-            assert!(!lines[filter].contains(expected));
             assert!(
-                lines[filter + 2].ends_with(&format!("{expected} ──")),
-                "{:?}",
-                lines[filter + 2]
+                lines[filter].contains(expected) && lines[filter].contains('×'),
+                "{}",
+                lines[filter]
             );
+            assert!(!lines[filter + 2].contains(" of "));
             assert!(!lines[filter + 2].contains("waiting first"));
         }
     }
@@ -822,12 +808,12 @@ fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
     app.workspace_reconcile();
     app.select_overview_view(View::Squads);
     let squads = text(&paint(&mut app, 103, 51));
-    assert!(squads.contains("1 of 8 squads"), "{squads}");
+    assert!(squads.contains("1 of 8"), "{squads}");
     app.search = "agent-00000".into();
     app.workspace_reconcile();
     app.select_overview_view(View::Agents);
     let agents = text(&paint(&mut app, 103, 51));
-    assert!(agents.contains("1 of 28 agents"), "{agents}");
+    assert!(agents.contains("1 of 28"), "{agents}");
 }
 
 #[test]

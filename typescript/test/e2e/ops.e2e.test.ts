@@ -99,10 +99,7 @@ function hostPaneSlots(fixture: E2EFixture): Record<string, string> {
 async function selectHostWorker(fixture: E2EFixture, board: string) {
   await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, '/', 'worker', 'Enter']);
-  await fixture.waitForCapture(
-    (screen) => /\/[ \t]+worker/.test(screen) && screen.includes('1 of 2 agents'),
-    board
-  );
+  await fixture.waitForCapture((screen) => /\/[ \t]+worker[ \t]+1 of 2[ \t]+×/.test(screen), board);
   fixture.tmux(['send-keys', '-t', board, 'End']);
   await fixture.waitForCapture((screen) => screen.includes('⏎ to message worker'), board);
 }

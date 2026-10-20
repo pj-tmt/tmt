@@ -320,7 +320,7 @@ overlay closes through its own back path before switching. Active text, search
 and completion keep `1`/`2`/`3` as input.
 
 Overview has one Agents/Squads list, starting in Agents unless a saved choice exists. Its shared filter bar shows the two mode
-chips and idle search field; the section rule below owns counts. `v` switches
+chips and the shared search field; ordinary totals live on the section rule. `v` switches
 views unless an authored binding replaces it. Squads show a lead-first TEAM strip,
 TOK 1h from existing HOUR readings, and NOW from pending questions before tasks.
 Agents show AGENT, SQUAD, STATE, TOK 1h and MODEL. Unread agents come first, then waiting agents, ordered
@@ -419,14 +419,21 @@ room, paused included: known zero is `0`, unavailable is `—`. Digest/runtime
 appear in selection-driven focus. Only attention glyphs carry state colour; a member task state is red only when blocked;
 selected rows use a full neutral background at normal weight, or the existing
 NO_COLOR reverse cue. The All/Pinned chips and search remain above the list;
-counts belong to the Squads rule.
+ordinary totals belong to the Squads rule.
 All keeps Common pool first, then pinned squads and the selected sort order.
 `f` cycles the layer-local All / Pinned filter; explicit bindings win. Pinned shows
 pinned squads and individually pinned agents with their containing group. `p`
 pins or unpins a visible agent or squad in Overview or Agents. Overview's default
 `v` toggles Agents/Squads from either pane; Agents keeps `v` for the reply reader.
-Search reveals matching children of visible squads temporarily without changing
-saved expansion. Select a squad and use `H` Hide squad (or its Actions entry) to
+`/` edits the retained query and filters live; Up/Down move between matches.
+Enter keeps the filter and returns keyboard control to the list. The committed
+field shows the query, matching/total count and a clickable ×. Esc clears and
+closes search in one press; × does the same. Both keep the current exact row
+and squad occurrence, expanding its group and scrolling it into view when needed.
+A second Esc uses the normal list behavior. Backspace in an empty field closes it.
+During editing, match counts remain on the section rule; committing moves the
+count into the field. Search reveals matching children of visible squads temporarily;
+clearing expands only the selected occurrence's group when needed. Select a squad and use `H` Hide squad (or its Actions entry) to
 hide it from Agents and Overview. The `Hidden: N` header's show control (`h` by
 default) reveals hidden squads only for this session. Before reveal, the line
 shows waiting/blocked counts from hidden squads in their state colours. Select a revealed squad and
