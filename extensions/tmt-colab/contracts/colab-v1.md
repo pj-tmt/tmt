@@ -1787,8 +1787,9 @@ anything is pruned.
   per-edit attribution of the updates it covers with its own statement, which names the signer and the
   covered range (the trade-off own-stream compaction already makes).
 - **Bounds.** n is at most the covered stream's admitted head. For a revoked covered device n is at most
-  the `tailHeadSeq` of its signed revoke cut, never past it, so a fold cannot cover a tail the cut
-  refused. The owner publishes a fold only after the existing source-equality guard: it decodes the
+  the `tailHeadSeq` of its signed revoke cut, never past it (the cut an owner advance sealed after
+  the fold's `membershipRevision` stands in for it, as for an update), so a fold cannot cover a tail
+  the cut refused. The owner publishes a fold only after the existing source-equality guard: it decodes the
   candidate merged streams and requires the HTML, the complete metadata and every writer's own
   projection to equal the current page; a mismatch or decoder failure publishes nothing.
 - **Anchor.** The store keeps the covered stream's update envelope at n un-pruned when it prunes a
@@ -1805,7 +1806,7 @@ anything is pruned.
   (`namespace` is the update's), and the fold frame follows it with `streamId` the covered device and
   `checkpoint` the fold entry. The extra `anchor` key is what an older reader refuses (it requires
   exactly four keys). `chains` carries the chains of both the signer and the covered device. A reader
-  holds the anchor only until the fold that names it, and applies nothing from it.
+  keeps the anchor for the catch-up (one per covered stream, bounded) because one anchor serves the folds of both namespaces, and applies nothing from it.
 - **Signer revoke commits its folds.** The `device.revoke` payload of a device that signed folds gains
   `folds`: a sorted, unique list of the fold envelope hashes the owner accepts from it (at most 512).
   A fold whose `authorDevice` is a revoked device is admitted only when its envelope hash is in that

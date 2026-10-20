@@ -281,6 +281,26 @@ fn regenerate() {
             }).unwrap())})
     };
     let covered_revoke = |seq: &str, tail: &Sealed| json!({"deviceId": COVERED, "cuts": [cut("content", seq, tail)]});
+    // The covered device's cut comes from an owner advance that sealed epoch 1 at revision 3, and
+    // its revoke (revision 4) signs none of its own.
+    let advance_then_revoke = {
+        let hash = values::encode_binary(&[7; 32]);
+        push(
+            &mut log,
+            &mut head,
+            "epoch.advance",
+            json!({"pageId": PAGE, "epoch": "2", "cuts": [cut("content", "2", &anchor)],
+                "baseline": {"pageId": PAGE, "epoch": "2", "sourceDigest": hash,
+                    "baselineCommitment": hash, "title": "t", "objectEnvelopeHash": hash,
+                    "membershipRevision": "3"},
+                "wraps": []}),
+        );
+        revoked(
+            &mut log,
+            &mut head,
+            json!({"deviceId": COVERED, "cuts": []}),
+        )
+    };
     let logs = json!({
         "base": base,
         "signerListed": revoked(&mut log, &mut head, signer_revoke(&[content.hash, own.hash])),
@@ -289,6 +309,7 @@ fn regenerate() {
         "signerOtherListed": revoked(&mut log, &mut head, signer_revoke(&[content_first.hash])),
         "coveredAtN": revoked(&mut log, &mut head, covered_revoke("2", &anchor)),
         "coveredBelowN": revoked(&mut log, &mut head, covered_revoke("1", &content_first)),
+        "advanceThenRevoke": advance_then_revoke,
     });
     // An anchor frame precedes its fold; each is one catch-up object.
     let anchor_frame = |stream: &str, s: &Sealed| frame_of(stream, &namespace_of(s), "anchor", s);
@@ -408,6 +429,10 @@ fn regenerate() {
             case("a revoked covered device: a fold at the cut's tail head", "coveredAtN", pair(&anchor, &content), "admit", "ok", None),
             case("a revoked covered device: a fold in the namespace its revoke did not cut", "coveredAtN",
                 vec![anchor_frame(COVERED, &anchor), fold_frame(COVERED, &own)], "reject", "ok", None),
+            case("a revoked covered device: the cut an owner advance sealed after the fold's revision", "advanceThenRevoke",
+                pair(&anchor, &content), "admit", "ok", None),
+            case("a revoked covered device: an advance at the fold's own revision supplies no cut", "advanceThenRevoke",
+                pair(&anchor, &late), "reject", "ok", None),
             case("a revoked covered device: a fold past the cut's tail head", "coveredBelowN", pair(&anchor, &content), "reject", "ok", None),
         ],
     });

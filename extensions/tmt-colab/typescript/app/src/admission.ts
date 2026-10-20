@@ -456,7 +456,8 @@ export class Admission {
    *   is refused whatever revision it cites, because a stolen key can backdate that revision and
    *   a pruned prefix cannot be rechecked. A listed one must still predate the revoke.
    * - A covered device that was revoked is folded only up to the `tailHeadSeq` of the cut its
-   *   revoke signed, never past it. */
+   *   revoke signed, or of the one an owner advance sealed after the fold's revision, never past
+   *   it (the bound `readAuthor` applies to an object at its revision). */
   readFold(
     context: Context,
     covered: string,
@@ -489,7 +490,9 @@ export class Admission {
           revision < statement.head.revision && payload.listsFold(p.value, envelopeHash),
         );
       if (p.value.deviceId === covered) {
-        const cut = this.#signedCut(statement, 0n, context.epoch, context.namespace, covered);
+        // The same lower bound as `readAuthor`: an owner advance at or before the fold's own
+        // revision sealed the epoch before the fold and cannot supply the cut.
+        const cut = this.#signedCut(statement, revision, context.epoch, context.namespace, covered);
         requireValue(
           cut !== undefined &&
             seq <= decimal(streamCut.decode(binary(cut.cut, 1024)).tailHeadSeq, true),
