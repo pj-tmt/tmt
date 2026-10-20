@@ -15,6 +15,42 @@ const section = (page: Page, index = 1) =>
     .locator('tmt-review')
     .filter({ hasText: `Content of section ${index}.` });
 
+// A card state commits before its new height has completed the renderer's slot round trip.
+// Wait for the measured spacer AND the returned placement before targeting a sibling control.
+async function reviewLayout(page: Page) {
+  await expect
+    .poll(async () => {
+      const spacers = await frame(page)
+        .locator('tmt-review')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const spacer = node.nextElementSibling as HTMLElement | null;
+            return {
+              id: node.getAttribute('data-id'),
+              height: spacer ? Number.parseFloat(spacer.style.minHeight) : null,
+              top: spacer ? spacer.getBoundingClientRect().top + scrollY : null,
+            };
+          }),
+        );
+      return page.locator('[data-inline-review]').evaluateAll(
+        (nodes, spacers) =>
+          nodes.flatMap((node) => {
+            const card = node as HTMLElement;
+            const spacer = spacers.find((value) => value.id === card.dataset.inlineReview);
+            const height = Math.ceil(card.getBoundingClientRect().height);
+            const top = Number.parseFloat(card.style.top);
+            return spacer?.height === height &&
+              spacer.top !== null &&
+              Math.abs(spacer.top - top) < 1
+              ? []
+              : [{ id: card.dataset.inlineReview, height, top, spacer }];
+          }),
+        spacers,
+      );
+    })
+    .toEqual([]);
+}
+
 async function mount(page: Page, options = {}) {
   await page.goto('/');
   await run(page, 'mount');
@@ -28,6 +64,57 @@ async function sectionThread(page: Page) {
     thread.anchor?.exact.startsWith('Section'),
   );
 }
+
+test('review controls wait for the changed sibling spacer and placement', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 1100 });
+  await mount(page, { sections: 3 });
+  await reviewLayout(page);
+  await page.evaluate(() => {
+    const post = MessagePort.prototype.postMessage;
+    const pending: (() => void)[] = [];
+    let released = false;
+    MessagePort.prototype.postMessage = function (message, options) {
+      const send = () => Reflect.apply(post, this, [message, options]);
+      if (
+        !released &&
+        message?.type === 'colab.render.slots' &&
+        document.querySelector('[data-review-state="changes"]')
+      )
+        pending.push(send);
+      else send();
+    };
+    Reflect.set(window, 'reviewSlotGate', {
+      held: () => pending.length,
+      release: () => {
+        released = true;
+        pending.splice(0).forEach((send) => send());
+        MessagePort.prototype.postMessage = post;
+      },
+    });
+  });
+  const bands = page.locator('.review-card');
+  await bands.nth(1).getByRole('button', { name: 'Needs change…', exact: true }).click();
+  await bands.nth(1).getByLabel('What needs to change', { exact: true }).fill('A shorter section.');
+  await bands.nth(1).getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(bands.nth(1)).toHaveAttribute('data-review-state', 'changes');
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, 'reviewSlotGate').held()))
+    .toBeGreaterThan(0);
+  let settled = false;
+  const ready = reviewLayout(page).then(() => {
+    settled = true;
+  });
+  // A browser round trip lets the barrier inspect the held layout; state alone is not readiness.
+  await page.evaluate(() => Reflect.get(window, 'reviewSlotGate').held());
+  expect(settled).toBe(false);
+  await page.evaluate(() => Reflect.get(window, 'reviewSlotGate').release());
+  await ready;
+  await bands.nth(2).getByRole('button', { name: 'Add a note', exact: true }).click();
+  await bands.nth(2).getByLabel('Note (optional)', { exact: true }).fill('Looks right to me');
+  await expect(bands.nth(2).getByLabel('Note (optional)', { exact: true })).toHaveValue(
+    'Looks right to me',
+  );
+});
 
 test('a waiting section offers Confirm and Needs change, and the head counts it', async ({
   page,
@@ -382,6 +469,7 @@ for (const [width, theme] of [
         .fill('Say what this section is for, in one sentence.');
       await bands.nth(1).getByRole('button', { name: 'Send', exact: true }).click();
       await expect(bands.nth(1)).toHaveAttribute('data-review-state', 'changes');
+      await reviewLayout(page);
       await bands.nth(2).getByRole('button', { name: 'Add a note', exact: true }).click();
       await bands.nth(2).getByLabel('Note (optional)', { exact: true }).fill('Looks right to me');
       await bands.nth(2).getByRole('button', { name: 'Confirm and close', exact: true }).click();
