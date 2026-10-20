@@ -535,18 +535,21 @@ fn unknown_revoke_before_genesis_is_tombstone_only_and_never_signs_on_replay() {
     );
 }
 
-/// A live owner session that was admitted before the membership head moved (another page was
-/// created or shared meanwhile) seals its next append at the revision it knew. That is a stale view,
-/// not a verdict on the device: the serve answers `RESYNC_REQUIRED` so the client catches up, never
-/// `DENIED`, which the client treats as lost access (#4088).
+/// A live owner session that was admitted before the membership head moved seals its next append at
+/// the revision it knew. The append stands when every statement it missed is scoped to another page
+/// (a page created or shared elsewhere); any other missed statement is a stale view, not a verdict on
+/// the device, so the serve answers `RESYNC_REQUIRED` for the client to catch up, never `DENIED`,
+/// which the client treats as lost access (#4088, #4103).
 #[test]
-fn an_append_citing_an_older_membership_revision_asks_for_a_resync_not_a_denial() {
+fn an_append_citing_an_earlier_revision_stands_only_when_every_missed_statement_is_another_pages() {
     use tmt_colab::{
         registration::OwnerAdmission,
         store::owner::Mutation,
         sync::{Access, Admission, Code as SyncCode, SyncScope},
     };
-    use tmt_colab_model::object;
+    use tmt_colab_model::{object, values::encode_binary};
+    const ELSEWHERE: &str = "40000000-0000-4000-8000-000000000153";
+    const SOMEONE: &str = "40000000-0000-4000-8000-000000000154";
     let mut f = Fixture::new();
     register(
         &mut f,
@@ -560,15 +563,19 @@ fn an_append_citing_an_older_membership_revision_asks_for_a_resync_not_a_denial(
     store.create_page(OTHER).unwrap();
     let registration = Arc::new(Mutex::new(f.service.take().unwrap()));
     let admission = OwnerAdmission(Arc::clone(&registration));
-    let share = |store: &mut Store, operation: &str, digest: u8, expected_revision: u64| {
+    // The membership head; the log holds revision 1 (the genesis).
+    let head = std::cell::Cell::new(1u64);
+    let push = |store: &mut Store, operation: &str, payload: serde_json::Value| {
         let _registration = registration.lock().unwrap();
+        let expected_revision = head.get();
+        let id = format!("40000000-0000-4000-8000-{:012}", 200 + expected_revision);
         store
             .owner_transaction(
                 &key.space_id,
                 &key.owner_public(),
                 Mutation {
-                    operation_id: operation,
-                    digest: [digest; 32],
+                    operation_id: &id,
+                    digest: [expected_revision as u8; 32],
                     expected_revision,
                 },
                 |tx| {
@@ -577,57 +584,166 @@ fn an_append_citing_an_older_membership_revision_asks_for_a_resync_not_a_denial(
                     }
                     tx.append_statement(&key.sign_statement(
                         tx.head(),
-                        "page.history",
-                        &serde_json::to_vec(&json!({"pageId":OTHER,"mode":"shared"}))?,
+                        operation,
+                        &serde_json::to_vec(&payload)?,
                     )?)?;
                     Ok(vec![])
                 },
             )
             .unwrap();
+        head.set(expected_revision + 1);
+        expected_revision + 1
     };
-    share(&mut store, OTHER, 116, 1);
     let scope = SyncScope {
         space: key.space_id.clone(),
         page: OTHER.into(),
         epoch: "1".into(),
     };
-    let append = |revision: &str| object::Context {
+    let append = |revision: u64| object::Context {
         space: key.space_id.clone(),
         page: OTHER.into(),
         epoch: "1".into(),
         kind: "update".into(),
         namespace: "content".into(),
         author_device: DEVICE.into(),
-        membership_revision: revision.into(),
+        membership_revision: revision.to_string(),
         stream_seq: "1".into(),
         prev_hash: [0; 32],
     };
-    // The head is 2 and the session knows it.
-    assert!(
+    let verdict = |revision: u64| {
         admission
-            .authorize(DEVICE, &scope, Access::Append(&append("2")))
-            .is_ok()
+            .authorize(DEVICE, &scope, Access::Append(&append(revision)))
+            .err()
+    };
+    let others = [
+        (
+            "page created elsewhere",
+            "page.share",
+            json!({"pageId":ELSEWHERE,"mode":"private","epoch":"1"}),
+        ),
+        (
+            "page shared elsewhere",
+            "page.share",
+            json!({"pageId":ELSEWHERE,"mode":"link","epoch":"1"}),
+        ),
+        (
+            "history elsewhere",
+            "page.history",
+            json!({"pageId":ELSEWHERE,"mode":"current"}),
+        ),
+        (
+            "retention elsewhere",
+            "retention.set",
+            json!({"pageId":ELSEWHERE,"days":30}),
+        ),
+        (
+            "archive elsewhere",
+            "page.archive",
+            json!({"pageId":ELSEWHERE}),
+        ),
+        (
+            "delete elsewhere",
+            "page.delete",
+            json!({"pageId":ELSEWHERE}),
+        ),
+    ];
+    let related = [
+        (
+            "share of this page",
+            "page.share",
+            json!({"pageId":OTHER,"mode":"link","epoch":"1"}),
+        ),
+        (
+            "history of this page",
+            "page.history",
+            json!({"pageId":OTHER,"mode":"current"}),
+        ),
+        (
+            "retention of this page",
+            "retention.set",
+            json!({"pageId":OTHER,"days":30}),
+        ),
+        (
+            "a member's role",
+            "member.role",
+            json!({"memberId":SOMEONE,"role":"viewer","cuts":[]}),
+        ),
+        (
+            "a member removed",
+            "member.remove",
+            json!({"memberId":SOMEONE,"cuts":[]}),
+        ),
+        (
+            "a link removed",
+            "link.remove",
+            json!({"linkId":SOMEONE,"cuts":[]}),
+        ),
+        // A statement that names another page but is not page-scoped is never unrelated: the
+        // derivation is `Payload::page()`, so a kind that does not say it is scoped is related.
+        (
+            "a member added to another page",
+            "member.add",
+            json!({"memberId":SOMEONE,"role":"viewer","signKey":encode_binary(&key.owner_public()),"encKey":encode_binary(&[7; 32]),"pages":[ELSEWHERE]}),
+        ),
+        (
+            "a link added to another page",
+            "link.add",
+            json!({"linkId":SOMEONE,"role":"viewer","linkSignKey":encode_binary(&key.owner_public()),"linkEncKey":encode_binary(&[8; 32]),"pages":[ELSEWHERE]}),
+        ),
+    ];
+    // The session knows revision 1, the head, and appends there.
+    assert_eq!(verdict(1), None);
+    let known = push(
+        &mut store,
+        "page.history",
+        json!({"pageId":OTHER,"mode":"shared"}),
     );
-    // Another page's creation or sharing moves the head to 3 under the live session.
-    share(&mut store, "40000000-0000-4000-8000-000000000153", 117, 2);
-    assert_eq!(
-        admission
-            .authorize(DEVICE, &scope, Access::Append(&append("2")))
-            .unwrap_err(),
-        SyncCode::ResyncRequired,
-        "a stale membership revision is no verdict on the device"
-    );
-    assert!(
-        admission
-            .authorize(DEVICE, &scope, Access::Append(&append("3")))
-            .is_ok()
-    );
+    assert_eq!(known, 2, "the head the session now knows");
+    assert_eq!(verdict(2), None);
+    for (label, operation, payload) in others {
+        let now = push(&mut store, operation, payload);
+        assert_eq!(
+            verdict(2),
+            None,
+            "{label}: an unrelated statement leaves the append standing"
+        );
+        assert_eq!(
+            verdict(now),
+            None,
+            "{label}: and the head is always admitted"
+        );
+    }
     // A revision the serve has not reached is not a stale view: it stays refused.
+    assert_eq!(verdict(head.get() + 1), Some(SyncCode::Denied));
+    for (label, operation, payload) in related {
+        // Each missed statement makes every earlier revision a stale view, however many unrelated
+        // statements come before it.
+        let before = head.get();
+        let after = push(&mut store, operation, payload);
+        assert_eq!(
+            verdict(2),
+            Some(SyncCode::ResyncRequired),
+            "{label}: a stale view is no verdict on the device"
+        );
+        assert_eq!(
+            verdict(before),
+            Some(SyncCode::ResyncRequired),
+            "{label}: the revision just before it is stale too"
+        );
+        assert_eq!(verdict(after), None, "{label}: the head is admitted");
+    }
+    // The window is bounded: a writer further behind than 256 statements catches up.
+    let behind = head.get();
+    let page_history = json!({"pageId":ELSEWHERE,"mode":"shared"});
+    for _ in 0..256 {
+        push(&mut store, "page.history", page_history.clone());
+    }
+    assert_eq!(verdict(behind), None, "256 missed statements still stand");
+    push(&mut store, "page.history", page_history);
     assert_eq!(
-        admission
-            .authorize(DEVICE, &scope, Access::Append(&append("4")))
-            .unwrap_err(),
-        SyncCode::Denied
+        verdict(behind),
+        Some(SyncCode::ResyncRequired),
+        "257 do not"
     );
     assert!(admission.authorize(DEVICE, &scope, Access::Read).is_ok());
     drop(admission);
