@@ -27,7 +27,7 @@ browser roles, fonts/header tokens and Header/Notice/Field/Action presentation;
 Remote defines host metrics, viewport layout, safe-area offsets and one window
 scrollbar. Regeneration and drift checks belong to the
 [shared package](../../../../design/browser-ui/README.md). Remote has no copied palette or shadow styling. Host pages use 14px body text,
-controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Its four static templates carry the approved
+controls at least 36px on desktop and 44px on narrow/touch screens, with flat, unframed states. Its six static templates carry the approved
 inline TMT mark (one even-odd path in a 96 × 96 viewBox, currentColor fill) from the
 leaf’s static-host contract (#2608), pinned by a Remote-owned literal
 test; Cargo does not read the leaf’s React source or fetch the mark at runtime.
@@ -42,7 +42,8 @@ states. The card heading is the page's `h2`; the header title is its only `h1`.
 ## Browser entry
 
 The human serve link names `/`; protocol readiness/status/SDK addresses retain `/r/<prefix>`.
-`Pages` serves the static entry and same-origin `/sdk/landing.js` bootstrap under the existing
+Home and TMT settings follow the [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes); they expose only navigation, no state or authority.
+`Pages` serves Remote's entry at `/remote/` and same-origin `/sdk/landing.js` bootstrap under the existing
 CSP/no-store/Host/Origin boundary. `browser.ts` validates local pairing before network, then checks
 once on page open through descriptor, verified Session and scope-free `capabilities` observation.
 Manual Check again reuses the current Session. An expired Session is silently reopened once
@@ -58,7 +59,7 @@ revoked/expired authority; a session-ended/evicted body offers Check again witho
 loss. Opaque404 remains unconfirmed even after a
 descriptor-only recheck, never another admission. Page-lifetime/signing fences prevent new
 requests after departure; per-check fences prevent late painting. Pair success still links back
-to `/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
+to `/remote/`, with unchanged fragment erasure, terminal confirmation and disabled-until-ready controls.
 
 The native CLI regression fetches the printed human URL as HTML and verifies protocol-base
 refusal with zero request-triggered core calls. Existing Chromium owners cover exact pairing,
@@ -93,7 +94,7 @@ Colab's integrated app-routing acceptance remains Colab-owned.
 
 ## Settings page
 
-`/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
+`/remote/settings` uses the same embedded shared CSS, Header/Notice/Field/Action classes and
 Remote host metrics; its additional stylesheet owns settings layout and static listbox geometry.
 Normal settings use thin section rules, a desktop summary/control grid and a single-column
 narrow layout. Each setting keeps its unchanged hint and original-result feedback beside its

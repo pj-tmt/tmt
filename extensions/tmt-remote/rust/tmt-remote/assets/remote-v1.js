@@ -1334,7 +1334,9 @@ function remoteState(state, current = true) {
 }
 /** Both page owners and the menu identify the current Local row by the same door root. */
 function currentRemote(entry, address, pageUrl) {
-	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === new URL("./", pageUrl).href);
+	const root = new URL("./", pageUrl);
+	if (root.pathname === "/remote/") root.pathname = "/";
+	return entry.kind === "local" && (entry.url === address || new URL(entry.url).href === root.href);
 }
 //#endregion
 //#region src/remote-menu.ts
@@ -1672,7 +1674,7 @@ async function buildHandoff(destination, value, page) {
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
 	valid$1(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
-	return `${checked.url}#${params}`;
+	return `${new URL("/remote/", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
 	const next = await parseCatalog(incoming), before = await parseCatalog(current);
@@ -3622,7 +3624,7 @@ var DESCRIPTOR_FIELDS = [
 ];
 function pairingUrl(link) {
 	const url = new URL(link);
-	requireValue(url.protocol === "http:" && url.hostname === "127.0.0.1" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "" && /^[A-Z2-7]{26}$/.test(url.hash.slice(1)), "pairing link");
+	requireValue(url.protocol === "http:" && url.hostname === "127.0.0.1" && url.pathname === "/remote/pair" && url.search === "" && url.username === "" && url.password === "" && /^[A-Z2-7]{26}$/.test(url.hash.slice(1)), "pairing link");
 	pairingCode(url.hash.slice(1));
 	return url;
 }

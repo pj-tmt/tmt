@@ -285,7 +285,7 @@ pub(crate) fn missing_talk(sessions: &DoorSessions, message: &SignedMessage) -> 
         message,
         json!({"code":"REMOTE_SCOPE_DENIED",
         "message":"Device scope does not admit this operation.","scope":"talk",
-        "settingsUrl":format!("{}/settings", sessions.door_origin())}),
+        "settingsUrl":format!("{}/remote/settings", sessions.door_origin())}),
         None,
     )
 }

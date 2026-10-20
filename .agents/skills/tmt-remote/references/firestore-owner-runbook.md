@@ -100,6 +100,8 @@ It observes this browser's sign-in and offers commands to add/sign in on a machi
 claiming those commands ran. Give a reader the Colab page link separately: it admits the browser
 with the link's role. Opening it does not join the machine's native sync identity.
 
+For local browser management, use the [door's Remote settings entry](../../../../contracts/remote-channel-v1.md#public-browser-routes).
+
 To inspect the locally recorded evidence:
 
 ```sh

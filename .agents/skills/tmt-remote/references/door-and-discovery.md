@@ -38,7 +38,7 @@ the existing Local channel and ordinary door; status/read/channel loss never act
 
 ## Open a local page
 
-Run `tmt remote open /` or `tmt remote open /settings` to open the running local door.
+Run `tmt remote open /remote/` or `tmt remote open /remote/settings` to open the running local door.
 The native opener connects a new browser with read-only access, without terminal word comparison,
 except for the [manual-offer plain-open rule](../../../../contracts/remote-channel-v1.md#native-automatic-opens).
 Printed/shared links stay short and code-free. `--no-open` and `--json` print only the short result
@@ -144,7 +144,7 @@ preserves its Session, cookie and held work, then reads the original operation. 
 acknowledgment gets one fresh read-only admission attempt; refusal shows access loss plus unknown
 outcome and
 `tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
-The shared-presentation `/settings` page uses the served SDK and this management owner;
+The shared-presentation `/remote/settings` page uses the served SDK and this management owner;
 [browser-pages.md](browser-pages.md#settings-page) owns controls and captures. The
 [management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol) owns retained-identity
 caps, expiry, capacity recovery and original-outcome rules; no automatic retry or storage reset.

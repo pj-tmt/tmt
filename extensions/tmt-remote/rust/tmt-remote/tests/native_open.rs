@@ -28,9 +28,9 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
             .unwrap()
     };
     for args in [
-        vec!["launch", "/settings", "--no-open"],
-        vec!["launch", "/settings"],
-        vec!["open", "/settings", "--open", "--json"],
+        vec!["launch", "/remote/settings", "--no-open"],
+        vec!["launch", "/remote/settings"],
+        vec!["open", "/remote/settings", "--open", "--json"],
     ] {
         let output = call(&args);
         assert!(
@@ -41,22 +41,28 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
         let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(
             value,
-            serde_json::json!({"version":1,"link":format!("{}/settings", h.origin),"opened":false,"state":"skipped"})
+            serde_json::json!({"version":1,"link":format!("{}/remote/settings", h.origin),"opened":false,"state":"skipped"})
         );
         assert!(h.pairing.descriptor(&h.origin).is_none());
+    }
+    for old in ["/", "/settings"] {
+        assert!(
+            !call(&["open", old, "--no-open"]).status.success(),
+            "no old-target alias: {old}"
+        );
     }
     let output = call(&["open", "--no-open"]);
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
-        format!("✓ Open this link in your browser: {}/", h.origin)
+        format!("✓ Open this link in your browser: {}/remote/", h.origin)
     );
     assert!(h.pairing.descriptor(&h.origin).is_none());
     assert!(
         !call(&["launch", "--no-open"]).status.success(),
         "extension target remains required"
     );
-    let output = call(&["launch", "/settings", "--json"]);
+    let output = call(&["launch", "/remote/settings", "--json"]);
     assert!(
         !output.status.success(),
         "seam accepts no --json; skew stays an ordinary usage refusal"
@@ -68,7 +74,7 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
     assert_eq!(error["version"], 1);
     assert_eq!(error["error"]["code"], "REMOTE_INPUT_INVALID");
     assert!(h.pairing.descriptor(&h.origin).is_none());
-    let output = call(&["launch", "/settings", "--open"]);
+    let output = call(&["launch", "/remote/settings", "--open"]);
     assert!(
         output.status.success(),
         "{}",
@@ -77,25 +83,25 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         value,
-        serde_json::json!({"version":1,"link":format!("{}/settings", h.origin),"opened":true,"state":"opened"})
+        serde_json::json!({"version":1,"link":format!("{}/remote/settings", h.origin),"opened":true,"state":"opened"})
     );
     for bytes in [&output.stdout, &output.stderr] {
         assert!(!String::from_utf8_lossy(bytes).contains("#auto="));
     }
     assert_eq!(
         h.pairing.descriptor(&h.origin).unwrap()["target"],
-        "/settings"
+        "/remote/settings"
     );
     for name in ["open", "xdg-open"] {
         fs::remove_file(bin.join(name)).unwrap();
         symlink("/usr/bin/false", bin.join(name)).unwrap();
     }
-    let output = call(&["open", "/settings", "--open"]);
+    let output = call(&["open", "/remote/settings", "--open"]);
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
         format!(
-            "warning: Could not open the browser. Open {}/settings yourself",
+            "warning: Could not open the browser. Open {}/remote/settings yourself",
             h.origin
         ),
         "the shared human printer omits the final period"
@@ -117,7 +123,7 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
             .unwrap();
         }
         for command in ["launch", "open"] {
-            let output = call(&[command, "/settings", "--open"]);
+            let output = call(&[command, "/remote/settings", "--open"]);
             assert!(
                 output.status.success(),
                 "{command}: {}",
@@ -127,17 +133,17 @@ fn native_extension_launch_is_versioned_short_only_and_preserves_suppression() {
                 let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
                 assert_eq!(
                     value,
-                    serde_json::json!({"version":1,"link":format!("{}/settings",h.origin),"opened":succeeds,"state":if succeeds {"opened"} else {"failed"}})
+                    serde_json::json!({"version":1,"link":format!("{}/remote/settings",h.origin),"opened":succeeds,"state":if succeeds {"opened"} else {"failed"}})
                 );
             } else {
                 let line = String::from_utf8(output.stdout).unwrap();
                 assert_eq!(
                     line.trim(),
                     if succeeds {
-                        format!("✓ Opened {}/settings", h.origin)
+                        format!("✓ Opened {}/remote/settings", h.origin)
                     } else {
                         format!(
-                            "warning: Could not open the browser. Open {}/settings yourself",
+                            "warning: Could not open the browser. Open {}/remote/settings yourself",
                             h.origin
                         )
                     }
@@ -201,7 +207,7 @@ fn core_opener_canary_child() {
     if std::env::var_os("TMT_REMOTE_OPEN_CANARY_CHILD").is_none() {
         return;
     }
-    let url = "http://127.0.0.1:1/pair#auto=AUTOOPEN_CANARY_DO_NOT_LOG";
+    let url = "http://127.0.0.1:1/remote/pair#auto=AUTOOPEN_CANARY_DO_NOT_LOG";
     // printf tries to echo its argument. launch's null streams must suppress both outputs.
     let success = tmt_invoke::open::launch(std::path::Path::new("/usr/bin/printf"), url);
     let failure = tmt_invoke::open::launch(std::path::Path::new("/no-such-tmt-opener"), url);

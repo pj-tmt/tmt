@@ -272,7 +272,7 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
 #[test]
 fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let h = Harness::new(FAST);
-    let landing = get(&h, "/", "");
+    let landing = get(&h, "/remote/", "");
     assert_eq!(landing.status, 200);
     assert_eq!(landing.body, include_str!("../assets/landing.html"));
     assert!(
@@ -627,7 +627,7 @@ fn short_public_entry_refuses_cross_origin_requests_before_forwarding() {
 #[test]
 fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     let h = Harness::new(FAST);
-    let page = get(&h, "/settings", "");
+    let page = get(&h, "/remote/settings", "");
     assert_eq!(page.status, 200);
     assert_eq!(page.body, include_str!("../assets/settings.html"));
     assert!(
@@ -698,7 +698,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
             .contains("Browser management operation limit reached.")
     );
     assert_eq!(
-        get(&h, "/settings", "Origin: http://127.0.0.1:1\r\n").status,
+        get(&h, "/remote/settings", "Origin: http://127.0.0.1:1\r\n").status,
         403
     );
     assert_eq!(get(&h, "/settings/extra", "").status, 404);
@@ -711,7 +711,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
 #[test]
 fn settings_consume_shared_classes_and_static_listboxes_without_a_palette() {
     let h = Harness::new(FAST);
-    let html = get(&h, "/settings", "").body;
+    let html = get(&h, "/remote/settings", "").body;
     for class in [
         "tmt-ui-header",
         "tmt-ui-brand",
@@ -772,11 +772,22 @@ fn remote_static_headers_pin_the_approved_aperture_mark() {
         include_str!("../assets/pair.html"),
         include_str!("../assets/error.html"),
         include_str!("../assets/settings.html"),
+        include_str!("../assets/home.html"),
+        include_str!("../assets/tmt-settings.html"),
     ] {
         let normalized = normalize(page);
         assert!(normalized.contains(&expected));
         assert_eq!(page.matches("class=\"header-mark tmt-ui-mark\"").count(), 1);
-        assert!(page.contains("class=\"header-wordmark tmt-ui-wordmark\">Remote</span>"));
+        let brand = if page.contains("data-tmt-page=\"home\"")
+            || page.contains("data-tmt-page=\"tmt-settings\"")
+        {
+            "TMT"
+        } else {
+            "Remote"
+        };
+        assert!(page.contains(&format!(
+            "class=\"header-wordmark tmt-ui-wordmark\">{brand}</span>"
+        )));
     }
 }
 
@@ -785,8 +796,11 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
     let h = Harness::new(FAST);
     for (path, status) in [
         ("/", 200),
-        ("/pair", 200),
+        ("/remote/pair", 200),
+        ("/remote/", 200),
         ("/settings", 200),
+        ("/settings/", 200),
+        ("/remote/settings", 200),
         ("/pair/", 404),
     ] {
         let reply = get(&h, path, "");
@@ -803,7 +817,7 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
             .filter(|tag| tag.contains("rel=\"icon\""))
             .collect();
         assert_eq!(links.len(), 1, "{path}");
-        let policy = if path == "/pair" {
+        let policy = if path == "/remote/pair" {
             pairing_policy(&reply.body)
         } else {
             PAGE_CSP.to_owned()
@@ -829,5 +843,93 @@ fn every_door_html_page_serves_the_shared_favicon_with_the_exact_data_only_polic
             include_bytes!("../../../../../design/browser-ui/src/favicon.svg"),
             "{path}"
         );
+    }
+}
+
+#[test]
+fn door_routes_legacy_pair_redirect_is_fixed_and_admitted_before_location() {
+    let h = Harness::new(FAST);
+    for method in ["GET", "HEAD"] {
+        for path in [
+            "/pair",
+            "/pair?next=https://example.com/",
+            "/pair?next=%2F%2Fevil.test",
+        ] {
+            let reply = exchange(
+                &h,
+                &format!("{method} {path} HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+            );
+            assert_eq!(reply.status, 308, "{method} {path}");
+            assert_eq!(reply.header("location"), Some("/remote/pair"));
+            assert_eq!(reply.header("cache-control"), Some("no-store"));
+            assert_eq!(reply.header("referrer-policy"), Some("no-referrer"));
+            assert_eq!(reply.header("content-security-policy"), Some(PAGE_CSP));
+            assert!(reply.body.is_empty());
+        }
+    }
+    for headers in [
+        "Origin: https://example.com\r\n",
+        "Sec-Fetch-Site: cross-site\r\n",
+    ] {
+        let reply = get(&h, "/pair?next=https://example.com/", headers);
+        assert_eq!(reply.status, 403);
+        assert_eq!(reply.header("location"), None);
+    }
+    let reply = exchange(&h, "GET /pair HTTP/1.1\r\nHost: example.com\r\n\r\n");
+    assert_eq!(reply.status, 400);
+    assert_eq!(reply.header("location"), None);
+    let reply = exchange(
+        &h,
+        &format!("POST /pair HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+    );
+    assert_eq!(reply.status, 404);
+    assert_eq!(reply.header("location"), None);
+    for path in [
+        "/pair/",
+        "/remote/pair/",
+        "/settings?next=other",
+        "/remote/pair?next=other",
+    ] {
+        assert_ne!(get(&h, path, "").status, 308, "{path}");
+    }
+}
+
+#[test]
+fn door_routes_home_and_tmt_settings_are_navigation_only_and_remote_pages_move() {
+    let h = Harness::new(FAST);
+    let home = get(&h, "/", "");
+    assert_eq!(home.status, 200);
+    assert!(home.body.contains("Open a TMT app."));
+    for path in ["/colab/", "/remote/", "/settings/"] {
+        assert!(home.body.contains(&format!("href=\"{path}\"")), "{path}");
+    }
+    let settings = get(&h, "/settings", "");
+    assert_eq!(settings.status, 200);
+    assert_eq!(settings.body, get(&h, "/settings/", "").body);
+    assert!(
+        settings
+            .body
+            .contains("Choose an app to open its settings.")
+    );
+    assert!(settings.body.contains("href=\"/remote/settings\""));
+    for page in [&home, &settings] {
+        assert_eq!(page.header("content-security-policy"), Some(PAGE_CSP));
+        assert_eq!(page.header("set-cookie"), None);
+        assert!(!page.body.contains("<script"));
+        assert!(!page.body.contains(&h.prefix));
+    }
+    for (path, marker) in [
+        ("/remote/", "Remote connection"),
+        ("/remote/settings", "Browser opening"),
+        ("/remote/pair", "__TMT_PAIR_BOOTSTRAP__"),
+    ] {
+        let reply = get(&h, path, "");
+        assert_eq!(reply.status, 200, "{path}");
+        if path == "/remote/pair" {
+            assert!(!reply.body.contains(marker));
+            assert!(reply.body.contains("history.replaceState"));
+        } else {
+            assert!(reply.body.contains(marker));
+        }
     }
 }

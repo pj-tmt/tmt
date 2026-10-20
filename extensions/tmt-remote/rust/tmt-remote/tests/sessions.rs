@@ -1580,7 +1580,7 @@ fn session_cap_all_attached_refuses_new_open_without_ending_existing_sessions() 
     assert_eq!(payload(&refused)["error"]["limit"], 2);
     assert_eq!(
         payload(&refused)["error"]["settingsUrl"],
-        format!("{}/settings", h.origin)
+        format!("{}/remote/settings", h.origin)
     );
     assert!(refused.cookie().is_none());
     let wire: Value = serde_json::from_str(&refused.body).unwrap();
@@ -2110,7 +2110,7 @@ fn missing_talk_scope(kind: &'static str) {
     assert_eq!(error["error"]["scope"], "talk");
     assert_eq!(
         error["error"]["settingsUrl"],
-        format!("{}/settings", h.origin)
+        format!("{}/remote/settings", h.origin)
     );
     let response: Value = serde_json::from_str(&reply.body).unwrap();
     assert_eq!(response["correlationId"], wire["id"]);

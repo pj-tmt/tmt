@@ -1,4 +1,4 @@
-//! Static landing and pairing pages, public extension entries, page refusals and
+//! Static Home/settings navigation, Remote pages, public extension entries, page refusals and
 //! their stylesheet, outside the route prefix. `/sdk/mount` tells a page this
 //! run's identity and which mounted extension its path belongs to. None of these
 //! routes carries authority.
@@ -18,6 +18,8 @@ const BOOTSTRAP: &str = include_str!("../assets/pair.js");
 const PAGE: &str = include_str!("../assets/pair.html");
 const ENTRY: &str = include_str!("../assets/landing.js");
 const LANDING: &str = include_str!("../assets/landing.html");
+const HOME: &str = include_str!("../assets/home.html");
+const TMT_SETTINGS: &str = include_str!("../assets/tmt-settings.html");
 const ERROR: &str = include_str!("../assets/error.html");
 const SETTINGS: &str = include_str!("../assets/settings.html");
 const SETTINGS_SCRIPT: &str = include_str!("../assets/settings-v1.js");
@@ -57,9 +59,11 @@ impl Pages {
         self
     }
     pub fn serves(path: &str) -> bool {
-        path == "/"
-            || path == "/settings"
-            || path == "/pair"
+        matches!(
+            path,
+            "/" | "/settings" | "/settings/" | "/remote/" | "/remote/settings" | "/remote/pair"
+        ) || legacy_pair(path)
+            || path.starts_with("/remote/pair/")
             || path.starts_with("/pair/")
             || Mounts::short_route(path)
             || path.starts_with("/sdk/")
@@ -72,12 +76,24 @@ impl Pages {
                 Reply::empty(404)
             });
         }
+        if legacy_pair(head.path) {
+            if !matches!(head.method, "GET" | "HEAD") {
+                return Err(Reply::empty(404));
+            }
+            if head.origin.is_some_and(|o| o != self.origin) {
+                return Err(page_refusal(head.path, 403));
+            }
+            return Ok(0);
+        }
         match (head.method, head.path) {
             ("GET", path)
                 if matches!(
                     path,
                     "/" | "/settings"
-                        | "/pair"
+                        | "/settings/"
+                        | "/remote/"
+                        | "/remote/settings"
+                        | "/remote/pair"
                         | "/sdk/pair.js"
                         | "/sdk/landing.js"
                         | "/sdk/pair-offer"
@@ -86,6 +102,7 @@ impl Pages {
                         | "/sdk/settings-v1.js"
                         | "/sdk/settings.css"
                 ) || path.starts_with("/pair/")
+                    || path.starts_with("/remote/pair/")
                     || Mounts::short_route(path) =>
             {
                 // Navigation omits Origin; a cross-origin load is refused.
@@ -93,6 +110,7 @@ impl Pages {
                     return Err(page_refusal(path, 403));
                 }
                 if path.starts_with("/pair/")
+                    || path.starts_with("/remote/pair/")
                     || (Mounts::short_route(path) && !Mounts::valid_short_route(path))
                 {
                     return Err(page_refusal(path, 404));
@@ -113,13 +131,31 @@ impl Pages {
         }
     }
     pub fn handle(&self, request: &Request, mounts: &Mounts) -> Reply {
+        if legacy_pair(&request.path) {
+            if request
+                .headers
+                .iter()
+                .any(|(name, value)| name == "sec-fetch-site" && value == "cross-site")
+            {
+                return page_refusal(&request.path, 403);
+            }
+            let mut reply = asset("text/html; charset=utf-8", "", Some(PAGE_POLICY));
+            reply.status = 308;
+            reply
+                .headers
+                .push(("location".into(), "/remote/pair".into()));
+            return reply;
+        }
         match request.path.as_str() {
             "/sdk/remote-v1.js" => {
                 // The path names the SDK interface version, not a build, so it
                 // is not cached across upgrades.
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
-            "/settings" => asset("text/html; charset=utf-8", SETTINGS, Some(PAGE_POLICY)),
+            "/settings" | "/settings/" => {
+                asset("text/html; charset=utf-8", TMT_SETTINGS, Some(PAGE_POLICY))
+            }
+            "/remote/settings" => asset("text/html; charset=utf-8", SETTINGS, Some(PAGE_POLICY)),
             "/sdk/settings-v1.js" => asset("text/javascript; charset=utf-8", SETTINGS_SCRIPT, None),
             "/sdk/settings.css" => asset("text/css; charset=utf-8", SETTINGS_STYLE, None),
             "/sdk/pair.js" => asset("text/javascript; charset=utf-8", BOOTSTRAP, None),
@@ -135,7 +171,8 @@ impl Pages {
                 asset("application/json", &descriptor.to_string(), None)
             }
             "/sdk/pages.css" => asset("text/css; charset=utf-8", STYLE, None),
-            "/" => asset("text/html; charset=utf-8", LANDING, Some(PAGE_POLICY)),
+            "/" => asset("text/html; charset=utf-8", HOME, Some(PAGE_POLICY)),
+            "/remote/" => asset("text/html; charset=utf-8", LANDING, Some(PAGE_POLICY)),
             "/sdk/mount" => self.mount(&request.body, mounts),
             _ => {
                 // The exact inline bytes erase the fragment before any subresource is parsed.
@@ -184,6 +221,9 @@ impl Pages {
         reply
     }
 }
+fn legacy_pair(path: &str) -> bool {
+    path == "/pair" || path.starts_with("/pair?")
+}
 fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
     let mut reply = Reply::empty(200);
     reply.headers = vec![("content-type".into(), content_type.into())];
@@ -200,7 +240,12 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 pub(crate) fn page_refusal(path: &str, status: u16) -> Reply {
     if path != "/"
         && path != "/settings"
-        && path != "/pair"
+        && path != "/settings/"
+        && path != "/remote/"
+        && path != "/remote/settings"
+        && path != "/remote/pair"
+        && !path.starts_with("/remote/pair/")
+        && !legacy_pair(path)
         && !path.starts_with("/pair/")
         && !Mounts::short_route(path)
     {

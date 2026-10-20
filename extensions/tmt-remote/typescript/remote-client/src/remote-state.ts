@@ -26,8 +26,8 @@ export function currentRemote(
   address: string | undefined,
   pageUrl: string,
 ): boolean {
-  return (
-    entry.kind === 'local' &&
-    (entry.url === address || new URL(entry.url).href === new URL('./', pageUrl).href)
-  );
+  const root = new URL('./', pageUrl);
+  // Remote's pages moved, while saved public references still name the door root.
+  if (root.pathname === '/remote/') root.pathname = '/';
+  return entry.kind === 'local' && (entry.url === address || new URL(entry.url).href === root.href);
 }

@@ -41,3 +41,15 @@ test('current remote uses the same door root for prefix and root pages', () => {
   assert.equal(currentRemote(prefix, undefined, `${root.url}settings`), false);
   assert.equal(currentRemote({ ...root, kind: 'firestore' }, root.url, root.url), false);
 });
+
+test('moved Remote pages retain the saved door-root identity without marking another origin', () => {
+  const root = { kind: 'local', url: 'http://localhost:9001/' } as const;
+  const foreign = { kind: 'local', url: 'http://localhost:9002/' } as const;
+  for (const path of ['remote/', 'remote/settings']) {
+    const page = `${root.url}${path}`;
+    assert.equal(currentRemote(root, undefined, page), true);
+    assert.equal(currentRemote(root, `${root.url}r/aaaaaaaaaaaaaaaa`, page), true);
+    assert.equal(currentRemote(foreign, undefined, page), false);
+    assert.equal(currentRemote({ ...root, kind: 'firestore' }, root.url, page), false);
+  }
+});
