@@ -402,7 +402,10 @@ fn interrupted_reconciliation_exposes_no_total_beyond_its_coverage_watermark() {
 }
 
 fn decision(at_ms: u64, rule: Rule, outcome: Option<&'static str>) -> Decision {
-    let interval = !matches!(rule, Rule::AutoIdlePoint | Rule::Off);
+    let interval = matches!(
+        rule,
+        Rule::IntervalDeadline | Rule::FlushCount | Rule::NotDue
+    );
     Decision {
         at_ms,
         identity_id: ID.into(),
@@ -425,6 +428,8 @@ fn decisions_round_trip_in_time_order_inside_an_open_closed_window() {
         decision(20, Rule::IntervalDeadline, Some("not_idle")),
         decision(40, Rule::AutoIdlePoint, Some("uncertain")),
         decision(50, Rule::Off, Some("nothing_due")),
+        decision(60, Rule::AutoHold, Some("not_idle")),
+        decision(70, Rule::AutoCap, Some("delivered")),
     ];
     for row in &rows {
         store.record_decision(row).unwrap();
@@ -437,13 +442,20 @@ fn decisions_round_trip_in_time_order_inside_an_open_closed_window() {
             .map(|row| row.at_ms)
             .collect()
     };
-    assert_eq!(at(0, 100), [10, 20, 30, 40, 50]);
+    assert_eq!(at(0, 100), [10, 20, 30, 40, 50, 60, 70]);
     assert_eq!(at(10, 40), [20, 30, 40], "the window is (from, through]");
     assert_eq!(store.decisions(0, 100).unwrap()[0], rows[1]);
     // A read-only open sees the same rows.
     drop(store);
     let reader = Store::open(&fixture.0, false).unwrap().unwrap();
-    assert_eq!(reader.decisions(0, 100).unwrap().len(), 5);
+    assert_eq!(reader.decisions(0, 100).unwrap().len(), 7);
+    // Every rule round-trips through its name, and the auto ones are auto rows without an interval.
+    for rule in [Rule::AutoIdlePoint, Rule::AutoHold, Rule::AutoCap] {
+        assert_eq!(Rule::parse(rule.text()), Some(rule));
+        let row = decision(1, rule, Some("delivered"));
+        assert_eq!((row.mode(), row.interval_ms), ("auto", None));
+    }
+    assert_eq!(Rule::parse("auto_hold_cap"), None);
     assert!(reader.decisions(100, 0).is_err());
 }
 

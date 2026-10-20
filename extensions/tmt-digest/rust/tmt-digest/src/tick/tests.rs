@@ -230,8 +230,17 @@ fn each_rule_names_why_a_member_is_or_is_not_offered_delivery() {
     for mode in ["auto", "off", "20s"] {
         assert_eq!(row(mode, 0, None).rule(100_000), None);
     }
-    assert_eq!(row("auto", 1, Some(0)).rule(1), Some(Rule::AutoIdlePoint));
     assert_eq!(row("off", 1, Some(0)).rule(1), Some(Rule::Off));
+    // Auto holds below its cap and is capped at five messages or when the oldest
+    // has waited five minutes, whichever comes first; the boundary itself is capped.
+    let auto = |held, oldest| row("auto", held, oldest).rule(400_000);
+    assert_eq!(auto(1, Some(399_999)), Some(Rule::AutoHold));
+    assert_eq!(auto(4, Some(100_001)), Some(Rule::AutoHold));
+    assert_eq!(auto(5, Some(399_999)), Some(Rule::AutoCap));
+    assert_eq!(auto(1, Some(100_000)), Some(Rule::AutoCap));
+    assert_eq!(auto(2, Some(0)), Some(Rule::AutoCap));
+    // Held messages with no known age are held, never capped by a guessed age.
+    assert_eq!(auto(2, None), Some(Rule::AutoHold));
     // The oldest message waited 20 s only at 80 000.
     let interval = row("20s", 1, Some(60_000));
     assert_eq!(interval.rule(79_999), Some(Rule::NotDue));

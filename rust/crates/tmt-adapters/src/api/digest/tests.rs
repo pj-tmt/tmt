@@ -1,4 +1,4 @@
-//! Flush admission is pinned to an active UUID and exposes no claim or transport knobs.
+//! Flush admission is pinned to an active UUID. Its one knob skips only the live-idle evidence.
 use super::*;
 
 #[test]
@@ -8,13 +8,17 @@ fn flush_admits_only_a_canonical_uuid_without_originator_or_delivery_options() {
     let Request::Digest(operation) = super::super::decode(&valid.to_string()).unwrap() else {
         panic!("expected Digest operation");
     };
-    assert!(matches!(*operation,Operation::Flush(identity) if identity==id));
+    assert!(matches!(*operation,Operation::Flush{identity,when_busy:false} if identity==id));
     for input in [
         json!({}),
         json!({"identityId":"worker"}),
         json!({"identityId":"10000000-0000-4000-8000-00000000000A"}),
         json!({"identityId":id,"opportunity":"turn_boundary"}),
         json!({"identityId":id,"force":true}),
+        json!({"identityId":id,"whenBusy":"true"}),
+        json!({"identityId":id,"whenBusy":1}),
+        json!({"identityId":id,"whenBusy":null}),
+        json!({"identityId":id,"when_busy":true}),
     ] {
         let mut request = valid.clone();
         request["input"] = input;
@@ -25,6 +29,20 @@ fn flush_admits_only_a_canonical_uuid_without_originator_or_delivery_options() {
         request[field] = json!("anonymous");
         assert!(super::super::decode(&request.to_string()).is_err());
     }
+}
+
+#[test]
+fn flush_when_busy_is_a_boolean_that_only_flush_admits() {
+    let id = "10000000-0000-4000-8000-000000000001";
+    for (when_busy, expected) in [(true, true), (false, false)] {
+        let request = json!({"version":1,"operation":"digest.checklist.flush","input":{"identityId":id,"whenBusy":when_busy}});
+        let Request::Digest(operation) = super::super::decode(&request.to_string()).unwrap() else {
+            panic!("expected Digest operation");
+        };
+        assert!(matches!(*operation, Operation::Flush { when_busy, .. } if when_busy == expected));
+    }
+    let due = json!({"version":1,"operation":"digest.checklist.dueNow","input":{"identityId":id,"whenBusy":true}});
+    assert!(super::super::decode(&due.to_string()).is_err());
 }
 
 #[test]

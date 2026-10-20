@@ -21,7 +21,24 @@ const ROOT: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::Human,
-    details: "Use a duration, auto or off to save a member override. Use default to remove it and inherit the global default. Global default and flush count (flushCount) are configured in digest.toml. Run tmt digest tick once a minute to apply settings and deliver due digests; Core still checks that each member is ready to receive them.",
+    details: "Use a duration, auto or off to save a member override. Use default to remove it and inherit the global default. Set the global default with tmt digest global; the flush count (flushCount) is configured in digest.toml. Run tmt digest tick once a minute to apply settings and deliver due digests; Core still checks that each member is ready to receive them.",
+};
+
+const GLOBAL: CommandSpec = CommandSpec {
+    name: "global",
+    summary: "Set the global default digest mode",
+    examples: &[
+        Example {
+            command: "tmt digest global auto",
+            note: "Members without their own setting use auto",
+        },
+        Example {
+            command: "tmt digest global 10m",
+            note: "Members without their own setting hold messages for up to ten minutes",
+        },
+    ],
+    outputs: OutputModes::Human,
+    details: "Saves the mode that every member without its own setting inherits, and records who set it. A member that inherits the default lets that person's messages through the hold, so run it as the person who should reach members directly. Without a caller identity nothing is recorded and no one bypasses the hold except with --urgent.",
 };
 
 const TICK: CommandSpec = CommandSpec {
@@ -32,7 +49,7 @@ const TICK: CommandSpec = CommandSpec {
         note: "Run once a minute from an Ops squad cron, cron or launchd",
     }],
     outputs: OutputModes::Human,
-    details: "If another tick is already running, this one exits at once. Each run stays up to one minute to deliver digests as they fall due, then exits. With an interval, held messages are delivered once the oldest has waited that long, or sooner when the flush count is reached. auto and off currently deliver messages normally.",
+    details: "If another tick is already running, this one exits at once. Each run stays up to one minute to deliver digests as they fall due, then exits. With an interval, held messages are delivered once the oldest has waited that long, or sooner when the flush count is reached. With auto, messages are held while the member is busy and delivered as one digest when it is idle or its turn ends, and at the latest once five are held or the oldest has waited five minutes; the tick keeps the hold alive, so without it auto falls back to normal delivery within two minutes. off delivers messages normally.",
 };
 
 const SKILL: CommandSpec = CommandSpec {
@@ -75,7 +92,7 @@ const DECISIONS: CommandSpec = CommandSpec {
         },
     ],
     outputs: OutputModes::Json,
-    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_idle_point, off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule, answer or oldest held message changes, and holds until that member's next row. With --report, every member and the total show the messages delivered, the deliveries that took them (the baseline is one delivery per message), the turns saved (an upper bound, because a busy agent may combine queued messages anyway), and the delay from arrival to delivery; --recompute INTERVAL adds the same figures for that interval, estimated from arrival times only, so its delay is a lower bound and it compares rules rather than predicting them. This command does not tick or deliver messages.",
+    details: "Each row names the rule that decided a member (interval_deadline, flush_count, auto_hold, auto_cap, auto_idle_point (rows recorded before auto held messages), off or not_due), the held count and oldest held age it saw, and Core's answer to the delivery opportunity. Rows hold counts and times only, never message text. A row is written when a member's rule, answer or oldest held message changes, and holds until that member's next row. With --report, every member and the total show the messages delivered, the deliveries that took them (the baseline is one delivery per message), the turns saved (an upper bound, because a busy agent may combine queued messages anyway), and the delay from arrival to delivery; --recompute INTERVAL adds the same figures for that interval, estimated from arrival times only, so its delay is a lower bound and it compares rules rather than predicting them. This command does not tick or deliver messages.",
 };
 
 const USAGE: CommandSpec = CommandSpec {
@@ -111,6 +128,18 @@ pub fn command() -> Command {
         .bin_name("tmt digest")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_negates_reqs(true)
+        .subcommand(
+            tmt_cli_style::command(&GLOBAL).arg(
+                Arg::new("value")
+                    .value_name("DURATION|auto|off")
+                    .required(true)
+                    .help("Duration such as 30s, 5m or 1h, or auto or off")
+                    .value_parser(|text: &str| match crate::settings::Mode::parse(text) {
+                        Ok(_) => Ok(text.to_owned()),
+                        Err(error) => Err(error.message),
+                    }),
+            ),
+        )
         .subcommand(tmt_cli_style::command(&TICK))
         .subcommand(tmt_cli_style::command(&SKILL))
         .subcommand(

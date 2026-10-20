@@ -208,27 +208,32 @@ fn fresh_settings_can_postpone_or_remove_interval_hold_before_delivery() {
         fixture.settings(changed, None);
         port.deliver_if_current(MEMBER).unwrap();
         let calls = fixture.calls();
-        assert!(
-            !calls
-                .iter()
-                .any(|line| line.contains("digest.checklist.dueNow"))
-        );
-        let writes = fixture.writes();
-        assert_eq!(writes.len(), 2);
-        assert_eq!(
-            writes[1]["operation"],
-            if changed == "1h" {
-                "digest.policy.set"
-            } else {
-                "digest.policy.clear"
-            }
-        );
+        let due = calls
+            .iter()
+            .filter(|line| line.contains("digest.checklist.dueNow"))
+            .count();
+        let writes: Vec<_> = fixture
+            .writes()
+            .iter()
+            .map(|row| row["operation"].as_str().unwrap().to_owned())
+            .filter(|operation| operation != "digest.checklist.dueNow")
+            .collect();
+        // The first reading set the 20 s interval's hold; the fresh one decides the rest.
+        let (second, offered, marked) = match changed {
+            "1h" => ("digest.policy.set", 0, 0),
+            "off" => ("digest.policy.clear", 1, 0),
+            // Auto keeps the hold, so what is held is marked due before it is offered.
+            _ => ("digest.policy.set", 1, 1),
+        };
+        assert_eq!(writes, ["digest.policy.set", second], "{changed}");
+        assert_eq!(due, marked, "{changed}");
         assert_eq!(
             calls
                 .iter()
                 .filter(|line| line.contains("digest.checklist.flush"))
                 .count(),
-            usize::from(changed != "1h")
+            offered,
+            "{changed}"
         );
         port.finish().unwrap();
     }
@@ -317,7 +322,7 @@ fn already_started_core_call_finishes_after_boundary_then_no_new_call_starts() {
         held_count: 1,
         oldest_held_at_ms: Some(0),
     };
-    port.flush(&held, Rule::Off).unwrap();
+    port.flush(&held, Rule::Off, false).unwrap();
     assert!(Instant::now() >= boundary);
     assert!(port.observe().unwrap().is_empty());
     port.deliver_if_current(MEMBER).unwrap();
@@ -406,7 +411,9 @@ fn decisions(fixture: &Fixture) -> Vec<Decision> {
 fn every_rule_records_one_content_free_row_with_cores_answer() {
     // (mode, held, age of the oldest, expected rule, expected Core answer)
     for (mode, held, age, rule, outcome) in [
-        ("auto", 3, 5_000, Rule::AutoIdlePoint, Some("not_idle")),
+        ("auto", 3, 5_000, Rule::AutoHold, Some("not_idle")),
+        ("auto", 5, 5_000, Rule::AutoCap, Some("not_idle")),
+        ("auto", 1, 301_000, Rule::AutoCap, Some("not_idle")),
         ("off", 3, 5_000, Rule::Off, Some("not_idle")),
         ("20s", 1, 30_000, Rule::IntervalDeadline, Some("not_idle")),
         ("20s", 10, 1_000, Rule::FlushCount, Some("not_idle")),
@@ -461,12 +468,13 @@ fn a_member_holding_nothing_records_nothing_and_a_repeat_is_not_recorded_twice()
     }
     let rows = decisions(&fixture);
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].rule, Rule::AutoIdlePoint);
-    // A different answer from Core is a new decision.
+    assert_eq!(rows[0].rule, Rule::AutoHold);
+    // A different answer from Core is a new decision, once the backlog is offered again.
     fixture.write(
         "flush-not_idle.json",
         json!({"identityId":MEMBER,"state":"delivered"}),
     );
+    port.offered.clear();
     port.observe().unwrap();
     let outcomes: Vec<_> = decisions(&fixture).iter().map(|row| row.outcome).collect();
     assert_eq!(outcomes, [Some("not_idle"), Some("delivered")]);
@@ -505,7 +513,7 @@ fn an_uncertain_flush_is_recorded_and_a_later_postponement_is_a_new_decision() {
 
 #[test]
 fn a_settings_change_before_the_opportunity_records_the_rule_it_became() {
-    for (changed, rule) in [("off", Rule::Off), ("auto", Rule::AutoIdlePoint)] {
+    for (changed, rule) in [("off", Rule::Off), ("auto", Rule::AutoHold)] {
         let fixture = Fixture::new();
         fixture.stats(2, 30_000);
         let mut port = fixture.port();
@@ -541,7 +549,7 @@ fn a_state_that_lasts_across_ticks_writes_one_row_and_a_new_episode_or_answer_wr
         tick.observe().unwrap();
         tick.observe().unwrap();
     }
-    assert_eq!(rows(&fixture), [(Rule::AutoIdlePoint, Some("not_idle"))]);
+    assert_eq!(rows(&fixture), [(Rule::AutoHold, Some("not_idle"))]);
     // The same rule and answer for a newer oldest message is a new episode.
     fixture.arrived(1, arrived + 30_000);
     let mut tick = fixture.port();
@@ -557,7 +565,7 @@ fn a_state_that_lasts_across_ticks_writes_one_row_and_a_new_episode_or_answer_wr
     let mut tick = fixture.port();
     recorded(&fixture, &mut tick);
     tick.observe().unwrap();
-    assert_eq!(rows(&fixture)[2], (Rule::AutoIdlePoint, Some("delivered")));
+    assert_eq!(rows(&fixture)[2], (Rule::AutoHold, Some("delivered")));
 }
 
 #[test]
@@ -588,4 +596,191 @@ fn a_member_waiting_on_its_deadline_across_ticks_writes_one_not_due_row() {
             (Rule::IntervalDeadline, Some("not_idle"))
         ]
     );
+}
+
+fn offers(fixture: &Fixture, operation: &str) -> usize {
+    fixture
+        .calls()
+        .iter()
+        .filter(|line| line.contains(operation))
+        .count()
+}
+
+#[test]
+fn an_auto_backlog_is_offered_on_arrival_and_again_only_for_news_or_after_the_wait() {
+    let fixture = Fixture::new();
+    fixture.settings("auto", None);
+    let arrived = super::super::now_ms().unwrap() - 2_000;
+    fixture.arrived(2, arrived);
+    let mut port = fixture.port();
+    // The loop looks about once a second; a busy member is not asked each time.
+    for _ in 0..4 {
+        port.observe().unwrap();
+    }
+    assert_eq!(offers(&fixture, "digest.checklist.dueNow"), 1);
+    assert_eq!(offers(&fixture, "digest.checklist.flush"), 1);
+    // The range is marked due before it is offered, never the reverse.
+    let calls = fixture.calls();
+    let due = calls.iter().position(|l| l.contains("dueNow")).unwrap();
+    let flush = calls
+        .iter()
+        .position(|l| l.contains("checklist.flush"))
+        .unwrap();
+    assert!(due < flush);
+    // Another arrival is news: it is marked due and offered at once.
+    fixture.arrived(3, arrived);
+    port.observe().unwrap();
+    assert_eq!(offers(&fixture, "digest.checklist.dueNow"), 2);
+    assert_eq!(offers(&fixture, "digest.checklist.flush"), 2);
+    // The same backlog is offered again after the wait, and an emptied one forgets it.
+    port.offered.clear();
+    port.observe().unwrap();
+    assert_eq!(offers(&fixture, "digest.checklist.flush"), 3);
+    fixture.stats(0, 0);
+    port.observe().unwrap();
+    assert!(port.offered.is_empty());
+    assert_eq!(offers(&fixture, "digest.checklist.flush"), 3);
+    port.finish().unwrap();
+}
+
+#[test]
+fn only_the_cap_offers_past_a_busy_agent_and_below_it_core_keeps_its_idle_check() {
+    for (held, age, when_busy) in [
+        (1, 1_000, false),
+        (4, 240_000, false),
+        (5, 1_000, true),
+        (1, 300_000, true),
+        (9, 400_000, true),
+    ] {
+        let fixture = Fixture::new();
+        fixture.settings("auto", None);
+        fixture.stats(held, age);
+        let mut port = fixture.port();
+        port.observe().unwrap();
+        let flushes: Vec<Value> = fixture
+            .calls()
+            .iter()
+            .filter(|line| line.contains("digest.checklist.flush"))
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(flushes.len(), 1, "{held} held for {age} ms");
+        let input = &flushes[0]["input"];
+        assert_eq!(input["identityId"], MEMBER);
+        assert_eq!(
+            input.get("whenBusy").and_then(Value::as_bool),
+            when_busy.then_some(true),
+            "{held} held for {age} ms"
+        );
+        assert_eq!(input.as_object().unwrap().len(), 1 + usize::from(when_busy));
+    }
+    // Interval and off members never pass it.
+    for mode in ["off", "1s"] {
+        let fixture = Fixture::new();
+        fixture.settings(mode, None);
+        fixture.stats(20, 900_000);
+        let mut port = fixture.port();
+        for row in port.observe().unwrap() {
+            if matches!(row.mode, Mode::Interval { .. }) {
+                port.deliver_if_current(&row.identity_id).unwrap();
+            }
+        }
+        assert!(offers(&fixture, "digest.checklist.flush") >= 1, "{mode}");
+        assert_eq!(offers(&fixture, "whenBusy"), 0, "{mode}");
+    }
+}
+
+#[test]
+fn an_auto_member_gets_a_two_minute_hold_renewed_once_and_off_releases_it() {
+    let fixture = Fixture::new();
+    fixture.settings("auto", Some(SETTER));
+    fixture.stats(0, 0);
+    let mut port = fixture.port();
+    port.observe().unwrap();
+    fixture.policy(1, true);
+    port.observe().unwrap();
+    port.observe().unwrap();
+    let writes = fixture.writes();
+    assert_eq!(writes.len(), 1, "one renewal per invocation");
+    assert_eq!(writes[0]["operation"], "digest.policy.set");
+    let until = writes[0]["input"]["untilMs"].as_u64().unwrap();
+    let now = super::super::now_ms().unwrap();
+    assert!((now + 119_000..=now + 121_000).contains(&until), "{until}");
+    // A hold from a longer interval is cut back to the auto horizon, not kept.
+    fixture.settings("off", None);
+    let mut released = fixture.port();
+    fixture.policy(2, true);
+    released.observe().unwrap();
+    assert_eq!(
+        fixture.writes().last().unwrap()["operation"],
+        "digest.policy.clear"
+    );
+    // An inactive policy is set again the next minute.
+    let again = Fixture::new();
+    again.settings("auto", None);
+    again.stats(0, 0);
+    again.policy(3, false);
+    again.port().observe().unwrap();
+    assert_eq!(again.writes()[0]["operation"], "digest.policy.set");
+}
+
+#[test]
+fn an_inherited_auto_hold_is_owned_by_the_global_default_setter_and_none_means_the_member() {
+    let defaulted = |attribution: &str| {
+        let fixture = Fixture::new();
+        fs::write(
+            fixture.0.join("digest.toml"),
+            format!("default = 'auto'\n{attribution}"),
+        )
+        .unwrap();
+        fixture.stats(0, 0);
+        fixture
+    };
+    // (default attribution, pinned owner in Core, revision, expected owner, expected setter)
+    for (attribution, revision, owner, setter) in [
+        (
+            format!("defaultSetByIdentityId = '{OWNER}'\n"),
+            0,
+            OWNER,
+            OWNER,
+        ),
+        (String::new(), 0, MEMBER, MEMBER),
+        // A hold already pinned to the member itself adopts a setter recorded later...
+        (
+            format!("defaultSetByIdentityId = '{OWNER}'\n"),
+            4,
+            OWNER,
+            OWNER,
+        ),
+    ] {
+        let fixture = defaulted(&attribution);
+        if revision > 0 {
+            fixture.write("policies.json", json!({"policies":[{"identityId":MEMBER,"revision":revision,"active":true,"ownerIdentityId":MEMBER,"setterIdentityId":MEMBER}]}));
+        } else {
+            fixture.policy(0, false);
+        }
+        let mut port = fixture.port();
+        port.observe().unwrap();
+        let writes = fixture.writes();
+        assert_eq!(writes.len(), 1, "{attribution}");
+        assert_eq!(
+            writes[0]["input"]["ownerIdentityId"], owner,
+            "{attribution}"
+        );
+        assert_eq!(
+            writes[0]["input"]["setterIdentityId"], setter,
+            "{attribution}"
+        );
+        assert_eq!(writes[0]["input"]["expectedRevision"], revision);
+    }
+    // ...but a pinned owner other than the member is never replaced, and an unchanged
+    // adopted hold is not rewritten on every look.
+    let fixture = defaulted(&format!("defaultSetByIdentityId = '{SETTER}'\n"));
+    fixture.policy(5, true);
+    let mut port = fixture.port();
+    port.observe().unwrap();
+    port.observe().unwrap();
+    let writes = fixture.writes();
+    assert_eq!(writes.len(), 1, "one renewal for the invocation");
+    assert_eq!(writes[0]["input"]["ownerIdentityId"], OWNER);
+    assert_eq!(writes[0]["input"]["setterIdentityId"], SETTER);
 }
