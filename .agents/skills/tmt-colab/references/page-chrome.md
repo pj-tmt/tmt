@@ -141,8 +141,8 @@ Proposal cards, including Approve, Decline, Follow up, Resolve and the follow-up
 with no available space above them, the floating actions temporarily hide while header
 entry points remain available. Card/FAB observers and scroll listeners clean up with that effect. This does not
 change drafts, active-tab geometry retirement, selection coordinates or send policy.
-Author backgrounds and widths belong to the page; parent theme tokens style
-chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
+Author backgrounds and widths belong to the page, except on a `column` or `full` layout
+(#3913), where Colab owns the frame (below); parent theme tokens style chrome. `theme.ts` reads the parent's explicit root choice, otherwise the live OS
 preference; theme actions record Light/Dark or remove the explicit choice for System only on activation. `renderer.ts` subscribes
 for its mounted lifetime and projects the effective light/dark value through the
 bound init/port. The bootstrap sets root `data-theme` before author code and updates
@@ -155,6 +155,17 @@ Colab's choice, while media-only author CSS follows the OS. Fixed-look pages use
 unconditional CSS palettes, not a pinned root theme attribute; the bundled skill
 shows that authoring rule. The unstyled white
 canvas, sandbox attributes, source limits and CSP remain unchanged.
+
+**Page frame (#3913).** `mountRenderer({ layout })` adds an optional `layout` to the bind; only
+`column` and `full` make the bootstrap set `data-colab-layout` and the generated `src/page-frame.css`
+apply, in a layer declared before author styles. The column (`min(1280px, 100% - 32px)`), the
+16/8/40 px gaps and `data-width="full"` are defined there and nowhere else in the frame; the
+parent's `.canvas[data-layout] .proposal-inline` rule in `style.css` repeats the column's gutter
+so reading and review bands sit on it, and the pending page frame uses `columnInlineSize`. Question
+blocks keep the frame's own measurement of their passage. The frame's chip marker is out of flow,
+so it adds no blank line between blocks. `PageSnapshot.layout` is absent for every page until the
+layout is page metadata (#3926); `freeform`, `canvas` and absent bind nothing. An inline `style`
+with `!important` is the one author declaration the frame cannot override.
 
 Source revisions replace only the author renderer, not parent chrome. `router.tsx`
 keeps the mounted annotation input and frozen quote/rectangle during loading;
@@ -262,7 +273,9 @@ sends, highlight reprojection, window offsets and page-change resets at 1440/390
 `e2e/renderer-scroll.spec.ts` covers owner and reader resizing, local anchors,
 viewport-growth fallback and malformed/stale/over-limit claims. `e2e/theme.spec.ts`
 covers OS defaults, explicit choices, live updates, render bindings and cleanup
-without reload, plus the media-only CSS limit. Existing Ask,
+without reload, plus the media-only CSS limit. `e2e/column-frame.spec.ts` and
+`e2e/column-bands.spec.ts` cover the frame's column, gaps, `full` blocks and author overrides, and
+the bands on it, at 1440, 1024, 390 and 2000 px; `e2e/renderer.spec.ts` covers the layout bind key. Existing Ask,
 discussion, management and export scenarios verify the publication controls;
 run the [app/browser and real-binary acceptance gates](development.md).
 

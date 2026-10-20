@@ -2,6 +2,7 @@ import { entryMount, publicEntry } from './entry.js';
 import { isHostedOrigin } from './hosted-location.js';
 import { validShellAnchor } from './shell.js';
 import { validateSelector, type QuoteSelector } from './thread-records.js';
+import type { PageLayout } from './page-layout.js';
 import { text } from './strings.js';
 import { getTheme, subscribeTheme } from './theme.js';
 import { switcherModifiers, type SwitcherKeyRequest } from './quick-switcher-key.js';
@@ -160,6 +161,8 @@ export async function mountRenderer(
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
     images?: DocumentImageInput;
+    /** How Colab frames the page; absent is `freeform`, which leaves the author's layout alone. */
+    layout?: PageLayout;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
@@ -1033,7 +1036,12 @@ export async function mountRenderer(
     // The bootstrap load receives source once; document.write completes the second load.
     if (loads !== 1) return;
     frame.contentWindow?.postMessage(
-      { type: 'colab.render.bind', ...snapshot, theme: getTheme() },
+      {
+        type: 'colab.render.bind',
+        ...snapshot,
+        theme: getTheme(),
+        ...(options.layout ? { layout: options.layout } : {}),
+      },
       '*',
       [channel.port2],
     );

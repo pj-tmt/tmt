@@ -1,0 +1,91 @@
+/* The render frame of a `column` or `full` page (#3913). This file is inlined into renderer.html by
+   scripts/generate-renderer-style.mjs and applies only inside the opaque frame, where the page's HTML
+   is written; the parent's `.canvas[data-layout]` rules in style.css draw the same column.
+
+   Colab owns the column width, the side gutters and the vertical rhythm between top-level blocks.
+   The `!important` declarations sit in a layer declared before any author style, so an author's
+   `!important` cannot win. Colours, type and the layout inside a block stay the author's.
+   A block is an element child of <body> that the frame did not add itself.
+   Numbers: column 1280 px, gutter 16 px, gap 16 px (tight 8, loose 40). */
+@layer colab-frame {
+  html:is([data-colab-layout='column'], [data-colab-layout='full']) {
+    margin-inline: 0 !important;
+    padding-inline: 0 !important;
+    border-inline: 0 !important;
+
+    /* A flex column keeps a block's margin from collapsing into its children's, so a gap is exactly
+       the gap. */
+    > body {
+      display: flex !important;
+      flex-direction: column !important;
+      flex-wrap: nowrap !important;
+      align-items: stretch !important;
+      justify-content: flex-start !important;
+      box-sizing: border-box !important;
+      row-gap: 16px !important;
+      column-gap: 0 !important;
+      width: auto !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      margin-inline: 0 !important;
+      padding-inline: 0 !important;
+      border-inline: 0 !important;
+
+      > :not(
+        script,
+        style,
+        template,
+        noscript,
+        link,
+        meta,
+        [hidden],
+        [data-colab-highlight],
+        [data-colab-proposal-slot],
+        [data-colab-chip-slot]
+      ) {
+        box-sizing: border-box !important;
+        flex: none !important;
+        align-self: center !important;
+        width: min(1280px, 100% - 32px) !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        margin: 0 !important;
+
+        /* Edge to edge; the text inside still starts on the column. */
+        &[data-width='full'] {
+          align-self: stretch !important;
+          width: auto !important;
+          padding-inline: max(16px, (100% - 1280px) / 2) !important;
+          border-inline: 0 !important;
+        }
+
+        /* The gap above a block is measured from the previous block; the first block has none. */
+        &
+          ~ :not(
+            script,
+            style,
+            template,
+            noscript,
+            link,
+            meta,
+            [hidden],
+            [data-colab-highlight],
+            [data-colab-proposal-slot],
+            [data-colab-chip-slot]
+          ) {
+          &[data-gap='tight'] {
+            margin-block-start: -8px !important;
+          }
+          &[data-gap='loose'] {
+            margin-block-start: 24px !important;
+          }
+        }
+      }
+
+      /* The room the frame reserves for a parent-drawn band sits against its passage. */
+      > [data-colab-proposal-slot] {
+        margin-block-start: -16px !important;
+      }
+    }
+  }
+}
