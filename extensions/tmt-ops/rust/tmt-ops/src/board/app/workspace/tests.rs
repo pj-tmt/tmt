@@ -2948,12 +2948,11 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     assert_eq!(app.workspace.selected, original);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     paint(&app, 60, 8);
+    // Agents shows one pane at a time here: Tab swaps to the conversation and back.
     key(&mut app, KeyCode::Tab);
-    assert_eq!(
-        app.focused_pane(),
-        Some(Pane::Rows),
-        "Overview cannot focus its hidden conversation"
-    );
+    assert_eq!(app.focused_pane(), Some(Pane::Replies));
+    key(&mut app, KeyCode::Tab);
+    assert_eq!(app.focused_pane(), Some(Pane::Rows));
 }
 
 mod agents_chips;
@@ -3189,8 +3188,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
-        "Agents paints filter/search/estimate controls and the global Snapshots action"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots | crate::action::OpsUiAction::TalkMeasure)))),
+        "Agents paints filter/search/estimate controls, Talk/Measure and the global Snapshots action"
     );
 }
 
@@ -3579,7 +3578,10 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
             ),
             (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
         ] {
-            for tab in [OpsTab::Agents] {
+            for filter in [
+                crate::board::workspace::AgentsFilter::All,
+                crate::board::workspace::AgentsFilter::Agents,
+            ] {
                 for mode in ["hidden", "scoped", "revealed"] {
                     let mut app = populated_board(2, 4);
                     let view = app.view.as_mut().unwrap();
@@ -3612,7 +3614,8 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     } else {
                         other
                     }));
-                    app.shell.tab = tab;
+                    app.shell.tab = OpsTab::Agents;
+                    app.workspace.filter = filter;
                     app.workspace_reconcile();
                     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
                     terminal
@@ -3652,7 +3655,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     if mode == "hidden" {
                         assert!(rows.iter().all(|row| !matches!(&row.target,OpsTarget::Squad(id) if id.ends_with("000000000000"))));
                     }
-                    if tab == OpsTab::Agents {
+                    if filter == crate::board::workspace::AgentsFilter::All {
                         assert!(text.contains(if mode == "revealed" {
                             "2 squads ·"
                         } else {
@@ -3662,7 +3665,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                             assert!(!text.contains("+ Common pool"));
                         }
                     }
-                    if tab == OpsTab::Agents {
+                    {
                         let scene = crate::board::overview::monitor::scene(
                             &app,
                             app.workspace_snapshot().unwrap(),
@@ -3693,7 +3696,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                     if mode != "revealed" {
                         assert!(control.is_some());
                     }
-                    captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{tab:?}"),"mode":mode,"lines":lines,
+                    captures.push(json!({"width":width,"height":height,"base":format!("{base:?}"),"depth":format!("{depth:?}"),"tab":format!("{:?}", OpsTab::Agents),"filter":format!("{filter:?}"),"mode":mode,"lines":lines,
                         "cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>(),
                         "selected":format!("{before:?}"),"hits":format!("{:?}",app.hits.borrow())}));
                     if let Some((area, choice)) = control {
@@ -4381,15 +4384,11 @@ fn committed_search_count_lives_in_filter_and_highlights_matching_name() {
         .chunks(148)
         .map(|row| row.iter().map(|cell| cell.symbol()).collect())
         .collect();
-    let rule = lines
-        .iter()
-        .find(|line| line.contains("── Squads"))
-        .expect("Squads section rule");
-    assert!(!rule.contains("of 1"), "{rule}");
     let filter = lines
         .iter()
         .find(|line| line.contains("/  worker"))
         .expect("shared search field");
+    assert!(filter.starts_with("── "), "the controls sit on the section rule: {filter}");
     assert!(
         filter.contains("1 of 1") && filter.contains('×'),
         "{filter}"
@@ -5140,18 +5139,20 @@ fn counters_state_and_status_turn_stale_together() {
         // The TEAM glyph is the counter this frame shows for the member.
         let team = screen
             .lines()
-            .find(|line| line.starts_with("   product "))
+            .find(|line| line.contains("▾ product "))
+            .and_then(|line| line.split("product").nth(1))
             .unwrap_or_default()
+            .trim_start()
             .to_owned();
         if case == "fresh" {
-            assert!(team.contains("product   ●"), "{case}: {team}");
+            assert!(team.starts_with('●'), "{case}: {team}");
             assert_eq!((summary.working, summary.unknown_activity), (1, 0));
             assert!(
                 row.contains("● working") && header.contains("working · product"),
                 "{row} / {header}"
             );
         } else {
-            assert!(team.contains("product   ?"), "{case}: {team}");
+            assert!(team.starts_with('?'), "{case}: {team}");
             assert_eq!(
                 (summary.working, summary.unknown_activity),
                 (0, 1),
@@ -5289,10 +5290,10 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
 #[test]
 fn overview_state_keeps_the_task_by_width_and_without_colour() {
     for (depth, width, words) in [
-        (tmt_cli_style::Depth::TrueColor, 160, "● working · blocked"),
+        (tmt_cli_style::Depth::TrueColor, 110, "● working · blocked"),
         (tmt_cli_style::Depth::TrueColor, 82, "● working "),
         (tmt_cli_style::Depth::TrueColor, 60, "● working "),
-        (tmt_cli_style::Depth::None, 160, "● working · blocked"),
+        (tmt_cli_style::Depth::None, 110, "● working · blocked"),
     ] {
         let look = crate::look::Look {
             theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::Tmt),
@@ -5301,12 +5302,17 @@ fn overview_state_keeps_the_task_by_width_and_without_colour() {
         let mut app = disagreeing_board(false, look);
         app.shell.tab = OpsTab::Agents;
         app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
-        let screen = paint(&app, width, 36).join("\n");
-        assert!(screen.contains(words), "{depth:?} {width}: {screen}");
-        if width < 160 {
+        let screen = paint(&app, width, 36);
+        // The list row alone: the selected agent's header repeats its task.
+        let row = screen
+            .iter()
+            .find(|line| line.contains("worker") && line.contains("product"))
+            .unwrap_or_else(|| panic!("{depth:?} {width}: {screen:#?}"));
+        assert!(row.contains(words), "{depth:?} {width}: {row}");
+        if width < 110 {
             assert!(
-                !screen.contains("· bl"),
-                "a narrow row drops the whole task, never part of it"
+                !row.contains("· bl"),
+                "a narrow row drops the whole task, never part of it: {row}"
             );
         }
     }
@@ -5335,15 +5341,15 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
         };
         for (task, width, expected, words) in [
             // A short label keeps the 12-cell minimum.
-            (None, 160, 12, "● working"),
+            (None, 110, 12, "● working"),
             // A longer label widens to its own width, not to the room.
-            (Some("blocked"), 160, 19, "● working · blocked"),
+            (Some("blocked"), 110, 19, "● working · blocked"),
             (Some("blocked"), 300, 19, "● working · blocked"),
             // The room bounds the column; a label that does not fit it whole is dropped from the cell.
             (Some("blocked"), 82, 18, "● working "),
             (Some("blocked"), 60, 12, "● working "),
             // A label that does not fit the 32-cell cap whole is dropped, so the column stays at 12.
-            (Some(long), 160, 12, "● working "),
+            (Some(long), 110, 12, "● working "),
             (Some(long), 90, 12, "● working "),
         ] {
             let mut app = match task {
@@ -5377,7 +5383,7 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
             // The row's tokens start right after the column and its one gap.
             let row = screen
                 .iter()
-                .find(|line| line.contains(words))
+                .find(|line| line.contains(words) && line.contains("product"))
                 .unwrap_or_else(|| panic!("{case}: {screen:#?}"));
             let state = row.find("● ").unwrap();
             let after = row[state..].chars().skip(expected).collect::<String>();
@@ -5413,7 +5419,7 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
         let screen = paint(&app, 160, 36).join("\n");
         let team = screen
             .lines()
-            .find(|line| line.contains("product"))
+            .find(|line| line.contains("▾ product"))
             .unwrap_or_else(|| panic!("{state}: {screen}"));
         assert!(team.contains(glyph), "{state}: {team}");
         assert!(!team.contains('✗'), "{state}: {team}");
@@ -5599,7 +5605,7 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         app.shell.tab = OpsTab::Agents;
         app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
         // At 80 cells the STATE room is 16: the whole task is dropped, never cut.
-        for (width, words) in [(160, unread.clone()), (80, "● 2 unread".to_owned())] {
+        for (width, words) in [(110, unread.clone()), (80, "● 2 unread".to_owned())] {
             let screen = paint(&app, width, 36).join("\n");
             assert!(screen.contains(&words), "{word} {width}: {screen}");
             if width == 80 {
