@@ -463,7 +463,7 @@ fn captures() -> Value {
                             app.workspace.filter = crate::board::workspace::AgentsFilter::Pinned;
                         }
                         app.shell.tab = if mode.starts_with("overview") {
-                            crate::board::shell::OpsTab::Overview
+                            crate::board::shell::OpsTab::Agents
                         } else {
                             crate::board::shell::OpsTab::Agents
                         };

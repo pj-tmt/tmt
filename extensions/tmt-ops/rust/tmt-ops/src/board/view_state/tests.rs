@@ -38,7 +38,7 @@ fn saved() -> ViewState {
 }
 fn cold() -> App {
     let mut app = board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.workspace.expanded.clear();
     app.workspace.pool_expanded = false;
     app.workspace.selected = None;
@@ -180,7 +180,7 @@ fn partial_unknown_failed_and_loading_views_do_not_apply_or_clobber_the_hint() {
             .observation = observation;
         assert!(session.tick(&mut app, Instant::now()).1.is_none());
         assert!(session.hint.is_some());
-        assert_eq!(app.shell.tab, OpsTab::Overview);
+        assert_eq!(app.shell.tab, OpsTab::Agents);
         assert_eq!(app.workspace.selected, initial_selection);
         assert!(
             app.workspace_selected_member().is_none(),
@@ -813,7 +813,6 @@ fn missing_or_unknown_quota_choice_keeps_other_committed_controls() {
 fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     use crate::config::StartupTab;
     let fixed = [
-        (StartupTab::Overview, OpsTab::Overview),
         (StartupTab::Agents, OpsTab::Agents),
         (StartupTab::Digest, OpsTab::Digest),
     ];
@@ -849,9 +848,9 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
             app.shell.tab, tab,
             "saved Agents tab cannot override fixed startup"
         );
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.workspace_reconcile();
-        assert_eq!(app.shell.tab, OpsTab::Overview, "startup is consumed once");
+        assert_eq!(app.shell.tab, OpsTab::Agents, "startup is consumed once");
     }
     let mut app = cold();
     let mut session = Session::load(scratch.file(), false, false);

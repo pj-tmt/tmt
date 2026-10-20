@@ -769,10 +769,9 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
         .unwrap()["fields"]["link"] = json!("https://example.test/pr");
     let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
     for (key, tab) in [
-        ('2', OpsTab::Agents),
-        ('1', OpsTab::Overview),
-        ('3', OpsTab::Digest),
-        ('2', OpsTab::Agents),
+        ('1', OpsTab::Agents),
+        ('2', OpsTab::Digest),
+        ('1', OpsTab::Agents),
     ] {
         app.focus = 0;
         app.key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE));
@@ -796,7 +795,7 @@ fn switching_shell_keeps_uuid_and_link_while_overview_discusses_only_an_observed
                 !text.contains("worker line 089"),
                 "Digest shows status details"
             );
-        } else if tab == OpsTab::Overview {
+        } else if tab == OpsTab::Agents {
             assert!(text.contains("No question observed."), "{text}");
             assert!(!text.contains("Loading recent pane output"), "{text}");
             assert!(
@@ -1440,7 +1439,7 @@ fn digest_details_do_not_admit_recent_output_even_with_the_shared_scroll_pane() 
         .rows
         .get_mut(&selected)
         .unwrap()["waitingOnYou"] = json!([{"requestId":"req_55555555-5555-4555-8555-555555555555","preparedAtMs":1000,"preview":"A real waiting question keeps Overview's response viewport visible."}]);
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     workspace(&mut app, 160, 36);
     assert!(
         app.scrolls.visible(Pane::Replies),

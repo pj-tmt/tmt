@@ -49,7 +49,7 @@ pub(super) fn populate_values(app: &mut App, values: [u64; 12]) {
     snapshot.tabs = app.tabs.clone();
     snapshot.view = Ok(view);
     app.apply(snapshot);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.focus = 0;
 }
 

@@ -607,7 +607,7 @@ mod frozen_membership_tests {
     #[test]
     fn flat_overview_identity_resolves_an_acquired_membership_before_showing_agents() {
         let mut app = app();
-        app.shell.tab = crate::board::shell::OpsTab::Overview;
+        app.shell.tab = crate::board::shell::OpsTab::Agents;
         app.workspace.selected = Some(OpsTarget::Member {
             room_id: None,
             identity_id: MEMBER.into(),
@@ -932,17 +932,17 @@ mod named_surface_tests {
     fn single_row_link_opens_directly_and_optional_hint_never_evicts_core_keys() {
         let mut app = app();
         app.focus = 0;
-        app.shell.tab = crate::board::shell::OpsTab::Overview;
+        app.shell.tab = crate::board::shell::OpsTab::Agents;
         paint_row(&app, "ask night-2");
         let mut shown = 0;
         for width in 0..=160 {
             let baseline = {
                 let held = std::mem::take(&mut app.member_links.borrow_mut().hits);
-                let text = crate::board::view::footer::overview_hints(&app, width).unwrap();
+                let text = crate::board::view::footer::agents_hints(&app, width).unwrap();
                 app.member_links.borrow_mut().hits = held;
                 text
             };
-            let actual = crate::board::view::footer::overview_hints(&app, width).unwrap();
+            let actual = crate::board::view::footer::agents_hints(&app, width).unwrap();
             if actual.contains("@ names") {
                 shown += 1;
                 assert_eq!(actual.replacen("@ names  ", "", 1), baseline);
@@ -973,7 +973,7 @@ mod named_surface_tests {
             serde_json::json!({"task":"Review night-2 then @night-2; ben builder stay plain"});
         app.overview_rows.borrow_mut().clear();
         if scene == "task" || scene == "notice" {
-            app.shell.tab = crate::board::shell::OpsTab::Overview;
+            app.shell.tab = crate::board::shell::OpsTab::Agents;
             // The agents list shows no free text; a squad's "now" line is the task surface.
             app.overview_view = crate::board::overview::monitor::View::Squads;
             app.focus = 0;

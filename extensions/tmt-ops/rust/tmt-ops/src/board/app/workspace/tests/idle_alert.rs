@@ -132,7 +132,7 @@ fn the_workspace_menu_ends_with_a_rule_and_the_selected_squads_settings_only_whe
     assert_eq!(menu.entries[menu.selected].label, "Squad settings: product");
     key(&mut app, KeyCode::Up);
     let menu = app.menu.as_ref().unwrap();
-    assert_eq!(menu.entries[menu.selected].label, "Actions");
+    assert_eq!(menu.entries[menu.selected].label, "Panels");
     app.menu = None;
     app.workspace.selected = Some(OpsTarget::Pool);
     app.workspace_settings();

@@ -36,7 +36,7 @@ fn app_save_query_owns_typing_but_its_action_list_allows_destination_keys() {
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!app.recovery.as_ref().unwrap().owns_typing());
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
         Effect::None
     );
     assert_eq!(app.shell.tab, OpsTab::Digest);
@@ -826,7 +826,7 @@ fn app_snapshot_action_is_available_on_every_tab_without_replacing_its_owner() {
         action::{OpsUiAction, Verb},
         board::{app::Effect, shell::OpsTab},
     };
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = crate::board::app::workspace::tests::board();
         app.shell.tab = tab;
         assert!(
@@ -941,7 +941,7 @@ fn top_bar_snapshot_padding_uses_the_existing_recovery_owner_on_every_tab() {
         },
     };
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         let mut app = crate::board::app::workspace::tests::board();
         app.shell.tab = tab;
         let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
@@ -974,7 +974,7 @@ fn help_has_one_effective_snapshot_binding_and_no_retired_reservation() {
     let mut app = crate::board::app::workspace::tests::board();
     for (tab, expected) in [
         (OpsTab::Agents, 1),
-        (OpsTab::Overview, 1),
+        (OpsTab::Agents, 1),
         (OpsTab::Digest, 1),
     ] {
         app.shell.tab = tab;

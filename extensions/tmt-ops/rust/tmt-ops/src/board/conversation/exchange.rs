@@ -3,32 +3,9 @@ use super::*;
 use crate::board::{empty_state, exchange_view as exchange};
 
 /// The host chooses placement and admission; sessions and scrolling stay here.
-pub(in crate::board) enum Surface {
-    Overview,
-    Agents {
-        target: RowTarget,
-        interactive: bool,
-    },
-}
-impl Surface {
-    fn target(&self, app: &App) -> Option<RowTarget> {
-        match self {
-            Self::Overview => app.conversation_target(),
-            Self::Agents { target, .. } => Some(target.clone()),
-        }
-    }
-    fn interactive(&self) -> bool {
-        !matches!(
-            self,
-            Self::Agents {
-                interactive: false,
-                ..
-            }
-        )
-    }
-    fn is_agents(&self) -> bool {
-        matches!(self, Self::Agents { .. })
-    }
+pub(in crate::board) struct Surface {
+    pub target: RowTarget,
+    pub interactive: bool,
 }
 
 impl Session {
@@ -49,13 +26,8 @@ impl Session {
 
 /// Measure the held group with the same wrapped body the painter uses. Empty
 /// observations never reserve a minimum transcript or impose a growth cap.
-pub(in crate::board) fn desired_height(app: &App, width: u16) -> u16 {
-    desired_height_for(app, width, &Surface::Overview)
-}
-pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surface) -> u16 {
-    let Some(target) = surface.target(app) else {
-        return 1;
-    };
+pub(in crate::board) fn desired_height(app: &App, width: u16, surface: &Surface) -> u16 {
+    let target = surface.target.clone();
     let Some(row) = app.target_row(&target) else {
         return 1;
     };
@@ -66,14 +38,9 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
         app.view.as_ref().and_then(|view| view.me_id.clone()),
         id.to_owned(),
     );
-    let has_link =
-        !surface.is_agents() && super::link_preview(app, row, &app.workspace_bindings()).is_some();
     let mut state = app.conversation.borrow_mut();
     let session = state.sessions.entry(identity).or_default();
     session.observe_context(app, &target, row);
-    if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
-        return 1;
-    }
     session.prepare_grouped(usize::from(width), app.look(), &app.references);
     let waiting = (session.outgoing.is_empty() || session.tail.is_some())
         && session.reply.as_ref().is_some_and(|reply| {
@@ -84,32 +51,18 @@ pub(in crate::board) fn desired_height_for(app: &App, width: u16, surface: &Surf
         });
     (usize::from(session.group_heading_reply().is_some())
         + session.rendered.as_ref().unwrap().mapped.lines.len()
-        + usize::from(waiting)
-        + usize::from(has_link))
+        + usize::from(waiting))
     .min(usize::from(u16::MAX)) as u16
 }
 
-pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    render_for(frame, app, area, &Surface::Overview);
-}
-pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, surface: &Surface) {
+pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect, surface: &Surface) {
     let look = app.look();
     {
         let mut state = app.conversation.borrow_mut();
         state.header_hits.clear();
         state.response_area = None;
     }
-    let Some(target) = surface.target(app) else {
-        app.conversation.borrow_mut().active = None;
-        empty_state::paint(
-            frame.buffer_mut(),
-            area,
-            "Select a squad or agent.",
-            None,
-            look,
-        );
-        return;
-    };
+    let target = surface.target.clone();
     let Some(row) = app
         .target_row(&target)
         .filter(|row| row["id"].as_str().is_some())
@@ -135,17 +88,9 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         .and_then(|view| view.me.as_deref())
         .unwrap_or("you");
     let name = row["name"].as_str().unwrap_or("unknown agent");
-    let bindings = app.workspace_bindings();
-    let link = (!surface.is_agents())
-        .then(|| super::link_preview(app, row, &bindings))
-        .flatten();
     let reader_keys = app.workspace_context_bindings(
         app.workspace.selected.as_ref(),
-        if surface.is_agents() {
-            crate::config::OpsKeyScope::Reader
-        } else {
-            crate::config::OpsKeyScope::OverviewReader
-        },
+        crate::config::OpsKeyScope::Reader,
         row["pane"]["location"]["host"].as_str(),
     );
     let earlier_key = reader_keys
@@ -155,7 +100,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         })
         .map(|(key, _)| crate::board::view::footer::key_label(key).to_owned())
         .filter(|_| app.input.is_none() && !app.modal_open() && !app.loading());
-    let read_only = !surface.interactive()
+    let read_only = !surface.interactive
         || app
             .composer_projection()
             .is_none_or(|projection| projection.key.is_none());
@@ -164,16 +109,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     state.active = Some(identity.clone());
     let session = state.sessions.entry(identity.clone()).or_default();
     session.observe_context(app, &target, row);
-    if !surface.is_agents() && session.reply.is_none() && session.outgoing.is_empty() {
-        empty_state::paint(
-            frame.buffer_mut(),
-            area,
-            "No question observed.",
-            None,
-            look,
-        );
-        return;
-    }
     let question = session.reply.as_ref().is_some_and(|reply| {
         reply
             .key
@@ -186,7 +121,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
         |reply| reply.age_at(crate::status::now_ms()),
     );
     let stamp = age_stamp(&age);
-    let stamp = if surface.is_agents() && session.change != Change::Current {
+    let stamp = if session.change != Change::Current {
         format!(
             "{stamp} · {}",
             if session.change == Change::NewOutput {
@@ -195,8 +130,6 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                 "unavailable"
             }
         )
-    } else if session.change != Change::Current {
-        format!("{stamp} · End follows")
     } else {
         stamp
     };
@@ -222,9 +155,9 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
     let rebuilt = session.prepare_grouped(usize::from(area.width), look, &app.references);
     let footer_rows = u16::from(
         question && (session.outgoing.is_empty() || session.tail.is_some()) && area.height >= 3,
-    ) + u16::from(link.is_some() && area.height >= 4);
+    );
     // Long observations retain their viewport and paging indicator; optional
-    // waiting/link captions yield before the response or the filled input.
+    // the waiting caption yields before the response or the filled input.
     let footer_rows = if session.rendered.as_ref().unwrap().mapped.lines.len()
         + usize::from(header.height + footer_rows)
         > usize::from(area.height)
@@ -316,7 +249,7 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
                 }
             },
         );
-    if surface.interactive() {
+    if surface.interactive {
         super::super::member_links::paint_hits(
             frame,
             app,
@@ -341,26 +274,11 @@ pub(in crate::board) fn render_for(frame: &mut Frame, app: &App, area: Rect, sur
             .anchor
             .select_visual(&rendered.anchor_text, &rendered.anchor_sources, offset);
     }
-    let mut y = body.bottom();
     if question && (session.outgoing.is_empty() || session.tail.is_some()) && footer_rows > 0 {
         strip::paint_left(
             frame.buffer_mut(),
-            Rect::new(area.x, y, area.width, 1),
+            Rect::new(area.x, body.bottom(), area.width, 1),
             exchange::waiting(look),
-        );
-        y += 1;
-    }
-    if let Some(link) = link.filter(|_| footer_rows > 0 && y < area.bottom()) {
-        strip::paint_left(
-            frame.buffer_mut(),
-            Rect::new(area.x, y, area.width, 1),
-            exchange::link(
-                &link.value,
-                if app.input.is_none() { &link.key } else { "" },
-                &link.wording,
-                usize::from(area.width),
-                look,
-            ),
         );
     }
     state.response_area = Some(body);

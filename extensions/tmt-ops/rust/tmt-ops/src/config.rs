@@ -62,7 +62,6 @@ fn split_value(split: &Split) -> Value {
 pub enum StartupTab {
     #[default]
     Last,
-    Overview,
     Agents,
     Digest,
 }
@@ -70,9 +69,9 @@ impl StartupTab {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "last" => Some(Self::Last),
-            "overview" | "1" => Some(Self::Overview),
-            "agents" | "2" => Some(Self::Agents),
-            "digest" | "3" => Some(Self::Digest),
+            // Overview was merged into Agents: its name and saved value open Agents.
+            "overview" | "agents" | "1" => Some(Self::Agents),
+            "digest" | "2" => Some(Self::Digest),
             _ => None,
         }
     }
@@ -84,7 +83,6 @@ impl StartupTab {
     pub fn name(self) -> &'static str {
         match self {
             Self::Last => "last",
-            Self::Overview => "overview",
             Self::Agents => "agents",
             Self::Digest => "digest",
         }

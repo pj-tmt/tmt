@@ -20,7 +20,7 @@ fn overview_monitor_frame_timing() {
     crate::status::with_now_ms(1_791_600_000_000, || {
         for rows in [150, 1_000, 10_000] {
             let mut app = populated_board(36, rows);
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
             app.workspace_reconcile();
             let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
             for _ in 0..10 {

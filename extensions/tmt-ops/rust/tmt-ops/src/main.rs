@@ -1497,12 +1497,10 @@ mod tests {
     #[test]
     fn startup_tab_flag_admits_fixed_destinations_and_rejects_invalid_values() {
         for (name, expected) in [
-            ("overview", config::StartupTab::Overview),
-            ("1", config::StartupTab::Overview),
             ("agents", config::StartupTab::Agents),
-            ("2", config::StartupTab::Agents),
+            ("1", config::StartupTab::Agents),
             ("digest", config::StartupTab::Digest),
-            ("3", config::StartupTab::Digest),
+            ("2", config::StartupTab::Digest),
         ] {
             let parsed = grammar()
                 .try_get_matches_from(["tmt-ops", "ui", "--tab", name])

@@ -23,7 +23,7 @@ fn app_discovery_name_owns_typing_and_tab_to_actions_releases_destination_keys()
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(!app.discovery.as_ref().unwrap().owns_typing());
     assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE)),
+        app.key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE)),
         Effect::None
     );
     assert_eq!(app.shell.tab, OpsTab::Digest);
@@ -624,7 +624,7 @@ fn agents_default_and_modal_open_close_use_the_effective_table_without_scan() {
     };
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = crate::board::app::workspace::tests::board();
-    for tab in [OpsTab::Overview, OpsTab::Digest] {
+    for tab in [OpsTab::Digest] {
         app.shell.tab = tab;
         assert!(
             !app.bindings()
@@ -667,7 +667,6 @@ fn help_has_one_effective_discovery_key_only_in_agents() {
     let mut app = crate::board::app::workspace::tests::board();
     for (tab, expected) in [
         (OpsTab::Agents, 1),
-        (OpsTab::Overview, 0),
         (OpsTab::Digest, 0),
     ] {
         app.shell.tab = tab;

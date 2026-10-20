@@ -202,7 +202,7 @@ fn unavailable_table_cell_uses_the_registered_em_dash_without_broadening_decorat
 fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
     use ratatui::{Terminal, backend::TestBackend};
     let mut app = crate::board::app::workspace::tests::board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     let mut terminal = Terminal::new(TestBackend::new(160, 51)).unwrap();
     terminal
         .draw(|frame| {

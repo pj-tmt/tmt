@@ -68,7 +68,7 @@ pub(super) fn prepare(app: &mut App, area: Rect) {
 
 fn bands(app: &App, area: Rect, has_usage: bool, limit_rows: u16) -> [Rect; 7] {
     let home_history_pending = !app.loading()
-        && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview)
+        && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Agents)
         && app
             .view
             .as_ref()
@@ -116,7 +116,7 @@ pub(in crate::board) fn render_frame(
     app.tab_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let home_history_pending = !app.loading()
-        && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Overview)
+        && (app.workspace_snapshot().is_none() || app.shell.tab == super::shell::OpsTab::Agents)
         && app
             .view
             .as_ref()

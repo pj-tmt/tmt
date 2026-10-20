@@ -15,7 +15,7 @@ use ratatui::{
 fn app() -> App {
     let mut app = board();
     observe_waiting_member(&mut app);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.cron.replace(Ok(test_cron(
         test_views(5, "team", "room"),
         tmt_ops::cron::ClockStatus::NoClock,
@@ -227,7 +227,7 @@ fn scrolled_rows_keep_filter_rule_and_header_fixed_above_the_lower_band() {
         app::workspace::tests::populated_board, overview::monitor::View, scroll::Step,
     };
     let mut app = populated_board(8, 28);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.overview_view = View::Agents;
     app.workspace_reconcile();
     app.follow = false;
@@ -256,7 +256,7 @@ fn scrolled_rows_keep_filter_rule_and_header_fixed_above_the_lower_band() {
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .any(|(_, choice)| matches!(choice, crate::board::app::Choice::OverviewView(_)))
+            .any(|(_, choice)| matches!(choice, crate::board::app::Choice::AgentsFilter(_)))
     );
 }
 

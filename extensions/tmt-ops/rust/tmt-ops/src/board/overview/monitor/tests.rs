@@ -22,7 +22,7 @@ const BLOCKED: &str = "44444444-4444-4444-8444-444444444444";
 fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts() {
     for count in [0, 1, 2] {
         let mut app = crate::board::app::workspace::tests::populated_board(count, count);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         for view in [View::Squads, View::Agents] {
             app.overview_view = view;
             app.search.clear();
@@ -83,7 +83,7 @@ fn section_counts_use_singular_for_one_and_preserve_filtered_and_partial_counts(
 fn agents_use_available_height_before_reporting_overflow() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.overview_view = View::Agents;
     app.workspace_reconcile();
     for height in [51, 24] {
@@ -186,7 +186,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
 }
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.overview_view = View::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     for member in snapshot.roster.members.values_mut() {
@@ -347,7 +347,7 @@ fn search_keeps_a_hidden_uuid_and_authored_filter_bindings_win() {
         .unwrap()
         .workspace
         .keys
-        .get_mut(&OpsKeyScope::Overview)
+        .get_mut(&OpsKeyScope::Member)
         .unwrap()
         .insert("v".into(), crate::action::Action::parse("search").unwrap());
     press(&mut app, KeyCode::Char('v'));
@@ -368,7 +368,7 @@ fn authored_sort_changes_only_the_layer_order_and_retains_the_selected_uuid() {
         .unwrap()
         .workspace
         .keys
-        .get_mut(&OpsKeyScope::Overview)
+        .get_mut(&OpsKeyScope::Member)
         .unwrap();
     keys.insert("g".into(), crate::action::Action::parse("sort").unwrap());
     keys.insert(
@@ -498,12 +498,12 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
 #[test]
 fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
     let mut app = board();
-    app.select_overview_view(View::Squads);
+    app.agents_filter(crate::board::workspace::AgentsFilter::All);
     let squads = text(&paint(&mut app, 103, 51));
     for required in ["Squads", "TEAM", "TOK 1h", "NOW", "/  Search", "f view"] {
         assert!(squads.contains(required), "{required}");
     }
-    app.select_overview_view(View::Agents);
+    app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
     let agents = text(&paint(&mut app, 103, 51));
     for required in ["AGENT", "SQUAD", "STATE", "TOK 1h", "MODEL"] {
         assert!(agents.contains(required), "{required}");
@@ -657,7 +657,7 @@ fn global_waiting_does_not_attribute_an_unobserved_room_membership() {
 #[test]
 fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
     let mut app = board();
-    app.select_overview_view(View::Squads);
+    app.agents_filter(crate::board::workspace::AgentsFilter::All);
     assert!(matches!(app.workspace.selected, Some(OpsTarget::Squad(_))));
     press(&mut app, KeyCode::Char('f'));
     assert_eq!(app.overview_view, View::Agents);
@@ -673,7 +673,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
         .find(|(_, choice)| {
             matches!(
                 choice,
-                crate::board::app::Choice::OverviewView(View::Squads)
+                crate::board::app::Choice::AgentsFilter(crate::board::workspace::AgentsFilter::All)
             )
         })
         .unwrap()
@@ -696,7 +696,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
         .unwrap()
         .workspace
         .keys
-        .get_mut(&OpsKeyScope::Overview)
+        .get_mut(&OpsKeyScope::Member)
         .unwrap()
         .insert("v".into(), crate::action::Action::parse("search").unwrap());
     press(&mut app, KeyCode::Char('v'));
@@ -711,7 +711,7 @@ fn view_toggle_and_painted_chips_share_selection_while_authored_v_wins() {
 #[test]
 fn squad_message_target_is_only_its_current_observed_lead() {
     let mut app = board();
-    app.select_overview_view(View::Squads);
+    app.agents_filter(crate::board::workspace::AgentsFilter::All);
     assert!(
         app.workspace_message_target().is_none(),
         "no lead means no recipient"
@@ -781,11 +781,11 @@ fn hidden_empty_lists_are_filtered_and_missing_sources_never_claim_a_fresh_empty
         .hidden
         .insert(ROOM.into());
     app.overview_rows.borrow_mut().clear();
-    app.select_overview_view(View::Squads);
+    app.agents_filter(crate::board::workspace::AgentsFilter::All);
     let squads = text(&paint(&mut app, 103, 51));
     assert!(squads.contains("No matching squads"));
     assert!(!squads.contains("No squads yet."));
-    app.select_overview_view(View::Agents);
+    app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
     assert!(text(&paint(&mut app, 103, 51)).contains("No matching agents"));
     app.view
         .as_mut()
@@ -803,15 +803,15 @@ fn hidden_empty_lists_are_filtered_and_missing_sources_never_claim_a_fresh_empty
 #[test]
 fn filtered_section_counts_follow_the_current_squads_or_agents_mode() {
     let mut app = crate::board::app::workspace::tests::populated_board(8, 28);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.search = "squad-00".into();
     app.workspace_reconcile();
-    app.select_overview_view(View::Squads);
+    app.agents_filter(crate::board::workspace::AgentsFilter::All);
     let squads = text(&paint(&mut app, 103, 51));
     assert!(squads.contains("1 of 8"), "{squads}");
     app.search = "agent-00000".into();
     app.workspace_reconcile();
-    app.select_overview_view(View::Agents);
+    app.agents_filter(crate::board::workspace::AgentsFilter::Agents);
     let agents = text(&paint(&mut app, 103, 51));
     assert!(agents.contains("1 of 28"), "{agents}");
 }

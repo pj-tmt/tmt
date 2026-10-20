@@ -32,7 +32,7 @@ fn compact_overview_tab_never_enters_a_hidden_pane_or_changes_destination() {
     use crate::board::shell::OpsTab;
     for width in [60, 100] {
         let mut app = app(Depth::None);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.set_body_width(width);
         let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
         terminal
@@ -41,7 +41,7 @@ fn compact_overview_tab_never_enters_a_hidden_pane_or_changes_destination() {
         for code in [KeyCode::Tab, KeyCode::BackTab] {
             app.key(KeyEvent::new(code, KeyModifiers::NONE));
             assert_eq!(app.focused(), Pane::Rows);
-            assert_eq!(app.shell.tab, OpsTab::Overview);
+            assert_eq!(app.shell.tab, OpsTab::Agents);
         }
     }
 }

@@ -225,12 +225,12 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                 &[("agents", "Agents"), ("squads", "Squads")],
                 usize::from(!agents),
                 app,
-                crate::action::OpsUiAction::OverviewView,
+                crate::action::OpsUiAction::AgentsFilter,
                 search_count.as_deref(),
             ) {
                 let choice = match hit.id.as_str() {
-                    "agents" => Choice::OverviewView(monitor::View::Agents),
-                    "squads" => Choice::OverviewView(monitor::View::Squads),
+                    "agents" => Choice::AgentsFilter(crate::board::workspace::AgentsFilter::Agents),
+                    "squads" => Choice::AgentsFilter(crate::board::workspace::AgentsFilter::All),
                     "clear-search" => Choice::ClearSearch,
                     _ => Choice::Action(crate::action::Action::parse("search").unwrap()),
                 };

@@ -55,7 +55,7 @@ fn workspace(layout: OpsLayout, member: bool, tab: OpsTab) -> App {
 
 #[test]
 fn workspace_layouts_never_stack_boundary_rules_at_supported_sizes() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         for layout in [OpsLayout::Auto, OpsLayout::Side, OpsLayout::Stack] {
             for member in [false, true] {
                 let mut app = workspace(layout, member, tab);

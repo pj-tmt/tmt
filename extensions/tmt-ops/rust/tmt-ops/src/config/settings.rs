@@ -399,7 +399,6 @@ mod tests {
     fn startup_tab_is_global_editable_and_invalid_authored_values_are_only_noticed() {
         for (value, expected) in [
             ("last", StartupTab::Last),
-            ("overview", StartupTab::Overview),
             ("agents", StartupTab::Agents),
             ("digest", StartupTab::Digest),
         ] {

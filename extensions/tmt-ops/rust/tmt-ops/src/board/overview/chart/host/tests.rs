@@ -546,7 +546,7 @@ fn chart_shortcuts_do_not_escape_search_composers_or_modal_input() {
 fn unavailable_idle_chart_does_not_wake_until_visible_time_evidence_changes() {
     crate::status::with_now_ms(fixtures::NOW, || {
         let mut app = board();
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         paint(&mut app, 100, 36);
         assert_eq!(
             clock_mark(&app, fixtures::NOW),
@@ -566,7 +566,7 @@ fn unavailable_idle_chart_does_not_wake_until_visible_time_evidence_changes() {
 #[test]
 fn short_terminals_collapse_to_summary_and_open_the_same_controls_without_close_replay() {
     crate::status::with_now_ms(fixtures::NOW, || {
-        for tab in [OpsTab::Overview, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             let mut app = board();
             fixtures::populate(&mut app);
             app.shell.tab = tab;
@@ -627,7 +627,7 @@ fn overview_panels_preserve_the_wide_reader_and_explicit_talk_placement() {
         // Talk remains an explicit action; factory Enter now answers a request.
         app.perform(&crate::action::Action::parse("talk").unwrap());
         assert!(app.input.is_some());
-        assert_eq!(app.shell.tab, OpsTab::Overview);
+        assert_eq!(app.shell.tab, OpsTab::Agents);
         assert_eq!(app.workspace.selected, target);
     });
 }
@@ -650,7 +650,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
         let _no_commands = crate::runner::forbid_commands();
         for known_zero in [false, true] {
             let mut app = board();
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
             if known_zero {
                 fixtures::populate_values(&mut app, [0; 12]);
             }
@@ -710,7 +710,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
 #[test]
 fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
     crate::status::with_now_ms(fixtures::NOW, || {
-        for tab in [OpsTab::Overview, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             let mut app = board();
             fixtures::populate(&mut app);
             app.shell.tab = tab;
@@ -750,7 +750,7 @@ fn missing_snapshot_refuses_keyboard_action_and_retained_mouse_controls() {
 fn demand_bounds_cells_hits_and_remaining_target_budget() {
     crate::status::with_now_ms(fixtures::NOW, || {
         for populated in [false, true] {
-            for tab in [OpsTab::Overview, OpsTab::Digest] {
+            for tab in [OpsTab::Agents, OpsTab::Digest] {
                 for width in [0, 37, 38, 53, 54, 60, 100, 160] {
                     for height in 0..=44 {
                         let mut app = board();
@@ -793,7 +793,7 @@ fn demand_bounds_cells_hits_and_remaining_target_budget() {
 #[test]
 fn chart_budget_and_painter_share_the_captured_existing_clock_across_a_rollover() {
     let mut app = board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     let area = Rect::new(0, 0, 100, 36);
     let mut original = Terminal::new(TestBackend::new(100, 36)).unwrap();
     let used = crate::status::with_now_ms(fixtures::NOW, || {

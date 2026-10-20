@@ -4,7 +4,6 @@
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OpsTab {
     #[default]
-    Overview,
     Agents,
     Digest,
 }
@@ -12,7 +11,6 @@ pub enum OpsTab {
 impl OpsTab {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Overview => "Overview",
             Self::Agents => "Agents",
             Self::Digest => "Digest",
         }
@@ -64,9 +62,8 @@ impl OpsShell {
             return false;
         }
         let tab = match digit {
-            '1' => OpsTab::Overview,
-            '2' => OpsTab::Agents,
-            '3' => OpsTab::Digest,
+            '1' => OpsTab::Agents,
+            '2' => OpsTab::Digest,
             _ => return false,
         };
         self.tab = tab;

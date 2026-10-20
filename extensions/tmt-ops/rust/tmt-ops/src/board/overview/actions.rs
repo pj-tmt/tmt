@@ -142,7 +142,7 @@ mod tests {
         };
         let mut app = crate::board::app::workspace::tests::board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.invoker_tmux = false;
         app.set_body_width(80);
         let selected = app.workspace.selected.clone();
@@ -155,7 +155,7 @@ mod tests {
             ratatui::crossterm::event::KeyModifiers::NONE,
         );
         assert_eq!(app.key(key), Effect::None);
-        assert_eq!(app.shell.tab, OpsTab::Overview);
+        assert_eq!(app.shell.tab, OpsTab::Agents);
         assert_eq!(app.workspace.selected, selected);
         let _ = &app as &App;
     }

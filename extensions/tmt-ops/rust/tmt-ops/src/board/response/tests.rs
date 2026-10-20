@@ -185,7 +185,7 @@ fn pending_questions_quote_only_the_acquired_exact_body_and_revalidate_before_se
     const RAW: &str = "full question\n\n\"漢字\"";
     for case in ["unacquired", "failed", "acquired", "replaced", "refused"] {
         let mut app = board();
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         observe_waiting_member(&mut app);
         let target = app.workspace.selected.clone().unwrap();
         app.view

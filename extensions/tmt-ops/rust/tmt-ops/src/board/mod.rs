@@ -1590,7 +1590,8 @@ mod tests {
     fn theme_board() -> App {
         let mut app = app::workspace::tests::board();
         app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = shell::OpsTab::Overview;
+        app.shell.tab = shell::OpsTab::Agents;
+        app.workspace.filter = workspace::AgentsFilter::Agents;
         app.view.as_mut().unwrap().refresh = None;
         for bindings in app
             .view
@@ -1760,7 +1761,7 @@ mod tests {
             !old.acquired,
             "a result for the selection left behind is never admitted"
         );
-        for tab in [shell::OpsTab::Overview, shell::OpsTab::Agents] {
+        for tab in [shell::OpsTab::Agents] {
             app.shell.tab = tab;
             // Terminal::resize alone leaves TestBackend at160x36; draw would
             // auto-resize back and never exercise a hidden conversation.
@@ -2453,7 +2454,7 @@ mod tests {
                                 events.send(key(code)).unwrap();
                             }
                         }
-                        2 => events.send(key(KeyCode::Char('3'))).unwrap(),
+                        2 => events.send(key(KeyCode::Char('2'))).unwrap(),
                         3 => events.send(key(KeyCode::Char('q'))).unwrap(),
                         _ => panic!("unchanged closed range must not reacquire"),
                     }

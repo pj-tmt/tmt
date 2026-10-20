@@ -283,7 +283,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         app.conversation.borrow_mut().active = None;
         return;
     };
-    let surface = conversation::exchange::Surface::Agents {
+    let surface = conversation::exchange::Surface {
         target,
         interactive: retained.is_none(),
     };
@@ -295,9 +295,9 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         0
     };
     let gap = u16::from(input > 0 && available > input);
-    let height = conversation::exchange::desired_height_for(app, area.width, &surface)
+    let height = conversation::exchange::desired_height(app, area.width, &surface)
         .min(available.saturating_sub(input + gap));
-    conversation::exchange::render_for(
+    conversation::exchange::render(
         frame,
         app,
         Rect::new(area.x, y, area.width, height),

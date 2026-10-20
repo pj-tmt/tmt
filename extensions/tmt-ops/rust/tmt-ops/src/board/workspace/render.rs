@@ -42,16 +42,15 @@ fn member_noun(count: Option<usize>) -> &'static str {
 }
 
 pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
-    let tabs = [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest];
+    let tabs = [OpsTab::Agents, OpsTab::Digest];
     let selected = tabs
         .iter()
         .position(|tab| *tab == app.shell.tab)
         .unwrap_or(0);
     use crate::action::OpsUiAction;
     let keys = [
-        (OpsUiAction::Overview, "1"),
-        (OpsUiAction::Agents, "2"),
-        (OpsUiAction::DigestDashboard, "3"),
+        (OpsUiAction::Agents, "1"),
+        (OpsUiAction::DigestDashboard, "2"),
     ]
     .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
     let (line, hits) =
@@ -80,7 +79,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
             app.look().role(Role::Waiting),
         );
     }
-    if app.shell.tab == OpsTab::Overview {
+    if app.shell.tab == OpsTab::Agents {
         let complete = snapshot.roster.observation == OpsObservation::Complete
             && snapshot.roster.membership_complete
             && snapshot
@@ -134,7 +133,7 @@ pub(in crate::board) fn summary(app: &App, width: u16) -> Line<'static> {
     )
 }
 pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
-    if matches!(app.shell.tab, OpsTab::Overview | OpsTab::Agents) {
+    if matches!(app.shell.tab, OpsTab::Agents) {
         crate::board::overview::chart::host::render_panel(
             frame,
             app,
@@ -146,14 +145,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     use crate::action::ResizeBoundary as Boundary;
-    let (columns, rows) = if app.shell.tab == OpsTab::Overview {
-        (Boundary::OverviewColumns, Boundary::OverviewList)
-    } else {
-        (Boundary::AgentsColumns, Boundary::AgentsRows)
-    };
+    let (columns, rows) = (Boundary::AgentsColumns, Boundary::AgentsRows);
     app.pane_resize
         .record_panes(placement.panes, columns, rows, frame.area());
-    if matches!(app.shell.tab, OpsTab::Overview | OpsTab::Agents) {
+    if matches!(app.shell.tab, OpsTab::Agents) {
         let usage = app.overview_usage_band(area);
         if usage.height > 1
             && app
@@ -201,7 +196,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         agents_controls(frame, app, bands);
     }
     if let Some(list) = placement.list {
-        if app.shell.tab == OpsTab::Overview || app.flat_agents() {
+        if app.flat_agents() {
             crate::board::overview::composition::render(frame, app, list);
         } else {
             tree(frame, app, list);
@@ -221,8 +216,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 squad_detail(frame, app, detail);
             }
-        } else if app.shell.tab == OpsTab::Overview && frame.area().width >= 140 {
-            crate::board::overview::composition::wide::render(frame, app, placement.list, detail);
         } else if app.workspace_selected_member().is_some() {
             crate::board::conversation::render(frame, app, detail);
         } else {

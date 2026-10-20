@@ -852,14 +852,14 @@ fn workspace_shell_is_available_before_data_at_every_theme_depth() {
             });
             let lines = paint(&app, 80, 8);
             assert!(lines[0].contains("TMT   OPS / UI"), "{base:?} {depth:?}");
-            for label in ["1  Overview", "2  Agents", "3  Digest"] {
+            for label in ["1  Agents", "2  Digest"] {
                 assert!(lines[2].contains(label), "{base:?} {depth:?}: {label}");
             }
             assert!(!lines[0].contains("private-squad"));
             let hits = app.tab_hits.borrow();
             assert_eq!(
                 hits.iter().map(|hit| hit.tab).collect::<Vec<_>>(),
-                [0, 1, 2]
+                [0, 1]
             );
             assert!(hits.iter().all(|hit| hit.y == 2 && hit.x + hit.width <= 80));
         }
@@ -871,9 +871,8 @@ fn startup_navigation_uses_shell_tabs_without_recipient_authority() {
     let mut app = App::new(Some(crate::board::ALL.into()));
     app.tabs = vec!["private-squad".into()];
     for (digit, expected) in [
-        ('2', OpsTab::Agents),
-        ('3', OpsTab::Digest),
-        ('1', OpsTab::Overview),
+        ('2', OpsTab::Digest),
+        ('1', OpsTab::Agents),
     ] {
         assert_eq!(key(&mut app, KeyCode::Char(digit)), Effect::None);
         assert_eq!(app.shell.tab, expected);
@@ -882,7 +881,7 @@ fn startup_navigation_uses_shell_tabs_without_recipient_authority() {
             .tab_hits
             .borrow()
             .iter()
-            .find(|hit| hit.tab == 1)
+            .find(|hit| hit.tab == 0)
             .copied()
             .unwrap();
         assert_eq!(
@@ -1002,10 +1001,10 @@ fn explicit_shell_click_and_destination_key_can_leave_reader() {
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     let selected = app.workspace.selected.clone();
     assert_eq!(key(&mut app, KeyCode::Char('1')), Effect::None);
-    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     assert_eq!(app.workspace.selected, selected);
-    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('1'));
     key(&mut app, KeyCode::Enter);
     paint(&app, 160, 36);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
@@ -1027,7 +1026,7 @@ fn explicit_shell_click_and_destination_key_can_leave_reader() {
         ),
         Effect::None
     );
-    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.workspace.selected, selected);
 }
 
@@ -1125,14 +1124,14 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
             let line = crate::board::workspace::render::tabs(&app, Rect::new(0, 0, 80, 1));
             assert_eq!(
                 line.to_string(),
-                "   1  Overview    2  Agents    3  Digest  "
+                "   1  Agents    2  Digest  "
             );
             let hits = app.tab_hits.borrow();
-            assert_eq!(hits.len(), 3);
-            for (hit, (x, width)) in hits.iter().zip([(1, 14), (16, 12), (29, 12)]) {
+            assert_eq!(hits.len(), 2);
+            for (hit, (x, width)) in hits.iter().zip([(1, 12), (14, 12)]) {
                 assert_eq!((hit.x, hit.y, hit.width), (x, 0, width));
             }
-            for gap_x in [15, 28, 41] {
+            for gap_x in [13, 26] {
                 assert!(
                     !hits
                         .iter()
@@ -1140,7 +1139,7 @@ fn shell_tabs_are_plain_labels_and_clipped_labels_have_no_pointer_authority() {
                 );
             }
             drop(hits);
-            for (label, selected) in [("Overview", false), ("Agents", true), ("Digest", false)] {
+            for (label, selected) in [("Agents", true), ("Digest", false)] {
                 let span = line
                     .spans
                     .iter()
@@ -1260,7 +1259,7 @@ fn reader_dispatch_help_and_footer_share_effective_keys_and_preserve_overrides()
     key(&mut app, KeyCode::Tab);
     let target = app.workspace.selected.clone();
     assert_eq!(app.bindings()["j"].text, "jump");
-    assert_eq!(app.bindings()["2"].text, "agents");
+    assert_eq!(app.bindings()["1"].text, "agents");
     assert_eq!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Jump(MEMBER.into()))
@@ -1551,7 +1550,7 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
         .rows
         .retain(|target, _| *target == OpsTarget::Pool);
     app.workspace.selected = Some(OpsTarget::Pool);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.overview_view = crate::board::overview::monitor::View::Squads;
     app.workspace_reconcile();
     assert!(app.workspace_rows().is_empty());
@@ -1587,7 +1586,7 @@ fn no_squads_is_a_known_empty_workspace_with_an_explicit_creation_action() {
 fn selected_member_host_uses_the_frozen_uuid_and_overview_has_membership_actions() {
     let mut app = board();
     crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     assert_eq!(
         key(&mut app, KeyCode::Char('j')),
         Effect::Act(Request::Jump(MEMBER.into()))
@@ -1770,7 +1769,7 @@ fn in_place_reload_keeps_shell_expansion_and_exact_selection_without_new_recipie
     app.workspace.pool_expanded = true;
     let resume = app.resume().unwrap();
     let mut replacement = board();
-    replacement.shell.tab = OpsTab::Overview;
+    replacement.shell.tab = OpsTab::Agents;
     replacement.workspace.expanded.clear();
     replacement.workspace.pool_expanded = false;
     replacement.workspace.selected = Some(OpsTarget::Pool);
@@ -1829,7 +1828,8 @@ fn squad_theme_scope_is_observed_in_agents_and_digest_while_overview_keeps_the_s
         assert_eq!(app.look().theme.base.name(), "tmt-light");
         assert_eq!(app.workspace_squad().unwrap().name, "product");
     }
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
+    app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     assert_ne!(app.look().theme.base.name(), "tmt-light");
     assert!(app.workspace_squad().is_none());
 }
@@ -2221,7 +2221,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
     for width in [160, 100, 80, 60] {
         let mut app = board();
         crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         paint(&app, width, 36);
         let selected = app.workspace.selected.clone();
         app.perform(&crate::action::Action::parse("talk").unwrap());
@@ -2229,7 +2229,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         assert_eq!(
             app.shell.tab,
             if width >= 140 {
-                OpsTab::Overview
+                OpsTab::Agents
             } else {
                 OpsTab::Agents
             }
@@ -2247,7 +2247,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
         assert_eq!(
             app.shell.tab,
             if width >= 140 {
-                OpsTab::Overview
+                OpsTab::Agents
             } else {
                 OpsTab::Agents
             }
@@ -2258,7 +2258,7 @@ fn compact_overview_talk_opens_agents_but_wide_overview_keeps_the_shared_convers
 #[test]
 fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     let mut app = board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.set_body_width(160);
     paint(&app, 160, 36);
     key(&mut app, KeyCode::Tab);
@@ -2266,7 +2266,7 @@ fn overview_reader_resize_and_refresh_keep_reader_keys_instead_of_host_scope() {
     let selected = app.workspace.selected.clone();
     app.invalidate_frame_geometry();
     app.set_body_width(160);
-    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.focused_pane(), Some(Pane::Replies));
     assert_eq!(app.bindings()["j"].text, "scroll-down");
     app.set_body_width(80);
@@ -2552,7 +2552,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             .insert(squad.room_id.clone(), look);
     }
     match scene {
-        "overview" => app.shell.tab = OpsTab::Overview,
+        "overview" => app.shell.tab = OpsTab::Agents,
         "named-layer" => app.view_layer = crate::board::ViewLayer::parse("popup").unwrap(),
         "named-layer-long" => {
             app.view_layer = crate::board::ViewLayer::parse(&"x".repeat(32)).unwrap()
@@ -2628,7 +2628,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         "idle-alert" | "idle-alert-overview" => {
             idle_alert::populate(home);
             if scene == "idle-alert-overview" {
-                app.shell.tab = OpsTab::Overview;
+                app.shell.tab = OpsTab::Agents;
                 app.overview_view = crate::board::overview::monitor::View::Squads;
             }
         }
@@ -2636,7 +2636,7 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
             home.workspace.roster.observation = OpsObservation::Partial;
             home.workspace.roster.membership_complete = false;
             home.workspace.roster.squads[0].observation = OpsObservation::Partial;
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
         }
         "stale" => {
             home.workspace.roster.observation = OpsObservation::Stale;
@@ -2747,10 +2747,10 @@ pub(in crate::board) fn capture_case(scene: &str, look: crate::look::Look) -> Ap
         }
         if scene == "unread-waiting" {
             observe_waiting_member(&mut app);
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
         }
         if scene == "unread-squads" {
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
             app.overview_view = crate::board::overview::monitor::View::Squads;
             app.view
                 .as_mut()
@@ -2866,7 +2866,7 @@ fn capture_workspace_packet() {
 fn overview_never_claims_zero_from_incomplete_rosters_and_reports_the_global_observed_states() {
     for squads in [0, 8, 36] {
         let mut app = populated_board(squads, 150);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         let complete = paint(&app, 160, 36).join("\n");
         assert!(complete.contains("● 150 online"), "{complete}");
         assert!(complete.contains("✗ 1 blocked"), "{complete}");
@@ -2966,7 +2966,7 @@ fn workspace_focus_ignores_retired_home_composition_and_jumps_from_the_tree() {
     );
     let original = app.workspace.selected.clone();
     key(&mut app, KeyCode::Char('1'));
-    assert_eq!(app.shell.tab, OpsTab::Overview);
+    assert_eq!(app.shell.tab, OpsTab::Agents);
     assert_eq!(app.workspace.selected, original);
     assert_eq!(app.focused_pane(), Some(Pane::Rows));
     paint(&app, 60, 8);
@@ -3172,6 +3172,8 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
     let preferences = app.workspace_snapshot().unwrap().preferences.clone();
     paint(&app, 160, 44);
     assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
+    assert_eq!(app.workspace.filter, AgentsFilter::Agents);
+    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
     assert_eq!(app.workspace.filter, AgentsFilter::Pinned);
     assert_eq!(app.workspace_selection_state(), SelectionState::Hidden);
     assert_eq!(app.workspace.selected, selected);
@@ -3204,20 +3206,13 @@ fn agents_filter_uses_the_effective_key_and_painted_controls_without_retargeting
     assert_eq!(app.workspace_selection_state(), SelectionState::Visible);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
-    app.shell.tab = OpsTab::Overview;
     paint(&app, 160, 44);
     assert!(
         app.workspace_strip_hits
             .borrow()
             .iter()
-            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::OverviewView(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
-        "Overview paints view/search/estimate controls and the global Snapshots action"
-    );
-    assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
-    assert_eq!(
-        app.workspace.filter,
-        AgentsFilter::All,
-        "Overview has its own filter"
+            .all(|(_, choice)| matches!(choice, Choice::SavingsUnit | Choice::AgentsFilter(_)) || matches!(choice, Choice::Action(action) if matches!(action.verb, Verb::Ui(crate::action::OpsUiAction::Search | crate::action::OpsUiAction::WorkspaceSnapshots)))),
+        "Agents paints filter/search/estimate controls and the global Snapshots action"
     );
 }
 
@@ -3460,7 +3455,7 @@ fn confirmed_hide_moves_only_its_visible_squad_and_keeps_global_attention() {
     assert_eq!(app.workspace_snapshot().unwrap().hidden_count, 1);
     assert_eq!(app.workspace_snapshot().unwrap().shell_counts, global);
     assert_eq!(app.workspace_rows().len(), 1);
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.workspace_reconcile();
     assert!(app.workspace_rows().is_empty());
     assert_eq!(
@@ -3605,7 +3600,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
             ),
             (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
         ] {
-            for tab in [OpsTab::Agents, OpsTab::Overview] {
+            for tab in [OpsTab::Agents] {
                 for mode in ["hidden", "scoped", "revealed"] {
                     let mut app = populated_board(2, 4);
                     let view = app.view.as_mut().unwrap();
@@ -3688,7 +3683,7 @@ fn visibility_capture_matrix_keeps_shell_global_and_views_scoped() {
                             assert!(!text.contains("+ Common pool"));
                         }
                     }
-                    if tab == OpsTab::Overview {
+                    if tab == OpsTab::Agents {
                         let scene = crate::board::overview::monitor::scene(
                             &app,
                             app.workspace_snapshot().unwrap(),
@@ -3935,7 +3930,7 @@ fn overview_retains_supplier_values_without_recreating_the_removed_mode_cell() {
     app.overview_view = crate::board::overview::monitor::View::Agents;
     app.overview_rows.borrow_mut().clear();
     app.workspace_reconcile();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
     snapshot.roster.members.get_mut(MEMBER).unwrap().waiting = true;
     snapshot.roster.squads[0]
@@ -4013,7 +4008,7 @@ fn in_place_search_edits_retained_query_and_moves_rows_before_enter() {
 
 #[test]
 fn search_follows_first_match_and_clearing_keeps_the_current_selection() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         let mut app = populated_board(8, 28);
         app.shell.tab = tab;
         app.overview_view = crate::board::overview::monitor::View::Squads;
@@ -4234,7 +4229,7 @@ fn transient_notice_expires_and_next_key_dismisses_without_changing_its_message_
 
 #[test]
 fn shared_search_field_pointer_activation_edits_without_retargeting_or_clearing() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         let mut app = board();
         app.shell.tab = tab;
         app.search = "worker".into();
@@ -4260,7 +4255,7 @@ fn shared_search_field_pointer_activation_edits_without_retargeting_or_clearing(
 
 #[test]
 fn clearing_search_keeps_exact_occurrence_and_reveals_it_in_the_full_list() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         for clear in ["editing-esc", "committed-esc", "click"] {
             let mut app = populated_board(8, 56);
             app.shell.tab = tab;
@@ -4451,7 +4446,7 @@ fn capture_search_notice_packet() {
     let mut captures = Vec::new();
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
-        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             for scene in ["idle", "typing", "applied", "no-match", "notice", "failure"] {
                 if tab == OpsTab::Digest && !matches!(scene, "notice" | "failure") {
                     continue;
@@ -4540,7 +4535,7 @@ fn capture_search_notice_packet() {
 
 #[test]
 fn pin_view_agents_and_squads_share_saved_preferences_in_both_tabs() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         for member in [false, true] {
             let mut app = board();
             app.shell.tab = tab;
@@ -4613,38 +4608,19 @@ fn individually_pinned_agents_keep_read_only_no_match_previews_and_dynamic_hints
 }
 
 #[test]
-fn overview_f_toggles_for_member_or_squad_from_either_pane_without_a_reader() {
-    use crate::board::overview::monitor::View;
-    for focus in [0, 1] {
-        let mut app = board();
-        app.shell.tab = OpsTab::Overview;
-        app.overview_view = View::Agents;
-        app.workspace_reconcile();
-        paint(&app, 148, 51);
-        app.focus = focus;
-        assert_eq!(app.bindings()["f"].text, "overview-view");
-        assert_eq!(key(&mut app, KeyCode::Char('f')), Effect::None);
-        assert_eq!(app.overview_view, View::Squads);
-        assert_eq!(app.bindings()["f"].text, "overview-view");
-        key(&mut app, KeyCode::Char('f'));
-        assert_eq!(app.overview_view, View::Agents);
-    }
-}
-
-#[test]
 fn keycaps_follow_authored_bindings_without_inventing_unbound_keys() {
     use crate::action::OpsUiAction;
     let mut app = configured_member(
-        "[bind]\nv = 'overview-view'\nf = 'help'\n'1' = 'help'\nf2 = 'overview'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+        "[bind]\nv = 'agents-filter'\nf = 'help'\n'1' = 'help'\nf2 = 'agents'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
         json!({"id":MEMBER,"name":"worker"}),
     );
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     assert_eq!(
-        crate::board::keycap::key(&app, OpsUiAction::OverviewView, "f").as_deref(),
+        crate::board::keycap::key(&app, OpsUiAction::AgentsFilter, "f").as_deref(),
         Some("v")
     );
     assert_eq!(
-        crate::board::keycap::key(&app, OpsUiAction::Overview, "1").as_deref(),
+        crate::board::keycap::key(&app, OpsUiAction::Agents, "1").as_deref(),
         Some("f2")
     );
     assert_eq!(
@@ -4652,15 +4628,15 @@ fn keycaps_follow_authored_bindings_without_inventing_unbound_keys() {
         Some("f3")
     );
     let lines = paint(&app, 160, 44);
-    assert!(lines.iter().any(|line| line.contains(" f2  Overview")));
+    assert!(lines.iter().any(|line| line.contains(" f2  Agents")));
     assert!(lines.iter().any(|line| line.contains(" f3  Snapshots")));
     let mut unbound = configured_member(
         "[bind]\nf = 'help'\nw = 'help'\n",
         json!({"id":MEMBER,"name":"worker"}),
     );
-    unbound.shell.tab = OpsTab::Overview;
+    unbound.shell.tab = OpsTab::Agents;
     assert_eq!(
-        crate::board::keycap::key(&unbound, OpsUiAction::OverviewView, "f"),
+        crate::board::keycap::key(&unbound, OpsUiAction::AgentsFilter, "f"),
         None
     );
     assert_eq!(
@@ -4696,7 +4672,7 @@ fn capture_keycaps_packet() {
     let mut captures = Vec::new();
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
-        for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+        for tab in [OpsTab::Agents, OpsTab::Digest] {
             for scene in ["default", "custom", "unbound"] {
                 for width in [160, 100, 60] {
                     for (base, depth) in [
@@ -4707,7 +4683,7 @@ fn capture_keycaps_packet() {
                     ] {
                         let mut app = match scene {
                             "custom" => configured_member(
-                                "[bind]\nv = 'overview-view'\nf = 'help'\nf2 = 'overview'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
+                                "[bind]\nv = 'agents-filter'\nf = 'help'\nf2 = 'agents'\n'1' = 'help'\nw = 'help'\nf3 = 'workspace-snapshots'\n",
                                 json!({"id":MEMBER,"name":"worker"}),
                             ),
                             "unbound" => configured_member(
@@ -4763,7 +4739,7 @@ fn capture_agent_pin_packet() {
     let mut captures = Vec::new();
     crate::status::with_now_ms(1_791_600_000_000, || {
         let _no_commands = crate::runner::forbid_commands();
-        for tab in [OpsTab::Overview, OpsTab::Agents] {
+        for tab in [OpsTab::Agents] {
             for scene in [
                 "default",
                 "agent-pinned",
@@ -4868,7 +4844,7 @@ fn capture_agent_pin_packet() {
 
 #[test]
 fn member_pin_failure_and_cap_leave_the_current_saved_state_intact() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         let mut app = board();
         app.shell.tab = tab;
         app.workspace_reconcile();
@@ -4936,8 +4912,8 @@ fn pinned_filter_disclosure_matches_temporarily_shown_children() {
 fn pinned_name_marks_are_muted_and_keep_column_geometry_in_both_hosts() {
     use crate::board::overview::monitor::View;
     for (tab, member) in [
-        (OpsTab::Overview, true),
-        (OpsTab::Overview, false),
+        (OpsTab::Agents, true),
+        (OpsTab::Agents, false),
         (OpsTab::Agents, true),
         (OpsTab::Agents, false),
     ] {
@@ -5156,7 +5132,7 @@ fn counters_state_and_status_turn_stale_together() {
     let mut app = board();
     app.view.as_mut().unwrap().refresh = Some(Duration::from_secs(5));
     let overview = |app: &mut App| {
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.overview_view = monitor::View::Squads;
         // Squads view: a frame that shows the counters but no member STATE cell.
         let screen = paint(app, 160, 36).join("\n");
@@ -5276,7 +5252,7 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
             paint(&app, 160, 36).join("\n").contains(words),
             "focus keeps the full state"
         );
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.overview_view = monitor::View::Agents;
         let overview = paint(&app, 160, 36).join("\n");
         assert!(overview.contains(words), "overview: {overview}");
@@ -5342,7 +5318,7 @@ fn overview_state_keeps_the_task_by_width_and_without_colour() {
             depth,
         };
         let mut app = disagreeing_board(false, look);
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.overview_view = monitor::View::Agents;
         let screen = paint(&app, width, 36).join("\n");
         assert!(screen.contains(words), "{depth:?} {width}: {screen}");
@@ -5409,7 +5385,7 @@ fn overview_state_is_as_wide_as_the_widest_cell_of_the_list() {
                 snapshot.rows.get_mut(&target).unwrap()["state"] = json!(task);
                 app.workspace_reconcile();
             }
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
             app.overview_view = monitor::View::Agents;
             let screen = paint(&app, width, 36);
             let case = format!("{depth:?} {task:?} {width}");
@@ -5453,7 +5429,7 @@ fn team_glyphs_follow_core_activity_even_when_the_task_is_blocked() {
             .unwrap()
             .workspace
             .read_at = read;
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.overview_view = monitor::View::Squads;
         let scene = monitor::scene(&app, app.workspace_snapshot().unwrap());
         let member = scene.squads[0]
@@ -5545,7 +5521,7 @@ fn unread_replies_replace_the_activity_words_and_keep_the_task() {
                 .contains("● 2 unread · blocked"),
             "focus keeps full unread/task words"
         );
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.overview_view = monitor::View::Agents;
         for (width, words) in [
             (160, "● 2 unread · blocked"),
@@ -5654,7 +5630,7 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         app.workspace_reconcile();
         let roster = paint(&app, 160, 44).join("\n");
         assert!(roster.contains(&unread), "{word} roster: {roster}");
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         app.overview_view = monitor::View::Agents;
         // At 80 cells the STATE room is 16: the whole task is dropped, never cut.
         for (width, words) in [(160, unread.clone()), (80, "● 2 unread".to_owned())] {

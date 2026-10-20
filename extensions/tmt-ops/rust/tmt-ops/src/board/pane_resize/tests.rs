@@ -347,7 +347,7 @@ fn painted_panes_drag_without_row_effects_and_keyboard_uses_the_same_geometry() 
         (OpsTab::Agents, 100, Id::AgentsRows),
         (OpsTab::Digest, 160, Id::DigestColumns),
         (OpsTab::Digest, 100, Id::DigestRows),
-        (OpsTab::Overview, 160, Id::OverviewColumns),
+        (OpsTab::Agents, 160, Id::OverviewColumns),
     ] {
         let mut app = app(tab);
         paint(&mut app, width, 51);
@@ -501,7 +501,7 @@ fn retained_controls_carry_ratios_but_not_drag_or_hover() {
 #[test]
 fn tiny_one_pane_and_hidden_conversation_have_no_phantom_boundary() {
     use crate::board::shell::OpsTab;
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         for (width, height) in [(0, 0), (60, 8), (100, 8)] {
             let mut app = app(tab);
             paint(&mut app, width, height);
@@ -511,7 +511,7 @@ fn tiny_one_pane_and_hidden_conversation_have_no_phantom_boundary() {
             );
         }
     }
-    let mut app = app(OpsTab::Overview);
+    let mut app = app(OpsTab::Agents);
     let mut policy = crate::config::OverviewPanels::default();
     policy.set_side_shown(false).unwrap();
     app.view
@@ -535,7 +535,7 @@ fn overview_section_rules_are_the_only_horizontal_resize_targets() {
     use crate::board::shell::OpsTab;
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         paint(&mut app, width, 51);
         let ids: Vec<_> = app
             .pane_resize
@@ -593,7 +593,7 @@ fn capture_pane_resize_packet() {
     use tmt_cli_style::{Depth, Theme, theme::Base};
     let output = std::env::var("TMT_RESIZE_PACKET").expect("task-owned evidence path");
     let mut captures = Vec::new();
-    for tab in [OpsTab::Overview, OpsTab::Agents, OpsTab::Digest] {
+    for tab in [OpsTab::Agents, OpsTab::Digest] {
         for width in [160, 148, 103, 100, 60] {
             for (name, base, depth) in [
                 ("tmt", Base::Tmt, Depth::TrueColor),
@@ -704,7 +704,7 @@ fn growing_usage_never_hides_the_existing_list_timers_or_digest() {
     use crate::board::shell::OpsTab;
     for width in [60, 100, 103, 148, 160] {
         let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
-        app.shell.tab = OpsTab::Overview;
+        app.shell.tab = OpsTab::Agents;
         let original = paint(&mut app, width, 51);
         let text = |buffer: &Buffer| {
             buffer
@@ -794,17 +794,17 @@ fn every_visible_boundary_uses_real_painted_hits_and_restores_its_default() {
     use crate::board::shell::OpsTab;
     let _no_commands = crate::runner::forbid_commands();
     for (tab, width, id) in [
-        (OpsTab::Overview, 148, Id::OverviewColumns),
+        (OpsTab::Agents, 148, Id::OverviewColumns),
         (OpsTab::Agents, 160, Id::AgentsColumns),
         (OpsTab::Agents, 100, Id::AgentsRows),
         (OpsTab::Digest, 160, Id::DigestColumns),
         (OpsTab::Digest, 100, Id::DigestRows),
-        (OpsTab::Overview, 148, Id::OverviewUsage),
-        (OpsTab::Overview, 103, Id::OverviewList),
-        (OpsTab::Overview, 103, Id::OverviewLowerColumns),
-        (OpsTab::Overview, 60, Id::OverviewLowerRows),
-        (OpsTab::Overview, 148, Id::OverviewExchange),
-        (OpsTab::Overview, 148, Id::OverviewTimers),
+        (OpsTab::Agents, 148, Id::OverviewUsage),
+        (OpsTab::Agents, 103, Id::OverviewList),
+        (OpsTab::Agents, 103, Id::OverviewLowerColumns),
+        (OpsTab::Agents, 60, Id::OverviewLowerRows),
+        (OpsTab::Agents, 148, Id::OverviewExchange),
+        (OpsTab::Agents, 148, Id::OverviewTimers),
     ] {
         let mut app = populated_app(tab, crate::look::Look::default());
         paint(&mut app, width, 51);
@@ -861,7 +861,7 @@ fn every_visible_boundary_uses_real_painted_hits_and_restores_its_default() {
 #[test]
 fn stored_stacked_lower_ratio_does_not_change_the_side_by_side_layout() {
     use crate::board::shell::OpsTab;
-    let mut app = populated_app(OpsTab::Overview, crate::look::Look::default());
+    let mut app = populated_app(OpsTab::Agents, crate::look::Look::default());
     let original = paint(&mut app, 103, 51);
     app.pane_resize
         .restore([(Id::OverviewLowerRows, 7000)].into());
@@ -909,7 +909,7 @@ fn pointer_events_clear_a_drag_hover_on_terminals_without_motion_events() {
 fn empty_wide_exchange_can_resize_without_borrowing_a_recipient() {
     use crate::board::shell::OpsTab;
     let mut app = crate::board::home::tests::oracle::metered(crate::look::Look::default());
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app.overview_view = crate::board::overview::monitor::View::Squads;
     paint(&mut app, 148, 51);
     assert!(app.conversation_target().is_none());
@@ -931,7 +931,7 @@ fn empty_wide_exchange_can_resize_without_borrowing_a_recipient() {
 #[test]
 fn minimum_column_widths_keep_required_table_fields_whole() {
     use crate::board::shell::OpsTab;
-    let mut app = populated_app(OpsTab::Overview, crate::look::Look::default());
+    let mut app = populated_app(OpsTab::Agents, crate::look::Look::default());
     app.pane_resize.restore([(Id::OverviewColumns, 0)].into());
     let buffer = paint(&mut app, 148, 51);
     let list_width = app

@@ -30,7 +30,7 @@ fn member_actions_with_lead() -> App {
 
 #[test]
 fn member_copy_key_uses_the_selected_row_even_with_conversation_focus() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         for reader in [false, true] {
             let mut app = member_actions_with_lead();
             app.shell.tab = tab;
@@ -95,7 +95,7 @@ fn member_note_without_an_observed_lead_never_falls_back_to_member_talk() {
 
 #[test]
 fn member_note_placeholder_names_the_lead_and_keeps_the_subject_in_the_send_owner() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         for width in [160, 60] {
             let mut app = member_actions_with_lead();
             app.shell.tab = tab;
@@ -192,7 +192,7 @@ fn workspace_member_squad_and_note_inputs_share_fuzzy_completion_without_retarge
         let mut app = member_actions_with_lead();
         reference_inventory(&mut app);
         if surface == "squad" {
-            app.shell.tab = OpsTab::Overview;
+            app.shell.tab = OpsTab::Agents;
             app.overview_view = crate::board::overview::monitor::View::Squads;
             app.workspace.selected = Some(OpsTarget::Squad(ROOM.into()));
             app.workspace_reconcile();

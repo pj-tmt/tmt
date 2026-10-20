@@ -10,7 +10,7 @@ use ratatui::{
 };
 fn board() -> App {
     let mut app = crate::board::app::workspace::tests::board();
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     app
 }
 fn waiting(app: &mut App) {
@@ -104,7 +104,7 @@ fn removed_count_cells_cannot_retain_their_old_timer_authority() {
         .first()
         .cloned()
         .expect("positive control: an actual count hit");
-    app.shell.tab = OpsTab::Overview;
+    app.shell.tab = OpsTab::Agents;
     paint(&mut app, 100, 36);
     assert!(app.cron_scope_hits.borrow().is_empty());
     let selected = app.workspace.selected.clone();

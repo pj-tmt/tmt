@@ -354,7 +354,7 @@ fn unread_sorts_before_waiting_and_preserves_selected_uuid_when_the_marker_clear
     snapshot.rows.insert(other_target.clone(), json!({"id":other,"name":"aaa-waiting","state":"working","waitingOnYou":[{"requestId":"waiting","preparedAtMs":50}]}));
     snapshot.preferences.agent_pins.insert(other.into());
     for tab in [
-        crate::board::shell::OpsTab::Overview,
+        crate::board::shell::OpsTab::Agents,
         crate::board::shell::OpsTab::Agents,
     ] {
         app.shell.tab = tab;

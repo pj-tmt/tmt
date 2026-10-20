@@ -3,7 +3,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpsUiAction {
     ResizePane,
-    Overview,
     Agents,
     DigestDashboard,
     QuotaDetails,
@@ -24,7 +23,6 @@ pub enum OpsUiAction {
     Quit,
     Sort,
     ReverseSort,
-    OverviewView,
     AgentsFilter,
     TalkMeasure,
     Timers,
@@ -131,7 +129,6 @@ const SPECS: &[OpsUiSpec] = &[
         "scroll to the end of the focused response",
         23
     ),
-    spec!(Overview, "overview", "Overview", "show Overview", 20),
     spec!(Agents, "agents", "Agents", "show the squad workspace", 20),
     spec!(
         DigestDashboard,
@@ -191,14 +188,7 @@ const SPECS: &[OpsUiSpec] = &[
     spec!(Search, "search", "search", "search the current list", 15),
     spec!(Help, "help", "help", "show effective scoped bindings", 25),
     spec!(Quit, "quit", "quit", "close the board", 26),
-    spec!(Sort, "sort", "sort", "cycle Overview sort", 10),
-    spec!(
-        OverviewView,
-        "overview-view",
-        "squads/agents",
-        "switch Overview between squads and agents",
-        11
-    ),
+    spec!(Sort, "sort", "sort", "cycle the flat Agents sort", 10),
     spec!(
         TalkMeasure,
         "talk-measure",
@@ -231,7 +221,7 @@ const SPECS: &[OpsUiSpec] = &[
         HideSquad,
         "hide-squad",
         "Hide squad",
-        "hide the selected squad in Agents and Overview",
+        "hide the selected squad in Agents",
         6
     ),
     spec!(

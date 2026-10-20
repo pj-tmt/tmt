@@ -183,7 +183,7 @@ fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
     let _no_commands = crate::runner::forbid_commands();
     app.labels = supplied(serde_json::json!(3), false);
     let selected = app.workspace.selected.clone();
-    press(&mut app, '3');
+    press(&mut app, '2');
     assert_eq!(app.shell.tab, crate::board::shell::OpsTab::Digest);
     assert_eq!(app.workspace.selected, selected);
     assert_eq!(app.workspace_rows().len(), 1);
@@ -207,7 +207,7 @@ fn shell_dashboard_keeps_the_same_identity_and_uses_the_supplied_picker() {
 fn status_loss_and_low_height_do_not_leave_old_chip_pointer_authority() {
     let mut app = board();
     app.labels = supplied(serde_json::json!(3), false);
-    press(&mut app, '3');
+    press(&mut app, '2');
     paint(&mut app, 160, 36);
     assert!(!app.chip_hits.borrow().is_empty());
     let selected = app.workspace.selected.clone();
@@ -387,7 +387,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
             .take(2)
             .enumerate()
         {
-            for tab in [OpsTab::Overview, OpsTab::Digest] {
+            for tab in [OpsTab::Agents, OpsTab::Digest] {
                 for width in [160, 140, 100, 80, 60] {
                     let mut app = quota_board();
                     app.shell.tab = tab;
@@ -442,7 +442,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         .unwrap();
                     let buffer = terminal.backend().buffer();
                     let shown: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-                    let expected: &[&str] = if tab == OpsTab::Overview {
+                    let expected: &[&str] = if tab == OpsTab::Agents {
                         &["<1%", "44%", "100%", "—"]
                     } else {
                         &["<1%", "44%", "100%", "no reading yet"]
@@ -486,7 +486,7 @@ fn quota_window_frames_show_partial_full_near_empty_and_unknown_in_both_shells()
                         details.contains("reset 4d00h"),
                         "{tab:?}/{theme}/{width}: {details}"
                     );
-                    if tab == OpsTab::Overview {
+                    if tab == OpsTab::Agents {
                         assert!(details.contains("2h pace: unknown"), "{details}");
                         assert!(
                             !details.contains("0.4%/h"),
@@ -849,7 +849,7 @@ pub(in crate::board) fn savings_board() -> crate::board::app::App {
 #[test]
 fn digest_usage_shows_the_estimate_for_unique_roster_members() {
     let mut app = savings_board();
-    press(&mut app, '3');
+    press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Est. ctx avoided 24h: 18.2k"), "{shown}");
 }
@@ -956,9 +956,9 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
                 app.workspace_reconcile();
             }
             "digest" => {
-                press(&mut app, '3');
+                press(&mut app, '2');
             }
-            "overview" => app.shell.tab = crate::board::shell::OpsTab::Overview,
+            "overview" => app.shell.tab = crate::board::shell::OpsTab::Agents,
             _ => {}
         }
         let shown = paint(&mut app, 160, 36);
@@ -1027,7 +1027,7 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
 fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
-    press(&mut app, '3');
+    press(&mut app, '2');
     let shown = paint(&mut app, 200, 60);
     for expected in [
         "Prices as of 2026-10-14 · table 2026-10-14 · standard-base-input (uncached input, list price) · source: fetched",
@@ -1056,7 +1056,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
         document["pricing"]["origin"] = serde_json::json!(origin);
         let mut app = valued_board();
         app.labels = crate::labels::Supplied::from_document("digest", &document, false);
-        press(&mut app, '3');
+        press(&mut app, '2');
         let shown = paint(&mut app, 200, 60);
         let shown = shown.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
@@ -1075,13 +1075,13 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
     older["pricing"].as_object_mut().unwrap().remove("origin");
     let mut app = valued_board();
     app.labels = crate::labels::Supplied::from_document("digest", &older, false);
-    press(&mut app, '3');
+    press(&mut app, '2');
     let shown = paint(&mut app, 200, 60);
     assert!(shown.contains("Prices as of"), "{shown}");
     assert!(!shown.contains("source:"), "{shown}");
     // Without a price table or valuations the details say nothing about them.
     let mut plain = savings_board();
-    press(&mut plain, '3');
+    press(&mut plain, '2');
     let shown = paint(&mut plain, 200, 60);
     assert!(!shown.contains("Prices as of"), "{shown}");
     assert!(!shown.contains("Cost quote"), "{shown}");
@@ -1091,7 +1091,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
 fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     let shown = paint(&mut app, 160, 44);
     assert!(!shown.contains("$ unit"), "{shown}");
     assert!(
@@ -1101,7 +1101,7 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     // Narrow enough that the Digest line drops the estimate and no pane paints
     // one: the key still works, but nothing advertises it.
     let mut narrow = valued_board();
-    narrow.shell.tab = crate::board::shell::OpsTab::Overview;
+    narrow.shell.tab = crate::board::shell::OpsTab::Agents;
     let shown = paint(&mut narrow, 60, 44);
     assert!(!shown.contains("Est."), "{shown}");
     assert!(!shown.contains("$ unit"), "{shown}");
@@ -1112,7 +1112,6 @@ fn the_action_has_no_default_key_and_the_actions_menu_offers_it_beside_a_figure(
     use crate::board::app::Choice;
     let _no_commands = crate::runner::forbid_commands();
     for scope in [
-        crate::config::OpsKeyScope::Overview,
         crate::config::OpsKeyScope::Squad,
         crate::config::OpsKeyScope::Member,
         crate::config::OpsKeyScope::Pool,
@@ -1146,7 +1145,7 @@ fn the_action_has_no_default_key_and_the_actions_menu_offers_it_beside_a_figure(
 fn a_clipped_or_absent_estimate_has_no_hit() {
     let _no_commands = crate::runner::forbid_commands();
     let mut app = valued_board();
-    press(&mut app, '3');
+    press(&mut app, '2');
     paint(&mut app, 160, 36);
     let hit = |app: &crate::board::app::App| {
         app.workspace_strip_hits
@@ -1166,7 +1165,7 @@ fn a_clipped_or_absent_estimate_has_no_hit() {
     // No hit ever extends past the cells that were painted.
     for width in [24u16, 40, 60, 100, 160] {
         let mut narrow = valued_board();
-        press(&mut narrow, '3');
+        press(&mut narrow, '2');
         paint(&mut narrow, width, 36);
         for area in hit(&narrow) {
             assert!(area.right() <= width, "width {width}: {area:?}");
@@ -1180,7 +1179,7 @@ fn overview_keeps_the_scoped_estimate_model_without_the_retired_digest_line() {
     use crate::config::DigestWindow;
     let _no_commands = crate::runner::forbid_commands();
     let mut app = savings_board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     let summary = |app: &crate::board::app::App| {
         crate::board::overview::monitor::scene(app, app.workspace_snapshot().unwrap())
             .summary
@@ -1267,7 +1266,7 @@ fn digest_all_time_keeps_both_collection_dates_visible_at_narrow_widths() {
             row["savings"]["throughMs"] = serde_json::json!(1_792_036_800_000u64);
         }
         app.labels = crate::labels::Supplied::from_document("digest", &document, false);
-        press(&mut app, '3');
+        press(&mut app, '2');
         let shown = paint(&mut app, width, 36);
         assert!(
             shown.contains("since Digest began recording"),
@@ -1328,7 +1327,7 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
         .unwrap()
         .workspace
         .preferences = next;
-    press(&mut app, '3');
+    press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
     assert!(shown.contains("Est. ctx avoided 7d: — (0 of 1)"), "{shown}");
     assert!(
@@ -1688,7 +1687,7 @@ fn workspace_status_is_a_body_panel_and_keeps_the_shared_shell_unchanged() {
                 "Status never replaces the four-row shell chrome"
             );
             assert!(lines[0].contains("OPS / UI"));
-            assert!(lines[2].contains("Overview") && lines[2].contains("Digest"));
+            assert!(lines[2].contains("Agents") && lines[2].contains("Digest"));
         }
     }
 }
@@ -1743,7 +1742,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     document["members"][0]["statsObservedAtMs"] = serde_json::json!(1_791_599_940_000u64);
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
     app.local_zone = Some(jiff::tz::TimeZone::get("Asia/Tokyo").unwrap());
-    press(&mut app, '3');
+    press(&mut app, '2');
     crate::status::with_now_ms(1_791_600_120_000, || {
         let shown = paint(&mut app, 160, 44);
         assert!(shown.contains("Status observed: 2m ago (11:40)"), "{shown}");

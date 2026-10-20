@@ -288,7 +288,7 @@ mod tests {
                     layer: Default::default(),
                     controls: None,
                     visibility: Default::default(),
-                    shell: crate::board::shell::OpsTab::Overview,
+                    shell: crate::board::shell::OpsTab::Agents,
                     squads_expanded: vec![],
                     pool_expanded: false,
                     tab: "product".into(),

@@ -94,7 +94,7 @@ fn current_workspace_frames_match_after_discarding_held_header_strips() {
 #[test]
 fn selection_does_not_rebuild_unchanged_overview_summary_strips() {
     let mut app = board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     capture(&app, 160);
     let initial = builds(&app);
     assert!(initial > 0);
@@ -117,7 +117,7 @@ fn selection_does_not_rebuild_unchanged_overview_summary_strips() {
 #[test]
 fn header_width_and_look_are_part_of_the_admitted_cache_key() {
     let mut app = board();
-    app.shell.tab = crate::board::shell::OpsTab::Overview;
+    app.shell.tab = crate::board::shell::OpsTab::Agents;
     capture(&app, 160);
     let first = builds(&app);
     capture(&app, 100);

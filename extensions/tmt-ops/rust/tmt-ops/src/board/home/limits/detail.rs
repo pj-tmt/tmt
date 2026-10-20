@@ -94,7 +94,7 @@ fn held_lines(standings: Option<&[Standing]>, now: u64, sampling_enabled: bool) 
     lines
 }
 fn lines(app: &App, now: u64) -> Vec<String> {
-    if app.shell.tab != crate::board::shell::OpsTab::Overview {
+    if app.shell.tab != crate::board::shell::OpsTab::Agents {
         return held_lines(
             app.limits.as_deref(),
             now,
@@ -233,7 +233,7 @@ impl App {
         self.workspace_snapshot().is_some()
             && matches!(
                 self.shell.tab,
-                crate::board::shell::OpsTab::Overview | crate::board::shell::OpsTab::Digest
+                crate::board::shell::OpsTab::Agents | crate::board::shell::OpsTab::Digest
             )
     }
     pub(in crate::board) fn open_quota_details(&mut self) -> Effect {

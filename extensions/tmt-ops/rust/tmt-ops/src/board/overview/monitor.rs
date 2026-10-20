@@ -78,14 +78,6 @@ pub(in crate::board) enum View {
     #[default]
     Agents,
 }
-impl View {
-    pub fn next(self) -> Self {
-        match self {
-            Self::Squads => Self::Agents,
-            Self::Agents => Self::Squads,
-        }
-    }
-}
 pub(in crate::board) struct Scene {
     pub rows: Rc<[OpsTreeRow]>,
     pub matching_agents: usize,

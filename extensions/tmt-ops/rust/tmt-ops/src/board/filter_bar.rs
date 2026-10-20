@@ -148,7 +148,7 @@ mod tests {
                             &options,
                             0,
                             &app,
-                            crate::action::OpsUiAction::OverviewView,
+                            crate::action::OpsUiAction::AgentsFilter,
                             None,
                         );
                         let mut slot = hits.iter().find(|hit| hit.id == "search").unwrap().area;
@@ -261,7 +261,7 @@ mod tests {
                     &options,
                     1,
                     &app,
-                    crate::action::OpsUiAction::OverviewView,
+                    crate::action::OpsUiAction::AgentsFilter,
                     None,
                 );
                 for hit in hits {

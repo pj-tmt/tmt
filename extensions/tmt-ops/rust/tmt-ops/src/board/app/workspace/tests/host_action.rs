@@ -3,14 +3,12 @@ use super::*;
 #[test]
 fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
     let mut app = board();
-    // With no squad selected the menu ends at Actions; a squad adds its settings link after a rule.
+    // With no squad selected the menu ends at Panels; a squad adds its settings link after a rule.
     app.workspace.selected = Some(OpsTarget::Pool);
     assert_eq!(app.workspace_settings(), Effect::None);
     let last = app.menu.as_ref().unwrap().entries.last().unwrap();
-    assert_eq!(last.label, "Actions");
-    assert!(
-        matches!(&last.choice, Choice::Action(action) if action.verb == crate::action::Verb::Menu)
-    );
+    assert_eq!(last.label, "Panels");
+    assert!(matches!(&last.choice, Choice::Panels));
     paint(&app, 160, 36);
     for _ in 0..40 {
         assert_eq!(key(&mut app, KeyCode::Down), Effect::None);
@@ -18,15 +16,12 @@ fn workspace_settings_down_saturation_selects_its_final_actions_entry() {
     let menu = app.menu.as_ref().unwrap();
     assert_eq!(menu.selected, menu.entries.len() - 1);
     assert_eq!(key(&mut app, KeyCode::Enter), Effect::None);
-    assert_ne!(
-        app.menu.as_ref().unwrap().title,
-        "Workspace settings · minimum usable size governs placement"
-    );
+    assert!(app.panels_picker.is_some());
 }
 
 #[test]
 fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         let mut app = configured_member(
             "[bind]\nj='swap left'\no='open {pr_link}'\n",
             json!({"id":MEMBER,"name":"worker","fields":{"pr_link":"https://example.com/pull/42"},"pane":{"id":"%3","location":{"host":"tmux"}}}),
@@ -49,11 +44,7 @@ fn custom_host_binding_wins_in_overview_agents_and_conversation_from_one_table()
         key(&mut app, KeyCode::Tab);
         assert_eq!(
             app.workspace_scope(),
-            if tab == OpsTab::Overview {
-                crate::config::OpsKeyScope::OverviewReader
-            } else {
-                crate::config::OpsKeyScope::Reader
-            }
+            crate::config::OpsKeyScope::Reader
         );
         assert_eq!(
             key(&mut app, KeyCode::Char('j')),
@@ -89,7 +80,7 @@ fn board_pane_run_defers_only_reserved_context_to_the_effect_lane() {
 
 #[test]
 fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         let mut app = configured_member(
             "[bind]\nj='jump'\n[bind.tmux]\nj='swap left'\n",
             json!({"id":MEMBER,"name":"worker","pane":{"id":"%3","location":{"host":"tmux"}}}),
@@ -145,7 +136,7 @@ fn squad_host_action_keeps_its_binding_context_and_current_lead_recipient() {
 
 #[test]
 fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
-    for tab in [OpsTab::Overview, OpsTab::Agents] {
+    for tab in [OpsTab::Agents] {
         for reader in [false, true] {
             let mut app = configured_member(
                 "",
@@ -156,11 +147,7 @@ fn host_editor_projects_the_same_factory_j_as_dispatch_in_each_pane() {
             if reader {
                 key(&mut app, KeyCode::Tab);
             }
-            let expected = if tab == OpsTab::Overview && reader {
-                "scroll-down"
-            } else {
-                "jump"
-            };
+            let expected = if reader { "scroll-down" } else { "jump" };
             assert_eq!(app.bindings()["j"].text, expected);
             let selection = app.host_action_selection();
             let path = std::path::PathBuf::from(&app.workspace_snapshot().unwrap().config_path);

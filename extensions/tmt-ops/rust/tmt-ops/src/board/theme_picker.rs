@@ -428,7 +428,7 @@ mod tests {
             let (path, config) = fixture("header-preview", &text);
             let mut app = crate::board::app::workspace::tests::board();
             crate::board::app::workspace::tests::observe_waiting_member(&mut app);
-            app.shell.tab = crate::board::shell::OpsTab::Overview;
+            app.shell.tab = crate::board::shell::OpsTab::Agents;
             let view = app.view.as_mut().unwrap();
             view.look = Look {
                 theme: config.theme("").unwrap().0,
