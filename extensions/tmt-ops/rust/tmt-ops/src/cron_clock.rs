@@ -85,43 +85,11 @@ fn dispatch(
         )
     })?;
     let input = json!({"operationId":operation_id,"recipientIds":[owner],"message":job.message,"kind":"request","room":{"kind":"direct","roomId":job.room_id}});
-    let receipt = match core.dispatch_automated(input, identity) {
-        Ok(receipt) => receipt,
-        Err(error)
-            if matches!(
-                error.code.as_str(),
-                "SQUAD_CORE_UNAVAILABLE" | "STORAGE_UNAVAILABLE"
-            ) =>
-        {
-            // Recover acceptance only. Missing evidence never causes another create;
-            // neither this path nor a replay re-wakes input.
-            core.api("dispatch.show", json!({"operationId":operation_id})).map_err(|_| {
-                SquadError::new(&error.code, format!("{} Operation {operation_id}; recover acceptance with dispatch.show before retrying.", error.message))
-            })?
-        }
-        Err(error) => {
-            return Err(SquadError::new(
-                &error.code,
-                format!("{} Operation {operation_id}.", error.message),
-            ));
-        }
-    };
-    if receipt["operationId"] != operation_id
-        || receipt["items"].as_array().is_none_or(|items| {
-            items.len() != 1
-                || items[0]["recipientId"] != owner
-                || items[0]["acceptance"] != "queued"
-                || items[0]["requestId"].as_str().is_none()
-        })
-    {
-        return Err(SquadError::new(
-            "SQUAD_CRON_DISPATCH_UNAVAILABLE",
-            format!(
-                "Operation {operation_id} was not accepted for the job owner; inspect its receipt before retrying."
-            ),
-        ));
-    }
-    Ok(receipt)
+    core.dispatch_queued(
+        input,
+        identity,
+        ("SQUAD_CRON_DISPATCH_UNAVAILABLE", "job owner"),
+    )
 }
 
 struct Scheduled<'a> {

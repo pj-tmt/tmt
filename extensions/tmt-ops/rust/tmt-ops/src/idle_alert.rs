@@ -207,8 +207,11 @@ fn body(squad: &Squad, member: &Member, since_ms: u64, after: Duration, zone: &T
         "Idle alert · squad {squad}\n\
          {name} has been idle since {since} (alert after {after}).\n\
          Row (when sent): {row}\n\
-         Look: tmt focus {name} · Talk: tmt talk {name} \"<message>\" --detach",
+         Look: tmt focus {id} · Talk: tmt talk {id} \"<message>\" --detach",
         squad = squad.name,
+        // Names may hold spaces and shell metacharacters and the reader is an agent that may
+        // run these lines: the identity UUID is the operand both commands accept without quoting.
+        id = member.id,
         after = threshold(after),
     )
 }
@@ -366,50 +369,9 @@ fn send(core: &Core, squad: &Squad, notice: &Announcement) -> Result<(), SquadEr
         "kind": "announcement",
         "room": {"kind": "direct", "roomId": squad.room_id},
     });
-    let receipt = match core.dispatch_automated(input, None) {
-        Ok(receipt) => receipt,
-        Err(error) if error.code == "DISPATCH_IDEMPOTENCY_CONFLICT" => return Ok(()),
-        Err(error)
-            if matches!(
-                error.code.as_str(),
-                "SQUAD_CORE_UNAVAILABLE" | "STORAGE_UNAVAILABLE"
-            ) =>
-        {
-            core.api("dispatch.show", json!({"operationId": notice.operation_id}))
-                .map_err(|_| {
-                    SquadError::new(
-                        &error.code,
-                        format!(
-                            "{} Operation {}; recover acceptance with dispatch.show before retrying.",
-                            error.message, notice.operation_id
-                        ),
-                    )
-                })?
-        }
-        Err(error) => {
-            return Err(SquadError::new(
-                &error.code,
-                format!("{} Operation {}.", error.message, notice.operation_id),
-            ));
-        }
-    };
-    let queued = receipt["operationId"] == notice.operation_id
-        && receipt["items"].as_array().is_some_and(|items| {
-            items.len() == 1
-                && items[0]["recipientId"] == notice.recipient_id
-                && items[0]["acceptance"] == "queued"
-                && items[0]["requestId"].as_str().is_some()
-        });
-    if queued {
-        Ok(())
-    } else {
-        Err(SquadError::new(
-            "SQUAD_IDLE_ALERT_NOT_QUEUED",
-            format!(
-                "Operation {} was not accepted for the lead; inspect its receipt before retrying.",
-                notice.operation_id
-            ),
-        ))
+    match core.dispatch_queued(input, None, ("SQUAD_IDLE_ALERT_NOT_QUEUED", "lead")) {
+        Err(error) if error.code == "DISPATCH_IDEMPOTENCY_CONFLICT" => Ok(()),
+        result => result.map(|_| ()),
     }
 }
 

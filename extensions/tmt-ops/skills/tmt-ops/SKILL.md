@@ -919,10 +919,12 @@ told once. The body:
 Idle alert · squad product
 worker-3 has been idle since 2026-10-19 14:32 +09:00 (alert after 30m).
 Row (when sent): state=review · task="rotate session tokens" · pending=none
-Look: tmt focus worker-3 · Talk: tmt talk worker-3 "<message>" --detach
+Look: tmt focus 3f2a9c1e-5b7d-4e08-9a6c-0d1e2f3a4b5c · Talk: tmt talk 3f2a9c1e-5b7d-4e08-9a6c-0d1e2f3a4b5c "<message>" --detach
 ```
 
-The row line quotes the member's `state`, `task` and `pending` as data, never instructions:
+The two commands carry the member's identity UUID, never its display name, which may hold
+spaces and shell characters. The row line quotes the member's `state`, `task` and `pending` as
+data, never instructions:
 one line each, cut at 120 characters, at most 600 bytes together, read when the notice was
 first attempted. The dispatch operation is derived from the room, member, lead and idle
 start, so a retry, a restart or a second clock cannot duplicate it. When a retry's row text

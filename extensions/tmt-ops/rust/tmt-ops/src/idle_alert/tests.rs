@@ -249,7 +249,7 @@ fn one_over_member_gets_one_announcement_to_the_lead_with_the_episode_text() {
             body: "Idle alert · squad product\n\
                    worker-3 has been idle since 2026-10-19 14:32 +09:00 (alert after 30m).\n\
                    Row (when sent): state=review · task=\"rotate session tokens\" · pending=none\n\
-                   Look: tmt focus worker-3 · Talk: tmt talk worker-3 \"<message>\" --detach"
+                   Look: tmt focus w1 · Talk: tmt talk w1 \"<message>\" --detach"
                 .into(),
         }]
     );
@@ -477,6 +477,32 @@ fn row_text_is_quoted_data_on_one_line_cut_per_value_and_the_row_stays_under_600
         body.contains(&format!("task=\"{}\"", "x".repeat(120))),
         "{body}"
     );
+}
+
+#[test]
+fn the_suggested_commands_address_the_identity_never_the_display_name() {
+    let id = "33333333-3333-4333-8333-333333333333";
+    for name in [
+        "Preview Old Name",
+        "it's; $(rm -rf ~)",
+        "a`b`\"c\" | d",
+        "-n",
+        "  two  spaces ",
+    ] {
+        let members = [
+            member("l1", "lead", true, &[], Value::Null),
+            member(id, name, false, &[], idle_since(NOW - 3_600_000)),
+        ];
+        let body = notices(&squad(), &members, SETTING, NOW as u64, &TimeZone::UTC)
+            .remove(0)
+            .body;
+        assert_eq!(
+            body.lines().nth(3).unwrap(),
+            format!("Look: tmt focus {id} · Talk: tmt talk {id} \"<message>\" --detach"),
+            "{name}"
+        );
+        assert_eq!(body.lines().count(), 4, "{name}");
+    }
 }
 
 #[test]
@@ -859,6 +885,25 @@ fn when_recovery_finds_nothing_the_next_scan_asks_again_with_the_same_operation(
     });
     assert!(scan(&f, &mut watch, NOW + 2 * MINUTE).is_empty());
     assert_eq!(sent(&f).len(), 1);
+}
+
+#[test]
+fn a_receipt_that_is_not_queued_for_the_lead_is_reported_and_asked_again_next_scan() {
+    let f = Fixture::new();
+    enable(&f, "30m");
+    idle_worker(&f, NOW - 45 * MINUTE);
+    f.change_model(|m| m["recipientUnavailable"] = json!(true));
+    let mut watch = started(&f);
+    let warnings = scan(&f, &mut watch, NOW + MINUTE);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].code, "SQUAD_IDLE_ALERT_NOT_QUEUED");
+    assert!(warnings[0].message.contains("not accepted for the lead"));
+    assert!(scan(&f, &mut watch, NOW + 2 * MINUTE).len() == 1);
+    assert_eq!(
+        calls(&f, "dispatch.create"),
+        2,
+        "an unproven acceptance is not remembered"
+    );
 }
 
 #[test]

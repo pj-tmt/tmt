@@ -120,7 +120,7 @@ if a[0]=='api':
   if previous and previous['intent']!=intent: save(m); fail('DISPATCH_IDEMPOTENCY_CONFLICT')
   if previous: out=previous['receipt']
   else:
-   out={'operationId':i['operationId'],'items':[{'recipientId':id,'acceptance':'queued','requestId':'req_'+i['operationId']} for id in i['recipientIds']]}
+   out={'operationId':i['operationId'],'items':[{'recipientId':id,'acceptance':'recipientUnavailable' if m.get('recipientUnavailable') else 'queued','requestId':'req_'+i['operationId']} for id in i['recipientIds']]}
    dispatches[i['operationId']]={'intent':intent,'receipt':out}
    if i['kind']=='announcement': m['notices'].append(q)
    else: m.setdefault('wakes',[]).append(i['operationId'])

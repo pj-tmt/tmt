@@ -83,8 +83,10 @@ lead. The operation UUID hashes a fixed domain, the room, member and lead UUIDs 
 (`operation::uuid_v8`, shared with `cron::tick::operation_id`). Core compares the recipient, kind,
 origin and body; the body names the squad, member, idle start and threshold, never the scan time,
 and quotes the row line (cut per value and to 600 bytes) as of the first attempt. A retry whose row
-differs returns `DISPATCH_IDEMPOTENCY_CONFLICT`, which `send` reads as accepted. An uncertain create
-recovers with `dispatch.show`. The only memory is the in-clock set of accepted operation IDs that
+differs returns `DISPATCH_IDEMPOTENCY_CONFLICT`, which `send` reads as accepted. `Core::dispatch_queued`
+is the one owner of the rest, shared with the scheduled send: an uncertain create recovers with
+`dispatch.show`, and the receipt must be the single queued item for the one recipient. The suggested
+`tmt focus`/`tmt talk` lines carry the member's identity UUID, never its display name. The only memory is the in-clock set of accepted operation IDs that
 spares a repeat call each minute; a new clock repeats one call and Core makes it a no-op. Tests run
 the real scan against the fake Core of `cron_service::test_support`.
 
