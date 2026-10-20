@@ -54,6 +54,8 @@ async function wire(
   statementTransfer?: 'valid' | 'hash',
   pageTitle = 'Live fixture',
   largeTail = false,
+  /** Holds back every chunk frame by this long, as a busy local server does. */
+  chunkDelayMs = 0,
 ) {
   const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
@@ -540,7 +542,10 @@ async function wire(
     const state = outgoing.get(socket);
     if (!state || state.waiting || !state.frames.length) return;
     state.waiting = true;
-    socket.send(state.frames.shift()!);
+    const frame = state.frames.shift()!;
+    if (chunkDelayMs && JSON.parse(frame).type === 'chunk')
+      setTimeout(() => outgoing.has(socket) && socket.send(frame), chunkDelayMs);
+    else socket.send(frame);
   };
   const send = (socket: WebSocketRoute, type: string, fields: Record<string, unknown>) => {
     const state = outgoing.get(socket)!;
@@ -2427,6 +2432,25 @@ test('baseline finishes before a signed large statement; exact owner log survive
   ).toBeVisible();
   expect(await persistedLog(page)).toEqual(log);
   expect(f.statementChunks).toBe(chunks);
+  await page.getByRole('link', { name: /^Colab · local/ }).click();
+  await expect.poll(() => f.connections).toBe(0);
+});
+test('a signed statement whose chunks take over two seconds in all still opens the page', async ({
+  page,
+  context,
+}) => {
+  const source = '<h1>Slow statement</h1>' + 'x'.repeat(40_000),
+    f = await wire(context, { source }, undefined, 'valid', undefined, false, 300);
+  await page.goto(mount);
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Slow statement' }),
+  ).toBeVisible({
+    timeout: 30_000,
+  });
+  // More than two seconds of chunks: the fixed acquisition deadline would have failed the page.
+  expect(f.statementChunks * 300).toBeGreaterThan(2000);
+  await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByRole('link', { name: /^Colab · local/ }).click();
   await expect.poll(() => f.connections).toBe(0);
 });

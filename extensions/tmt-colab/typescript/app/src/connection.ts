@@ -159,7 +159,7 @@ export class Connection {
   ) {
     this.objects = new Objects(admission);
     this.#catchup = new Catchup(admission, sharing, this.objects, admission.epoch, reading);
-    this.#frames = new Frames(admission, (error) => this.close(error));
+    this.#frames = new Frames(admission);
     this.ready = new Promise((resolve, reject) => {
       this.#resolve = resolve;
       this.#reject = reject;

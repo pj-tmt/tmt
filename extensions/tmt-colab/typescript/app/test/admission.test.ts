@@ -372,8 +372,7 @@ it('admits fresh/later and resumed/first statement references only after exact v
     records.clear();
     const a = admission(),
       catchup = new Catchup(a, 'private'),
-      fail = vi.fn(),
-      frames = new Frames(a, fail);
+      frames = new Frames(a);
     try {
       if (later)
         await catchup.admit(first({ ...head(), revision: '2', statementHash: f.hash, more: true }));
@@ -394,7 +393,6 @@ it('admits fresh/later and resumed/first statement references only after exact v
       expect(a.head?.revision).toBe(2n);
       expect(c.encodeBinary(a.head!.hash)).toBe(f.hash);
       expect(records.get(`log:${v.space}`)).toEqual([raw, c.encodeBinary(f.bytes)]);
-      expect(fail).not.toHaveBeenCalled();
       vi.useFakeTimers();
       vi.setSystemTime(50);
       const restored = admission();
@@ -430,7 +428,7 @@ it('rejects signed-chain, payload, signature, reference and target substitutions
     await a.membership(head(), true);
     const before = a.head,
       durable = records.get(`log:${v.space}`),
-      frames = new Frames(a, vi.fn());
+      frames = new Frames(a);
     try {
       frames.receive(JSON.stringify(reference(hash, false, target)));
       let complete = null;
@@ -454,7 +452,7 @@ it('retains the previous head when a durable prefix conflicts or persistence fai
     if (failure === 'prefix') records.set(`log:${v.space}`, ['fork']);
     else failWrite = true;
     const before = records.get(`log:${v.space}`),
-      frames = new Frames(a, vi.fn());
+      frames = new Frames(a);
     try {
       frames.receive(JSON.stringify(reference(f.hash)));
       let complete = null;
@@ -505,7 +503,7 @@ it('rejects statement identity, order, bounds and interleaving, discarding parti
     { bytes: '' },
     { bytes: c.encodeBinary(new Uint8Array(1)) },
   ]) {
-    const frames = new Frames(admission(), vi.fn());
+    const frames = new Frames(admission());
     frames.receive(JSON.stringify(reference(f.hash)));
     expect(() => frames.receive(JSON.stringify({ ...part, ...change }))).toThrow();
     expect(() => frames.receive(JSON.stringify(part))).toThrow();
@@ -527,11 +525,11 @@ it('rejects statement identity, order, bounds and interleaving, discarding parti
     },
     { ...reference(f.hash), wraps: [] },
   ]) {
-    const frames = new Frames(admission(), vi.fn());
+    const frames = new Frames(admission());
     expect(() => frames.receive(JSON.stringify(malformed))).toThrow();
     frames.close();
   }
-  const frames = new Frames(admission(), vi.fn());
+  const frames = new Frames(admission());
   frames.receive(JSON.stringify(reference(f.hash)));
   frames.receive(JSON.stringify(part));
   expect(() =>
@@ -541,27 +539,28 @@ it('rejects statement identity, order, bounds and interleaving, discarding parti
   expect(() => frames.receive(first())).toThrow();
   frames.close();
 });
-it('enforces the aggregate statement cap, absolute deadline and explicit close cleanup', async () => {
+it('enforces the aggregate statement cap, never times out and cleans up on close', async () => {
   const f = await largeStatement(),
-    fail = vi.fn(),
-    frames = new Frames(admission(), fail);
+    frames = new Frames(admission());
   try {
     frames.receive(JSON.stringify(reference(f.hash)));
     const oversized = chunks(new Uint8Array(STATEMENT_ENVELOPE_BYTES + 1), f.hash);
     for (const part of oversized.slice(0, -1)) frames.receive(JSON.stringify(part));
     expect(() => frames.receive(JSON.stringify(oversized.at(-1)))).toThrow();
     vi.useFakeTimers();
+    // No deadline: the acquisition waits through minutes of silence and then completes.
     frames.receive(JSON.stringify(reference(f.hash)));
-    await vi.advanceTimersByTimeAsync(1500);
-    frames.receive(JSON.stringify(chunks(f.bytes, f.hash)[0]));
-    await vi.advanceTimersByTimeAsync(500);
-    expect(fail).toHaveBeenCalledOnce();
-    expect(() => frames.receive(JSON.stringify(chunks(f.bytes, f.hash)[1]))).toThrow();
+    const parts = chunks(f.bytes, f.hash);
+    let done: Record<string, unknown> | null = null;
+    for (const part of parts) {
+      await vi.advanceTimersByTimeAsync(60_000);
+      done = frames.receive(JSON.stringify(part));
+    }
+    expect(done).not.toBeNull();
+    // Closing drops the acquisition, so a later part is refused.
     frames.receive(JSON.stringify(reference(f.hash)));
     frames.close();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(fail).toHaveBeenCalledOnce();
-    expect(() => frames.receive(JSON.stringify(chunks(f.bytes, f.hash)[0]))).toThrow();
+    expect(() => frames.receive(JSON.stringify(parts[0]))).toThrow();
   } finally {
     frames.close();
     vi.useRealTimers();
