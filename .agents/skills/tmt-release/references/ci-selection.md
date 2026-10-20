@@ -334,11 +334,18 @@ batch binds listed heads to file counts/paths and comment bodies/URLs, reading
 the first 100 files and last 100 comments. Pagination uses full REST/final
 exact-head/file-count verification for that PR only.
 Truncated/foreign/duplicate evidence or changed heads refuse, never empty healthy sweeps.
-Draft visibility needs push permission; changing counts/identities, missing evidence
-or exhaustion refuses. Failed workers exclude propagated aggregates. Test recurrence
-uses observed log tokens/distinct PR/MG contexts; missing/oversize logs are unavailable,
-not causes or successes. Raw logs use the packed command owner's 16 MiB ceiling;
-other reads keep its default. Public-install failures join exact tag-bearing job
+Draft visibility needs push permission; changing counts/identities, missing required
+metadata or exhaustion refuses. Discovery, queue, releases, PR reviews and complete
+terminal-job metadata precede optional logs. Select the first failed non-aggregate
+worker per attempt, newest runs first (ties by run ID, jobs by ID), at most three
+logs per tick. Each read has a 20 s maximum within a 60 s phase, reduced to retain
+10 s and two API calls. Caps include cache reads; hits are not network calls.
+Reports begin `logs read: k of n failed workers` (including retained samples),
+and name every unread worker/reason. Unread logs are not retried automatically or
+asserted healthy. Recurrence uses observed tokens/distinct PR/MG contexts only.
+Missing/oversize/timed-out logs remain unavailable, not causes or successes. Full
+logs retain their SHA-256/cache and the packed owner's 16 MiB ceiling; other reads
+keep its default. Public-install failures join exact tag-bearing job
 labels to unique published records; missing/draft/ambiguous joins are unavailable,
 and multiple failed hosts count as one release.
 
@@ -362,6 +369,12 @@ Quiet one-page acquisition costs `19 + P + H` calls (`P` catalogue pages, `H` re
 updated closed PR candidates, including unmerged closures), plus tracked/new failure
 details, extra list pages, one nonempty review query and per-PR REST fallbacks.
 `H` grows with merges/closed-PR updates; split a long window with `--until`.
+The timed fixture (P=7, H=0, one review batch, 0.5 s other calls, 1.8 s per
+single-page failed attempt) supports 53 uncached failed attempts: 80 calls/108.9 s;
+the 54th refuses. Extra pages, hydration, tracked runs or slow calls lower this
+ceiling. Twenty attempts plus the full 60 s log phase cost at most 109.5 s in
+that fixture; 10/30 workers across ten attempts cost at most 91.5 s. The shared
+80/120 limits always apply; mandatory exhaustion refuses with the cursor unchanged.
 Bootstrap has no historical detail reads. Explicit `--since` without a cursor opts
 into <=24-hour historical collection; terminal job/log cache can survive refusal,
 but unbounded/heavily paginated windows may not converge. Bootstrap starts a new
@@ -376,8 +389,13 @@ A transient `Truncated REST evidence` may allow one retry in the same directory;
 cost; cache hits are not calls. It stores no credentials, response bodies or raw logs.
 Refusals name the acquisition stage and cohort PR count. `summary.md` puts up to 20 anomalies first, pointing to
 complete `summary.json` evidence/cache paths, with coverage and host disk/load. `cursor.json`
-advances atomically only for a complete report; refusal/unavailable coverage returns
-nonzero. Only complete reports can explicitly state no anomalies. Known GitHub
+advances atomically when all required metadata is complete under the stated log
+sample, including omitted/unavailable diagnostics. Only failed attempted downloads
+add log anomalies; omissions remain in worker records and the tail list.
+Required metadata unavailability/refusal returns nonzero with unchanged cursor.
+Core's #2268 tick prompt must say: "Logs are sampled; log not read is unknown
+diagnostic detail, not a healthy worker." The prompt itself is not changed here.
+Only complete reports can explicitly state no anomalies. Known GitHub
 credentials are redacted; posted summaries contain no secrets/raw logs.
 [guide-budgets.json](../../../../typescript/scripts/guide-budgets.json) owns shared
 guide line/byte limits used by the summary and guard. Reports remain input for lead judgement.
