@@ -246,10 +246,8 @@ fn authored_selected_scope_timers_never_widens_a_hidden_missing_or_other_tab_sco
     });
     app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
     assert!(app.cron_list.is_none());
-    for tab in [crate::board::shell::OpsTab::Digest] {
-        app.shell.tab = tab;
-        app.workspace.selected = None;
-        app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
-        assert!(app.cron_list.is_none());
-    }
+    app.shell.tab = crate::board::shell::OpsTab::Digest;
+    app.workspace.selected = None;
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    assert!(app.cron_list.is_none());
 }

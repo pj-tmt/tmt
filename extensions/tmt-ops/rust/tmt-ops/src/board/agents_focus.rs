@@ -35,14 +35,14 @@ fn rule(frame: &mut Frame, app: &App, area: Rect, y: &mut u16, title: &str, note
         return;
     }
     if *y < area.bottom() {
-        section_rule::paint(
-            frame.buffer_mut(),
-            Rect::new(area.x, *y, area.width, 1),
-            title,
-            note,
-            false,
-            app.look(),
-        );
+        // The pane's top rule carries the Talk/Measure control.
+        let line = Rect::new(area.x, *y, area.width, 1);
+        let line = if *y == area.y {
+            crate::board::talk_measure::paint(frame.buffer_mut(), app, line)
+        } else {
+            line
+        };
+        section_rule::paint(frame.buffer_mut(), line, title, note, false, app.look());
         *y += 1;
     }
 }

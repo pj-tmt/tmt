@@ -2398,7 +2398,7 @@ mod tests {
     }
 
     #[test]
-    fn long_chart_demand_uses_existing_refresh_and_cancels_on_leaving_usage() {
+    fn long_chart_demand_uses_existing_refresh_and_does_not_reacquire_a_closed_range() {
         crate::status::with_now_ms(1_791_600_000_000, || {
             let mut app = theme_board();
             let mut terminal =
@@ -2445,18 +2445,19 @@ mod tests {
                     assert!(preempt && !preview);
                     requests.borrow_mut().push(chart);
                     match requests.borrow().len() {
+                        // Moving within the closed range, then to Digest, which shows
+                        // the same chart, changes nothing the refresh would reacquire.
                         1 => {
                             for code in [
                                 KeyCode::Down,
                                 KeyCode::Down,
                                 KeyCode::Up,
                                 KeyCode::Char('2'),
+                                KeyCode::Char('q'),
                             ] {
                                 events.send(key(code)).unwrap();
                             }
                         }
-                        2 => events.send(key(KeyCode::Char('2'))).unwrap(),
-                        3 => events.send(key(KeyCode::Char('q'))).unwrap(),
                         _ => panic!("unchanged closed range must not reacquire"),
                     }
                 },
@@ -2477,9 +2478,9 @@ mod tests {
                     .iter()
                     .map(|d| d.and_then(|d| d.chart))
                     .collect::<Vec<_>>(),
-                [Some(expected), None, Some(expected)]
+                [Some(expected)]
             );
-            assert!(draws.get() >= 6);
+            assert!(draws.get() >= 3);
         });
     }
 
