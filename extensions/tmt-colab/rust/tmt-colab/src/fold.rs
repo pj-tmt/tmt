@@ -679,30 +679,40 @@ impl Snapshot {
         }
         Ok(prepared)
     }
-    pub(crate) fn prepare_shell_batch(
+    pub(crate) fn prepare_structured_batch(
         &self,
         key: &Keyring,
         page: &str,
-        edit: &crate::decoder::ShellEdit,
+        edit: &crate::decoder::StructuredEdit,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
+        use crate::decoder::StructuredKind;
         let input = self.materialization_input(key, page, decoder, &BTreeMap::new(), None)?;
         let base = input.materialize(page, decoder, None)?;
-        if base.meta["pageType"].as_str() != Some("shell") {
-            return Err(crate::page::Fault::Invalid.into());
-        }
+        let shell = base.meta["pageType"].as_str() == Some("shell");
         // Validate the action before crossing the child boundary so callers retain the typed
         // input refusal, rather than an opaque decoder failure.
-        crate::shell::apply(
-            &base.meta["shell"],
-            &edit.action,
-            &edit.body,
-            &edit.attribution,
-        )
+        match edit.kind {
+            StructuredKind::Shell if shell => crate::shell::apply(
+                &base.meta["shell"],
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map(drop),
+            StructuredKind::Work if !shell => crate::work::apply(
+                base.meta.get("work").unwrap_or(&crate::work::empty()),
+                &edit.action,
+                &edit.body,
+                &edit.attribution,
+            )
+            .map(drop),
+            _ => Err(crate::closed::Invalid),
+        }
         .map_err(|_| crate::page::Fault::Invalid)?;
         let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
         let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let prepared = decoder.prepare_shell_batch(
+        let prepared = decoder.prepare_structured_batch(
             UpdateBatch {
                 namespace: Namespace::Content,
                 baseline: &input.baseline,
@@ -764,6 +774,7 @@ impl Snapshot {
             )?)?;
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             let view = BaselineInput {
+                work: None,
                 original_author: None,
                 layout: None,
                 attachments: None,

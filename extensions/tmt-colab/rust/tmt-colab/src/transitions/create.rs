@@ -105,6 +105,7 @@ impl Engine {
                     Ok(())
                 })?;
                 let input = BaselineInput {
+                    work: None,
                     original_author: publisher_agent,
                     layout,
                     attachments: None,

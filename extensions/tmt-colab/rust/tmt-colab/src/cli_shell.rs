@@ -168,7 +168,8 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
                     (
                         "shell",
                         String::from_utf8(
-                            tmt_colab::shell::canonical(&view.shell).map_err(|_| Fault::Invalid)?,
+                            tmt_colab::closed::canonical(&view.shell)
+                                .map_err(|_| Fault::Invalid)?,
                         )?,
                     ),
                 ],
@@ -205,11 +206,12 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         }
         value
     });
-    let prepared = page::prepare_shell_publication(
+    let prepared = page::prepare_structured_publication(
         &store,
         &key,
         &page_id,
-        page::ShellAction {
+        page::StructuredAction {
+            kind: tmt_colab::decoder::StructuredKind::Shell,
             action,
             body: &body,
             display_agent,

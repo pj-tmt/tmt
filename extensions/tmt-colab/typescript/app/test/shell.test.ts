@@ -1,12 +1,8 @@
 import { expect, it } from 'vite-plus/test';
 import vectors from '../../../contracts/vectors/shell-v1.json';
-import {
-  applyShellAction,
-  canonicalShell,
-  validateShell,
-  type Shell,
-  type ShellAttribution,
-} from '../src/shell.js';
+import { canonical } from '../src/closed.js';
+import { applyShellAction, validateShell, type Shell } from '../src/shell.js';
+import type { Attribution } from '../src/summary-lines.js';
 
 it.each(vectors.cases)('$name', (fixture) => {
   const before = JSON.stringify(fixture.document);
@@ -16,14 +12,14 @@ it.each(vectors.cases)('$name', (fixture) => {
           fixture.document,
           fixture.action!,
           fixture.body,
-          fixture.attribution as ShellAttribution,
+          fixture.attribution as Attribution,
         )
       : validateShell(fixture.document);
-  if (!fixture.valid) expect(run).toThrow('Invalid shell');
+  if (!fixture.valid) expect(run).toThrow('Invalid structured value');
   else {
     const result = run();
     if ('expected' in fixture) expect(result).toEqual(fixture.expected);
-    expect(canonicalShell(result ?? fixture.document)).toBe(fixture.canonical);
+    expect(canonical(result ?? fixture.document)).toBe(fixture.canonical);
   }
   expect(JSON.stringify(fixture.document)).toBe(before);
 });
@@ -44,14 +40,14 @@ it('enforces the whole-value byte limit at exactly 128 KiB and the 256-item boun
   let last = '';
   for (const id of value.order) {
     value.items[id].note = '';
-    const remaining = 131072 - new TextEncoder().encode(canonicalShell(value)).length;
+    const remaining = 131072 - new TextEncoder().encode(canonical(value)).length;
     value.items[id].note = 'x'.repeat(Math.min(512, remaining));
     if (remaining <= 512) {
       last = id;
       break;
     }
   }
-  expect(new TextEncoder().encode(canonicalShell(value)).length).toBe(131072);
+  expect(new TextEncoder().encode(canonical(value)).length).toBe(131072);
   expect(() => validateShell(value)).not.toThrow();
   value.items[last].note += 'x';
   expect(() => validateShell(value)).toThrow();

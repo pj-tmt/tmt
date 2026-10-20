@@ -1,41 +1,15 @@
 //! Structured shell values and trial actions. No Yjs, storage, target lookup or authority.
 //! The admitted writer supplies attribution; references never grant access to their targets.
-use serde_json::{Map, Value, json};
+use crate::closed::{Invalid, canonical, id, integer, keys, object, plain, require, text};
+use crate::summary_lines;
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use tmt_colab_model::values;
 
 pub use crate::limits::{SHELL_BYTES as DOCUMENT_BYTES, SHELL_ITEMS as ITEM_LIMIT};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Invalid;
-type Result<T> = std::result::Result<T, Invalid>;
+type Result<T> = crate::closed::Result<T>;
 
-fn require(ok: bool) -> Result<()> {
-    if ok { Ok(()) } else { Err(Invalid) }
-}
-fn object(value: &Value) -> Result<&Map<String, Value>> {
-    value.as_object().ok_or(Invalid)
-}
-fn keys(value: &Value, required: &[&str], optional: &[&str]) -> Result<()> {
-    let map = object(value)?;
-    require(required.iter().all(|key| map.contains_key(*key)))?;
-    require(map.iter().all(|(key, value)| {
-        (required.contains(&key.as_str()) || optional.contains(&key.as_str())) && !value.is_null()
-    }))
-}
-fn text(value: &Value) -> Result<&str> {
-    value.as_str().ok_or(Invalid)
-}
-fn id(value: &Value) -> Result<&str> {
-    let value = text(value)?;
-    values::generated_id(value).map_err(|_| Invalid)?;
-    Ok(value)
-}
-fn plain(value: &Value, bytes: usize) -> Result<&str> {
-    let value = text(value)?;
-    require(value.len() <= bytes && !value.chars().any(char::is_control))?;
-    Ok(value)
-}
 pub fn valid_anchor(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -73,64 +47,6 @@ pub fn validate_item(value: &Value) -> Result<()> {
     }
     optional_text(value)
 }
-fn lines(value: &Value) -> Result<()> {
-    for (key, limit) in [
-        ("line1", crate::limits::SHELL_SUMMARY_LINE1_POINTS),
-        ("line2", crate::limits::SHELL_SUMMARY_LINE2_POINTS),
-    ] {
-        let line = plain(&value[key], limit * 4)?;
-        require(line.chars().count() <= limit)?;
-    }
-    Ok(())
-}
-fn integer(value: &Value) -> Result<u64> {
-    let number = value.as_f64().ok_or(Invalid)?;
-    require((0.0..=9_007_199_254_740_991.0).contains(&number) && number.fract() == 0.0)?;
-    Ok(number as u64)
-}
-/// Agent details are display-only Core metadata, never proof of agent authority.
-pub fn validate_attribution(value: &Value) -> Result<()> {
-    keys(value, &["writerId", "timeMs"], &["displayAgent"])?;
-    id(&value["writerId"])?;
-    integer(&value["timeMs"])?;
-    if let Some(agent) = value.get("displayAgent") {
-        keys(agent, &["name"], &["id"])?;
-        require(crate::decoder::valid_publisher_agent(text(&agent["name"])?))?;
-        if let Some(agent_id) = agent.get("id") {
-            values::core_id(text(agent_id)?).map_err(|_| Invalid)?;
-        }
-    }
-    Ok(())
-}
-fn summary(value: &Value) -> Result<()> {
-    keys(value, &["line1", "line2", "attribution"], &[])?;
-    lines(value)?;
-    validate_attribution(&value["attribution"])
-}
-/// Compact sorted ASCII field/UUID keys; integral JSON numbers normalize like browser JSON.
-pub fn canonical(value: &Value) -> Result<Vec<u8>> {
-    fn normalize(value: &mut Value) -> Result<()> {
-        match value {
-            Value::Object(map) => {
-                map.sort_keys();
-                for value in map.values_mut() {
-                    normalize(value)?;
-                }
-            }
-            Value::Array(array) => {
-                for value in array {
-                    normalize(value)?;
-                }
-            }
-            Value::Number(_) => *value = Value::from(integer(value)?),
-            _ => {}
-        }
-        Ok(())
-    }
-    let mut value = value.clone();
-    normalize(&mut value)?;
-    serde_json::to_vec(&value).map_err(|_| Invalid)
-}
 /// Measures the admitted value, without retained Yjs history or transport framing.
 pub fn validate(value: &Value) -> Result<()> {
     keys(value, &["version", "items", "order"], &["summary"])?;
@@ -148,7 +64,7 @@ pub fn validate(value: &Value) -> Result<()> {
         require(items.contains_key(key) && seen.insert(key))?;
     }
     if let Some(value) = value.get("summary") {
-        summary(value)?;
+        summary_lines::validate(value)?;
     }
     require(canonical(value)?.len() <= DOCUMENT_BYTES)
 }
@@ -173,11 +89,7 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
     let mut next = base.clone();
     match action {
         "summary.set" => {
-            keys(body, &["line1", "line2"], &[])?;
-            lines(body)?;
-            validate_attribution(attribution)?;
-            next["summary"] =
-                json!({"line1":body["line1"],"line2":body["line2"],"attribution":attribution});
+            next["summary"] = summary_lines::set(body, attribution)?;
         }
         "summary.clear" => {
             keys(body, &[], &[])?;

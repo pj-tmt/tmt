@@ -428,7 +428,7 @@ fn prepare_content(
             .validate(&tmt_colab_model::crypto::digest(wire.source.as_bytes()))
             .map_err(|_| DecodeFault::InvalidInput)?;
     }
-    let expected = if let Some(shell) = &wire.shell {
+    let expected = if let Some(structured) = &wire.structured {
         if !wire.source.is_empty()
             || wire.publisher_agent.is_some()
             || wire.layout.is_some()
@@ -436,20 +436,21 @@ fn prepare_content(
         {
             return Err(DecodeFault::InvalidInput);
         }
-        edited_shell_projection(&before, shell)?
+        edited_structured_projection(&before, structured)?
     } else {
         edited_projection(&before, edit)?
     };
     checkpoint(Stage::Generation, CheckpointBoundary::Enter, 0);
     let mut updates = Vec::new();
     if expected != before {
-        if wire.shell.is_some() {
+        if let Some(structured) = &wire.structured {
+            let key = structured.kind.key();
             let meta = doc.get_or_insert_map("meta");
             let mut tx = doc.transact_mut();
             meta.insert(
                 &mut tx,
-                "shell",
-                Any::from_json(&expected["meta"]["shell"].to_string())
+                key,
+                Any::from_json(&expected["meta"][key].to_string())
                     .map_err(|_| DecodeFault::Rejected)?,
             );
             updates.push(tx.encode_update_v1());
@@ -717,9 +718,18 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                 creation_recipient: wire.creation_recipient.as_ref(),
                 layout: wire.layout.as_ref(),
                 attachments: wire.attachments.as_ref(),
+                work: wire.work.as_ref(),
             };
             if creation.layout.is_some_and(|layout| !layout.valid()) {
                 return Err(DecodeFault::InvalidInput);
+            }
+            // Work rides on an ordinary page's single baseline update, never on a shell or on the
+            // chunked creation of a new page.
+            if let Some(work) = &wire.work {
+                crate::work::validate(work).map_err(|_| DecodeFault::InvalidInput)?;
+                if shell.is_some() || chunk_bytes.is_some() {
+                    return Err(DecodeFault::InvalidInput);
+                }
             }
             let update = if let Some(shell) = shell {
                 crate::shell::validate(&shell).map_err(|_| DecodeFault::InvalidInput)?;
@@ -787,6 +797,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         .map_err(|_| DecodeFault::Rejected)?;
     let projection = project(&doc, Namespace::Content)?;
     if producing && projection["meta"].get("shell") != expected_shell.as_ref() {
+        return Err(DecodeFault::Rejected);
+    }
+    if producing && projection["meta"].get("work") != wire.work.as_ref() {
         return Err(DecodeFault::Rejected);
     }
     let source_text = projection["html"].as_str().ok_or(DecodeFault::Rejected)?;
@@ -897,6 +910,7 @@ struct BaselineMeta<'a> {
     creation_recipient: Option<&'a CreationRecipient>,
     layout: Option<&'a crate::decoder::PageLayout>,
     attachments: Option<&'a tmt_colab_model::attachment::DocumentAttachments>,
+    work: Option<&'a Value>,
 }
 impl BaselineMeta<'_> {
     fn insert(&self, meta: &MapRef, txn: &mut TransactionMut) {
@@ -921,6 +935,13 @@ impl BaselineMeta<'_> {
                 "attachments",
                 Any::from_json(&serde_json::to_string(attachments).expect("typed attachments"))
                     .expect("inert attachments"),
+            );
+        }
+        if let Some(work) = self.work {
+            meta.insert(
+                txn,
+                "work",
+                Any::from_json(&work.to_string()).expect("inert work"),
             );
         }
     }
@@ -978,6 +999,7 @@ mod baseline_tests {
                     creation_recipient: recipient.as_ref(),
                     layout: layout.as_ref(),
                     attachments: None,
+                    work: None,
                 },
             );
             let encoded = URL_SAFE_NO_PAD.encode(&update);

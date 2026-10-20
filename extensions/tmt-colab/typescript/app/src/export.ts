@@ -1,6 +1,6 @@
 import type { CreationRecipient } from './fold-protocol.js';
 import type { Projection } from './fold-protocol.js';
-import { canonicalShell } from './shell.js';
+import { canonical } from './closed.js';
 import { decimal, digest, generatedId, requireValue, spaceId, text, time } from '@tmt/colab-client';
 import {
   projectConversations,
@@ -105,7 +105,7 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
   });
   const attachments = await listAttachments(copiedAttachments);
   const contentName = view.pageType === 'shell' ? 'shell.json' : 'page.html';
-  const content = text(view.pageType === 'shell' ? canonicalShell(view.shell) : view.source);
+  const content = text(view.pageType === 'shell' ? canonical(view.shell) : view.source);
   const json = text(serializeConversations(conversations));
   const markdown = text(renderConversationsMarkdown(conversations));
   if (json.length + markdown.length > CONVERSATIONS_BYTES) throw new Error('EXPORT_TOO_LARGE');
