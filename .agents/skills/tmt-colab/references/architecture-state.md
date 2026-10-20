@@ -326,6 +326,17 @@ gone, session ended, too large, session limit, generic), never the raw token (`t
 recovered, gets the generic sentence and stays visible, bounded to 120 characters, as a muted
 `Code: …` reference. A test requires a decision for every `SYNC_ERROR_CODES` and
 `REMOTE_REFUSAL_CODES` entry, so a new code cannot ship as a raw headline or an accidental retry.
+A page that cannot open (the root error on `/pages/…`) is decided once by `openFailure()` (`open-failure.ts`)
+from the same classification, because the open has no deadline (#3975) and ends only by a closed connection,
+a protocol violation or a refusal. A failure that reopening may cure (any recovery but `none`, and the
+`session` and `generic` causes) is plain copy ("This page could not open."), a Retry that runs the page
+loader again (`router.invalidate()`; the router then shows the same opening frame as a first open),
+Return to space and the raw token as the muted `Code: …` reference, with no red state. A page over the
+read limits (`large`) is the same card without Retry, with the way out (`tmt colab export`) and a
+readable label in place of the token.
+Only a refusal (access ended, not paired, page gone, session limit, or a message that is already a
+sentence) keeps the red card, now with its sentence instead of the raw message. A test decides every
+`CONNECTION_CODES` entry. Other routes keep the plain root error.
 Eviction and management-changed keep their own cards. A device at its Remote session limit
 (`REMOTE_SESSION_LIMIT`: Remote never evicts an attached session, #2585) is refused with the
 verified `limit` and `settingsUrl`; `sessionLimit()` (`session-limit-error.ts`) turns the boot open's raw
