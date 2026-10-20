@@ -57,3 +57,27 @@ export function entryTarget(hash = location.hash): EntryTarget | null {
   requireValue(validShellAnchor(value));
   return { anchor: value };
 }
+
+/** The keys this entry never takes from a link: the owner's own location and a reader's capability. */
+const REFUSED_KEYS = ['space', 'path', 'seed'];
+
+/** What a public link asks the page to show when it opens. A plain `#<id>`, the web's own form,
+ * names the shell element like `#anchor=<id>`. Any other fragment that is not exactly one display
+ * target is ignored and the page opens at the top; only one that carries a refused key refuses. */
+export function entryOpenTarget(hash = location.hash): EntryTarget | null {
+  try {
+    return entryTarget(hash);
+  } catch (error) {
+    if (hash.startsWith('#') && validShellAnchor(hash.slice(1))) return { anchor: hash.slice(1) };
+    const keys = [...new URLSearchParams(hash.slice(1)).keys()];
+    if (keys.some((key) => REFUSED_KEYS.includes(key))) throw error;
+    return null;
+  }
+}
+
+/** The canonical fragment of a display target, the only form kept in the location. */
+export function entryHash(target: EntryTarget | null): string {
+  if (!target) return '';
+  if ('thread' in target) return `#t=${target.thread}`;
+  return 'read' in target ? `#read=${target.read}` : `#anchor=${target.anchor}`;
+}

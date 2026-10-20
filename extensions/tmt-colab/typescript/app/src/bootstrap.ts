@@ -1,4 +1,4 @@
-import { entryMount, entryTarget, publicEntry } from './entry.js';
+import { entryHash, entryMount, entryOpenTarget, publicEntry } from './entry.js';
 import {
   binary,
   decimal,
@@ -210,7 +210,14 @@ export async function discover(
       (!fragment || fragment === value.spaceId) &&
         (!pin || (pin.space === value.spaceId && equal(pin.owner, owner))),
     );
-    if (publicEntry()) entryTarget();
+    // The location keeps only the canonical fragment of its display target: a plain #id becomes
+    // #anchor=<id>, and a fragment that names none is dropped, so nothing downstream (a copied
+    // link, an Ask's page link) carries it.
+    if (publicEntry()) {
+      const canonical = entryHash(entryOpenTarget());
+      if (location.hash !== canonical)
+        history.replaceState(history.state, '', location.pathname + location.search + canonical);
+    }
     let path: string | null = null;
     if (!fragment && !publicEntry()) {
       const incoming = new URLSearchParams(location.hash.slice(1));
