@@ -496,6 +496,7 @@ fn session(
     let mut marks = view::time_marks(app, crate::status::now_ms());
     let mut spinner = view::spinner_frame(app, Instant::now());
     let mut last_input = Instant::now();
+    let mut modal_was_open = false;
     let mut wanted: Option<usage_report::Since> = None;
     let mut history_demand = None;
     // Hands a job to the lane and says so at once; the event that comes back says how it ended.
@@ -605,6 +606,14 @@ fn session(
             refreshed = Instant::now();
             dirty = true;
         }
+        // A closed overlay or menu is the last moment the board can be sure the
+        // terminal still reports the mouse; ask again with the next frame.
+        let modal = app.modal_open();
+        if modal_was_open && !modal {
+            app.reassert_capture = true;
+            dirty = true;
+        }
+        modal_was_open = modal;
         if dirty {
             draw(app)?;
             app.unread_drawn();
@@ -1000,7 +1009,13 @@ fn session(
                 dirty = true;
                 app.paste(&text)
             }
+            Ok(BoardEvent::Input(Event::FocusGained)) => {
+                app.reassert_capture = true;
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                app.reassert_capture = true;
                 if let Some(discovery) = &mut app.discovery {
                     discovery.changed();
                 }
@@ -1403,6 +1418,9 @@ pub fn run(
                 // Fullscreen resize resets the diff buffer without clear()'s
                 // cursor-position query competing with the active input reader.
                 screen.resize(screen.size()?.into())?;
+            }
+            if std::mem::take(&mut app.reassert_capture) {
+                terminal::reassert_mouse(screen.backend_mut())?;
             }
             screen
                 .draw(|frame| {
@@ -3022,6 +3040,70 @@ mod tests {
             |_| Ok(()),
         )
         .unwrap()
+    }
+
+    /// The terminal can drop the mouse request without telling the board (a
+    /// nested client, a multiplexer or an emulator reset). Each of these moments
+    /// asks the next frame to send it again, so the wheel never falls to tmux's copy-mode.
+    #[test]
+    fn resize_focus_and_a_closed_overlay_each_ask_for_the_mouse_again() {
+        let run = |events: Vec<BoardEvent>| {
+            let mut app = app::workspace::tests::board();
+            let (sender, input) = channel();
+            for event in events {
+                sender.send(event).unwrap();
+            }
+            let asked = std::cell::Cell::new(false);
+            let overlay_seen = std::cell::Cell::new(false);
+            session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _, _| {},
+                |_, _| {},
+                |_| {},
+                no_io,
+                |app| {
+                    overlay_seen.set(overlay_seen.get() | app.modal_open());
+                    // `run` takes the flag the way its draw closure does.
+                    asked.set(asked.get() | std::mem::take(&mut app.reassert_capture));
+                    Ok(())
+                },
+            )
+            .unwrap();
+            (asked.get(), overlay_seen.get())
+        };
+        assert!(
+            !run(vec![BoardEvent::InputClosed]).0,
+            "a quiet board asks for nothing"
+        );
+        assert!(
+            run(vec![
+                BoardEvent::Input(Event::Resize(100, 30)),
+                BoardEvent::InputClosed
+            ])
+            .0
+        );
+        assert!(
+            run(vec![
+                BoardEvent::Input(Event::FocusGained),
+                BoardEvent::InputClosed
+            ])
+            .0
+        );
+        // An open overlay alone does not ask; closing it does.
+        let opened = run(vec![key(KeyCode::Char('?')), BoardEvent::InputClosed]);
+        assert_eq!(
+            opened,
+            (false, true),
+            "help is open and nothing was asked yet"
+        );
+        let closed = run(vec![
+            key(KeyCode::Char('?')),
+            key(KeyCode::Esc),
+            BoardEvent::InputClosed,
+        ]);
+        assert_eq!(closed, (true, true), "closing help asks again");
     }
 
     #[test]

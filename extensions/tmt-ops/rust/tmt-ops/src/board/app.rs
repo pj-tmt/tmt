@@ -730,6 +730,9 @@ pub struct App {
     pub follow: bool,
     /// Opened as a tmux popup: a successful jump closes the board.
     pub popup: bool,
+    /// Set when the terminal may have dropped the mouse request (resize, focus
+    /// regained, a modal closed); `run` re-sends it before the next frame.
+    pub(super) reassert_capture: bool,
     /// Notices a replaced binary or a reload request; inert unless `run` starts it.
     pub(super) reload: super::reload::Watch,
     /// Set when the session ends to reload: the state the next process resumes.
