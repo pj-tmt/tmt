@@ -2,6 +2,7 @@ import type { ComposerConnectionPresentation } from './router.js';
 import { AttachmentDropPanel } from './attachment-drop.js';
 import type { CreationRecipient } from './fold-protocol.js';
 import { Check, ChevronUp, CircleCheck, CircleDot, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import {
   BrowserAction,
   BrowserIconAction,
@@ -101,7 +102,7 @@ export function MessageEchoTurn({ echo, writer }: { echo: MessageEcho; writer?: 
           // The mark has no words and follows the shared busy-mark delay.
           <span className="comment-echo-mark" aria-hidden="true" data-shown={marked || undefined}>
             {' '}
-            <LoaderCircle />
+            <LoaderCircle className={ui.spin} />
           </span>
         )
       }

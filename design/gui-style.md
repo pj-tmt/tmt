@@ -528,7 +528,8 @@ your machine`) and a way to recheck.
 days`); exact time on hover.
 - **Counts:** the header carries one pending count per surface; it disappears at
   zero.
-- **Motion:** none except the LoaderCircle spin, which stops under
+- **Motion:** none except the LoaderCircle spin (see
+  [Transient states](#transient-states)), which stops under
   `prefers-reduced-motion`.
 
 ## Transient states
@@ -541,6 +542,12 @@ the busy mark and busy state for every Action and IconAction.
   that the action's reserved busy mark shows, and once shown it stays at least
   400 ms. Errors show at once. No label swaps (`Saving…`) and no inserted
   status paragraphs.
+- **Spinner:** one turn per 0.9 s, linear, infinite, defined once in
+  `browser-ui` (`browserUiClasses.spin`, `tmt-ui-spin`). Every shown
+  LoaderCircle uses it: the busy mark of an Action or IconAction turns by
+  itself, any other mark takes the class. A surface never brings its own
+  keyframes or speed. Under `prefers-reduced-motion: reduce` the mark stays
+  on screen and stands still.
 - **Busy is not disabled:** a busy control keeps its look, focus and readable
   text; it is `aria-disabled` with an activation guard. Only an unavailable
   control uses the muted disabled style.
