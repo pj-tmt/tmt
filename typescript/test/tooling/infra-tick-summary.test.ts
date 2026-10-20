@@ -692,6 +692,41 @@ function timedFailureFixture(workers: number, attempts = 10, logCosts = [15_000,
 }
 
 describe('bounded failed-worker diagnostics', () => {
+  it('keeps recurrence and guide warnings in the first twenty anomaly lines without omission anomalies', () => {
+    const f = timedFailureFixture(30);
+    try {
+      const report = collectInfraTick(f.api, {
+        ...options,
+        local: {
+          ...options.local,
+          guides: { ...options.local.guides, 'ARCHITECTURE.md': 'line\n'.repeat(630) },
+        },
+      });
+      const firstLines = renderInfraTick(report)
+        .split('\n')
+        .filter((line) => line.startsWith('- '))
+        .slice(0, 20)
+        .join('\n');
+      expect(firstLines).toContain('test failed across distinct PR/merge-group contexts');
+      expect(firstLines).toContain('guide near or over budget');
+      expect(firstLines).toContain('ARCHITECTURE.md');
+      const downloadFailures = report.anomalies.filter(
+        (item) => item.kind === 'test log unavailable'
+      );
+      expect(downloadFailures).toHaveLength(1);
+      expect(downloadFailures[0]).toMatchObject({ run: 9, job: 911 });
+      const omitted = report.failures.filter(
+        (failure) => failure.unavailable && failure.job !== 911
+      );
+      expect(omitted).toHaveLength(27);
+      for (const failure of omitted) {
+        expect(downloadFailures.some((item) => item.job === failure.job)).toBe(false);
+        expect(renderInfraTick(report)).toContain(`"job":${failure.job}`);
+      }
+    } finally {
+      f.dispose();
+    }
+  });
   it.each([10, 30])(
     'completes all stages with %i failed workers at incident latencies',
     (workers) => {

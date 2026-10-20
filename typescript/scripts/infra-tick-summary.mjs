@@ -944,6 +944,7 @@ export function collectInfraTick(
   let logAttempts = 0;
   for (const failure of pendingFailureLogs) {
     const attempt = `${failure.run}:${failure.attempt}`;
+    // After the first worker, the attempt cap takes precedence over tick/time caps.
     if (sampledAttempts.has(attempt)) failure.unavailable = 'log not read: one-per-attempt cap';
     else {
       sampledAttempts.add(attempt);
@@ -955,17 +956,18 @@ export function collectInfraTick(
           failure.tests = failingTests(result.text);
           failure.logHash = hash(result.text);
           failure.unavailable = null;
-        } else failure.unavailable = `log not read: ${result.reason}`;
+        } else {
+          failure.unavailable = `log not read: ${result.reason}`;
+          if (result.attempted)
+            anomaly('test log unavailable', {
+              run: failure.run,
+              job: failure.job,
+              reason: failure.unavailable,
+            });
+        }
       }
     }
   }
-  for (const failure of failures)
-    if (failure.unavailable)
-      anomaly('test log unavailable', {
-        run: failure.run,
-        job: failure.job,
-        reason: failure.unavailable,
-      });
   const logCoverage = {
     read: failures.filter((failure) => /^[a-f0-9]{64}$/.test(failure.logHash ?? '')).length,
     total: failures.length,

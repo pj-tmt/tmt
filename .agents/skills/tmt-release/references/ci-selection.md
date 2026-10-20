@@ -390,7 +390,8 @@ cost; cache hits are not calls. It stores no credentials, response bodies or raw
 Refusals name the acquisition stage and cohort PR count. `summary.md` puts up to 20 anomalies first, pointing to
 complete `summary.json` evidence/cache paths, with coverage and host disk/load. `cursor.json`
 advances atomically when all required metadata is complete under the stated log
-sample, including optional-log omissions/download failures as diagnostic anomalies.
+sample, including omitted/unavailable diagnostics. Only failed attempted downloads
+add log anomalies; omissions remain in worker records and the tail list.
 Required metadata unavailability/refusal returns nonzero with unchanged cursor.
 Core's #2268 tick prompt must say: "Logs are sampled; log not read is unknown
 diagnostic detail, not a healthy worker." The prompt itself is not changed here.
