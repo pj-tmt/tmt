@@ -1801,7 +1801,6 @@ function Page() {
         headingSuffix={
           <PageProjects
             transport={transport}
-            space={space}
             pageId={snapshot.id}
             request={projectsRequest}
             open={openProjects}

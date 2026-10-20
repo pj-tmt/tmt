@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
 import { pageTitle } from './page-index.js';
 import { applyProjectChanges, projectCounts, withProject } from './projects.js';
-import { rememberPages } from './quick-switcher-source.js';
 import { text } from './strings.js';
 import type { PageSummary, PageTransport, SpaceHome } from './transport.js';
 import './page-projects.css';
@@ -66,14 +65,12 @@ export function PageProjectsMenu({
  */
 export function PageProjects({
   transport,
-  space,
   pageId,
   request,
   open,
   onLoaded,
 }: {
   transport: PageTransport;
-  space: string | undefined;
   pageId: string;
   /** Changes to open the picker, from the chips and from Projects… in the More menu. */
   request: number;
@@ -86,24 +83,27 @@ export function PageProjects({
   const [failure, setFailure] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [creating, setCreating] = useState(false);
+  // A new transport (a refreshed session) is read through, never a reason to read the list again.
+  const latest = useRef(transport);
+  latest.current = transport;
   const current = useRef(true);
   const load = useCallback(async () => {
     try {
-      const next = await transport.spaceHome();
+      const next = await latest.current.spaceHome();
       if (!current.current) return;
-      rememberPages(transport, space, next.pages);
       setHome(next);
     } catch {
       // The picker stays unavailable (or keeps what it showed): the page itself is unaffected.
     }
-  }, [transport, space]);
+  }, []);
+  const writable = !!port;
   useEffect(() => {
     current.current = true;
-    if (port) void load();
+    if (writable) void load();
     return () => {
       current.current = false;
     };
-  }, [port, load, pageId]);
+  }, [writable, load, pageId]);
   const page = home?.pages.find((candidate) => candidate.id === pageId);
   useEffect(() => onLoaded(!!port && !!page), [onLoaded, port, page]);
   if (!port || !home || !page) return null;

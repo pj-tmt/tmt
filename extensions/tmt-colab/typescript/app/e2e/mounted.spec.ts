@@ -980,6 +980,24 @@ test.describe('relative retention evidence', () => {
   });
 });
 
+/** An opened page's title is remembered once its fold is accepted; leaving before that makes the list
+ * read the title as well, which these specs would count as a catalog read. */
+const titleRemembered = (page: Page) =>
+  page.waitForFunction(
+    () =>
+      new Promise<boolean>((resolve) => {
+        const request = indexedDB.open('tmt-colab', 1);
+        request.onerror = () => resolve(false);
+        request.onsuccess = () => {
+          const keys = request.result.transaction('keys').objectStore('keys').getAllKeys();
+          keys.onsuccess = () => {
+            request.result.close();
+            resolve(keys.result.some((key) => String(key).startsWith('title:')));
+          };
+        };
+      }),
+  );
+
 // Back from a page to the list reads the catalog again; an ended Remote session is refreshed once
 // for the same device, as the page's own read does, instead of ending in a terminal error.
 for (const status of [403, 503])
@@ -990,8 +1008,7 @@ for (const status of [403, 503])
     await page.goto(mount);
     await page.locator(`[data-page-id="${pageId}"] a`).click();
     await expect(page).toHaveURL(/\/p\//);
-    // The page reads the owner list once as it opens (its projects); count only what follows.
-    await page.waitForLoadState('networkidle');
+    await titleRemembered(page);
     let reads = 0;
     await page.route(`**${mount}api/pages`, (route) =>
       reads++ === 0 ? route.fulfill({ status, json: { code: 'DENIED' } }) : route.fallback(),
@@ -1011,7 +1028,7 @@ test('Back to the list still ends in the error when a refreshed session is refus
   await page.goto(mount);
   await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page).toHaveURL(/\/p\//);
-  await page.waitForLoadState('networkidle');
+  await titleRemembered(page);
   let reads = 0;
   await page.route(`**${mount}api/pages`, (route) => {
     reads++;
