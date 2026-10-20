@@ -333,6 +333,22 @@ fn screens_get_the_same_style() {
     );
 }
 
+#[cfg(feature = "ratatui")]
+#[test]
+fn attachment_surfaces_keep_terminal_and_mono_affordances() {
+    use ratatui::style::{Color, Modifier};
+    let theme = Theme::default();
+    let ink = screen::style(&theme, Role::AttachmentInk, Depth::Ansi16);
+    let fill = screen::style(&theme, Role::Attachment, Depth::Ansi16);
+    assert_eq!(ink.fg, Some(Color::White));
+    assert_eq!(fill.bg, Some(Color::Blue));
+    let mono = Theme::new(Base::Mono);
+    let ink = screen::style(&mono, Role::AttachmentInk, Depth::TrueColor);
+    let fill = screen::style(&mono, Role::Attachment, Depth::TrueColor);
+    assert!(ink.add_modifier.contains(Modifier::BOLD));
+    assert!(fill.add_modifier.contains(Modifier::REVERSED));
+}
+
 /// Today's command-line tokens show as design tokens under a theme.
 #[test]
 fn command_line_tokens_have_their_design_token() {
@@ -396,8 +412,7 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
                     | Role::Track
                     | Role::Keycap
                     | Role::KeycapSelected
-                    | Role::PasteChip
-                    | Role::PastePreview
+                    | Role::Attachment
             )
         }) {
             let floor = if matches!(role, Role::Muted | Role::Dim) {
@@ -416,9 +431,8 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
             }
         }
         for (ink, fill) in [
-            (Role::PasteText, Role::PasteChip),
-            (Role::Text, Role::PastePreview),
-            (Role::PasteFrame, Role::PastePreview),
+            (Role::AttachmentInk, Role::Attachment),
+            (Role::Text, Role::Attachment),
         ] {
             let ratio = contrast(color(ink), color(fill));
             assert!(

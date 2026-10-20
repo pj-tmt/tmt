@@ -165,7 +165,9 @@ impl App {
                 self.cron_glyphs,
                 crate::board::overview::cron_counts::GlyphSet::Ascii
             );
-        let base = look.role(Role::PasteText).patch(look.role(Role::PasteChip));
+        let base = look
+            .role(Role::AttachmentInk)
+            .patch(look.role(Role::Attachment));
         let selected = text.selection();
         for (row, line) in layout
             .lines
@@ -401,10 +403,10 @@ impl App {
         };
         let areas = modal.areas(outer, [outer.width, outer.height], false, false);
         let look = self.look();
-        let base = look.role(Role::Text).patch(look.role(Role::PastePreview));
+        let base = look.role(Role::Text).patch(look.role(Role::Attachment));
         let border = look
-            .role(Role::PasteFrame)
-            .patch(look.role(Role::PastePreview));
+            .role(Role::AttachmentInk)
+            .patch(look.role(Role::Attachment));
         // Modal owns the opaque clearing; Outline applies this attachment's
         // named chrome without introducing another drawing primitive.
         modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);

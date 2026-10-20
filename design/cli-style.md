@@ -45,8 +45,7 @@ architecture test enforces it for the CLIs and the Rust extensions.
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
 `waiting`, `working`, `review`, `blocked`, `link`, `unread`, `selection`, `track`,
-`keycap`, `keycap-selected`, `code`, `paste-text`, `paste-chip`, `paste-frame`
-and `paste-preview`
+`keycap`, `keycap-selected`, `code`, `attachment` and `attachment-ink`
 (`selection`, `track` and the keycaps are backgrounds; `code` is a calm cool grey-blue foreground, `white` on 16 colors, for rendered Markdown code, always drawn on `track`, and a Markdown link is `accent` and underlined, so the two never share a colour; `track` is the empty part of a meter and sits one step
 above the terminal background, so it is weaker than `selection`). Truecolor
 neutral roles (`text`, `muted`, `dim`, `selection` and `track`) use grayscale
@@ -59,10 +58,11 @@ their existing behavior.
 Chips resolve through `screen::chip`: neutral Track/Selection surfaces or primary Accent solid/lighter, Dim-on-Track when disabled, always Bold for Ansi16 Hot, and explicit reverse/bold/underline states without color; they add no role or token.
 Keycaps resolve through `screen::keycap`: a neutral mid-grey background, bold contrast-tested label and one padding cell on each side. A selected control uses the brighter `keycap-selected` surface. Without color, keycaps use bold reverse video. Hosts show the effective configured key before its label and omit the cap when the action is unbound.
 
-Pasted-text attachments use `paste-text` on the `paste-chip` background, and
-`text` inside the `paste-preview` background with a `paste-frame` border. Both
-light and dark pairs retain at least 4.5:1 text contrast. The 16-color fallback
-uses bright white ink and a blue background; no-color chips retain their ASCII
+Attachments share one `attachment` background for chips and previews.
+`attachment-ink` colors the chip label and preview frame; the preview body uses
+`text`. Both light and dark ink/background pairs retain at least 4.5:1 contrast.
+The 16-color fallback uses bright white ink and a blue background; no-color
+attachments use reverse video with bold labels and frames, retaining the ASCII
 label and removal control. These attachment surfaces are distinct from the
 existing action chips resolved by `screen::chip`.
 
