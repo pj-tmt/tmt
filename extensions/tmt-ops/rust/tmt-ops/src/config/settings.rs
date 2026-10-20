@@ -208,6 +208,12 @@ impl Config {
             json!(idle_alert.enabled),
             &sources["enabled"],
         );
+        // Presentation-only: the first idle row carries the hint for both.
+        out.entries.last_mut().expect("idle_alert.enabled").description = Some(
+            "Tells the lead once when a member stays idle this long. \
+             Not sent while a member waits on you or rests (hold)."
+                .into(),
+        );
         out.push(
             "idle_alert.after",
             json!(format!("{}s", idle_alert.after.as_secs())),
