@@ -368,6 +368,11 @@ focus on the card and never reclaim it after the reader moves elsewhere.
 Agent replies in Chat, threads and proposal Follow up share `ConversationTurn`.
 An agent reply has one look, running or finished: no driver edge, colour or word, and a
 running turn shows only the chip's working state (#4111). Stable turn keys preserve focus.
+Comment, Chat and reply bodies render through `MarkdownText` (#4112): `markdown.ts` parses a safe
+subset into a tree (never HTML), capped at 20 000 characters, depth 3 and 4 000 nodes, and a body
+over a cap stays plain paragraphs. Text leaves keep their mention chips. `classifyHref` admits only
+`/p/<page prefix>` links of this space as links; outside `https:` URLs stay inert words with the
+URL until outside links are confirmed (#4083), and every other target stays literal text.
 The data flow is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual
 rule is in [GUI style](../../../../design/gui-style.md#conversation-turn).
 

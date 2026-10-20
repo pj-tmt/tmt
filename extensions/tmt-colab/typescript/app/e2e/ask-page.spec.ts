@@ -62,9 +62,11 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
   await (await pageAction(page.locator('#ask-page-fixture'), 'Chat')).click();
   await run(page, 'syncRecords');
-  await expect(page.locator('[data-turn-role="user"] .conversation-body > pre').first()).toHaveText(
-    '<script>inert ask</script>',
-  );
+  await expect(
+    page.locator('[data-turn-role="user"] .conversation-body > .markdown-body', {
+      hasText: '<script>',
+    }),
+  ).toHaveText('<script>inert ask</script>');
   await expect(page.locator('.chat-panel script,.chat-panel img')).toHaveCount(0);
   await expect(page.getByText('The agent returned an empty reply.')).toBeVisible();
   await expect(page.getByTestId('ask-reply-attribution')).toContainText('Agent 2');

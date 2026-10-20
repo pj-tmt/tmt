@@ -450,7 +450,12 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
   and no driver word. A running turn shows only the
   chip's own working state. The verified `runningDriver` never selects a
   treatment. No shadow.
-- Literal markup in a body always renders as text. Basis: own.
+- A body is a small safe Markdown subset: paragraphs, bullet and numbered lists, block quotes,
+  fenced code, `code`, **strong**, _emphasis_ and links, with 8px between blocks. Anything else
+  stays the text the author wrote, and raw markup always renders as text. Fenced code scrolls
+  inside its own block and never widens the window. A link opens only a page of this space; an
+  outside URL shows as words followed by the URL, and any other target stays literal text.
+  Basis: own.
 
 ### Message attachments
 

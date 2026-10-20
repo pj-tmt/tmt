@@ -20,7 +20,7 @@ import type { AskDestination } from './ask-intent.js';
 import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
 import { agentSentence } from './components/agent-chip.js';
-import { MessageText } from './components/message-text.js';
+import { MarkdownText } from './components/markdown-text.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 import { conversationRecordKey } from './conversation-record-key.js';
 
@@ -334,9 +334,12 @@ export function AskPanel({
         bylineTestId="ask-reply-attribution"
         aria-label={text.askReply}
       >
-        <pre data-testid="ask-reply" data-empty={record.reply === ''}>
-          <MessageText value={record.reply} names={[record.agentName]} />
-        </pre>
+        <MarkdownText
+          data-testid="ask-reply"
+          data-empty={record.reply === ''}
+          value={record.reply}
+          names={[record.agentName]}
+        />
         {record.reply === '' && <p>{text.askEmptyReply}</p>}
       </ConversationTurn>
     );
@@ -396,9 +399,7 @@ export function AskPanel({
                 status={status}
                 delivery={delivery}
               >
-                <pre>
-                  <MessageText value={record.message} names={[record.agentName]} />
-                </pre>
+                <MarkdownText value={record.message} names={[record.agentName]} />
               </ConversationTurn>
             )}
             {reply}
