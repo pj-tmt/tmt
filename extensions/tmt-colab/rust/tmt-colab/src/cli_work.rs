@@ -82,6 +82,7 @@ pub fn task_command() -> Command {
             "Prints the page's revision, its stage, its progress and each task. Creates nothing.",
             example!("tmt colab task ls 10000000-0000-4000-8000-000000000001 --json"),
         )
+        .alias("list")
         .arg(crate::cli_grammar::page()),
     )
     .subcommand(
