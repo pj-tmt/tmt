@@ -1,12 +1,16 @@
 import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { capturePath } from './captures.js';
+import http from 'node:http';
+import { finiteLoopbackResponse } from '../acceptance/harness/firestore-proxy.js';
 
 test.use({ timezoneId: 'Asia/Tokyo' });
 
 const origin = 'https://demo-tmt-hosted.web.app';
 async function hostedFixture(page: Page, baseURL: string | undefined): Promise<string[]> {
   const outside: string[] = [];
+  const lifetime = new AbortController();
+  page.once('close', () => lifetime.abort());
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
@@ -14,12 +18,129 @@ async function hostedFixture(page: Page, baseURL: string | undefined): Promise<s
       outside.push(url.origin);
       await route.abort();
     } else {
-      const response = await route.fetch({ url: `${baseURL}${url.pathname}${url.search}` });
-      await route.fulfill({ response });
+      const request = route.request();
+      const headers = await request.allHeaders();
+      // The transport target is the private dev server, not the browser's logical origin.
+      delete headers.host;
+      try {
+        await route.fulfill(
+          await finiteLoopbackResponse({
+            url: new URL(`${baseURL}${url.pathname}${url.search}`),
+            method: request.method(),
+            headers,
+            body: request.postDataBuffer(),
+            signal: lifetime.signal,
+          }),
+        );
+      } catch (error) {
+        await route.abort();
+        throw error;
+      }
     }
   });
   return outside;
 }
+
+async function fixtureUpstream(handler: http.RequestListener) {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const { port } = server.address() as { port: number };
+  return {
+    url: `http://127.0.0.1:${port}`,
+    async close() {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    },
+  };
+}
+
+test('hosted module proxy uses a fresh upstream connection for each response', async ({ page }) => {
+  const sockets = new WeakSet<object>();
+  let requests = 0;
+  const upstream = await fixtureUpstream((request, response) => {
+    requests++;
+    if (sockets.has(request.socket)) {
+      request.socket.destroy();
+      return;
+    }
+    sockets.add(request.socket);
+    response.setHeader('content-type', 'text/html');
+    response.end('<h1>Original fixture</h1>');
+  });
+  try {
+    const outside = await hostedFixture(page, upstream.url);
+    for (const path of ['/first', '/next']) {
+      await page.goto(origin + path);
+      await expect(page.getByRole('heading', { name: 'Original fixture' })).toBeVisible();
+    }
+    expect(requests).toBe(2);
+    expect(outside).toEqual([]);
+  } finally {
+    await page.close();
+    await upstream.close();
+  }
+});
+
+test('hosted module proxy preserves upstream refusals, headers and binary bytes', async ({
+  page,
+}) => {
+  const bytes = [0, 255, 1, 128];
+  const received: Buffer[] = [];
+  let method: string | undefined;
+  let proof: string | string[] | undefined;
+  const upstream = await fixtureUpstream((request, response) => {
+    if (request.url === '/start') {
+      response.setHeader('content-type', 'text/html');
+      response.end('<h1>Proxy control</h1>');
+      return;
+    }
+    method = request.method;
+    proof = request.headers['x-proof'];
+    request.on('data', (part: Buffer) => received.push(part));
+    request.on('end', () => {
+      response.writeHead(409, {
+        'content-type': 'application/octet-stream',
+        'x-proof': 'original refusal',
+      });
+      response.end(Buffer.from(bytes));
+    });
+  });
+  try {
+    const outside = await hostedFixture(page, upstream.url);
+    await page.goto(`${origin}/start`);
+    const reply = await page.evaluate(async (bytes) => {
+      const response = await fetch('/binary', {
+        method: 'POST',
+        headers: { 'x-proof': 'original request' },
+        body: new Uint8Array(bytes),
+      });
+      return {
+        status: response.status,
+        type: response.headers.get('content-type'),
+        proof: response.headers.get('x-proof'),
+        bytes: [...new Uint8Array(await response.arrayBuffer())],
+      };
+    }, bytes);
+    expect(reply).toEqual({
+      status: 409,
+      type: 'application/octet-stream',
+      proof: 'original refusal',
+      bytes,
+    });
+    expect(method).toBe('POST');
+    expect(proof).toBe('original request');
+    expect(Buffer.concat(received)).toEqual(Buffer.from(bytes));
+    expect(outside).toEqual([]);
+  } finally {
+    await page.close();
+    await upstream.close();
+  }
+});
 
 // This fixture verifies actual chrome/rendering, not authority or provider behavior. The embedded
 // hosted-bundle acceptance separately enforces the composed CSP with the real SDK bytes.

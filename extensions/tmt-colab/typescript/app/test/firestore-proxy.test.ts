@@ -1,6 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import http from 'node:http';
-import { finiteFirestore } from '../acceptance/harness/firestore-proxy.js';
+import { finiteLoopbackResponse } from '../acceptance/harness/firestore-proxy.js';
 
 async function server(handler: http.RequestListener) {
   const value = http.createServer(handler);
@@ -45,8 +45,8 @@ it('uses one fresh connection per finite call when a server resets reused socket
     response.end('original');
   });
   try {
-    const first = await finiteFirestore(call(host.url));
-    const second = await finiteFirestore(call(host.url));
+    const first = await finiteLoopbackResponse(call(host.url));
+    const second = await finiteLoopbackResponse(call(host.url));
     expect([first.body.toString(), second.body.toString()]).toEqual(['original', 'original']);
     expect(requests).toBe(2);
     expect(connections).toBe(2);
@@ -75,7 +75,7 @@ it('forwards the original method, headers, binary body and non-success response 
     });
   });
   try {
-    const result = await finiteFirestore({
+    const result = await finiteLoopbackResponse({
       ...call(host.url),
       method: 'POST',
       headers: { authorization: 'Bearer fixture', 'content-type': 'application/octet-stream' },
@@ -105,7 +105,9 @@ it('rejects an upstream reset after one request instead of retrying or inventing
     request.socket.destroy();
   });
   try {
-    await expect(finiteFirestore(call(host.url))).rejects.toMatchObject({ code: 'ECONNRESET' });
+    await expect(finiteLoopbackResponse(call(host.url))).rejects.toMatchObject({
+      code: 'ECONNRESET',
+    });
     expect(requests).toBe(1);
   } finally {
     await host.close();
@@ -113,9 +115,9 @@ it('rejects an upstream reset after one request instead of retrying or inventing
 });
 
 it('refuses a non-loopback target without making a request', async () => {
-  await expect(finiteFirestore(call(new URL('https://firestore.googleapis.com/')))).rejects.toThrow(
-    'loopback emulator',
-  );
+  await expect(
+    finiteLoopbackResponse(call(new URL('https://firestore.googleapis.com/'))),
+  ).rejects.toThrow('loopback HTTP server');
 });
 
 it('aborts and closes a pending upstream request when the proof is disposed', async () => {
@@ -133,7 +135,7 @@ it('aborts and closes a pending upstream request when the proof is disposed', as
   });
   const controller = new AbortController();
   try {
-    const pending = finiteFirestore({ ...call(host.url), signal: controller.signal });
+    const pending = finiteLoopbackResponse({ ...call(host.url), signal: controller.signal });
     const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     await arrived;
     controller.abort();
