@@ -46,7 +46,7 @@ architecture test enforces it for the CLIs and the Rust extensions.
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
 `waiting`, `working`, `review`, `blocked`, `link`, `unread`, `selection`, `track`,
 `keycap`, `keycap-selected` and `code`
-(`selection`, `track` and the keycaps are backgrounds; `code` is a foreground for rendered Markdown code; `track` is the empty part of a meter and sits one step
+(`selection`, `track` and the keycaps are backgrounds; `code` is a calm cool grey-blue foreground, `white` on 16 colors, for rendered Markdown code, always drawn on `track`, and a Markdown link is `accent` and underlined, so the two never share a colour; `track` is the empty part of a meter and sits one step
 above the terminal background, so it is weaker than `selection`). Truecolor
 neutral roles (`text`, `muted`, `dim`, `selection` and `track`) use grayscale
 values from that single token source; semantic colors remain saturated. On

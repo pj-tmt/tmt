@@ -300,7 +300,8 @@ impl Base {
             Role::Working => Paint::Ansi(AnsiColor::Green),
             Role::Review => Paint::Ansi(AnsiColor::Magenta),
             Role::Blocked => Paint::Ansi(AnsiColor::Red),
-            Role::Link | Role::Code => Paint::Ansi(AnsiColor::Cyan),
+            Role::Link => Paint::Ansi(AnsiColor::Cyan),
+            Role::Code => Paint::Ansi(AnsiColor::White),
             Role::Selection => Paint::Reverse,
             Role::Track => Paint::Dimmed,
             Role::Keycap => Paint::Ansi(AnsiColor::Black),
@@ -324,7 +325,7 @@ impl Base {
             Role::Track => ((0x38, 0x38, 0x38), (0xE0, 0xE0, 0xE0)),
             Role::Keycap => ((0x55, 0x55, 0x55), (0x55, 0x55, 0x55)),
             Role::KeycapSelected => ((0x70, 0x70, 0x70), (0x70, 0x70, 0x70)),
-            Role::Code => ((0x73, 0xDA, 0xCA), (0x0B, 0x6B, 0x5E)),
+            Role::Code => ((0xA9, 0xB1, 0xD6), (0x3B, 0x42, 0x61)),
         };
         let (r, g, b) = if light { bright } else { dark };
         Paint::Rgb(r, g, b)

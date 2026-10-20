@@ -422,6 +422,12 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
             ratio >= 4.5,
             "{mode} text on track {track}: {ratio:.2}:1 < 4.5:1"
         );
+        // Markdown code is always drawn on track.
+        let ratio = contrast(color(Role::Code), track);
+        assert!(
+            ratio >= 4.5,
+            "{mode} code on track {track}: {ratio:.2}:1 < 4.5:1"
+        );
         // The empty part of a meter must stay visible on the board backgrounds.
         for background in backgrounds.iter().chain(terminals) {
             let ratio = contrast(track, background);
