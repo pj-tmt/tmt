@@ -67,7 +67,8 @@
   /* The surrounding text's 1em, whatever the global icon size says. */
   width: 1em;
   height: 1em;
-  margin-right: 4px;
+  /* Six, not four: a working chip's dot sits at the box's top-right, right beside the name. */
+  margin-right: 6px;
   vertical-align: -0.15em;
 }
 .agent-chip[data-variant='inline'] .agent-chip-name,

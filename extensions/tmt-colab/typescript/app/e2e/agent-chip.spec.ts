@@ -76,12 +76,18 @@ test('a working agent keeps its robot and gains a static dot; nothing animates',
 
 test('the icon keeps a visible gap before the name in every form and state', async ({ page }) => {
   const host = await mountFixture(page);
-  for (const row of ['inline-idle', 'inline-working', 'chip', 'chip-working']) {
+  for (const [row, gap] of [
+    ['inline-idle', 5.5],
+    ['inline-working', 5.5],
+    ['chip', 3.5],
+    ['chip-working', 3.5],
+  ] as const) {
     const chip = host.locator(`[data-row=${row}] .agent-chip`);
     const icon = (await chip.locator('.agent-chip-icon').boundingBox())!;
     const name = (await chip.locator('.agent-chip-name').boundingBox())!;
-    // The 4px between the mark box and the name, whatever the state or the global icon size.
-    expect(name.x - (icon.x + icon.width), row).toBeGreaterThanOrEqual(3.5);
+    // 6px in a sentence, where the dot sits beside the name, and the chip's own 4px gap in the
+    // bordered form; the same in every state and whatever the global icon size says.
+    expect(name.x - (icon.x + icon.width), row).toBeGreaterThanOrEqual(gap);
     // The icon fills its mark box: it neither overflows into the gap nor shrinks away from it.
     const mark = (await chip.locator('.agent-chip-mark').boundingBox())!;
     expect(icon.x + icon.width, row).toBeCloseTo(mark.x + mark.width, 1);
