@@ -290,7 +290,7 @@ mod tests {
                 },
                 look,
             );
-            look.selected_words_except(&mut buffer, &[painted.state.unwrap()]);
+            look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
             for cell in &buffer.content {
                 assert_eq!(cell.bg, look.selection().bg.unwrap());
                 assert!(!cell.modifier.contains(Modifier::BOLD));
@@ -358,7 +358,7 @@ mod tests {
                     },
                     look,
                 );
-                look.selected_words_except(&mut buffer, &[painted.state.unwrap()]);
+                look.selected_words(&mut buffer, &[painted.state.unwrap()], true);
                 buffer
             };
             let plain = paint_row(true, false);

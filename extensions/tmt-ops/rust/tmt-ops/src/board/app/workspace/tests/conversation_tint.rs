@@ -25,6 +25,18 @@ fn member_row(buffer: &Buffer) -> u16 {
         .expect("the member's row is drawn")
 }
 
+/// The row in conversation has the tint where the terminal draws backgrounds, and otherwise stays
+/// reverse video (the bold name, checked by the callers, tells it from the plain selection).
+fn tinted(look: &crate::look::Look, plain: &Buffer, py: u16, engaged: &Buffer, ey: u16) {
+    match look.role(tmt_cli_style::Role::Conversation).bg {
+        Some(tint) => {
+            assert_eq!(engaged[(1, ey)].bg, tint);
+            assert_ne!(plain[(1, py)].bg, tint);
+        }
+        None => assert!(engaged[(1, ey)].modifier.contains(Modifier::REVERSED)),
+    }
+}
+
 fn name_x(buffer: &Buffer, y: u16) -> u16 {
     let line: Vec<&str> = (0..buffer.area.width)
         .map(|x| buffer[(x, y)].symbol())
@@ -51,10 +63,7 @@ fn the_agents_list_tints_the_row_in_conversation_and_bolds_its_name() {
     let plain = draw(&rows);
     let engaged = draw(&conversation);
     let (py, ey) = (member_row(&plain), member_row(&engaged));
-    let tint = look.role(tmt_cli_style::Role::Conversation).bg.unwrap();
-    let selection = look.role(tmt_cli_style::Role::Selection).bg.unwrap();
-    assert_eq!(plain[(0, py)].bg, selection);
-    assert_eq!(engaged[(0, ey)].bg, tint);
+    tinted(&look, &plain, py, &engaged, ey);
     let name = name_x(&engaged, ey);
     assert!(engaged[(name, ey)].modifier.contains(Modifier::BOLD));
     assert!(
@@ -74,10 +83,8 @@ fn the_overview_agents_list_does_the_same() {
     let look = rows.look();
     let plain = draw(&rows);
     let engaged = draw(&conversation);
-    let tint = look.role(tmt_cli_style::Role::Conversation).bg.unwrap();
     let ey = member_row(&engaged);
-    assert_eq!(engaged[(1, ey)].bg, tint);
-    assert_ne!(plain[(1, member_row(&plain))].bg, tint);
+    tinted(&look, &plain, member_row(&plain), &engaged, ey);
     let name = name_x(&engaged, ey);
     assert!(engaged[(name, ey)].modifier.contains(Modifier::BOLD));
 }

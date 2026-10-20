@@ -481,6 +481,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     .unwrap_or_default(),
                 OpsTarget::Pool => String::new(),
             };
+            // Decided once per row: focus in this agent's conversation.
+            let in_conversation = selected
+                && matches!(row.target, OpsTarget::Member { .. })
+                && app.focused() == Pane::Replies;
+            app.conversation_tinted
+                .set(app.conversation_tinted.get() || in_conversation);
             let painted = crate::board::tree_row::paint(
                 frame.buffer_mut(),
                 stripe,
@@ -496,9 +502,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,
-                    in_conversation: selected
-                        && matches!(row.target, OpsTarget::Member { .. })
-                        && app.focused() == Pane::Replies,
+                    in_conversation,
                     query: &app.workspace.query,
                 },
                 look,
