@@ -36,7 +36,7 @@ fn sixteen(role: crate::Role) -> Option<AnsiColor> {
         Role::Waiting => Some(AnsiColor::Yellow),
         Role::Blocked => Some(AnsiColor::Red),
         Role::Review => Some(AnsiColor::Magenta),
-        Role::Link => Some(AnsiColor::Cyan),
+        Role::Link | Role::Code => Some(AnsiColor::Cyan),
         Role::Text
         | Role::Muted
         | Role::Dim
