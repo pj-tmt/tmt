@@ -320,9 +320,9 @@ impl Session {
         }
         if let Some(until_ms) = self.status_entry(source).and_then(Entry::sending_boundary) {
             let mut clocks = app.frame_clocks.borrow_mut();
-            let gate = crate::board::view::ClockSurface::SendingGate { until_ms };
+            let gate = crate::board::view::ClockSurface::DelayGate { until_ms };
             if !clocks.iter().any(|held| {
-                matches!(held, crate::board::view::ClockSurface::SendingGate { until_ms: known } if *known == until_ms)
+                matches!(held, crate::board::view::ClockSurface::DelayGate { until_ms: known } if *known == until_ms)
             }) {
                 clocks.push(gate);
             }

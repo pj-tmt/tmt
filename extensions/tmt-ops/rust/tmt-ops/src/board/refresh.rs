@@ -74,8 +74,12 @@ pub(super) enum SelectedRead {
 
 pub struct Worker {
     requests: Sender<Work>,
+    /// The selected member's reads run on their own lane, so the background
+    /// refresh (HOME exchanges, cron, history) never queues in front of them.
+    selected: Sender<SelectedWork>,
     generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
+    selected_thread: Option<std::thread::JoinHandle<()>>,
     checklist_stop: crate::runner::Cancellation,
 }
 
@@ -92,6 +96,60 @@ impl Worker {
         let read_generation = Arc::clone(&generation);
         let checklist_stop = crate::runner::Cancellation::default();
         let checklist_reader = core.cancellable(checklist_stop.clone());
+        let (selected, selected_pending) = mpsc::channel();
+        let selected_thread = {
+            let core = core.clone();
+            let events = events.clone();
+            let read_generation = Arc::clone(&generation);
+            std::thread::spawn(move || {
+                // A prepared prompt never changes: full texts survive agent switches.
+                let mut sent_texts = super::home_leads::SentTexts::default();
+                serve_selected(
+                    &selected_pending,
+                    &read_generation.number,
+                    |read, revision, generation| {
+                        let cancellation = read_generation.cancellation(generation);
+                        let reader = core.cancellable(cancellation.clone());
+                        let event = match read {
+                            SelectedRead::Status(target) => super::BoardEvent::Status {
+                                result: crate::membership::status_update::read(&reader, &target)
+                                    .map_err(|error| error.message),
+                                target,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
+                            SelectedRead::PaneOutput(key) => super::BoardEvent::PaneOutput {
+                                observation: super::recent_responses::read(&reader, &key.1),
+                                key,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
+                            SelectedRead::Finals(key) => super::BoardEvent::Finals {
+                                result: key.read(&reader).map_err(|error| error.to_string()),
+                                key,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
+                            SelectedRead::Sent(key) => super::BoardEvent::Sent {
+                                result: key
+                                    .read(&reader, &mut sent_texts)
+                                    .map_err(|error| error.to_string()),
+                                key,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
+                            SelectedRead::Message(key) => super::BoardEvent::Message {
+                                body: key.read(&reader).map_err(|error| error.to_string()),
+                                key,
+                                revision,
+                                cancellation: cancellation.clone(),
+                            },
+                        };
+                        cancellation.cancelled() || events.send(event).is_ok()
+                    },
+                );
+            })
+        };
         let thread = std::thread::spawn(move || {
             let mut checklist = super::checklist::load::Lane::default();
             let initial = core.cancellable(read_generation.cancellation(0));
@@ -122,8 +180,6 @@ impl Worker {
             let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             let mut limits = super::limits::Sampler::new(crate::cache::directory("limits"));
-            // A prepared prompt never changes: full texts survive agent switches.
-            let mut sent_texts = super::home_leads::SentTexts::default();
             serve(
                 &pending,
                 |snapshot, generation| {
@@ -226,54 +282,6 @@ impl Worker {
                             ),
                             cancellation: cancellation.clone(),
                         },
-                        Deferred::Selected {
-                            read: SelectedRead::Status(target),
-                            revision,
-                        } => super::BoardEvent::Status {
-                            result: crate::membership::status_update::read(&reader, &target)
-                                .map_err(|error| error.message),
-                            target,
-                            revision,
-                            cancellation: cancellation.clone(),
-                        },
-                        Deferred::Selected {
-                            read: SelectedRead::PaneOutput(key),
-                            revision,
-                        } => super::BoardEvent::PaneOutput {
-                            observation: super::recent_responses::read(&reader, &key.1),
-                            key,
-                            revision,
-                            cancellation: cancellation.clone(),
-                        },
-                        Deferred::Selected {
-                            read: SelectedRead::Finals(key),
-                            revision,
-                        } => super::BoardEvent::Finals {
-                            result: key.read(&reader).map_err(|error| error.to_string()),
-                            key,
-                            revision,
-                            cancellation: cancellation.clone(),
-                        },
-                        Deferred::Selected {
-                            read: SelectedRead::Sent(key),
-                            revision,
-                        } => super::BoardEvent::Sent {
-                            result: key
-                                .read(&reader, &mut sent_texts)
-                                .map_err(|error| error.to_string()),
-                            key,
-                            revision,
-                            cancellation: cancellation.clone(),
-                        },
-                        Deferred::Selected {
-                            read: SelectedRead::Message(key),
-                            revision,
-                        } => super::BoardEvent::Message {
-                            body: key.read(&reader).map_err(|error| error.to_string()),
-                            key,
-                            revision,
-                            cancellation: cancellation.clone(),
-                        },
                         Deferred::Usage(MeterRead::Home) => {
                             home_usage(&reader, &mut limits, cancellation.clone())
                         }
@@ -297,8 +305,10 @@ impl Worker {
         });
         Self {
             requests,
+            selected,
             generation,
             thread: Some(thread),
+            selected_thread: Some(selected_thread),
             checklist_stop,
         }
     }
@@ -328,7 +338,7 @@ impl Worker {
     }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         let generation = self.generation.number.load(Ordering::Acquire);
-        let _ = self.requests.send(Work::Selected {
+        let _ = self.selected.send(SelectedWork {
             read,
             revision,
             generation,
@@ -344,7 +354,12 @@ impl Drop for Worker {
         // child read, and an idle worker exits recv immediately.
         let (replacement, _) = mpsc::channel();
         drop(std::mem::replace(&mut self.requests, replacement));
-        if let Some(thread) = self.thread.take() {
+        let (replacement, _) = mpsc::channel();
+        drop(std::mem::replace(&mut self.selected, replacement));
+        for thread in [self.thread.take(), self.selected_thread.take()]
+            .into_iter()
+            .flatten()
+        {
             let _ = thread.join();
         }
     }
@@ -353,11 +368,13 @@ impl Drop for Worker {
 enum Work {
     Checklist(super::checklist::load::Task),
     Reload(Reload),
-    Selected {
-        read: Option<SelectedRead>,
-        revision: u64,
-        generation: u64,
-    },
+}
+
+/// A selection change for the selected-read lane; `None` is no selection.
+struct SelectedWork {
+    read: Option<SelectedRead>,
+    revision: u64,
+    generation: u64,
 }
 
 #[derive(Clone)]
@@ -531,7 +548,6 @@ enum Deferred {
     Attention(Box<AttentionJob>),
     Cron(Box<super::cronboard::Fetch>),
     Usage(MeterRead),
-    Selected { read: SelectedRead, revision: u64 },
 }
 
 #[derive(Clone)]
@@ -675,6 +691,28 @@ fn fetcher() -> Sender<Fetch> {
 /// it reloads the last squad early when the change stamp moved since that
 /// squad's load, unless its view has automatic reload off. The input loop's
 /// interval reloads are requests like any other and never wait on this.
+/// The selected-read lane: only the newest selection runs, and only while its
+/// generation is current. Returns when the lane's sender is gone or `run` says stop.
+fn serve_selected(
+    pending: &Receiver<SelectedWork>,
+    generation: &AtomicU64,
+    mut run: impl FnMut(SelectedRead, u64, u64) -> bool,
+) {
+    while let Ok(first) = pending.recv() {
+        let Some(SelectedWork {
+            read: Some(read),
+            revision,
+            generation: expected,
+        }) = std::iter::once(first).chain(pending.try_iter()).last()
+        else {
+            continue;
+        };
+        if generation.load(Ordering::Acquire) == expected && !run(read, revision, expected) {
+            break;
+        }
+    }
+}
+
 fn serve(
     pending: &Receiver<Work>,
     mut publish: impl FnMut(Snapshot, u64) -> bool,
@@ -723,17 +761,11 @@ fn serve(
             Err(RecvTimeoutError::Disconnected) => break,
         };
         let mut wanted = None;
-        let mut selected = None;
         let mut checklist = Vec::new();
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
                 Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
-                Work::Selected {
-                    read,
-                    revision,
-                    generation,
-                } => selected = Some((read, revision, generation)),
             }
         }
         for task in checklist {
@@ -745,15 +777,8 @@ fn serve(
             }
         }
         let Some(wanted) = wanted else {
-            if let Some((Some(read), revision, expected)) = selected
-                && generation.load(Ordering::Acquire) == expected
-                && !deferred(Deferred::Selected { read, revision }, expected)
-            {
-                break;
-            }
             continue;
         };
-        // Reloads take priority; their snapshot schedules a fresh selected read.
         // Taken before the load, so a change during it shows at the next check.
         let seen = stamp(wanted.generation, true);
         if generation.load(Ordering::Acquire) != wanted.generation {
@@ -1373,13 +1398,6 @@ mod tests {
                     job: super::super::checklist::load::Job::Ids,
                 }))
                 .unwrap();
-            sender
-                .send(Work::Selected {
-                    read: Some(selected_message("obsolete")),
-                    revision: serial,
-                    generation: 0,
-                })
-                .unwrap();
         }
         drop(sender);
         let mut completed = Vec::new();
@@ -1392,7 +1410,7 @@ mod tests {
             |_, _, _, _| panic!("no reload"),
             |job, _| {
                 let Deferred::Checklist(task) = job else {
-                    panic!("obsolete selected read must not run")
+                    panic!("only checklist work was queued")
                 };
                 completed.push(task.key.serial);
                 true
@@ -1651,12 +1669,11 @@ printf '%s\n' '{{}}'
     }
 
     #[test]
-    fn selected_messages_coalesce_behind_reload_and_obey_the_existing_generation() {
+    fn the_selected_lane_runs_only_the_newest_selection_of_the_current_generation() {
         let (sender, pending) = mpsc::channel();
-        let generation = AtomicU64::new(1);
         let queue = |identity: Option<&str>, revision, expected| {
             sender
-                .send(Work::Selected {
+                .send(SelectedWork {
                     read: identity.map(selected_message),
                     revision,
                     generation: expected,
@@ -1664,64 +1681,90 @@ printf '%s\n' '{{}}'
                 .unwrap()
         };
         queue(Some("old"), 1, 1);
-        sender
-            .send(Work::Reload(Reload {
-                squad: Some("product".into()),
-                generation: 1,
-                preview_panes: false,
-                demand: None,
-            }))
-            .unwrap();
-        let steps = std::cell::RefCell::new(Vec::new());
-        serve(
-            &pending,
-            |_, _| {
-                steps.borrow_mut().push("snapshot".to_owned());
-                queue(Some("stale"), 2, 0);
-                queue(Some("old"), 3, 1);
-                queue(Some("selected"), 4, 1);
-                true
-            },
-            CHECK_EVERY,
-            &generation,
-            |_, _| Stamp::cursor(0),
-            |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
-            |job, expected| {
-                let Deferred::Selected {
-                    read: SelectedRead::Message(key),
-                    revision,
-                } = job
-                else {
-                    panic!("other work")
-                };
-                assert_eq!(
-                    (key.request.as_str(), revision, expected),
-                    ("selected", 4, 1)
-                );
-                steps.borrow_mut().push(key.request);
-                false
-            },
-        );
-        assert_eq!(*steps.borrow(), ["snapshot", "selected"]);
-        // No selection and obsolete generation perform no deferred read.
+        queue(Some("stale"), 2, 0);
+        queue(Some("older"), 3, 1);
+        queue(Some("selected"), 4, 1);
+        queue(None, 5, 1);
+        queue(Some("selected"), 6, 1);
+        drop(sender);
+        let mut ran = Vec::new();
+        serve_selected(&pending, &AtomicU64::new(1), |read, revision, expected| {
+            let SelectedRead::Message(key) = read else {
+                panic!("other work")
+            };
+            ran.push((key.request, revision, expected));
+            true
+        });
+        assert_eq!(ran, [("selected".to_owned(), 6, 1)]);
+        // A cleared selection and an obsolete generation read nothing.
         let (sender, pending) = mpsc::channel();
+        for (identity, expected) in [(None, 1), (Some("stale"), 0)] {
+            sender
+                .send(SelectedWork {
+                    read: identity.map(selected_message),
+                    revision: 7,
+                    generation: expected,
+                })
+                .unwrap();
+            sender
+                .send(SelectedWork {
+                    read: None,
+                    revision: 8,
+                    generation: 1,
+                })
+                .unwrap();
+        }
         sender
-            .send(Work::Selected {
+            .send(SelectedWork {
                 read: Some(selected_message("stale")),
-                revision: 5,
+                revision: 9,
                 generation: 0,
             })
             .unwrap();
         drop(sender);
-        serve(
-            &pending,
-            |_, _| panic!("no snapshot"),
-            CHECK_EVERY,
-            &generation,
-            |_, _| Stamp::cursor(0),
-            |_, _, _, _| panic!("no load"),
-            |_, _| panic!("no read"),
+        serve_selected(&pending, &AtomicU64::new(1), |_, _, _| panic!("no read"));
+    }
+
+    #[test]
+    fn a_selected_read_is_not_queued_behind_a_busy_background_load() {
+        let dir = std::env::temp_dir().join(format!("squad-selected-lane-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let slow = dir.join("tmt");
+        // Every Core call but the message read takes seconds, so the background
+        // load stays busy for the whole test.
+        crate::test_support::write_ready_executable(
+            &slow,
+            r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  case "$request" in
+    *'"requests.show"'*)
+      printf '%s\n' '{"requestId":"request","kind":"request","sender":{"identityId":"user"},"recipientId":"lead","final":{"status":"retained","response":"quick"}}'
+      exit 0 ;;
+  esac
+fi
+exec sleep 30
+"###,
         );
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(slow), false, events, None);
+        worker.request(None, true, false, None);
+        std::thread::sleep(Duration::from_millis(300));
+        let started = Instant::now();
+        worker.selected(3, Some(selected_message("request")));
+        let body = loop {
+            match input
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the message read answers while the load is still running")
+            {
+                super::super::BoardEvent::Message { body, .. } => break body,
+                _ => continue,
+            }
+        };
+        assert_eq!(body.unwrap(), "quick");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        drop(worker);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

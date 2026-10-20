@@ -20,6 +20,14 @@ pub(super) enum Target {
     Job(String),
 }
 
+/// How far Core has answered for the exchanges a conversation shows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::board) enum ExchangesRead {
+    Pending,
+    Observed,
+    Failed,
+}
+
 #[derive(Default)]
 pub(super) struct State {
     pub expanded: Vec<Target>,
@@ -28,6 +36,8 @@ pub(super) struct State {
     /// Each active agent's own finals, read once per activation. A failed read
     /// is kept as empty so it is not retried in a loop; the windows still show.
     agent_finals: Vec<(FinalsKey, Vec<Value>)>,
+    /// The agents whose finals read failed, so the conversation can say so.
+    finals_failed: Vec<FinalsKey>,
     /// The same agent's durable sends from this user, read after its finals.
     agent_sent: Vec<(SentKey, Vec<Value>)>,
     pub reader: Option<Reader>,
@@ -528,6 +538,9 @@ impl App {
         self.row_details
             .agent_finals
             .retain(|(key, _)| Some(key) == owner.as_ref());
+        self.row_details
+            .finals_failed
+            .retain(|key| Some(key) == owner.as_ref());
         let sent_owner = owner.as_ref().map(sent_key);
         self.row_details
             .agent_sent
@@ -535,7 +548,7 @@ impl App {
     }
     /// Whose finals the painted conversation shows. Only that conversation reads
     /// an agent's whole run of finals; other details show the newest alone.
-    fn conversation_finals(&self) -> Option<FinalsKey> {
+    pub(in crate::board) fn conversation_finals(&self) -> Option<FinalsKey> {
         if self.loading()
             || !self.pane_output_enabled()
             || !self.scrolls.visible(crate::config::Pane::Replies)
@@ -590,8 +603,36 @@ impl App {
             .agent_finals
             .retain(|(current, _)| current != &key);
         self.row_details
+            .finals_failed
+            .retain(|current| current != &key);
+        if result.is_err() {
+            self.row_details.finals_failed.push(key.clone());
+        }
+        self.row_details
             .agent_finals
             .push((key, result.unwrap_or_default()));
+    }
+    /// Whether the conversation has heard from Core about its exchanges. An
+    /// agent's own finals read answers for that agent; without one (a squad or
+    /// lead view) the shared originator page answers.
+    pub(in crate::board) fn exchanges_read(&self, agent: Option<&FinalsKey>) -> ExchangesRead {
+        let me = self.view.as_ref().and_then(|view| view.me_id.as_deref());
+        match agent {
+            Some(key) if self.row_details.finals_failed.contains(key) => ExchangesRead::Failed,
+            Some(key)
+                if self
+                    .row_details
+                    .agent_finals
+                    .iter()
+                    .any(|(read, _)| read == key) =>
+            {
+                ExchangesRead::Observed
+            }
+            Some(_) => ExchangesRead::Pending,
+            None if self.home_leads.results_observed(me) => ExchangesRead::Observed,
+            None if self.home_leads.results_failed(me) => ExchangesRead::Failed,
+            None => ExchangesRead::Pending,
+        }
     }
     pub(super) fn detail_read(&self) -> Option<MessageKey> {
         if self.loading() {

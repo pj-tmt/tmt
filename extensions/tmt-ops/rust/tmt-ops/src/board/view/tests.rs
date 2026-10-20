@@ -924,6 +924,10 @@ fn clipped_label_suffix_does_not_invalidate_until_the_visible_word_expires() {
                 .iter()
                 .any(|cell| cell.symbol() == "d")
         );
+        // The loading line's own delay gate is not what this test measures.
+        app.frame_clocks
+            .borrow_mut()
+            .retain(|clock| !matches!(clock, ClockSurface::DelayGate { .. }));
         let first = time_marks(&app, 1_000);
         assert_eq!(first, vec!["digest"]);
         assert_eq!(first, time_marks(&app, 61_000));

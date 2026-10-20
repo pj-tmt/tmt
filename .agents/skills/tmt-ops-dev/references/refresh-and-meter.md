@@ -118,8 +118,10 @@
   belong to the user's UUID and current lead occurrence, and share the refresh
   generation's cancellation. Preview text is sanitized separately from retained bodies.
   The same results page supplies workspace member reply metadata. Conversations
-  and the full-reply reader schedule `requests.show` on that same worker through
-  the selected-read queue. The user/recipient/request/kind key and selection
+  and the full-reply reader schedule `requests.show` on the selected-read lane, a second
+  worker thread with its own queue and the same generation fence, so a refresh's HOME
+  exchanges, cron or history work never queues in front of the selected member's reads
+  (only the newest selection runs). The user/recipient/request/kind key and selection
   revision fence delivery; detail verifies both participants before displaying
   the retained body. `board::row_detail` rejects late bodies whose exact request
   or target is no longer active. A pending reader closes when its reply or

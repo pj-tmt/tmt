@@ -5108,6 +5108,10 @@ fn painted_activity_records_its_stale_deadline_and_ages_without_rescanning_rows(
             .all(|row| row.activity.is_none())
     );
     crate::status::with_now_ms(61_000, || paint(&app, 160, 36));
+    // The loading line's own delay gate is not what this test measures.
+    app.frame_clocks
+        .borrow_mut()
+        .retain(|clock| !matches!(clock, crate::board::view::ClockSurface::DelayGate { .. }));
     let clocks = app.frame_clocks.borrow();
     let deadline = read + Duration::from_secs(15);
     assert!(

@@ -109,6 +109,8 @@ struct Session {
     pane_output: super::recent_responses::Observation,
     pane_output_fresh: bool,
     transcript_context: transcript::Context,
+    /// When the exchanges first went unanswered, for the delayed loading line.
+    pending_since_ms: Option<u64>,
     /// The user's durable sends to this agent, restored from storage.
     sent: Vec<crate::board::row_detail::Sent>,
 }
@@ -133,6 +135,7 @@ impl Default for Session {
             pane_output: Default::default(),
             pane_output_fresh: false,
             transcript_context: Default::default(),
+            pending_since_ms: None,
             sent: Vec::new(),
         }
     }
@@ -230,6 +233,7 @@ impl Session {
         row: &serde_json::Value,
     ) -> String {
         let detail = app.detail(&Target::Row(target.clone())).unwrap_or_default();
+        let detail_agent = detail.agent.clone();
         self.observe_finals(detail.finals);
         if self.sent != detail.sent {
             self.sent = detail.sent;
@@ -277,7 +281,7 @@ impl Session {
             app,
             &sanitize(row["name"].as_str().unwrap_or("unknown agent")),
         );
-        self.transcript_context(app, row);
+        self.transcript_context(app, row, detail_agent.as_ref());
         words
     }
 

@@ -1061,38 +1061,49 @@ fn compact_identity_hides_uuid_and_selected_host_action_survives_pane_focus() {
 
 #[test]
 fn response_position_counts_retained_lines_rather_than_empty_viewport_cells() {
+    const START: u64 = 1_791_600_000_000;
     for width in [160, 100] {
         let mut app = workspace_fixture();
         app.view.as_mut().unwrap().replies.clear();
         app.home_leads.replies.clear();
         let mut terminal = Terminal::new(TestBackend::new(width, 18)).unwrap();
-        terminal
-            .draw(|frame| {
-                crate::board::view::prepare(&mut app, frame.area());
-                crate::board::view::render(frame, &app);
-            })
-            .unwrap();
-        let screen: String = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
+        let mut frame = |app: &mut App, now: u64| {
+            crate::status::with_now_ms(now, || {
+                terminal
+                    .draw(|frame| {
+                        crate::board::view::prepare(app, frame.area());
+                        crate::board::view::render(frame, app);
+                    })
+                    .unwrap();
+            });
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        // Pending history is silent for the first 400 ms (R1), then it is loading.
+        let first = frame(&mut app, START);
+        assert!(!first.contains("Loading exchanges"), "{width}");
+        assert!(!first.contains("Exchange history unavailable"));
+        let screen = frame(&mut app, START + 400);
         let state = app.conversation.borrow();
         let identity = state.active.as_ref().expect("selected UUID session");
         let mapped = &state.sessions[identity].rendered.as_ref().unwrap().mapped;
         assert_eq!(
             mapped.lines.len(),
             1,
-            "only the retained unavailable observation is content"
+            "only the retained loading line is content"
         );
         assert_eq!(app.scrolls.offset(Pane::Replies), 0);
         assert!(
             !screen.contains("earlier"),
             "empty viewport cells are not retained lines"
         );
-        assert!(screen.contains("Exchange history unavailable"));
+        assert!(screen.contains("Loading exchanges"));
+        assert!(!screen.contains("Exchange history unavailable"));
         assert!(!screen.contains("Loading recent pane output"));
     }
 }
@@ -1177,7 +1188,7 @@ fn pane_output_is_neutral_bounded_and_never_a_request_source() {
         enabled: true,
         name: "alpha".into(),
         times: vec![1000],
-        exchanges_observed: true,
+        exchanges: transcript::Exchanges::Observed,
         output_ages: vec!["now".into()],
         ..Default::default()
     };
@@ -1265,7 +1276,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
             enabled: true,
             name: "alpha".into(),
             times: vec![],
-            exchanges_observed: true,
+            exchanges: transcript::Exchanges::Observed,
             output_ages: vec![],
             ..Default::default()
         },
@@ -1334,7 +1345,7 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
         transcript_context: transcript::Context {
             enabled: true,
             name: "alpha".into(),
-            exchanges_observed: true,
+            exchanges: transcript::Exchanges::Observed,
             ..Default::default()
         },
         ..Default::default()
@@ -1355,13 +1366,33 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
     );
     assert!(session.response_key_at(0).is_none());
     session.pane_output = Observation::Observed(vec![]);
-    session.transcript_context.exchanges_observed = false;
-    session.rendered = None;
-    session.prepare(60, Look::default(), &Default::default());
-    assert_eq!(
-        session.rendered.as_ref().unwrap().mapped.lines[0].to_string(),
-        "Exchange history unavailable"
-    );
+    // Pending history says nothing for the first 400 ms, then it is loading; only
+    // a failed read is "unavailable".
+    for (exchanges, shown) in [
+        (transcript::Exchanges::Pending { loading: false }, None),
+        (
+            transcript::Exchanges::Pending { loading: true },
+            Some("Loading exchanges…"),
+        ),
+        (
+            transcript::Exchanges::Failed,
+            Some("Exchange history unavailable"),
+        ),
+    ] {
+        session.transcript_context.exchanges = exchanges;
+        session.rendered = None;
+        session.prepare(60, Look::default(), &Default::default());
+        let lines: Vec<_> = session
+            .rendered
+            .as_ref()
+            .unwrap()
+            .mapped
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(lines.first().map(String::as_str), shown, "{lines:?}");
+    }
 }
 
 #[test]
@@ -1507,7 +1538,7 @@ fn pane_output_uses_the_exchange_header_time_format() {
             }]),
             ..Default::default()
         };
-        session.transcript_context(&app, &row);
+        session.transcript_context(&app, &row, None);
         session.prepare(60, Look::default(), &Default::default());
         assert!(
             session
@@ -1588,7 +1619,7 @@ fn bare_and_at_only_sources_invalidate_on_inventory_change_without_acquiring_aut
     session.transcript_context = transcript::Context {
         enabled: true,
         name: "reader".into(),
-        exchanges_observed: true,
+        exchanges: transcript::Exchanges::Observed,
         ..Default::default()
     };
     session.pane_output = Observation::Observed(vec![Item {
@@ -1631,4 +1662,119 @@ fn bare_and_at_only_sources_invalidate_on_inventory_change_without_acquiring_aut
             .iter()
             .all(Vec::is_empty)
     );
+}
+
+/// A conversation with nothing held, drawn at `now`, as one string.
+fn empty_conversation_at(app: &mut App, now: u64) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+    crate::status::with_now_ms(now, || {
+        terminal
+            .draw(|frame| {
+                crate::board::view::prepare(app, frame.area());
+                crate::board::view::render(frame, app);
+            })
+            .unwrap();
+    });
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
+fn empty_workspace_fixture() -> App {
+    let mut app = workspace_fixture();
+    app.view.as_mut().unwrap().replies.clear();
+    app.home_leads.replies.clear();
+    app
+}
+
+#[test]
+fn a_members_own_finals_answer_settles_the_placeholder_without_the_shared_page() {
+    const START: u64 = 1_791_600_000_000;
+    for (answer, expected, absent) in [
+        (
+            Ok(vec![]),
+            "(no response in loaded history)",
+            "Exchange history unavailable",
+        ),
+        (
+            Err("unreachable".to_owned()),
+            "Exchange history unavailable",
+            "(no response in loaded history)",
+        ),
+    ] {
+        let mut app = empty_workspace_fixture();
+        assert!(!empty_conversation_at(&mut app, START).contains("Loading exchanges"));
+        let pending = empty_conversation_at(&mut app, START + 400);
+        assert!(
+            pending.contains("Loading exchanges"),
+            "pending, then loading"
+        );
+        let key = app
+            .conversation_finals()
+            .expect("the selected member has an agent finals key");
+        app.apply_finals(key, answer);
+        assert!(
+            matches!(
+                app.exchanges_read(app.conversation_finals().as_ref()),
+                crate::board::row_detail::ExchangesRead::Observed
+                    | crate::board::row_detail::ExchangesRead::Failed
+            ),
+            "read state after the answer"
+        );
+        let screen = empty_conversation_at(&mut app, START + 401);
+        {
+            let state = app.conversation.borrow();
+            let session = &state.sessions[state.active.as_ref().unwrap()];
+            assert!(
+                matches!(
+                    session.transcript_context.exchanges,
+                    transcript::Exchanges::Observed | transcript::Exchanges::Failed
+                ),
+                "context after the answer"
+            );
+        }
+        assert!(
+            screen.contains(expected),
+            "{expected}\n{}",
+            screen
+                .as_bytes()
+                .chunks(120)
+                .map(|c| String::from_utf8_lossy(c).into_owned())
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        assert!(!screen.contains(absent), "{absent}");
+        assert!(!screen.contains("Loading exchanges"));
+    }
+}
+
+#[test]
+fn pending_history_never_hides_or_sits_beside_held_messages() {
+    const START: u64 = 1_791_600_000_000;
+    let mut app = workspace_fixture();
+    let first = empty_conversation_at(&mut app, START);
+    let later = empty_conversation_at(&mut app, START + 5_000);
+    for screen in [first, later] {
+        assert!(screen.contains("worker line 000") || screen.contains("worker line 089"));
+        assert!(!screen.contains("Loading exchanges"));
+        assert!(!screen.contains("Exchange history unavailable"));
+    }
+}
+
+#[test]
+fn the_loading_line_is_scheduled_for_its_instant_and_not_before() {
+    const START: u64 = 1_791_600_000_000;
+    let mut app = empty_workspace_fixture();
+    empty_conversation_at(&mut app, START);
+    let marks = |app: &App, now| crate::board::view::time_marks(app, now);
+    assert_ne!(
+        marks(&app, START),
+        marks(&app, START + 400),
+        "a repaint is due when the delay ends"
+    );
+    assert_eq!(marks(&app, START), marks(&app, START + 399));
 }
