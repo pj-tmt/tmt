@@ -87,7 +87,11 @@ case "$3" in
       blocked|not_ready) printf '{"error":{"code":"%s","message":"agent busy"}}' "$a" ;;
       *) printf '{"error":{"code":"no_agent","message":"no agent"}}' ;;
     esac ;;
-  capture) printf '{"ok":{"text":"captured line"}}' ;;
+  capture)
+    printf '%s\n' "$input" >> "$d/captured"
+    # `capture-answer`, when present, replaces the answer.
+    if [ -f "$d/capture-answer" ]; then cat "$d/capture-answer"
+    else printf '{"ok":{"text":"captured line"}}'; fi ;;
   focus) printf '{"ok":{}}' ;;
   name-agent)
     printf '%s\n' "$input" >> "$d/named"
@@ -676,6 +680,74 @@ fn check_and_focus_reach_an_external_pane_through_its_driver() {
     let focused = fixture.tmt_in(Some("f1"), &["focus", "worker", "--json"]);
     assert!(focused.status.success(), "{focused:?}");
     assert!(fixture.calls().contains(&"focus".to_owned()));
+}
+
+#[test]
+fn check_zero_asks_an_external_host_for_the_visible_screen() {
+    register();
+    let fixture = Fixture::delivering("check-zero");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+
+    let checked = fixture.tmt_in(
+        Some("f1"),
+        &["check", "worker", "0", "--capture-only", "--json"],
+    );
+    assert!(checked.status.success(), "{checked:?}");
+    let checked: Value = serde_json::from_slice(&checked.stdout).unwrap();
+    assert_eq!(checked["lines"], 0);
+    assert_eq!(checked["output"], "captured line");
+    // Core passes 0 on unchanged: the driver contract defines it as the
+    // visible screen.
+    let captured = fixture.requests("captured");
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0]["lines"], 0);
+}
+
+#[test]
+fn a_failed_capture_on_an_external_host_names_its_driver_answer_not_tmux() {
+    register();
+    let fixture = Fixture::delivering("check-refused");
+    fixture.approve();
+    let named = fixture.tmt_in(Some("f1"), &["name", "worker", "--save", "--json"]);
+    assert!(named.status.success(), "{named:?}");
+    let answer = |text: &str| fs::write(fixture.root.join("driver/capture-answer"), text).unwrap();
+
+    // An older driver that refuses the visible screen.
+    answer(r#"{"error":{"code":"bad_request","message":"capture needs at least one line"}}"#);
+    let refused = fixture.tmt_in(
+        Some("f1"),
+        &["check", "worker", "0", "--capture-only", "--json"],
+    );
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let failure: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "ERROR");
+    assert_eq!(
+        failure["error"]["message"],
+        "Failed to capture pane fake-1 on host fake: the fake driver answered bad_request: capture needs at least one line"
+    );
+    let human = fixture.tmt_in(Some("f1"), &["check", "worker", "0", "--capture-only"]);
+    assert_eq!(human.status.code(), Some(1), "{human:?}");
+    let stderr = String::from_utf8_lossy(&human.stderr);
+    assert!(
+        stderr.contains("Failed to capture pane fake-1 on host fake: the fake driver answered bad_request: capture needs at least one line"),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("tmux"), "{stderr}");
+
+    // A driver that breaks the protocol: the host's own error, no tmux hint.
+    answer("not json");
+    let broken = fixture.tmt_in(Some("f1"), &["check", "worker", "--capture-only", "--json"]);
+    assert_eq!(broken.status.code(), Some(1), "{broken:?}");
+    let failure: Value = serde_json::from_slice(&broken.stdout).unwrap();
+    let message = failure["error"]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("Failed to capture pane fake-1 on host fake: "),
+        "{message}"
+    );
+    assert!(!message.contains("tmux"), "{message}");
+    assert!(fixture.requests("typed").is_empty());
 }
 
 #[test]
