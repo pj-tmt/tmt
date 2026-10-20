@@ -24,6 +24,25 @@ pub(super) fn resolve(text: &str, inventory: &Inventory) -> Vec<Resolved> {
         if start < end {
             continue;
         }
+        // A bare identity UUID, which the idle alert notice hands to `tmt focus` and `tmt talk`.
+        if let Some(id) = text
+            .get(start..start + 36)
+            .filter(|id| crate::config::uuid_like(id))
+            && let Some(agent) = inventory.agents.get(id)
+            && !text[..start]
+                .chars()
+                .next_back()
+                .is_some_and(|ch| word_char(ch) || ch == '@')
+            && !text[start + 36..].chars().next().is_some_and(word_char)
+        {
+            end = start + 36;
+            found.push(Resolved {
+                range: start..end,
+                identity: id.to_owned(),
+                name: super::notes::sanitize(&agent.name),
+            });
+            continue;
+        }
         let legacy = text[start..].starts_with("#tmt:");
         let prefix = if legacy { 5 } else { usize::from(ch == '@') };
         if !legacy

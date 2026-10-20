@@ -54,6 +54,23 @@ mod parser_tests {
         assert_eq!(text, original);
     }
     #[test]
+    fn the_idle_alert_notice_commands_link_their_member_uuid_and_nothing_else() {
+        let ada = "11111111-1111-4111-8111-111111111111";
+        let stranger = "99999999-9999-4999-8999-999999999999";
+        let text = format!(
+            "Look: tmt focus {ada} · Talk: tmt talk {ada} \"<message>\" --detach\n\
+             tmt focus {stranger} x{ada} {ada}0 @{ada}"
+        );
+        let links = resolve(&text, &inventory());
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| (&text[link.range.clone()], link.identity.as_str(), link.name.as_str()))
+                .collect::<Vec<_>>(),
+            [(ada, ada, "Ada"), (ada, ada, "Ada")]
+        );
+    }
+    #[test]
     fn unicode_word_neighbors_and_failed_inventory_never_create_partial_links() {
         let text = "é night-2 林night-2 night-2林; @ben_ @ben- @bené email@ben";
         let mut inventory = named_inventory();
