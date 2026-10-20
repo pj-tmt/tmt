@@ -3804,11 +3804,9 @@ fn owner_cli_removes_other_devices_offline_and_shows_last_use_without_tombstones
     }
     let plain = pilot.command().args(["devices"]).output().unwrap();
     assert!(plain.status.success());
-    assert!(
-        String::from_utf8(plain.stdout)
-            .unwrap()
-            .contains("Not recorded")
-    );
+    let plain = String::from_utf8(plain.stdout).unwrap();
+    assert!(plain.contains("Last used Not recorded"), "{plain}");
+    assert!(!plain.contains("Last used:"), "{plain}");
     let removed = pilot
         .command()
         .args(["devices", "remove-others", "--keep", &keep, "--json"])

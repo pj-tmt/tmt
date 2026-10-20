@@ -237,7 +237,9 @@ async function fixture(mode = 'success') {
       if (mode === 'delayed') await blocked;
       if (mode === 'transport') throw new Error('private transport cause');
       return Response.json({
-        machineId: mode === 'other-machine' ? crypto.randomUUID() : door.descriptor.machineId,
+        machineId: ['other-machine', 'mismatch'].includes(mode)
+          ? crypto.randomUUID()
+          : door.descriptor.machineId,
         address: door.descriptor.address,
         windowId: mode === 'stale' && mounts === 2 ? crypto.randomUUID() : door.descriptor.windowId,
         extension: null,
@@ -795,6 +797,7 @@ for (const mode of [
   'success',
   'revoked-proof',
   'expired-proof',
+  'mismatch',
   'unverified',
   'transport',
   'unreadable',
@@ -825,7 +828,9 @@ for (const mode of [
     });
     const network = fetch;
     vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
-      !init?.method ? Promise.resolve(Response.json(f.door.descriptor)) : network(url, init),
+      String(url).endsWith('/sdk/pair-offer')
+        ? Promise.resolve(Response.json(f.door.descriptor))
+        : network(url, init),
     );
     const generate = vi.spyOn(DeviceKey, 'generate');
     try {
@@ -836,7 +841,7 @@ for (const mode of [
         assert.equal(f.nodes.get('status')!.textContent, 'This browser is already paired.');
         assert.equal(form.hidden, true);
         assert.equal(destination, '/remote/');
-      } else if (mode === 'revoked-proof' || mode === 'expired-proof') {
+      } else if (['revoked-proof', 'expired-proof', 'mismatch'].includes(mode)) {
         assert.equal(form.hidden, false);
         assert.equal(button.disabled, false);
       } else {
@@ -851,3 +856,54 @@ for (const mode of [
     }
   });
 }
+
+test('automatic pairing with a mismatched stored device stops for manual terminal confirmation', async () => {
+  const f = await fixture('mismatch');
+  const button = { disabled: true };
+  const form = { hidden: false, querySelector: () => button, addEventListener: () => {} };
+  const oldDocument = document;
+  const nodes: Record<string, unknown> = {
+    ...pairingLabels(),
+    pair: form,
+    comparison: { hidden: true },
+    'entry-link': { hidden: true },
+  };
+  vi.stubGlobal('document', {
+    ...oldDocument,
+    getElementById: (id: string) => nodes[id] ?? oldDocument.getElementById(id),
+  });
+  let destination = '';
+  vi.stubGlobal('location', {
+    origin: new URL(f.door.descriptor.address).origin,
+    pathname: '/remote/pair',
+    replace: (path: string) => {
+      destination = path;
+    },
+  });
+  const network = fetch;
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) =>
+    String(url).endsWith('/sdk/pair-offer')
+      ? Promise.resolve(Response.json({ ...f.door.descriptor, automatic: true, target: '/p/abcd' }))
+      : network(url, init),
+  );
+  const generate = vi.spyOn(DeviceKey, 'generate');
+  try {
+    await pairingPage(f.door.link().replace('#', '#auto='));
+    assert.equal(generate.mock.calls.length, 0, 'no automatic replacement browser key');
+    assert.equal(f.door.calls.length, 0, 'no enrollment, cancellation or agent operation');
+    assert.deepEqual(f.counts(), { mounts: 1, admissions: 0 });
+    assert.equal(destination, '');
+    assert.equal(form.hidden, true);
+    assert.equal(
+      f.nodes.get('status')!.textContent,
+      'This browser is paired with a different machine. To use this one, run tmt remote pair on it.',
+    );
+    assert.deepEqual(
+      f.statusChildren.filter((node) => node.tagName === 'CODE'),
+      [{ tagName: 'CODE', className: 'tmt-ui-code', textContent: 'tmt remote pair' }],
+    );
+  } finally {
+    generate.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});

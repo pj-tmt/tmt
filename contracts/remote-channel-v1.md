@@ -341,9 +341,11 @@ device (or an explicit grant expiry is proved). The manual and automatic pairing
 try bounded session reopen with the stored identity. Success creates no grant or candidate:
 manual entry shows `This browser is already paired.` and continues to `/remote/`, leaving the
 manual offer and terminal untouched; automatic entry cancels its own fresh offer as before.
-Only an absent record or a machine-signed revoked/expired grant permits new enrollment.
-Unreadable storage, capacity, mismatch and unconfirmed admission retain the stored record and
-stop without enrolling. No replacement proof, envelope, receipt or grant-identity change exists.
+An absent record or a machine-signed revoked/expired grant permits new enrollment. A stored
+machine-identity mismatch also permits the manual terminal-confirmed ceremony; the old record
+is retained until the new grant commits. Automatic entry stops on mismatch and names the manual
+`tmt remote pair` command. Unreadable storage, capacity and unconfirmed admission retain the stored
+record and stop without enrolling. No replacement proof, envelope, receipt or grant-identity format is added.
 Session limit/end and page-unavailable recovery never instruct a still-paired browser to pair again.
 
 For a committed key, `session.open` is a signed control using `sessionId:"new"`, `sequence:"0"` and

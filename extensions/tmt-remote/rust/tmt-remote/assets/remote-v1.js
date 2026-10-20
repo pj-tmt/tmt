@@ -4367,8 +4367,11 @@ async function pairingPage(link) {
 			return;
 		}
 	} catch (error) {
-		if (!lifetime.signal.aborted) showState(status, "blocked", pairingRecovery(error));
-		return;
+		if (lifetime.signal.aborted) return;
+		if (!(error instanceof ReopenSessionError && error.reason === "mismatch")) {
+			showState(status, "blocked", pairingRecovery(error));
+			return;
+		}
 	}
 	form.hidden = false;
 	let parsed;
@@ -4470,7 +4473,12 @@ async function automaticPairingPage(link, lifetime) {
 			showState(status, "blocked", "");
 			element("state-label").textContent = "Not connected";
 			if (error instanceof ReopenSessionError) {
-				status.textContent = pairingRecovery(error);
+				if (error.reason === "mismatch") {
+					const command = document.createElement("code");
+					command.className = "tmt-ui-code";
+					command.textContent = "tmt remote pair";
+					status.replaceChildren(document.createTextNode("This browser is paired with a different machine. To use this one, run "), command, document.createTextNode(" on it."));
+				} else status.textContent = pairingRecovery(error);
 				return;
 			}
 			const command = document.createElement("code");

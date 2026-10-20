@@ -1509,7 +1509,7 @@ fn devices(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
                     tmt_cli_style::value::relative_time(now.saturating_sub(time))
                 )
             })
-            .unwrap_or_else(|| "Last used: Not recorded".into());
+            .unwrap_or_else(|| "Last used Not recorded".into());
         let text = |key: &str| Cell::from(device[key].as_str().unwrap_or(""));
         rows.row([
             Cell::styled(mark.symbol(), mark.token()),

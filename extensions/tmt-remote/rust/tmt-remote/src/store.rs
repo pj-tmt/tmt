@@ -571,13 +571,16 @@ pub(crate) fn removal_preview(
     keep: &str,
     now: u64,
 ) -> Result<RemovalPreview, RemoteError> {
-    use sha2::{Digest, Sha256};
     let rows = removal_targets(connection, keep, now)?;
-    let digest = Sha256::digest(serde_json::to_vec(&(keep, &rows)).map_err(database)?);
     Ok(RemovalPreview {
         count: rows.len(),
-        fingerprint: digest.iter().map(|b| format!("{b:02x}")).collect(),
+        fingerprint: removal_fingerprint(keep, &rows)?,
     })
+}
+fn removal_fingerprint(keep: &str, rows: &[(String, u64)]) -> Result<String, RemoteError> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(serde_json::to_vec(&(keep, rows)).map_err(database)?);
+    Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
 pub(crate) fn remove_others_in(
     connection: &Connection,
@@ -585,14 +588,13 @@ pub(crate) fn remove_others_in(
     expected: &str,
     now: u64,
 ) -> Result<Vec<String>, RemoteError> {
-    let current = removal_preview(connection, keep, now)?;
-    if current.fingerprint != expected {
+    let rows = removal_targets(connection, keep, now)?;
+    if removal_fingerprint(keep, &rows)? != expected {
         return Err(RemoteError::new(
             "REMOTE_DEVICE_LIST_CHANGED",
             "The device list changed. Review it, then confirm again.",
         ));
     }
-    let rows = removal_targets(connection, keep, now)?;
     for (id, _) in &rows {
         revoke_in(connection, id)?;
     }
