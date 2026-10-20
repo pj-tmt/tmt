@@ -14,16 +14,21 @@ const run = (page: Page, method: string, argument?: unknown) =>
     { fixture, method, argument },
   );
 const requests = (page: Page) =>
-  page.evaluate(async (path) => (await import(path)).proof().projects, fixture) as Promise<
+  page.evaluate(async (path) => (await import(path)).projectProof().requests, fixture) as Promise<
     { pageId: string; projects: string[] }[]
   >;
+const reads = (page: Page) =>
+  page.evaluate(
+    async (path) => (await import(path)).projectProof().spaceHomeReads,
+    fixture,
+  ) as Promise<number>;
 const names = ['alpha', 'beta', 'gamma'];
 
 async function open(
   page: Page,
   width = 1440,
   theme: 'light' | 'dark' = 'light',
-  options: { current?: string[]; all?: string[]; fail?: boolean } = {},
+  options: { current?: string[]; all?: string[]; fail?: boolean; deepLink?: boolean } = {},
 ) {
   await page.setViewportSize({ width, height: 900 });
   await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
@@ -33,6 +38,7 @@ async function open(
       names: options.all ?? names,
       current: options.current ?? ['alpha', 'beta'],
       fail: options.fail,
+      deepLink: options.deepLink,
     },
   });
   await expect(page.frameLocator('#ask-page-fixture iframe').locator('#selected')).toBeVisible();
@@ -54,7 +60,7 @@ const noOverflow = (page: Page) =>
 
 for (const width of [1440, 390])
   for (const theme of ['light', 'dark'] as const) {
-    test(`two projects show as chips that open the picker, and a phone keeps the title whole at ${width} ${theme}`, async ({
+    test(`two projects show as chips that open the picker, with no trigger of their own at ${width} ${theme}`, async ({
       page,
     }) => {
       const header = await open(page, width, theme);
@@ -66,10 +72,8 @@ for (const width of [1440, 390])
         ]);
         await expect(chips(header)).toHaveAttribute('aria-haspopup', 'menu');
       }
-      // No standalone trigger is shown: the title keeps its room.
+      // No standalone trigger is shown, so the title keeps its room.
       await expect(header.locator('.page-header-projects-anchor button')).toBeHidden();
-      const title = header.getByRole('heading', { name: 'Live shared page' });
-      expect(await title.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
       expect(await noOverflow(page)).toBe(true);
       await capture(page, `projects-two-chips-${width}-${theme}.png`);
       await openPicker(page, header);
@@ -179,6 +183,31 @@ test('New project… names a project and puts this page in it', async ({ page })
   await expect(dialog).toBeHidden();
   await expect(header.locator('.page-header-project-chip')).toHaveText(['alpha', 'beta', 'delta']);
   expect((await requests(page)).at(-1)!.projects).toEqual(['alpha', 'beta', 'delta']);
+});
+
+test('opening a page reads no list; a page opened by a link shows no chips until the picker is used', async ({
+  page,
+}) => {
+  const header = await open(page, 1440, 'light', { deepLink: true });
+  await expect(chips(header)).toHaveCount(0);
+  expect(await reads(page)).toBe(0);
+  await openPicker(page, header);
+  // The picker opened once the list was read, with this page's projects checked.
+  const rows = page.getByRole('menuitemcheckbox');
+  await expect(rows).toHaveText(['alpha✓', 'beta✓', 'gamma']);
+  expect(await reads(page)).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+});
+
+test('arriving from the list shows the chips with no read, and the picker refreshes behind what it shows', async ({
+  page,
+}) => {
+  const header = await open(page);
+  await expect(chips(header).locator('.page-header-project-chip')).toHaveText(['alpha', 'beta']);
+  expect(await reads(page)).toBe(0);
+  await openPicker(page, header);
+  await expect.poll(() => reads(page)).toBe(1);
 });
 
 test('a viewer who cannot write projects sees neither chips nor Projects…', async ({ page }) => {

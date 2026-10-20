@@ -1013,7 +1013,6 @@ function Page() {
 
   // The page's own projects: the picker opens from its chips and from Projects… in the More menu.
   const [projects, setProjects] = useState<{ request: number; from?: DOMRect }>({ request: 0 });
-  const [canProjects, setCanProjects] = useState(false);
   const openProjects = (from?: DOMRect) =>
     setProjects((previous) => ({ request: previous.request + 1, from }));
   const toggle = (value: PageHeaderAction) => {
@@ -1802,11 +1801,12 @@ function Page() {
         headingSuffix={
           <PageProjects
             transport={transport}
+            space={space}
             pageId={snapshot.id}
+            title={view.title || snapshot.title}
             request={projects.request}
             from={projects.from}
             open={() => openProjects()}
-            onLoaded={setCanProjects}
           />
         }
         crumb={
@@ -1908,7 +1908,7 @@ function Page() {
             canExport={!!snapshot.binding && !liveError && !archived}
             canManage={!!transport.management}
             canFiles={!!snapshot.binding?.files}
-            canProjects={canProjects}
+            canProjects={!!transport.management}
             onSelect={(action) =>
               action === 'projects' ? openProjects(moreButtonRect()) : toggle(action)
             }

@@ -22,6 +22,7 @@ import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { Projection } from '../src/fold-protocol.js';
 import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
+import { rememberPages } from '../src/quick-switcher-source.js';
 import { RemotePresence } from '../src/remote-presence.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
@@ -41,6 +42,7 @@ let sends: RemoteDouble;
 let dispatched: RemoteDouble[];
 let actions: string[];
 let projectRequests: ProjectChange[];
+let spaceHomeReads: number;
 let answerAttempts: {
   input: Parameters<AskBinding['prepare']>[0];
   selection: ReturnType<typeof selection>;
@@ -230,7 +232,8 @@ export async function mount(
     management?: ManagementPort;
     strict?: boolean;
     /** The viewer writes projects: the space's names and the ones this page is in. */
-    projects?: { names: string[]; current: string[]; fail?: boolean };
+    /** `deepLink`: the page was opened by a link, so no list was loaded before it. */
+    projects?: { names: string[]; current: string[]; fail?: boolean; deepLink?: boolean };
     /** The page is readable by anyone who holds its link. */
     shared?: boolean;
     /** The Remote door cannot be read, so the header shows its attention mark. */
@@ -258,6 +261,7 @@ export async function mount(
   dispatched = [];
   actions = [];
   projectRequests = [];
+  spaceHomeReads = 0;
   answerAttempts = [];
   readRefusal = undefined;
   records = options.pastReplies
@@ -903,23 +907,23 @@ export async function mount(
         async manageProject() {},
       } as unknown as ManagementPort)
     : undefined;
+  const projectPages = () => [
+    {
+      id: id(1),
+      title: 'Live shared page',
+      sharing: 'private' as const,
+      projects: [...projectState!.current],
+    },
+  ];
   const transport: PageTransport = {
     management: options.management ?? projectPort,
     drafts: options.drafts ? sessionDrafts(options.drafts, draftRead) : undefined,
     async spaceHome() {
+      spaceHomeReads++;
       return {
         title: 'Fixture space',
         ...(projectState ? { projects: [...projectState.names] } : {}),
-        pages: projectState
-          ? [
-              {
-                id: id(1),
-                title: 'Live shared page',
-                sharing: 'private' as const,
-                projects: [...projectState.current],
-              },
-            ]
-          : [],
+        pages: projectState ? projectPages() : [],
       };
     },
     async page(pageId) {
@@ -973,6 +977,9 @@ export async function mount(
         }
       : {}),
   };
+  // Arriving from the list: the space home has loaded, which the page's chips read.
+  if (projectState && !options.projects?.deepLink)
+    rememberPages(transport, undefined, projectPages());
   const app = <RouterProvider router={createAppRouter(transport)} />;
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }
@@ -1020,11 +1027,11 @@ export function seenProof() {
   return seenOpens;
 }
 export function proof() {
-  return {
-    sends: dispatched.flatMap((remote) => remote.sends),
-    actions,
-    projects: structuredClone(projectRequests),
-  };
+  return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+}
+/** What the page's own project picker wrote and how often it read the owner list. */
+export function projectProof() {
+  return { requests: structuredClone(projectRequests), spaceHomeReads };
 }
 export function answerBatchProof() {
   return structuredClone(answerAttempts);

@@ -1,6 +1,7 @@
 import { BrowserMenu } from '@tmt/browser-ui/react';
 import { Tag } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { rememberedPages } from './quick-switcher-source.js';
 import { NewProjectDialog, projectFailureText, type ProjectWriting } from './project-dialogs.js';
 import { pageTitle } from './page-index.js';
 import { applyProjectChanges, projectCounts, withProject } from './projects.js';
@@ -60,58 +61,76 @@ export function PageProjectsMenu({
 
 /**
  * The page's own projects, after its title: the current ones as small chips and the same picker as
- * the list row (#4116). A page the owner list does not hold, or a viewer who cannot write projects,
- * shows nothing. The owner list is read once when the page opens and again after each write.
+ * the list row (#4116). The chips come from the list the space home last loaded, so opening a page
+ * reads nothing extra; a page opened by a link shows none until the picker is used. The owner list is
+ * read when the picker opens (after showing what is known) and again after each write. A viewer who
+ * cannot write projects shows nothing.
  */
 export function PageProjects({
   transport,
+  space,
   pageId,
+  title,
   request,
   from,
   open,
-  onLoaded,
 }: {
   transport: PageTransport;
+  space: string | undefined;
   pageId: string;
+  title: string;
   /** Changes to open the picker, from the chips and from Projects… in the More menu. */
   request: number;
   /** Where the request came from when it is not the chips: the More trigger's box, which the picker
    * opens under (right-aligned like the More menu itself) instead of under the chips. */
   from?: { top: number; left: number; width: number; height: number };
   open(): void;
-  /** Whether the picker can open: the viewer writes projects and the page is in the owner list. */
-  onLoaded(available: boolean): void;
 }) {
   const port = transport.management;
   const [home, setHome] = useState<SpaceHome>();
   const [failure, setFailure] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [creating, setCreating] = useState(false);
+  // The picker opens once its data is here: this counts those openings, not the requests.
+  const [opened, setOpened] = useState(0);
   // A new transport (a refreshed session) is read through, never a reason to read the list again.
   const latest = useRef(transport);
   latest.current = transport;
-  const current = useRef(true);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const known = home?.pages ?? rememberedPages(transport, space);
   const load = useCallback(async () => {
     try {
       const next = await latest.current.spaceHome();
-      if (!current.current) return;
-      setHome(next);
+      if (mounted.current) setHome(next);
     } catch {
-      // The picker stays unavailable (or keeps what it showed): the page itself is unaffected.
+      // The picker keeps what it showed: the page itself is unaffected.
     }
   }, []);
-  const writable = !!port;
+  const first = useRef(request);
   useEffect(() => {
-    current.current = true;
-    if (writable) void load();
-    return () => {
-      current.current = false;
-    };
-  }, [writable, load, pageId]);
-  const page = home?.pages.find((candidate) => candidate.id === pageId);
-  useEffect(() => onLoaded(!!port && !!page), [onLoaded, port, page]);
-  if (!port || !home || !page) return null;
-  const names = projectCounts(home.pages, home.projects).map((project) => project.name);
+    if (request === first.current || !port) return;
+    first.current = request;
+    // Show what is known at once and refresh behind it; with nothing known, open when the read lands.
+    if (known) {
+      setOpened((count) => count + 1);
+      void load();
+    } else void load().then(() => mounted.current && setOpened((count) => count + 1));
+    // Only a new request opens the picker: the data it finds is read as it stands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
+  if (!port) return null;
+  const page: PageSummary = known?.find((candidate) => candidate.id === pageId) ?? {
+    id: pageId,
+    title,
+    sharing: 'private',
+  };
+  const names = projectCounts(known ?? [], home?.projects).map((project) => project.name);
   const projects = page.projects ?? [];
   const writing: ProjectWriting = {
     async save(changes) {
@@ -169,7 +188,7 @@ export function PageProjects({
           <PageProjectsMenu
             page={page}
             names={names}
-            openRequest={request}
+            openRequest={opened}
             toggle={(target, name) => void toggle(target, name)}
             create={() => setCreating(true)}
           />
