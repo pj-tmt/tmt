@@ -990,6 +990,12 @@ mod named_surface_tests {
         if scene == "notice" {
             app.say("Saved view for night-2");
         }
+        // A squad's "now" text needs a MODEL column wide enough to name a member whole.
+        let width = if scene == "task" {
+            width.max(300)
+        } else {
+            width
+        };
         let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
         terminal
             .draw(|frame| crate::board::view::render(frame, &app))
@@ -1035,7 +1041,17 @@ mod named_surface_tests {
         for scene in ["exchange", "task", "notice", "pane-output"] {
             let (app, terminal) = rendered_scene(scene, 160, crate::look::Look::default());
             let links = app.member_links.borrow();
-            assert!(!links.hits.is_empty(), "{scene}");
+            assert!(
+                !links.hits.is_empty(),
+                "{scene}: {:?}",
+                terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .chunks(usize::from(terminal.backend().buffer().area.width))
+                    .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                    .find(|row| row.contains("Review"))
+            );
             for hit in &links.hits {
                 assert_eq!(
                     hit.area.intersection(terminal.backend().buffer().area),
@@ -1208,7 +1224,7 @@ mod named_surface_tests {
         }
     }
     #[test]
-    fn overview_task_mentions_do_not_take_a_same_named_row_title_as_their_geometry() {
+    fn squad_now_mentions_do_not_take_a_same_named_row_title_as_their_geometry() {
         let (mut app, mut terminal) = rendered_scene("task", 160, crate::look::Look::default());
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot.roster.members.get_mut(MEMBER).unwrap().name = "night-2".into();
@@ -1222,7 +1238,7 @@ mod named_surface_tests {
             .hits
             .borrow()
             .iter()
-            .find(|hit| hit.target == crate::board::app::HitTarget::Row(0))
+            .find(|hit| hit.target == crate::board::app::HitTarget::Row(1))
             .cloned()
             .unwrap();
         let links = app.member_links.borrow();

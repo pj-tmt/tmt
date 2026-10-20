@@ -219,9 +219,10 @@ fn help_explains_the_row_only_where_it_can_show() {
     );
     assert!(text.contains("older than 2 hours"), "{text}");
     assert!(section(&app(false)).is_none());
+    // Agents carries the same Usage band, so it explains the row too.
     let mut hidden = app(true);
     hidden.shell.tab = crate::board::shell::OpsTab::Agents;
-    assert!(section(&hidden).is_none());
+    assert!(section(&hidden).is_some());
     hidden.shell.tab = crate::board::shell::OpsTab::Digest;
     assert!(section(&hidden).is_some());
     hidden.shell.tab = crate::board::shell::OpsTab::Agents;

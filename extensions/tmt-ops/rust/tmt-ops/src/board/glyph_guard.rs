@@ -204,6 +204,7 @@ fn digest_matrix_estimate_caption_registers_only_the_approximation_operator() {
     let mut app = crate::board::app::workspace::tests::board();
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
+    app.right_tab = crate::board::shell::RightTab::Measure;
     let mut terminal = Terminal::new(TestBackend::new(160, 51)).unwrap();
     terminal
         .draw(|frame| {

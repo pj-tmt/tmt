@@ -1094,7 +1094,11 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     app.shell.tab = crate::board::shell::OpsTab::Agents;
     app.workspace.filter = crate::board::workspace::AgentsFilter::Agents;
     let shown = paint(&mut app, 160, 44);
-    assert!(!shown.contains("$ unit"), "{shown}");
+    // The selected agent's TOK cell paints a 24h estimate, so the hint is advertised.
+    assert!(
+        shown.contains("≈24h") && shown.contains("$ unit"),
+        "{shown}"
+    );
     assert!(
         !shown.contains("Est. ctx avoided"),
         "the retired summary paints no estimate: {shown}"

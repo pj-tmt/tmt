@@ -118,6 +118,18 @@ impl App {
         } else {
             height
         };
+        // The band yields to the two panes: first to its one-line summary, then
+        // entirely, whenever the panes would no longer both fit below it.
+        let panes = crate::board::conversation::layout::LIST_MIN_ROWS
+            + crate::board::conversation::layout::CONVERSATION_MIN_ROWS;
+        let fits = |band: u16| area.height < panes || area.height - band >= panes;
+        let height = if fits(height) {
+            height
+        } else if fits(1) {
+            1.min(height)
+        } else {
+            0
+        };
         ratatui::layout::Rect::new(
             area.x.saturating_add(u16::from(area.width > 0)),
             area.y,

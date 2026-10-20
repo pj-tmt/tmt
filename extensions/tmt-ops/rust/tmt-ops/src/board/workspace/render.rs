@@ -449,6 +449,33 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 OpsTarget::Pool => false,
             };
+            let model: String = match &row.target {
+                OpsTarget::Member { identity_id, .. } => {
+                    let agent = app.references.agents.get(identity_id);
+                    columns::model_text(
+                        agent.and_then(|agent| agent.runtime.as_deref()),
+                        agent.and_then(|agent| agent.model.as_deref()),
+                    )
+                }
+                // A squad's idle alert, else what it is doing now.
+                OpsTarget::Squad(room) => snapshot
+                    .roster
+                    .squads
+                    .iter()
+                    .find(|squad| &squad.room_id == room)
+                    .map(|squad| {
+                        squad
+                            .idle_alert
+                            .and_then(|alert| alert.label(model_width))
+                            .unwrap_or_else(|| {
+                                let (now, _) =
+                                    crate::board::overview::monitor::squad_now(snapshot, squad);
+                                crate::board::workspace::render::safe(&now)
+                            })
+                    })
+                    .unwrap_or_default(),
+                OpsTarget::Pool => String::new(),
+            };
             let painted = crate::board::tree_row::paint(
                 frame.buffer_mut(),
                 stripe,
@@ -461,34 +488,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     state,
                     state_primary_width,
                     tokens,
-                    model: match &row.target {
-                        OpsTarget::Member { identity_id, .. } => {
-                            let agent = app.references.agents.get(identity_id);
-                            columns::model_text(
-                                agent.and_then(|agent| agent.runtime.as_deref()),
-                                agent.and_then(|agent| agent.model.as_deref()),
-                            )
-                        }
-                        // A squad's idle alert, else what it is doing now.
-                        OpsTarget::Squad(room) => snapshot
-                            .roster
-                            .squads
-                            .iter()
-                            .find(|squad| &squad.room_id == room)
-                            .map(|squad| {
-                                squad
-                                    .idle_alert
-                                    .and_then(|alert| alert.label(model_width))
-                                    .unwrap_or_else(|| {
-                                        let (now, _) = crate::board::overview::monitor::squad_now(
-                                            snapshot, squad,
-                                        );
-                                        crate::board::workspace::render::safe(&now)
-                                    })
-                            })
-                            .unwrap_or_default(),
-                        OpsTarget::Pool => String::new(),
-                    },
+                    model: model.clone(),
                     timers: timers.map(|count| count.total),
                     selected,
                     query: &app.workspace.query,
@@ -500,6 +500,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                     app,
                     crate::board::app::RowTarget::Workspace(row.target.clone()),
                     area,
+                );
+            }
+            // A squad's "now" line can name a member.
+            if matches!(row.target, OpsTarget::Squad(_))
+                && let Some(area) = painted.model
+            {
+                let displayed = crate::board::view::fit(&model, usize::from(area.width));
+                crate::board::member_links::paint_plain_hits(
+                    frame, app, area, &model, &displayed, false,
                 );
             }
             app.workspace_state_cells

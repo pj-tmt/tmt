@@ -257,7 +257,12 @@ fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
                     let cost = lines
                         .iter()
                         .find(|line| line.contains("cost avoided"))
-                        .unwrap_or_else(|| panic!("{width}/{count}: the narrow Digest cost row is visible\n{}", lines.join("\n")));
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "{width}/{count}: the narrow Digest cost row is visible\n{}",
+                                lines.join("\n")
+                            )
+                        });
                     assert!(cost.contains("cost avoided 24h"), "{width}/{count}: {cost}");
                     assert!(!cost.contains("cost avoided 2…"));
                     assert!(cost.contains("≈ $"), "cost remains an estimate: {cost}");
