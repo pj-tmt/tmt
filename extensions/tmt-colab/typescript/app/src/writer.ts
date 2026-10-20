@@ -1,4 +1,13 @@
-import { encodeBinary, Envelope, exactKeys, generatedId, requireValue } from '@tmt/colab-client';
+import {
+  binary,
+  decimal,
+  encodeBinary,
+  Envelope,
+  equal,
+  exactKeys,
+  generatedId,
+  requireValue,
+} from '@tmt/colab-client';
 import { Connection } from './connection.js';
 import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
@@ -246,11 +255,28 @@ export class Writer {
       generatedId(state.pending.id);
       const head = c.admission.head;
       requireValue(head !== null);
-      if (sealedRevision(state.pending.entry) < head.revision) {
-        // Another page was created or shared since it was sealed. Its membership revision is part
-        // of the signed header, so no retry of these bytes is ever admitted. Whoever still waits on
-        // it is told it was refused, as for a taken sequence; the next write seals at the stream's
-        // head under the current revision, and a retry of the same write is that next write.
+      const mine = c.objects.head(c.admission.registration.deviceId);
+      if (
+        mine.seq === decimal(state.pending.entry.seq) &&
+        equal(mine.hash, binary(state.pending.entry.envelopeHash, 32, 32))
+      ) {
+        // It landed and only its receipt was lost: the catch-up of this session shows exactly these
+        // bytes at the stream's head. Nothing is sent again, whatever the membership log says now,
+        // and a retry of the same write finds it done.
+        state.completed.push(state.pending.id);
+        state.completed = state.completed.slice(-64);
+        state.pending = null;
+        await this.record(this.key, state);
+        return state;
+      }
+      const sealed = sealedRevision(state.pending.entry);
+      if (sealed < head.revision && !c.admission.unrelatedSince(sealed)) {
+        // The membership log has changed something that touches this page or its writers since it was
+        // sealed (a change that only concerns other pages does not count: the serve still admits it).
+        // Its membership revision is part of the signed header, so no retry of these bytes is ever
+        // admitted. Whoever still waits on it is told it was refused, as for a taken sequence; the
+        // next write seals at the stream's head under the current revision, and a retry of the same
+        // write is that next write.
         const dropped = state.pending.id;
         state.pending = null;
         await this.record(this.key, state);

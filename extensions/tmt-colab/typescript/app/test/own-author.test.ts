@@ -124,6 +124,9 @@ async function world(kind: Kind, reader?: object) {
     author: kind === 'member' ? own : foreign,
     linkAuthor: kind === 'link' ? own : foreign,
     ownAuthor: Admission.prototype.ownAuthor,
+    /** Whether the log, as far as the sealed revision, changed only other pages (default: it did not). */
+    unrelated: false,
+    unrelatedSince: () => admission.unrelated,
     ...(reader ? { reader } : {}),
   };
   return { device, admission, own, foreign };
@@ -355,12 +358,13 @@ async function writerOver(appends: (Error | undefined)[]) {
     locks: { request: (_key: string, _o: unknown, fn: () => unknown) => fn() },
   });
   let head = 4n;
+  let headHash: Uint8Array = new Uint8Array(32);
   const appended: ObjectEntry[] = [];
   const connection = {
     ready: Promise.resolve(),
     active: true,
     admission: w.admission,
-    objects: { head: () => ({ seq: head, hash: new Uint8Array(32) }) },
+    objects: { head: () => ({ seq: head, hash: headHash.slice() }) },
     run: (fn: () => Promise<unknown>) => fn(),
     fold: {
       run: vi.fn(async (command: { type: string }) =>
@@ -376,6 +380,7 @@ async function writerOver(appends: (Error | undefined)[]) {
       const failure = appends.shift();
       if (failure) throw failure;
       head = BigInt(entry.seq);
+      headHash = c.binary(entry.envelopeHash, 32, 32);
     }),
     waitForOwnRecords: vi.fn(async () => {}),
   };
@@ -397,12 +402,18 @@ async function writerOver(appends: (Error | undefined)[]) {
       records('own-author-refused', { pending: { id, entry: await sealed(w) }, completed: [] }),
     saved: () =>
       records<{
-        pending: { entry: { seq: string; envelope: string } } | null;
+        pending: { id: string; entry: ObjectEntry } | null;
         completed: string[];
       }>('own-author-refused'),
     /** Another holder's original now holds the sequence. */
     advance: () => {
       head += 1n;
+    },
+    /** The serve stored this entry and only its receipt was lost: a reopened session's catch-up shows
+     * it at the stream's head. */
+    land: (entry: ObjectEntry) => {
+      head = BigInt(entry.seq);
+      headHash = c.binary(entry.envelopeHash, 32, 32);
     },
   };
 }
@@ -488,6 +499,49 @@ it('drops an older kept append that the serve refuses when it is retried', async
     w.advance();
     await w.save();
     expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5', '6']);
+  } finally {
+    w.writer.close();
+  }
+});
+
+it('retries a kept append sealed before a change that only concerns other pages, and seals the next write under the head (#4103)', async () => {
+  const w = await writerOver([new Error('Sync disconnected'), undefined, undefined]);
+  try {
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
+    expect((await w.saved())?.pending?.entry.seq).toBe('5');
+    // The reopened session has caught up to a head that only another page moved.
+    w.admission.head = { revision: REVISION + 1n };
+    w.admission.unrelated = true;
+    await w.save();
+    expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '5', '6']);
+    expect(w.appended.map((entry) => sealedRevision(entry))).toEqual([
+      REVISION,
+      REVISION,
+      REVISION + 1n,
+    ]);
+    expect((await w.saved())?.pending).toBeNull();
+  } finally {
+    w.writer.close();
+  }
+});
+
+it('does not send a kept append again when the serve already holds it, even past a change that touches the page (#4103)', async () => {
+  // The append landed and its receipt was lost. The reopened session finds exactly those bytes at the
+  // stream's head, so the retry is the existing receipt: nothing is stored twice and the stored edit
+  // is never dropped, whatever the membership log has done since.
+  const w = await writerOver([new Error('Sync disconnected'), undefined]);
+  try {
+    await expect(w.save()).rejects.not.toBeInstanceOf(OwnAppendRefused);
+    const kept = (await w.saved())!.pending!;
+    w.land(kept.entry);
+    w.admission.head = { revision: REVISION + 1n };
+    w.admission.unrelated = false;
+    await w.save();
+    // Only the new write was sent, after the one that was already there.
+    expect(w.appended.map((entry) => entry.seq)).toEqual(['5', '6']);
+    const saved = await w.saved();
+    expect(saved?.pending).toBeNull();
+    expect(saved?.completed).toContain(kept.id);
   } finally {
     w.writer.close();
   }

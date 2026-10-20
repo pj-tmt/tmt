@@ -1234,13 +1234,20 @@ impl crate::sync::Admission for OwnerAdmission {
                 }
                 if let crate::sync::Access::Append(c) = access {
                     let cited = values::decimal(&c.membership_revision, false)?;
-                    if cited > head.revision || !matches!(c.namespace.as_str(), "content" | "own") {
+                    if cited > head.revision
+                        || cited < values::decimal(cert.membership_revision, false)?
+                        || !matches!(c.namespace.as_str(), "content" | "own")
+                    {
                         return Err(SyncCode::Denied.into());
                     }
-                    // A session admitted before another page was created or shared seals at the head
-                    // it knew. That is a stale view, not a verdict on the device: ask it to catch up,
-                    // never `DENIED`, which the browser treats as lost access.
-                    if cited < head.revision {
+                    // A session admitted before the head moved seals at the head it knew. Every
+                    // authority fact above is read at the head, so the append stands when the
+                    // statements it missed are all scoped to other pages. Any other change, while
+                    // the device is still authorised, is a stale view and no verdict on the device:
+                    // ask it to catch up, never `DENIED`, which the browser treats as lost access.
+                    if cited < head.revision
+                        && !tx.unrelated_since(&scope.page, cited, head.revision)?
+                    {
                         return Err(SyncCode::ResyncRequired.into());
                     }
                 }

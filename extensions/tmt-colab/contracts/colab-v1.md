@@ -480,6 +480,13 @@ follows the page's `page.history` mode, never possession of a new key.
 `page.projects` and `project.manage` are not in this table: they are management requests that change
 display-only owner-store state and append no statement (see [Projects](#projects-3747)).
 
+**Page scope.** `epoch.advance`, `page.share`, `page.history`, `retention.set`, `page.archive` and
+`page.delete` are page-scoped: each names exactly one page in `pageId` and changes only that page's
+policy (creating a page appends its first `page.share`). Every other operation (`member.*`, `link.*`,
+`device.revoke`, `bridge.add`) is not page-scoped, even when its payload lists pages: it can change who or
+what a writer is. A rule that asks whether a statement can touch a page reads its page scope from the
+payload, and an operation that is not listed here as page-scoped is treated as touching every page.
+
 The root owner is implicit, not an assignable member role; v1 has no co-owner
 or signing delegation. Every log statement is produced and signed by the owner's
 `tmt colab`, whose keyring alone holds the root key. Page creation allocates a page ID, initial epoch
@@ -3432,11 +3439,19 @@ receipt ledger, so pruning never permits accepting a sequence again.
 An admission check or catchup that cannot read the store because SQLite stays busy or locked past
 its 2 s timeout answers `RESYNC_REQUIRED`, never `DENIED` (#2956): it says nothing about the
 device, and the client resyncs. A refusal the store answered keeps its code.
-An append that cites an earlier membership revision than the head also answers `RESYNC_REQUIRED`,
-never `DENIED` (#4088): the session was admitted before another page was created or shared, and
-that says nothing about the device. A revision the head has not reached is still `DENIED`. The
-refusal stores nothing, so the owner browser drops an interrupted own append sealed under an
-earlier revision, whose signed header no retry can change, and seals the next write under the head
+An append that cites an earlier membership revision than the head is admitted when every membership
+statement after the cited revision, up to the head, is page-scoped (see Page scope under the
+statement table) and names a page other than the append's own: a page created or shared elsewhere
+changes nothing for this page or this writer, and every authority fact (revocation, chain, role, page
+policy, epoch) is read at the head in the same snapshot. Any other statement in that window, one that
+names this page or is not page-scoped, leaves the append stale, and it answers `RESYNC_REQUIRED`,
+never `DENIED` (#4088): the session's view is out of date, which says nothing about the device. A
+window of more than 256 statements also answers `RESYNC_REQUIRED`. A revision the head has not
+reached is `DENIED`, and so is one before the device certificate's own `membershipRevision`
+(#4103). The refusal stores nothing. The owner browser retries the exact bytes of an interrupted own
+append when every statement after its sealed revision is of that kind, sends nothing again when its
+catch-up shows those bytes already at the stream's head (the receipt was lost), and drops one the
+serve would refuse, whose signed header no retry can change; it seals the next write under the head
 it caught up to.
 
 `append.seq` is positive canonical decimal text. `streamId` equals the principal
@@ -3773,8 +3788,9 @@ owner upgrades. `registration::OwnerAdmission` reads a durable authority snapsho
 on each check: active registration/device, certificate lifetime, pinned owner
 management member and editor issuer, retained head and current page epoch. The
 owner management member admits local pages regardless of its empty genesis page
-list. Append additionally requires the current membership revision (an earlier one answers
-`RESYNC_REQUIRED`) and an allowed namespace, and returns the registered extension signing key for model signature
+list. Append additionally requires a membership revision that the window rule above admits (the
+head, or an earlier one when every statement after it is page-scoped to another page; any other
+earlier one answers `RESYNC_REQUIRED`) and an allowed namespace, and returns the registered extension signing key for model signature
 verification. Upgrade verifies the full remote binding and device chain; repeated
 Read checks do not redo signatures or reserve the SQLite writer. Catchup takes its
 head from `Store::owner_head` and the exact persisted reset descriptor through
