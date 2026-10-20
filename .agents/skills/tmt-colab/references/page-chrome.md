@@ -304,6 +304,17 @@ secondary grey is not used on that fill (3.9:1 on the dark band), so rank comes 
 place. `e2e/page-surface-contrast.spec.ts` holds text to 4.5:1 and an open card's fill or edge to
 3:1 against the page, on a light, a dark and an unpainted page in both themes at 1440 and 390 px.
 
+**Progressive open (#3894).** `Live.snapshot()` returns once the first admitted view has
+published the document; the threads, asks and presentations follow when `#publishViews` has
+verified them. Until then `PageView.discussionPending` is set and those three fields are absent,
+never empty, so nothing unverified reads as verified: the router shows no comment count (the
+Discussion button and its Comments row carry no number), no `Needs you` entry (not `✓ Nothing waits`),
+no inline question, review, reading or proposal layer, and no thread highlights. The Comments and
+Chat drawers show one quiet `Loading comments…` status instead of a list or composer. The document
+frame does not move when verification arrives; the layers and the count then appear. `ThreadStore`
+reports unavailable until verified, so no write can start from a pending view. `e2e/progressive-open.spec.ts`
+holds the verification back through the fixture's `discussionPending` option.
+
 `use-reply-notifications.ts` owns page-local Chat/Thread/Answer/Proposal presentation over admitted
 Ask finals and discussion comments; `reply-notifications.ts` reuses authenticated
 Yours refs and existing comment/Ask associations. The page read owner baselines

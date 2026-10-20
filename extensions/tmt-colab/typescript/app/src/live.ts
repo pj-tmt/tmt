@@ -63,6 +63,9 @@ export class Live implements PageBinding {
   #observation: AbortController | null = null;
   #refreshOlderAsks = true;
   #views = Promise.resolve();
+  /** The first view whose threads and asks were verified has been published. Until then the page
+   * shows the document alone (`discussionPending`) rather than wait for that crypto (#3894). */
+  #discussionVerified = false;
   #processingViews = false;
   #pendingView: { value: PageView; admission: Admission; open: LiveOpen } | null = null;
   #admitted: PageView = { source: '', title: '' };
@@ -103,7 +106,8 @@ export class Live implements PageBinding {
       connection: () => this.#current,
       settled: () => this.#settled(),
       publish: (records) => this.#writer.submitOwnRecords(records),
-      available: () => !this.#closed && !this.#error && !this.#opening?.pending,
+      available: () =>
+        !this.#closed && !this.#error && !this.#opening?.pending && this.#discussionVerified,
       scope: () => (this.#error ? 'blocked' : disclosureScope(this.#connection)),
     });
     this.files = new LiveDocumentFiles({
@@ -339,6 +343,7 @@ export class Live implements PageBinding {
         (value) => {
           if (!this.#owns(open)) return;
           this.#admitted = structuredClone(value);
+          this.#showDocument(value);
           this.#pendingView = { value: this.#admitted, admission: a, open };
           if (!this.#processingViews) {
             this.#processingViews = true;
@@ -364,6 +369,25 @@ export class Live implements PageBinding {
         this.#observe();
       }
     }
+  }
+  /** Before the first verified view: the admitted document and own maps, without the threads and
+   * asks still being verified. Those are absent rather than empty, so nothing unverified can read
+   * as verified, and the page shows once the connection is admitted. */
+  #showDocument(value: PageView) {
+    if (this.#discussionVerified) return;
+    const {
+      asks: _asks,
+      threads: _threads,
+      threadPresentations: _presentations,
+      ...document
+    } = value;
+    this.#projection = {
+      ...document,
+      discussionPending: true,
+      askUnavailable: this.#projection.askUnavailable ?? false,
+      agentActivity: this.#projection.agentActivity,
+    };
+    this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
   }
   async #publishViews(): Promise<void> {
     try {
@@ -412,6 +436,7 @@ export class Live implements PageBinding {
             askUnavailable: this.#projection.askUnavailable ?? false,
             agentActivity: this.#projection.agentActivity,
           };
+          this.#discussionVerified = true;
           this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
           this.#observe();
         } catch (error) {
@@ -518,7 +543,9 @@ export class Live implements PageBinding {
   }
   async snapshot(): Promise<PageSnapshot> {
     await this.#current;
-    await this.#views;
+    // The first open does not wait for verification: the document shows, and the threads and asks
+    // follow through the binding. A page already verified waits for its latest view as before.
+    if (this.#discussionVerified) await this.#views;
     return {
       id: this.page.pageId,
       sharing: this.page.sharing,

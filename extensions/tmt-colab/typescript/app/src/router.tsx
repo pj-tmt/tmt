@@ -123,6 +123,7 @@ function PageFloatingActions({
   chatButton,
   toggleChat,
   canSelect,
+  selectPending,
   slots,
 }: {
   slots: readonly AnchorPosition[];
@@ -135,6 +136,8 @@ function PageFloatingActions({
   chatButton: Ref<HTMLButtonElement>;
   toggleChat(): void;
   canSelect: boolean;
+  /** The button's place while the threads are unverified: fenced, not greyed. */
+  selectPending: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<{
@@ -229,10 +232,11 @@ function PageFloatingActions({
             }}
           />
         )}
-        {canSelect && (
+        {(canSelect || selectPending) && (
           <BrowserIconAction
             type="button"
             variant="primary"
+            busy={selectPending}
             label={text.selectionMode}
             ariaKeyShortcuts={enabled ? 'c Escape' : 'c'}
             pressed={enabled}
@@ -1028,6 +1032,7 @@ function Page() {
     setPanel((previous) => (previous === value ? null : value));
   };
   const [view, setView] = useState<PageView>({
+    discussionPending: snapshot.discussionPending,
     pageType: snapshot.pageType,
     shell: snapshot.shell,
     archived: snapshot.archived,
@@ -1042,6 +1047,9 @@ function Page() {
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  // The document shows before its threads and asks are verified; until they follow, nothing that
+  // reads them speaks (#3894): no count, no band, no Needs you, and the discussion stays shut.
+  const discussionPending = !!view.discussionPending;
   useEffect(() => {
     document.title = `${view.title || snapshot.title} · ${text.product}`;
     return () => {
@@ -1106,6 +1114,7 @@ function Page() {
     }
     draftPage.current = snapshot.id;
     setView({
+      discussionPending: snapshot.discussionPending,
       pageType: snapshot.pageType,
       shell: snapshot.shell,
       archived: snapshot.archived,
@@ -1352,7 +1361,7 @@ function Page() {
       )
     : undefined;
   const numbers = useMemo(() => threadNumbers(view.threads ?? []), [view.threads]);
-  const openThreads = openThreadCount(view.threads ?? []);
+  const openThreads = discussionPending ? undefined : openThreadCount(view.threads ?? []);
   const fileCount = view.attachments?.length ?? 0;
   const unseenThreads = (view.threadPresentations ?? []).some((value) => value.status.unseen);
   const statusCoordinator =
@@ -1476,12 +1485,13 @@ function Page() {
   }, [state, snapshot.id, view.threads]);
 
   // Author loading does not block discussion: sends use the captured quote.
-  const discussionBlocked = archived || !!liveError || state === 'failed' || state === 'navigation';
-  const canSelect =
-    view.pageType !== 'shell' &&
-    !!snapshot.binding?.discussion &&
-    !discussionBlocked &&
-    state === 'ready';
+  const discussionBlocked =
+    archived || !!liveError || state === 'failed' || state === 'navigation' || discussionPending;
+  const selectable =
+    view.pageType !== 'shell' && !!snapshot.binding?.discussion && state === 'ready';
+  const canSelect = selectable && !discussionBlocked;
+  // Selecting is offered once the threads are verified; until then its button holds its place.
+  const selectPending = selectable && discussionPending && !archived && !liveError;
   activateChat.current = () => {
     if (
       archived ||
@@ -1814,44 +1824,47 @@ function Page() {
         )}
         status={
           <div className="page-header-meta">
-            {questionLayer.ready && reviewLayer.ready && readingLayer.ready && (
-              <NeedsYouHeader
-                menuFocus={needsYouMenuFocus}
-                href={(item) =>
-                  router.history.createHref(
-                    router.buildLocation({
-                      to: '/pages/$pageId',
-                      params: { pageId: snapshot.id },
-                      ...(item.kind === 'reading' ? { search: { read: item.id } } : {}),
-                    }).publicHref,
-                  )
-                }
-                items={pendingNeedsYou([
-                  ...proposalLayer.navigation,
-                  ...readingLayer.items
-                    .filter((item) => inlineSlots.readingIds.has(item.id))
-                    .map((item) => ({
-                      ...item,
-                      kind: 'reading' as const,
-                      agents: [
-                        readings.find((reading) => reading.id === item.id)?.agent ?? '',
-                      ].filter(Boolean),
-                    })),
-                  ...questionLayer.navigation,
-                  ...reviewLayer.navigation,
-                ])}
-                onPick={(item) => {
-                  if (item.kind === 'proposal') {
-                    if (!proposalLayer.jump(item.id)) {
-                      const ref = proposalLayer.reference(item.id);
-                      if (ref) openThread(ref);
-                    }
-                  } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
-                  else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
-                  else if (item.kind === 'review') reviewLayer.jump(item.id);
-                }}
-              />
-            )}
+            {!discussionPending &&
+              questionLayer.ready &&
+              reviewLayer.ready &&
+              readingLayer.ready && (
+                <NeedsYouHeader
+                  menuFocus={needsYouMenuFocus}
+                  href={(item) =>
+                    router.history.createHref(
+                      router.buildLocation({
+                        to: '/pages/$pageId',
+                        params: { pageId: snapshot.id },
+                        ...(item.kind === 'reading' ? { search: { read: item.id } } : {}),
+                      }).publicHref,
+                    )
+                  }
+                  items={pendingNeedsYou([
+                    ...proposalLayer.navigation,
+                    ...readingLayer.items
+                      .filter((item) => inlineSlots.readingIds.has(item.id))
+                      .map((item) => ({
+                        ...item,
+                        kind: 'reading' as const,
+                        agents: [
+                          readings.find((reading) => reading.id === item.id)?.agent ?? '',
+                        ].filter(Boolean),
+                      })),
+                    ...questionLayer.navigation,
+                    ...reviewLayer.navigation,
+                  ])}
+                  onPick={(item) => {
+                    if (item.kind === 'proposal') {
+                      if (!proposalLayer.jump(item.id)) {
+                        const ref = proposalLayer.reference(item.id);
+                        if (ref) openThread(ref);
+                      }
+                    } else if (item.kind === 'reading') readingLayer.jump(item.id, true);
+                    else if (item.kind === 'answer') questionLayer.jump(item.targetId ?? item.id);
+                    else if (item.kind === 'review') reviewLayer.jump(item.id);
+                  }}
+                />
+              )}
             <span
               className={`chip page-sharing status ${state === 'ready' ? 'live' : ''}`}
               title={
@@ -1935,10 +1948,14 @@ function Page() {
             </p>
           )}
           <div className="frame-host" ref={host} />
-          {proposalLayer.inline}
-          {reviewLayer.inline}
-          {readingLayer.inline}
-          {questionLayer.inline}
+          {!discussionPending && (
+            <>
+              {proposalLayer.inline}
+              {reviewLayer.inline}
+              {readingLayer.inline}
+              {questionLayer.inline}
+            </>
+          )}
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard
               state="blocked"
@@ -1973,6 +1990,7 @@ function Page() {
           chatButton={floatingChat}
           toggleChat={() => toggle('chat')}
           canSelect={canSelect}
+          selectPending={selectPending}
         />
       )}
       {snapshot.binding?.discussion &&
@@ -2208,9 +2226,14 @@ function Page() {
         panel="comments"
         onDismiss={() => setPanel(null)}
       >
+        {discussionPending && !liveError && (
+          <p role="status" className="discussion-pending">
+            {text.discussionPending}
+          </p>
+        )}
         <SavedDrafts
           archived={archived}
-          drafts={savedDrafts(drafts.current, view.threads)}
+          drafts={discussionPending ? [] : savedDrafts(drafts.current, view.threads)}
           discard={(key) => keepDraft(key, null)}
         />
         {draftsUnsaved && (
@@ -2218,41 +2241,43 @@ function Page() {
             {text.draftsNotSaved}
           </p>
         )}
-        <ThreadPanel
-          connectionPresentation={connectionPresentation}
-          archived={archived}
-          reopenProposal={proposalLayer.reopenProposal}
-          creationRecipient={view.creationRecipient}
-          hideHeader
-          numbers={numbers}
-          renderProposal={proposalLayer.renderProposal}
-          key={`discussion:${snapshot.id}:${draftsReady}`}
-          threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
-          resolved={resolved}
-          anchorsChecked={anchorsChecked}
-          selection={selector}
-          binding={
-            liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
-          }
-          ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
-          title={view.title || snapshot.title}
-          asks={view.asks ?? []}
-          active={activeThread}
-          select={openThread}
-          presentations={view.threadPresentations}
-          onStatusChange={
-            statusCoordinator
-              ? (thread, resolved) => statusCoordinator.change(thread, resolved)
-              : undefined
-          }
-          onBusy={(busy) => {
-            statusBusy.current = busy;
-            setChangingStatus(busy);
-          }}
-          draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
-          onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
-          blocked={discussionBlocked}
-        />
+        {!discussionPending && (
+          <ThreadPanel
+            connectionPresentation={connectionPresentation}
+            archived={archived}
+            reopenProposal={proposalLayer.reopenProposal}
+            creationRecipient={view.creationRecipient}
+            hideHeader
+            numbers={numbers}
+            renderProposal={proposalLayer.renderProposal}
+            key={`discussion:${snapshot.id}:${draftsReady}`}
+            threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
+            resolved={resolved}
+            anchorsChecked={anchorsChecked}
+            selection={selector}
+            binding={
+              liveError?.message === managementChanged ? undefined : snapshot.binding?.discussion
+            }
+            ask={liveError?.message === managementChanged ? undefined : snapshot.binding?.ask}
+            title={view.title || snapshot.title}
+            asks={view.asks ?? []}
+            active={activeThread}
+            select={openThread}
+            presentations={view.threadPresentations}
+            onStatusChange={
+              statusCoordinator
+                ? (thread, resolved) => statusCoordinator.change(thread, resolved)
+                : undefined
+            }
+            onBusy={(busy) => {
+              statusBusy.current = busy;
+              setChangingStatus(busy);
+            }}
+            draft={(ref) => drafts.current.get(`${ref.writer}:${ref.id}`)}
+            onDraft={(ref, edit) => keepDraft(`${ref.writer}:${ref.id}`, edit)}
+            blocked={discussionBlocked}
+          />
+        )}
       </BrowserDrawer>
       <BrowserDrawer
         notice={endedNotice}
@@ -2285,7 +2310,12 @@ function Page() {
             else escapeAnnotation.current();
           }}
         >
-          {chatOpened && (
+          {chatOpened && discussionPending && !liveError && (
+            <p role="status" className="discussion-pending">
+              {text.discussionPending}
+            </p>
+          )}
+          {chatOpened && !discussionPending && (
             <ChatPanel
               connectionPresentation={connectionPresentation}
               archived={archived}

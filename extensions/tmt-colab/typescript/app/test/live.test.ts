@@ -481,6 +481,61 @@ it('slow Ask verification keeps one latest view while source export reads the co
   }
 });
 
+it('the first snapshot shows the document at once; threads and asks follow once verified', async () => {
+  asks.project.mockClear();
+  let release!: () => void;
+  asks.project.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve([]);
+      }),
+  );
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      projects: [],
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
+    { deviceId: 'device' } as Registration,
+    { pageId: '00000000-0000-4000-8000-000000000003', epoch: '1', sharing: 'private' } as PageInfo,
+  );
+  try {
+    // The Ask verification is held, and the snapshot must not wait for it.
+    const first = await Promise.race([
+      live.snapshot(),
+      new Promise<never>((_, fail) =>
+        setTimeout(() => fail(new Error('The snapshot waited for verification')), 1000),
+      ),
+    ]);
+    expect(first.source).toBe('verified');
+    expect(first.discussionPending).toBe(true);
+    // Absent, never empty: nothing unverified can read as "no threads".
+    expect(first.threads).toBeUndefined();
+    expect(first.asks).toBeUndefined();
+    expect(first.threadPresentations).toBeUndefined();
+    const seen: PageView[] = [];
+    live.subscribe(
+      (value) => seen.push(value),
+      () => {},
+    );
+    expect(seen.map((value) => value.discussionPending)).toEqual([true]);
+    release();
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1].discussionPending).toBeUndefined();
+    expect(seen[1].threads).toEqual([]);
+    expect(seen[1].asks).toEqual([]);
+    const verified = await live.snapshot();
+    expect(verified.discussionPending).toBeUndefined();
+    expect(verified.threads).toEqual([]);
+  } finally {
+    live.close();
+  }
+});
+
 it('page observer stops on hidden/close and resumes visible without another controller or send', async () => {
   const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   vi.stubGlobal('document', document);

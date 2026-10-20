@@ -54,8 +54,20 @@ let pageEpoch = '1';
 let openGate: (() => void) | undefined;
 let ownerDevice = true;
 let hooks: { seed(): void; agentResolves(): void } | undefined;
+/** What a viewer is given while the discussion is unverified: the document, without its threads and asks. */
+function shown(): PageView {
+  if (!current.discussionPending) return current;
+  const {
+    threads: _threads,
+    asks: _asks,
+    threadPresentations: _presentations,
+    ...document
+  } = current;
+  return document;
+}
 /** Parent-computed presentation inputs, as Live publishes them. */
 function emit() {
+  if (current.discussionPending) return publish?.(shown());
   current = {
     ...current,
     threadPresentations: (current.threads ?? []).map((thread) =>
@@ -219,6 +231,8 @@ export async function mount(
     /** The page's layout and, for a canvas, its reason; absent is `freeform`. */
     layout?: Projection['layout'];
     layoutReason?: string;
+    /** The page opens with its document only; `verifyDiscussion` brings the threads and asks. */
+    discussionPending?: boolean;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -258,8 +272,7 @@ export async function mount(
     source: '<p id="selected">Exact selected text</p>',
     title: 'Live shared page',
     own: {},
-    asks: records,
-    threads: [],
+    ...(options.discussionPending ? { discussionPending: true } : { asks: records, threads: [] }),
     publisherAgent: 'Agent 1',
     ...(options.layout ? { layout: options.layout } : {}),
     ...(options.layoutReason ? { layoutReason: options.layoutReason } : {}),
@@ -775,7 +788,7 @@ export async function mount(
     subscribe(next, failed) {
       publish = next;
       fail = failed;
-      next(current);
+      next(shown());
       emit();
       return () => {
         if (publish === next) publish = undefined;
@@ -903,7 +916,7 @@ export async function mount(
       return {
         id: id(1),
         sharing: 'private',
-        ...current,
+        ...shown(),
         binding: replacedFiles ? replacedBinding : binding,
       };
     },
@@ -931,6 +944,13 @@ export function removePageFiles() {
 export function rotateEpoch() {
   pageEpoch = String(Number(pageEpoch) + 1);
   emit();
+}
+/** The threads and asks are verified: what the fixture holds is now published with the document. */
+export async function verifyDiscussion() {
+  const { discussionPending: _pending, ...verified } = current;
+  current = { ...verified, asks: records, threads: verified.threads ?? [] };
+  emit();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 }
 /** Lets a read of a file whose name contains `slow` finish. */
 export function releaseOpen() {

@@ -21,10 +21,13 @@ type HeaderIcon = 'discussion' | 'agents' | 'files' | 'source' | 'more';
 function PageHeaderIcon({
   name,
   count,
+  reserveCount,
   unseen,
 }: {
   name: HeaderIcon;
   count?: number;
+  /** Keeps the count's slot while it is unknown, so the icons beside it do not move when it arrives. */
+  reserveCount?: boolean;
   unseen?: boolean;
 }) {
   return (
@@ -56,7 +59,11 @@ function PageHeaderIcon({
           </>
         )}
       </svg>
-      {count !== undefined && <span className="page-header-count">{count}</span>}
+      {count !== undefined ? (
+        <span className="page-header-count">{count}</span>
+      ) : (
+        reserveCount && <span className="page-header-count" data-pending aria-hidden="true" />
+      )}
       {unseen && <span className="page-header-unseen">•</span>}
     </>
   );
@@ -82,7 +89,8 @@ export function PageHeaderActions({
   onSelect,
 }: {
   active: PageHeaderAction | null;
-  comments: number;
+  /** Absent while the page's threads are still being verified: no count is better than a false 0. */
+  comments?: number;
   files: number;
   unseen: boolean;
   chatUnread?: boolean;
@@ -102,13 +110,13 @@ export function PageHeaderActions({
   return (
     <nav className="page-header-actions" aria-label={text.pageHeaderActions}>
       <BrowserMenu
-        label={`${text.discussion} (${comments})${unseen ? ` · ${text.threadUnseen}` : ''}`}
-        icon={<PageHeaderIcon name="discussion" count={comments} unseen={unseen} />}
+        label={`${text.discussion}${comments === undefined ? '' : ` (${comments})`}${unseen ? ` · ${text.threadUnseen}` : ''}`}
+        icon={<PageHeaderIcon name="discussion" count={comments} reserveCount unseen={unseen} />}
         items={[
           { key: 'chat', label: chatUnread ? `${text.chat} · ${text.chatUnread}` : text.chat },
           {
             key: 'comments',
-            label: `${text.comments} ${comments}${unseen ? ` · ${text.threadUnseen}` : ''}`,
+            label: `${text.comments}${comments === undefined ? '' : ` ${comments}`}${unseen ? ` · ${text.threadUnseen}` : ''}`,
           },
         ]}
         onSelect={(key) => onSelect(key as 'chat' | 'comments')}

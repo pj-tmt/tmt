@@ -781,6 +781,8 @@ export const text = {
   preview: 'Preview',
   loading: 'Opening page…',
   openingPage: 'Opening page',
+  /** Where comments and chat will be until the page's threads are verified. */
+  discussionPending: 'Loading comments…',
   loaded: 'Live preview',
   live: 'Live',
   boundary: 'Page content',

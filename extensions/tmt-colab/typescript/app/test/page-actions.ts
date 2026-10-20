@@ -27,7 +27,7 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   const sourceMenu = header.getByRole('button', { name: 'Source and export', exact: true });
   const menu =
     name === 'Chat' || name === 'Comments'
-      ? /^Discussion \(/
+      ? /^Discussion(?: [(·]|$)/
       : (name === 'Source' || name === 'Export page') && (await sourceMenu.isVisible())
         ? 'Source and export'
         : 'More';
@@ -61,7 +61,11 @@ export async function pageAction(host: Page | Locator, name: string): Promise<Lo
   }
   return page.getByRole(name.startsWith('Theme:') ? 'menuitemradio' : 'menuitem', {
     name:
-      name === 'Comments' ? /^Comments \d+/ : name === 'Chat' ? /^Chat(?: · Unread)?$/ : directName,
+      name === 'Comments'
+        ? /^Comments(?: \d+)?(?: ·.*)?$/
+        : name === 'Chat'
+          ? /^Chat(?: · Unread)?$/
+          : directName,
     exact: name !== 'Comments' && name !== 'Chat',
   });
 }
