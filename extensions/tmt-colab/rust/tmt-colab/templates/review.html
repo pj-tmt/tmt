@@ -7,19 +7,20 @@
   <p>Say what changed and what you need the reader to confirm below.</p>
 </section>
 <!-- component: review. A part of the page the reader confirms; Colab draws the controls. Every data-id is a fresh UUID and set data-agent to your own name. See tmt colab skill components, section Review. Rules for a review: tmt colab skill reviews -->
-<tmt-review data-id="{{uuid:first-review}}" data-agent="Your agent name">
-  <h2 data-title>First part to confirm</h2>
-  <p>The content the reader confirms.</p>
-</tmt-review>
-<!-- component: review. One review block per part; keep each part small enough to read at once. See tmt colab skill components, section Review. Rules for a review: tmt colab skill reviews -->
-<tmt-review data-id="{{uuid:second-review}}" data-agent="Your agent name">
-  <h2 data-title>Second part to confirm</h2>
-  <p>The content the reader confirms.</p>
-</tmt-review>
-<!-- component: questions. Colab draws the controls; ask only what the reader must decide, and keep the group inside a block of its own. See tmt colab skill components, section Questions. Rules for questions: tmt colab skill questions -->
 <section>
+  <tmt-review data-id="{{uuid:first-review}}" data-agent="Your agent name">
+    <h2 data-title>First part to confirm</h2>
+    <p>The content the reader confirms.</p>
+  </tmt-review>
+</section>
+<!-- component: review and questions. One card per part; a question about a part sits inside that part's card, never alone. See tmt colab skill components, sections Review and Questions. Rules for a review: tmt colab skill reviews. Rules for questions: tmt colab skill questions -->
+<section>
+  <tmt-review data-id="{{uuid:second-review}}" data-agent="Your agent name">
+    <h2 data-title>Second part to confirm</h2>
+    <p>The content the reader confirms.</p>
+  </tmt-review>
   <tmt-questions data-id="{{uuid:questions}}">
-    <p data-title>Decisions for the reader</p>
+    <p data-title>Decision about this part</p>
     <tmt-question data-id="{{uuid:first-question}}" data-kind="single" data-agent="Your agent name">
       <p data-question>Which option fits?</p>
       <span data-choice>First</span><span data-choice>Second</span>

@@ -72,10 +72,11 @@ The table fills its block; never set a width.
 ## State
 
 Write a mark and a word, never colour alone: `●` running, `◆` waiting on the reader, `✓` done,
-`✗` failed or blocked, `◌` idle.
+`✗` failed or blocked, `◌` idle. Colour only the waiting mark, with the starter's `waiting` class
+([page-style](page-style.md)); leave the others neutral.
 
 ```html
-<p>◆ Waiting for your decision</p>
+<p><span class="waiting">◆</span> Waiting for your decision</p>
 <p>✗ Blocked on the release</p>
 ```
 

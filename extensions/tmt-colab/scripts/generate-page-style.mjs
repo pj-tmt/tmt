@@ -13,6 +13,7 @@ const colours = {
   paper: tokens.browser.surface.paper,
   sheet: tokens.browser.surface.sheet,
   edge: tokens.browser.surface.rule,
+  waiting: tokens.browser.color.waiting,
 };
 const themed = (theme, indent) =>
   Object.entries(colours)
@@ -114,8 +115,14 @@ ${themed('dark', '    ')}
     background: var(--sheet);
     border: var(--rule) solid var(--edge);
   }
+  section > :last-child {
+    margin-bottom: 0;
+  }
   .muted {
     color: var(--muted);
+  }
+  .waiting {
+    color: var(--waiting);
   }
 </style>
 `;
