@@ -1,4 +1,4 @@
-//! The right pane's Talk/Measure control, painted at the right end of its top rule.
+//! The right pane's Talk/Measure control, painted at the start of its top rule, after the divider.
 use crate::board::{
     app::{App, Choice},
     chip_group, keycap,
@@ -64,10 +64,11 @@ pub(in crate::board) fn paint(buffer: &mut Buffer, app: &App, rule: Rect) -> Rec
     }];
     let rect = Rect::new(area.x + cap_width as u16, area.y, chips as u16, 1);
     for hit in chip_group::paint(buffer, rect, &groups, app, None) {
-        let choice = Choice::Action(crate::action::Action::parse("talk-measure").unwrap());
-        app.workspace_strip_hits
-            .borrow_mut()
-            .push((hit.area, choice));
+        if let Some((_, _, tab)) = OPTIONS.iter().find(|(id, _, _)| *id == hit.id) {
+            app.workspace_strip_hits
+                .borrow_mut()
+                .push((hit.area, Choice::RightTab(*tab)));
+        }
     }
     let used = LEAD + width;
     Rect::new(rule.x + used, rule.y, rule.width - used, 1)

@@ -913,9 +913,7 @@ impl App {
             }
             AgentsFilter => return Effect::None,
             TalkMeasure if self.shell.tab == OpsTab::Agents => {
-                self.right_tab = self.right_tab.next();
-                self.invalidate_frame_geometry();
-                return Effect::None;
+                return self.select_right_tab(self.right_tab.next());
             }
             TalkMeasure => return Effect::None,
             MonitorDetails => return self.overview_details(),
@@ -1408,6 +1406,17 @@ impl App {
             anchor: None,
             surface: Default::default(),
         });
+        Effect::None
+    }
+    /// Selects the Agents tab's right pane; choosing the pane already shown changes nothing.
+    pub(in crate::board) fn select_right_tab(
+        &mut self,
+        tab: super::super::shell::RightTab,
+    ) -> Effect {
+        if self.shell.tab == OpsTab::Agents && self.right_tab != tab {
+            self.right_tab = tab;
+            self.invalidate_frame_geometry();
+        }
         Effect::None
     }
     pub(in crate::board) fn workspace_layout(

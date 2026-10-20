@@ -283,6 +283,8 @@ pub enum Choice {
     /// A visible but disabled dropdown choice, with the reason it is unavailable.
     Unavailable(String),
     AgentsFilter(super::workspace::AgentsFilter),
+    /// A click on a Talk/Measure chip selects that pane; the `t` key toggles.
+    RightTab(super::shell::RightTab),
     WorkspaceTarget(super::workspace::OpsTarget),
     WorkspaceBegin(super::workspace::manage::Kind),
     WorkspaceRoom {
@@ -2802,6 +2804,7 @@ impl App {
             }
             Choice::Unavailable(reason) => self.say(reason),
             Choice::AgentsFilter(filter) => self.agents_filter(filter),
+            Choice::RightTab(tab) => self.select_right_tab(tab),
             Choice::WorkspaceTarget(target) => {
                 if self
                     .workspace_snapshot()
