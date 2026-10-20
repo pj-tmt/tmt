@@ -94,13 +94,9 @@ fn ancestor(text: &str, caller: u64, pane: u64, executable: &str) -> Option<u64>
     named_ancestor(text, caller, pane, executable, false)
 }
 
-fn named_ancestor(
-    text: &str,
-    caller: u64,
-    pane: u64,
-    executable: &str,
-    include_caller: bool,
-) -> Option<u64> {
+/// One `pid=,ppid=,comm=` row per PID; a malformed line or a repeated PID
+/// makes the whole snapshot unusable.
+fn rows(text: &str) -> Option<HashMap<u64, (u64, &str)>> {
     let mut rows = HashMap::new();
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
         let (pid, tail) = line.trim().split_once(char::is_whitespace)?;
@@ -115,6 +111,17 @@ fn named_ancestor(
             return None;
         }
     }
+    Some(rows)
+}
+
+fn named_ancestor(
+    text: &str,
+    caller: u64,
+    pane: u64,
+    executable: &str,
+    include_caller: bool,
+) -> Option<u64> {
+    let rows = rows(text)?;
     let mut pid = caller;
     let mut seen = HashSet::new();
     let mut runtime = None;
