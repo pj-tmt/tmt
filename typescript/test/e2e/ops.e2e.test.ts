@@ -300,6 +300,62 @@ renameSync(output+'.tmp',output);
     });
   });
 
+  it('reaches the squad settings from the workspace menu, flips the idle alert with Space and returns to the menu on Esc', async () => {
+    await withE2EFixture(async (fixture) => {
+      await squadWithMember(fixture);
+      await fixture.attachSessionClient('e2e');
+      const shell = fixture.createShellPane('idle-alert-board');
+      fixture.tmux(['select-window', '-t', shell.pane]);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'tmt ops ui; echo IDLE_BOARD_EXIT=$?', 'Enter']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+Search/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, '/', 'product', 'Enter']);
+      await fixture.waitForCapture((screen) => /\/[ \t]+product/.test(screen), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, ',']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('Squad settings: product'),
+        shell.pane
+      );
+      // The entry is last; the rule above it is never selectable.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'End']);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Enter']);
+      await fixture.waitForCapture(
+        (screen) => screen.includes('settings · Enter edit'),
+        shell.pane
+      );
+      const config = path.join(fixture.globalDir, 'ops.toml');
+      // Select the idle row by typing nothing: walk the list until its hint shows.
+      for (let step = 0; step < 80; step += 1) {
+        const screen = fixture.capture(40, shell.pane);
+        if (/›[\s≠]*enabled\s+false/.test(screen) && screen.includes('Tells the lead')) {
+          break;
+        }
+        fixture.tmux(['send-keys', '-t', shell.pane, 'Down']);
+      }
+      await fixture.waitForCapture((screen) => screen.includes('Space on/off'), shell.pane);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Space']);
+      await fixture.waitFor(
+        () =>
+          fs.existsSync(config) &&
+          /idle_alert[\s\S]*enabled\s*=\s*true/.test(fs.readFileSync(config, 'utf8')),
+        10_000,
+        'idle alert saved through the board'
+      );
+      const read = await squadCli<{ squad: { idleAlert: { enabled: boolean } } }>(fixture, [
+        'ls',
+        '--squad',
+        'product',
+        '--json',
+      ]);
+      expect(read.json!.squad.idleAlert.enabled).toBe(true);
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
+      await fixture.waitForCapture(
+        (screen) =>
+          screen.includes('Squad settings: product') && screen.includes('Workspace settings'),
+        shell.pane
+      );
+    });
+  });
+
   it('creates from the empty workspace only after exact review and keeps section keys out of fields', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
