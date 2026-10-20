@@ -47,8 +47,7 @@
   white-space: nowrap;
 }
 .agent-chip-name,
-.agent-chip-machine,
-.agent-chip-driver {
+.agent-chip-machine {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -72,15 +71,13 @@
   vertical-align: -0.15em;
 }
 .agent-chip[data-variant='inline'] .agent-chip-name,
-.agent-chip[data-variant='inline'] .agent-chip-machine,
-.agent-chip[data-variant='inline'] .agent-chip-driver {
+.agent-chip[data-variant='inline'] .agent-chip-machine {
   overflow: visible;
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
 }
-.agent-chip-machine,
-.agent-chip-driver {
+.agent-chip-machine {
   flex-shrink: 1;
   font-weight: 400;
   color: var(--tmt-ui-color-secondary);

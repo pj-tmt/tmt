@@ -94,13 +94,13 @@ async function styles(message: Locator) {
 }
 async function flat(message: Locator) {
   const chat = await message.evaluate((node) => !!node.closest('.chat-panel'));
-  const agent = (await message.getAttribute('data-turn-role')) === 'agent';
   await expect(message).toHaveCSS('border-radius', '0px');
   await expect(message).toHaveCSS('box-shadow', 'none');
   await expect(message).toHaveCSS('border-bottom-width', '0px');
-  if (chat || !agent) await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  else await expect(message).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(message).toHaveCSS('padding-top', chat || agent ? '8px' : '0px');
+  // One turn look: no fill and no rule for an agent either, in Chat and in a thread (#4111).
+  await expect(message).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(message).toHaveCSS('border-left-width', '0px');
+  await expect(message).toHaveCSS('padding-top', chat ? '8px' : '0px');
   expect(await message.getAttribute('data-turn-layout')).toBeNull();
   const bounds = await message.evaluate((node) => {
     const history = node.closest('.conversation-messages')!;
@@ -188,8 +188,6 @@ for (const width of [1440, 390]) {
           if (state === 'replied') {
             await expect(agent).toHaveCount(1);
             await flat(agent);
-            await expect(agent).toHaveCSS('border-left-width', surface === 'chat' ? '3px' : '0px');
-            await expect(agent).toHaveCSS('padding-left', surface === 'chat' ? '13px' : '8px');
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText('Atlas · 5m ago');
             computed[`${surface}-agent`] = await styles(agent);
@@ -257,8 +255,11 @@ for (const width of [1440, 390]) {
       }
       expect(computed['chat-user'].row['border-bottom']).toContain('0px');
       expect(computed['thread-user'].row['border-bottom']).toContain('0px');
-      expect(computed['chat-agent'].row['border-left']).toContain('3px');
+      expect(computed['chat-agent'].row['border-left']).toContain('0px');
       expect(computed['thread-agent'].row['border-left']).toContain('0px');
+      // The same agent reply has one meta line style in Chat and in a thread.
+      for (const key of ['font-family', 'font-size', 'font-weight', 'color'])
+        expect(computed['thread-agent'].meta[key], key).toBe(computed['chat-agent'].meta[key]);
       await annotate(page);
       await shell(page.getByTestId('annotation-window'));
       await capture(page, page.getByTestId('annotation-window'), `annotate-${width}-${theme}`);
@@ -761,7 +762,7 @@ for (const width of [1440, 390])
 
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark'] as const) {
-    test(`verified reply treatment updates without remount at ${width} ${theme}`, async ({
+    test(`verified reply keeps one look, running or finished, without remount at ${width} ${theme}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
@@ -781,51 +782,39 @@ for (const width of [1440, 390]) {
         await expect(agent.locator('.agent-chip .lucide-bot')).toHaveCount(1);
         await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
         await editor.focus();
-        await capture(page, window, `driver-${surface}-neutral-${width}-${theme}`);
+        await capture(page, window, `reply-${surface}-finished-${width}-${theme}`);
+        // A running driver is observed but never shown: the reply looks the same running or finished,
+        // in Chat and in an annotation thread (#4111).
+        const edge = () =>
+          agent.evaluate((node) => {
+            const style = getComputedStyle(node);
+            return `${style.borderLeftWidth} ${style.borderLeftStyle} ${style.borderLeftColor}`;
+          });
+        const finishedEdge = await edge();
         for (const driver of ['claude', 'codex'] as const) {
           await run(page, 'driverObservation', { driver, held: true });
-          await expect(agent).not.toHaveAttribute('data-running-driver');
           await run(page, 'settleDriverObservation');
-          await expect(agent).toHaveAttribute('data-running-driver', driver);
-          await expect(agent.locator('.agent-chip-driver')).toHaveText(`· ${driver}`);
+          await expect(agent).not.toHaveAttribute('data-running-driver');
+          await expect(agent.locator('.agent-chip-driver')).toHaveCount(0);
+          expect(await edge()).toBe(finishedEdge);
           await expect(agent.locator('.agent-chip svg')).toHaveCount(1);
           await expect(agent.locator('.agent-chip-name')).toHaveCSS('font-weight', '500');
-          const roleColor = await agent.evaluate(
-            (node, driver) =>
-              getComputedStyle(node)
-                .getPropertyValue(
-                  driver === 'claude' ? '--tmt-ui-color-review' : '--tmt-ui-color-link',
-                )
-                .trim(),
-            driver,
-          );
-          // CSS variable may be hexadecimal; resolve the same role through a detached style probe.
-          const color = await agent.evaluate((node, value) => {
-            const probe = document.createElement('span');
-            probe.style.color = value;
-            node.append(probe);
-            const color = getComputedStyle(probe).color;
-            probe.remove();
-            return color;
-          }, roleColor);
-          if (surface === 'chat') await expect(agent).toHaveCSS('border-left-color', color);
-          else await expect(agent).toHaveCSS('border-left-width', '0px');
           await flat(agent);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
-          await capture(page, window, `driver-${surface}-${driver}-${width}-${theme}`);
+          await capture(page, window, `reply-${surface}-${driver}-${width}-${theme}`);
           await run(page, 'conversation', {
             surface,
             state: 'replied',
             agentName: 'A very long agent name with words and unbrokenSuffix'.repeat(3),
           });
-          await expect(agent).toHaveAttribute('data-running-driver', driver);
           await shell(window);
           const overflow = await agent.evaluate((node) => node.scrollWidth - node.clientWidth);
           expect(overflow).toBeLessThanOrEqual(1);
+          expect(await edge()).toBe(finishedEdge);
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
-          await capture(page, window, `driver-${surface}-${driver}-long-${width}-${theme}`);
+          await capture(page, window, `reply-${surface}-${driver}-long-${width}-${theme}`);
         }
         for (const options of [
           {},
@@ -840,27 +829,16 @@ for (const width of [1440, 390]) {
           expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
           await expect(editor).toBeFocused();
         }
-        // An obsolete pending read cannot recolor a newer operation's observation.
-        await run(page, 'driverObservation', { driver: 'claude', held: true });
-        await run(page, 'driverObservation', { driver: 'codex' });
-        await expect(agent).toHaveAttribute('data-running-driver', 'codex');
-        await run(page, 'settleDriverObservation');
-        await expect(agent).toHaveAttribute('data-running-driver', 'codex');
-        await run(page, 'driverObservation', {});
-        await expect(agent).not.toHaveAttribute('data-running-driver');
         await run(page, 'driverObservation', { driver: 'claude' });
-        await expect(agent).toHaveAttribute('data-running-driver', 'claude');
-        await run(page, 'driverClient', { enabled: false });
         await expect(agent).not.toHaveAttribute('data-running-driver');
+        expect(await edge()).toBe(finishedEdge);
         await run(page, 'driverClient', { enabled: true, held: true, driver: 'codex' });
-        // Restoring the very same client must await its new observation, not reuse Claude.
-        await expect(agent).not.toHaveAttribute('data-running-driver');
         await run(page, 'settleDriverObservation');
-        await expect(agent).toHaveAttribute('data-running-driver', 'codex');
+        await expect(agent).not.toHaveAttribute('data-running-driver');
+        expect(await edge()).toBe(finishedEdge);
         expect(await agent.evaluate((node, retained) => node === retained, retained)).toBe(true);
         await expect(editor).toBeFocused();
         await run(page, 'driverObservation', {});
-        await expect(agent).not.toHaveAttribute('data-running-driver');
         // Hostile authored body/name contain driver vocabulary and markup, without authority.
         await run(page, 'conversation', {
           surface,
@@ -916,7 +894,7 @@ for (const [width, theme] of [
     await expect(panel.locator('.chat-day').last()).toHaveText(text.chatToday);
     await expect(panel.locator('.conversation-author')).toHaveText(['Pat', 'You', 'Atlas']);
     const agent = panel.locator('[data-turn-role="agent"]');
-    await expect(agent).toHaveCSS('border-left-width', '3px');
+    await expect(agent).toHaveCSS('border-left-width', '0px');
     await expect(panel.locator('.conversation-turn')).toHaveCount(3);
     for (const row of await panel.locator('.conversation-turn').all()) {
       await expect(row).toHaveCSS('border-bottom-width', '0px');

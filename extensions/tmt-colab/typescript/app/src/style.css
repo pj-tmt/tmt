@@ -169,7 +169,7 @@ body:has(.needs-you-header-menu) {
 /* Menu rows stay on one ellipsized line, including inline agent attribution. */
 .needs-you-header-row
   .agent-chip[data-variant='inline']
-  :is(.agent-chip-name, .agent-chip-machine, .agent-chip-driver) {
+  :is(.agent-chip-name, .agent-chip-machine) {
   overflow-wrap: normal;
   white-space: nowrap;
 }
@@ -1057,17 +1057,14 @@ body:has(.needs-you-header-menu) {
   background: transparent;
   text-align: start;
 }
-.conversation-turn[data-turn-role='agent'] {
-  border-left: 3px solid var(--c-text);
-  padding-left: calc(var(--conversation-inset) - 3px);
-}
 .conversation-main {
   min-width: 0;
 }
 .conversation-main .comment-byline {
   display: flex;
+  flex: 1;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   min-width: 0;
   margin: 0;
@@ -1077,6 +1074,13 @@ body:has(.needs-you-header-menu) {
 .conversation-main .conversation-author {
   min-width: 0;
   max-width: 100%;
+  color: var(--c-text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.conversation-main .comment-byline time {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .conversation-body {
   margin-top: 0;
@@ -1271,25 +1275,11 @@ body:has(.needs-you-header-menu) {
   border: 0;
   background: transparent;
 }
-.comment-thread .conversation-turn[data-turn-role='agent'] {
-  padding: var(--conversation-gap);
-  background: var(--tmt-ui-surface-sheet);
-}
 .comment-thread .conversation-avatar {
   width: 18px;
   height: 18px;
   margin-right: 4px;
   background: transparent;
-  color: var(--tmt-ui-color-text);
-}
-.comment-thread .conversation-author .agent-chip-driver {
-  display: none;
-}
-.comment-thread .conversation-main .comment-byline {
-  font: var(--tmt-ui-caption-size) / var(--tmt-ui-host-field-line-height) var(--f-mono);
-  color: var(--tmt-ui-color-secondary);
-}
-.comment-thread .conversation-author {
   color: var(--tmt-ui-color-text);
 }
 .comment-thread .conversation-body {
@@ -1501,7 +1491,7 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
   font-size: 12px;
 }
-.proposal-card .conversation-turn:not([data-running-driver]) .conversation-avatar {
+.proposal-card .conversation-turn .conversation-avatar {
   color: var(--c-text);
 }
 .proposal-body {
@@ -1582,15 +1572,6 @@ body:has(.needs-you-header-menu) {
   color: var(--c-muted);
 }
 
-.conversation-turn[data-running-driver='claude'] {
-  --conversation-driver-color: var(--tmt-ui-color-review);
-}
-.conversation-turn[data-running-driver='codex'] {
-  --conversation-driver-color: var(--tmt-ui-color-link);
-}
-.conversation-turn[data-running-driver] {
-  border-left-color: var(--conversation-driver-color);
-}
 .conversation-avatar {
   display: inline-flex;
   width: 24px;
@@ -1599,7 +1580,6 @@ body:has(.needs-you-header-menu) {
   justify-content: center;
   vertical-align: middle;
   margin-right: 6px;
-  background: var(--conversation-driver-color);
   color: var(--c-paper);
 }
 
@@ -1915,23 +1895,6 @@ body:has(.needs-you-header-menu) {
 }
 .chat-panel .conversation-turn {
   border-bottom: 0;
-}
-.chat-panel .comment-byline {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.chat-panel .conversation-author {
-  color: var(--c-text);
-  font-weight: 600;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.chat-panel .comment-byline time {
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 .chat-panel .conversation-body {
   margin-top: 6px;

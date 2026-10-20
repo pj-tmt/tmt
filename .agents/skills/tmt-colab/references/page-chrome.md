@@ -363,10 +363,10 @@ return Cancel and completed decision actions to Follow up; while busy they keep
 focus on the card and never reclaim it after the reader moves elsewhere.
 
 Agent replies in Chat, threads and proposal Follow up share `ConversationTurn`.
-Its driver avatar, tag and rail follow the current verified page observation;
-missing metadata stays neutral and stable turn keys preserve focus. The data flow
-is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual rule is
-in [GUI style](../../../../design/gui-style.md#conversation-turn).
+An agent reply has one look, running or finished: no driver edge, colour or word, and a
+running turn shows only the chip's working state (#4111). Stable turn keys preserve focus.
+The data flow is owned by [Ask agent](ask-agent.md#verified-reply-treatment); the visual
+rule is in [GUI style](../../../../design/gui-style.md#conversation-turn).
 
 While recovery is required, the active Drawer presents the connection owner's existing
 Reconnect action in a mark-and-word notice below its header. It owns no connection
