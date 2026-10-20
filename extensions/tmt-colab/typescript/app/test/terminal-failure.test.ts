@@ -10,7 +10,7 @@ describe('terminal failure wording', () => {
     ['DENIED', text.failureAccessEnded],
     ['STALE_EPOCH', text.failureAccessEnded],
     ['Access ended', text.failureAccessEnded],
-    ['REMOTE_DEVICE_REVOKED', text.failureAccessEnded],
+    ['REMOTE_DEVICE_REVOKED', text.failurePairingRemoved],
     // The one silent re-admission was refused, so the close is the access ending (#2619).
     ['REMOTE_CLOSED', text.failureAccessEnded],
     ['REMOTE_GRANT_CHANGED', text.failureAccessEnded],
@@ -20,26 +20,42 @@ describe('terminal failure wording', () => {
     ['CAPACITY', text.failureTooLarge],
     ['REMOTE_INPUT_TOO_LARGE', text.failureTooLarge],
   ])('%s becomes a sentence and keeps the code as the reference', (code, sentence) => {
-    expect(terminalFailure(new Error(code))).toEqual({ sentence, reference: code });
+    expect(terminalFailure(new Error(code))).toMatchObject({ sentence, reference: code });
   });
 
   it.each([
-    ['revoked', text.failureAccessEnded],
-    ['expired', text.failureAccessEnded],
+    ['revoked', text.failurePairingRemoved],
+    ['expired', text.failurePairingExpired],
     ['unpaired', text.failureUnpaired],
     ['mismatch', text.failureAccessEnded],
     ['capacity', text.failureGeneric],
   ] as const)('a fresh open refused as %s ends with its own sentence', (reason, sentence) => {
-    expect(terminalFailure(new ReopenFailedError(reason))).toEqual({
+    expect(terminalFailure(new ReopenFailedError(reason))).toMatchObject({
       sentence,
       reference: `REMOTE_REOPEN_${reason.toUpperCase()}`,
     });
   });
 
   it('names the session limit for a refused open and keeps its code as the reference', () => {
-    expect(terminalFailure(new SessionLimitError(2))).toEqual({
+    expect(terminalFailure(new SessionLimitError(2))).toMatchObject({
       sentence: text.failureSessionLimit,
       reference: 'REMOTE_SESSION_LIMIT',
+    });
+  });
+
+  it.each([
+    ['REMOTE_SCOPE_DENIED', 'blocked', 'Access denied'],
+    ['REMOTE_DEVICE_REVOKED', 'blocked', 'Pairing removed'],
+    ['REMOTE_GRANT_EXPIRED', 'blocked', 'Pairing expired'],
+    ['REMOTE_DEVICE_NOT_FOUND', 'blocked', 'Not paired'],
+    ['REMOTE_SESSION_ENDED', 'inactive', 'Session ended'],
+    ['Page unavailable', 'inactive', 'Page unavailable'],
+    ['SURPRISE_CODE', 'inactive', 'Connection unavailable'],
+  ])('%s has a readable label and the appropriate refusal state', (code, state, referenceLabel) => {
+    expect(terminalFailure(new Error(code))).toMatchObject({
+      state,
+      reference: code,
+      referenceLabel,
     });
   });
 
@@ -49,7 +65,7 @@ describe('terminal failure wording', () => {
   });
 
   it('words an unknown code generically and keeps it visible, bounded', () => {
-    expect(terminalFailure(new Error('SURPRISE_CODE'))).toEqual({
+    expect(terminalFailure(new Error('SURPRISE_CODE'))).toMatchObject({
       sentence: text.failureGeneric,
       reference: 'SURPRISE_CODE',
     });
@@ -58,6 +74,6 @@ describe('terminal failure wording', () => {
 
   it('shows a message that is already a sentence as is, without a reference', () => {
     for (const sentence of [text.noWraps, text.reconnectFailed])
-      expect(terminalFailure(new Error(sentence))).toEqual({ sentence });
+      expect(terminalFailure(new Error(sentence))).toMatchObject({ sentence });
   });
 });

@@ -1,6 +1,7 @@
 import { classify } from './connection-state.js';
 import { SessionLimitError } from './session-limit-error.js';
 import { terminalFailure } from './terminal-failure.js';
+import { text } from './strings.js';
 
 /**
  * How a page that could not open is told to the reader. The open has no deadline (#3975), so it
@@ -19,6 +20,8 @@ export type OpenFailure =
   | { kind: 'refused' };
 
 export function openFailure(error: Error): OpenFailure {
+  if (error.message === text.reconnectFailed)
+    return { kind: 'retry', reference: text.failureReference.generic };
   if (error instanceof SessionLimitError) return { kind: 'refused' };
   // A message that is already a sentence for the reader has no reference to show: it is a refusal.
   const { reference } = terminalFailure(error);
@@ -27,7 +30,9 @@ export function openFailure(error: Error): OpenFailure {
   if (recovery !== 'none') return { kind: 'retry', reference };
   switch (cause) {
     case 'access':
-    case 'pairing':
+    case 'revoked':
+    case 'expired':
+    case 'mismatch':
     case 'gone':
     case 'unpaired':
     case 'capacity':

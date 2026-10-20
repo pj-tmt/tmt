@@ -2015,6 +2015,9 @@ body:has(.needs-you-header-menu) {
   margin: 0;
 }
 .drawer-recovery-state {
+  color: var(--tmt-ui-color-secondary);
+}
+.drawer-recovery[data-tone='blocked'] .drawer-recovery-state {
   color: var(--tmt-ui-color-blocked);
 }
 

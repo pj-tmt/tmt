@@ -76,7 +76,10 @@ describe('how a page that could not open is told', () => {
 
   it('shows a message that is already a sentence as a refusal, with no reference to keep', () => {
     expect(openFailure(new Error(text.noWraps))).toEqual({ kind: 'refused' });
-    expect(openFailure(new Error(text.reconnectFailed))).toEqual({ kind: 'refused' });
+    expect(openFailure(new Error(text.reconnectFailed))).toEqual({
+      kind: 'retry',
+      reference: text.failureReference.generic,
+    });
   });
 
   it('keeps the reference bounded', () => {

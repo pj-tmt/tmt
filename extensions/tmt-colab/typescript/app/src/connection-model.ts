@@ -30,7 +30,9 @@ const ACTIONS: Record<FailureCause, EndedAction> = {
   // Only verified pairing loss permits pairing instructions. Access and identity failures
   // can leave the browser paired; opening the page again checks its current access.
   access: 'reload',
-  pairing: 'pair',
+  revoked: 'pair',
+  expired: 'pair',
+  mismatch: 'reload',
   unpaired: 'pair',
   // Nothing to pair for a page that no longer exists.
   gone: 'pages',
@@ -38,7 +40,7 @@ const ACTIONS: Record<FailureCause, EndedAction> = {
   // The device is at its Remote session limit: a reload opens the page once another one closes.
   capacity: 'reload',
   large: 'none',
-  generic: 'none',
+  generic: 'reload',
 };
 
 /** The ended state of a failure, whatever its classification says about recovery. */

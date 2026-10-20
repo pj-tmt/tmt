@@ -43,8 +43,8 @@ describe('connection classifier', () => {
   });
 
   it.each([
-    ['REMOTE_DEVICE_REVOKED', 'pairing'],
-    ['REMOTE_DEVICE_NOT_FOUND', 'pairing'],
+    ['REMOTE_DEVICE_REVOKED', 'revoked'],
+    ['REMOTE_DEVICE_NOT_FOUND', 'unpaired'],
     ['REMOTE_CLOSED', 'access'],
     ['REMOTE_SESSION_ENDED', 'session'],
   ])('ends a named HTTP refusal %s with its reason', async (code, cause) => {
@@ -71,9 +71,9 @@ describe('connection classifier', () => {
     ['REMOTE_CLOSED', 'session', 'access'],
     ['REMOTE_GRANT_CHANGED', 'session', 'access'],
     ['REMOTE_SERVE_STOPPED', 'session', 'generic'],
-    ['REMOTE_DEVICE_REVOKED', 'none', 'pairing'],
-    ['REMOTE_DEVICE_NOT_FOUND', 'none', 'pairing'],
-    ['REMOTE_GRANT_EXPIRED', 'none', 'pairing'],
+    ['REMOTE_DEVICE_REVOKED', 'none', 'revoked'],
+    ['REMOTE_DEVICE_NOT_FOUND', 'none', 'unpaired'],
+    ['REMOTE_GRANT_EXPIRED', 'none', 'expired'],
     ['Page unavailable', 'none', 'gone'],
     ['REMOTE_SESSION_ENDED', 'none', 'session'],
     ['REMOTE_SEQUENCE_UNAVAILABLE', 'none', 'session'],
@@ -108,9 +108,9 @@ describe('connection classifier', () => {
     ['unconfirmed', 'retry', 'generic'],
     ['transient', 'retry', 'generic'],
     ['unpaired', 'none', 'unpaired'],
-    ['mismatch', 'none', 'access'],
-    ['revoked', 'none', 'pairing'],
-    ['expired', 'none', 'pairing'],
+    ['mismatch', 'none', 'mismatch'],
+    ['revoked', 'none', 'revoked'],
+    ['expired', 'none', 'expired'],
     // The verified limit is a SessionLimitError with its own card; a capacity reason without it
     // is unverifiable and stays a plain ended page.
     ['capacity', 'none', 'generic'],

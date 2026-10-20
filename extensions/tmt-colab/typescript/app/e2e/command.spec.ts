@@ -117,10 +117,22 @@ for (const screen of ['reconnect-error', 'reconnect-terminal'] as const) {
     }, screen);
     const card = page.locator('#chrome-fixture .tmt-ui-notice');
     await expect(card).toBeVisible();
-    await expect(card.locator('p')).toHaveText(text.reconnectFailed);
+    await expect(card.locator('p').first()).toHaveText(
+      screen === 'reconnect-error' ? text.openFailedBody : text.reconnectFailed,
+    );
     await expect(card).not.toContainText('tmt remote pair');
     await expect(card.locator('.tmt-ui-command')).toHaveCount(0);
-    await expect(card.locator('[data-failure-reference]')).toHaveCount(0);
+    if (screen === 'reconnect-error') {
+      await expect(card.locator('[data-failure-reference]')).toHaveText(
+        text.failureReference.generic,
+      );
+      await expect(card.getByRole('button', { name: text.openRetry, exact: true })).toBeVisible();
+    } else {
+      await expect(card.locator('[data-failure-reference]')).toHaveCount(0);
+      await expect(card.getByRole('button', { name: text.reload, exact: true })).toBeVisible();
+    }
+    await expect(card.getByRole('link', { name: text.retry, exact: true })).toBeVisible();
+    await expect(card).toHaveAttribute('data-tone', 'muted');
     const directory = process.env.TMT_COMMAND_CAPTURE_DIR;
     if (directory) {
       await mkdir(directory, { recursive: true });
@@ -136,16 +148,16 @@ for (const screen of ['reconnect-error', 'reconnect-terminal'] as const) {
   });
 }
 
-for (const [failure, sentence, pairingRequired] of [
-  ['capacity', text.sessionLimitReached(8), false],
-  ['ended', text.failureSessionEnded, false],
-  ['gone', text.failurePageGone, false],
-  ['uncertain', text.reconnectFailed, false],
-  ['denied', text.failureAccessEnded, false],
-  ['mismatch', text.failureAccessEnded, false],
-  ['missing', text.failureUnpaired, true],
-  ['revoked', text.failureAccessEnded, true],
-  ['expired', text.failureAccessEnded, true],
+for (const [failure, sentence, pairingRequired, label] of [
+  ['capacity', text.sessionLimitReached(8), false, null],
+  ['ended', text.failureSessionEnded, false, 'Session ended'],
+  ['gone', text.failurePageGone, false, 'Page unavailable'],
+  ['uncertain', text.reconnectFailed, false, null],
+  ['denied', text.failureAccessEnded, false, 'Access denied'],
+  ['mismatch', text.failureAccessEnded, false, 'Reconnect mismatch'],
+  ['missing', text.failureUnpaired, true, 'Not paired'],
+  ['revoked', text.failurePairingRemoved, true, 'Pairing removed'],
+  ['expired', text.failurePairingExpired, true, 'Pairing expired'],
 ] as const) {
   test(`recovery ${failure} ${pairingRequired ? 'offers pairing for verified loss' : 'does not require pairing'}`, async ({
     page,
@@ -158,10 +170,15 @@ for (const [failure, sentence, pairingRequired] of [
     const card = page.locator('#chrome-fixture .tmt-ui-notice');
     await expect(card).toBeVisible();
     await expect(card).toContainText(sentence);
+    const refused = ['denied', 'mismatch', 'missing', 'revoked', 'expired'].includes(failure);
+    await expect(card).toHaveAttribute('data-tone', refused ? 'blocked' : 'muted');
+    await expect(card).toContainText(refused ? 'failed' : text.notConnected);
+    await expect(card.getByRole('link', { name: text.retry, exact: true })).toBeVisible();
+    if (label) await expect(card.locator('[data-failure-reference]')).toHaveText(label);
     if (!pairingRequired) {
       await expect(card).not.toContainText(text.pairCommand);
       await expect(card).not.toContainText(text.pairAgain);
-      if (failure === 'ended' || failure === 'denied' || failure === 'mismatch')
+      if (failure !== 'gone')
         await expect(card.getByRole('button', { name: text.reload, exact: true })).toBeVisible();
     } else {
       await expect(card).toContainText(text.pairAgain);

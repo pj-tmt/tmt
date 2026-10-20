@@ -2,24 +2,38 @@ import { classify, type FailureCause } from './connection-state.js';
 import { text } from './strings.js';
 import { AdmissionRefusedError } from './registration.js';
 
-const SENTENCES: Record<FailureCause, string> = {
-  access: text.failureAccessEnded,
-  pairing: text.failureAccessEnded,
-  unpaired: text.failureUnpaired,
-  gone: text.failurePageGone,
-  session: text.failureSessionEnded,
-  large: text.failureTooLarge,
-  capacity: text.failureSessionLimit,
-  generic: text.failureGeneric,
+interface FailurePresentation {
+  sentence: string;
+  state: 'blocked' | 'inactive';
+}
+const PRESENTATIONS: Record<FailureCause, FailurePresentation> = {
+  access: { sentence: text.failureAccessEnded, state: 'blocked' },
+  revoked: { sentence: text.failurePairingRemoved, state: 'blocked' },
+  expired: { sentence: text.failurePairingExpired, state: 'blocked' },
+  mismatch: { sentence: text.failureAccessEnded, state: 'blocked' },
+  unpaired: { sentence: text.failureUnpaired, state: 'blocked' },
+  gone: { sentence: text.failurePageGone, state: 'inactive' },
+  session: { sentence: text.failureSessionEnded, state: 'inactive' },
+  large: { sentence: text.failureTooLarge, state: 'inactive' },
+  capacity: { sentence: text.failureSessionLimit, state: 'inactive' },
+  generic: { sentence: text.failureGeneric, state: 'inactive' },
 };
 
-/** Messages that are already a sentence for the reader: shown as is, no reference. */
-const SENTENCE_MESSAGES: readonly string[] = [text.noWraps, text.reconnectFailed];
-
-/** The sentence a reader sees for a terminal failure, plus the raw token to keep as a reference. */
-export function terminalFailure(error: Error): { sentence: string; reference?: string } {
-  if (SENTENCE_MESSAGES.includes(error.message)) return { sentence: error.message };
-  if (error instanceof AdmissionRefusedError && classify(error).recovery === 'reopen')
-    return { sentence: text.reconnectFailed, reference: error.message.slice(0, 120) };
-  return { sentence: SENTENCES[classify(error).cause], reference: error.message.slice(0, 120) };
+/** A terminal sentence/state and readable label; retain bounded raw detail for diagnostics. */
+export function terminalFailure(error: Error): FailurePresentation & {
+  reference?: string;
+  referenceLabel?: string;
+} {
+  if (error.message === text.noWraps) return { sentence: error.message, state: 'blocked' };
+  if (error.message === text.reconnectFailed) return { sentence: error.message, state: 'inactive' };
+  const classification = classify(error);
+  const presentation =
+    error instanceof AdmissionRefusedError && classification.recovery === 'reopen'
+      ? { sentence: text.reconnectFailed, state: 'inactive' as const }
+      : PRESENTATIONS[classification.cause];
+  return {
+    ...presentation,
+    reference: error.message.slice(0, 120),
+    referenceLabel: text.failureReference[classification.cause],
+  };
 }

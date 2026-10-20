@@ -82,10 +82,10 @@ test('a Retry that fails again keeps the card and offers Retry again', async ({ 
   await expect(failure(page)).toContainText('This page could not open.');
 });
 
-for (const [message, sentence] of [
-  ['Access ended', 'Your access to this page ended.'],
-  ['REMOTE_DEVICE_REVOKED', 'Your access to this page ended.'],
-  ['Page unavailable', 'This page is no longer available.'],
+for (const [message, sentence, label] of [
+  ['Access ended', 'Your access to this page ended.', 'Access denied'],
+  ['REMOTE_DEVICE_REVOKED', "This browser's pairing was removed.", 'Pairing removed'],
+  ['Page unavailable', 'This page is unavailable.', 'Page unavailable'],
 ] as const)
   test(`"${message}" while opening is a refusal: the red card, its sentence and no Retry`, async ({
     page,
@@ -97,7 +97,8 @@ for (const [message, sentence] of [
     await expect(alert).toContainText('Page unavailable');
     await expect(alert).toContainText('failed');
     await expect(alert).toContainText(sentence);
-    await expect(alert.locator('[data-failure-reference]')).toHaveText(message);
+    await expect(alert.locator('[data-failure-reference]')).toHaveText(label);
+    await expect(alert.locator('[data-failure-reference]')).toHaveAttribute('title', message);
     await expect(retry(page)).toHaveCount(0);
     await expect(app(page).getByRole('link', { name: 'Return to space' })).toBeVisible();
   });
