@@ -106,7 +106,7 @@ fn help_chrome_is_opaque_and_end_keeps_its_footer_at_every_capture_width() {
 }
 
 #[test]
-fn help_mouse_only_scrolls_its_content_and_never_activates_base_hits() {
+fn help_mouse_scrolls_its_content_and_an_outside_press_closes_it() {
     let mut app = workspace_board();
     key(&mut app, KeyCode::Char('?'));
     draw(&app, 100, 30);
@@ -122,10 +122,16 @@ fn help_mouse_only_scrolls_its_content_and_never_activates_base_hits() {
     event.row = 0;
     app.mouse(event, Instant::now());
     assert_eq!(app.help_state.borrow().scroll.offset(), 3);
+    // A press inside the sheet never reaches the base rows under it.
     event.kind = MouseEventKind::Down(MouseButton::Left);
+    event.row = 5;
     app.mouse(event, Instant::now());
     assert_eq!(app.selected, selected);
     assert!(app.help);
+    // A press outside the sheet, on the header, closes it and goes on to the base.
+    event.row = 0;
+    app.mouse(event, Instant::now());
+    assert!(!app.help);
 }
 
 #[test]

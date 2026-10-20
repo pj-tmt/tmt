@@ -239,6 +239,15 @@ impl List {
         }
     }
 
+    /// Where the Timers window was last painted; none before the first paint.
+    pub fn modal_outer(&self) -> Option<ratatui::layout::Rect> {
+        self.surface
+            .borrow()
+            .frame
+            .as_ref()
+            .map(|frame| frame.areas.outer)
+    }
+
     /// `None` is an event the list does not take, so the caller's router can offer
     /// it elsewhere; a consumed event must come back as `Some`, or the router asks
     /// again and a move is applied twice.

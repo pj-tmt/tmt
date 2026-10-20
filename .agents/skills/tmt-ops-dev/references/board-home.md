@@ -312,6 +312,15 @@ selected UUID and consumes close before base dispatch. Shared ScrollState owns
 its current viewport, wheel/page scrolling and resize clamping. The old
 HOME display cache is not admitted as a new shell frame.
 
+Peek windows light-dismiss (`board/peek.rs`): the Timers list, Help, the subscription and
+agent details, and the Actions and mention menus close on a left press outside their painted
+sheet, and the same press goes on to what is under it. Each window records its painted sheet
+during paint (`PeekAreas`, cleared at the start of every paint), so a stale frame never
+dismisses. A wheel or other button outside, a keyboard close, a press inside, and any press
+while the composer holds a draft leave the window as it is. Dialogs (forms, Settings, Timer
+review, pickers, Recovery, Checklist, the reply reader, Discovery, Usage controls) are not peeks
+and still swallow outside presses.
+
 ## Usage and verification
 
 `App::home_usage` and provider-limit estimates reuse the existing history owner:

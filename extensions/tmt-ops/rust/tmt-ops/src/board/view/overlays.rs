@@ -4,6 +4,7 @@ use crate::board::app::App;
 use ratatui::{Frame, layout::Rect};
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
+    app.peek_areas.clear();
     if let Some(recovery) = &app.recovery
         && recovery.active
     {
@@ -40,16 +41,24 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         } else {
             body
         };
-        menu.surface
-            .borrow_mut()
-            .get_or_insert_with(|| {
-                crate::board::menu_surface::MenuSurface::with_anchor(
-                    &menu.title,
-                    &menu.entries,
-                    anchor.is_some(),
-                )
-            })
-            .render(&menu.entries, menu.selected, frame, look, body);
+        let mut surface = menu.surface.borrow_mut();
+        let surface = surface.get_or_insert_with(|| {
+            crate::board::menu_surface::MenuSurface::with_anchor(
+                &menu.title,
+                &menu.entries,
+                anchor.is_some(),
+            )
+        });
+        surface.render(&menu.entries, menu.selected, frame, look, body);
+        // An anchored dropdown fills its area; a docked menu reports where its sheet was drawn.
+        let outer = if anchor.is_some() {
+            Some(body)
+        } else {
+            surface.outer()
+        };
+        if let Some(outer) = outer {
+            app.peek_areas.set(crate::board::peek::Peek::Menu, outer);
+        }
     }
     if let Some(list) = &app.cron_list {
         let scope_name = list.scope.as_deref().and_then(|room| {
@@ -70,6 +79,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
             look,
             body,
         );
+        if let Some(outer) = list.modal_outer() {
+            app.peek_areas.set(crate::board::peek::Peek::Timers, outer);
+        }
     }
     if let Some(picker) = &app.theme_picker {
         crate::board::theme_picker::render(frame, picker, look, body);

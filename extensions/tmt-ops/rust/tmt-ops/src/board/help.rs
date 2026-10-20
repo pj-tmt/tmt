@@ -62,7 +62,7 @@ impl Help {
         }
         self.scroll.input(event).then_some(Input::Scroll)
     }
-    fn render(&mut self, frame: &mut Frame, model: KeyHelp, look: Look, body: Rect) {
+    fn render(&mut self, frame: &mut Frame, model: KeyHelp, look: Look, body: Rect) -> Rect {
         let value = json!({"help": model.value(), "footer": FOOTER});
         if self.scene.as_ref().is_none_or(|(old, _)| old != &value) {
             let scene = template()
@@ -84,7 +84,9 @@ impl Help {
                     .patch(look.row_span(true, look.role(role), false))
             },
         )
-        .expect("admitted help surface");
+        .expect("admitted help surface")
+        .areas
+        .outer
     }
 }
 fn entry(id: &str, keys: &str, description: impl Into<String>) -> KeyHelpEntry {
@@ -277,5 +279,6 @@ pub(super) fn model(app: &App) -> KeyHelp {
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect) {
     let mut help = app.help_state.borrow_mut();
-    help.render(frame, model(app), app.look(), body);
+    let outer = help.render(frame, model(app), app.look(), body);
+    app.peek_areas.set(super::peek::Peek::Help, outer);
 }

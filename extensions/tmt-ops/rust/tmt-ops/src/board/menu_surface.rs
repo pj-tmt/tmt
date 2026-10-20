@@ -187,6 +187,14 @@ impl MenuSurface {
 
     /// Reads a mouse event against what was last painted; a click outside the
     /// entries, and anything before the first paint, asks nothing.
+    /// Where a docked menu's sheet was last painted; none for a dropdown or before the first paint.
+    pub fn outer(&self) -> Option<Rect> {
+        match &self.template {
+            Template::Modal(_) => self.state.frame.as_ref().map(|frame| frame.areas.outer),
+            Template::Dropdown { .. } => None,
+        }
+    }
+
     pub fn pointer(&self, mouse: MouseEvent) -> Option<Pointer> {
         let list = self.list_frame()?;
         let at = (mouse.column, mouse.row).into();

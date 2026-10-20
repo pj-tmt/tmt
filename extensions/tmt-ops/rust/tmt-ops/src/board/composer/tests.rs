@@ -1140,6 +1140,13 @@ fn blocking_owners_mask_only_the_passive_band_and_restore_the_exact_uuid_draft()
                         Effect::None,
                         "{owner}"
                     );
+                    if owner == "menu" && app.menu.is_none() {
+                        // A menu is a peek: a press outside its sheet closes it and lands on the
+                        // restored base, so there is no stale cell left to compare. A press on
+                        // the sheet itself, between entries, is swallowed and checked below.
+                        assert!(!app.modal_open(), "{owner}");
+                        continue;
+                    }
                     if app.modal_open() {
                         assert_eq!(
                             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
