@@ -4509,11 +4509,12 @@ share history <page> <shared|current>
 retention <page> [<days>|forever]
 archive <page>
 delete <page> --yes
-label ls
-label add <page> <name>...
-label remove <page> <name>...
-label rename <name> <new-name>
-label delete <name>
+project ls
+project create <name>
+project add <page> <name>...
+project remove <page> <name>...
+project rename <name> <to>
+project delete <name>
 ```
 
 All commands support human output and one `--json` document. Human retention
