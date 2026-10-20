@@ -7,6 +7,20 @@ export interface DraftRelease {
   body?: string;
   assets?: { name: string }[];
 }
+export interface DispatchEvidence {
+  runId: number;
+  runUrl: string;
+}
+export interface CutAction {
+  product: string;
+  status: string;
+  reason?: string;
+  tag?: string;
+  cut?: string;
+  reconciled?: boolean;
+  runId?: number;
+  runUrl?: string;
+}
 export interface CutClient {
   main(): string;
   metadata(cut: string): CutMetadata & { releases: DraftRelease[] };
@@ -14,9 +28,21 @@ export interface CutClient {
   tagged(tag: string): boolean;
   draft(input: { tag: string; cut: string; body: string; product: string }): DraftRelease;
   dispatch(product: string, tag: string): void;
+  reconcileDispatch?(input: {
+    id: number;
+    row: CutRow;
+    body: string;
+    startedAt: number;
+    finishedAt: number;
+  }): DispatchEvidence;
 }
 export function createCutClient(
-  input: { repository: string; token: string; ref: string },
+  input: {
+    repository: string;
+    token: string;
+    ref: string;
+    observe?: (entry: Record<string, unknown>) => void;
+  },
   execute?: (
     executable: string,
     args: string[],
@@ -32,9 +58,12 @@ export function runReleaseCuts(input: {
   product?: string;
   version?: string;
   root?: string;
+  observe?: (entry: Record<string, unknown>) => void;
 }): Promise<{
   cut: string;
   mode: string;
   components: CutRow[];
-  actions: { product: string; status: string; reason?: string; tag?: string; cut?: string }[];
+  actions: CutAction[];
 }>;
+
+export function cutExitCode(result: { actions: CutAction[] }): 0 | 1;
