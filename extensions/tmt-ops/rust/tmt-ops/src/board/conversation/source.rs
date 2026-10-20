@@ -1,11 +1,12 @@
 //! Selection of already rendered text. A frozen passage is literal clipboard/chat
 //! content, never evidence for a request, recipient or exact row-note attachment.
-use super::{App, RowTarget, Session};
+use super::{App, RowTarget, Session, State};
 use crate::board::home_leads::MessageKey;
 use crate::{
     board::app::{CopyFeedback, Effect, Request},
     config::Pane,
 };
+use anchored::{Anchored, Resolution};
 use ratatui::{
     Frame,
     crossterm::event::{
@@ -61,13 +62,65 @@ impl Source {
     }
 }
 
-impl super::State {
+/// What the user selected. A task field is frozen as the cells it displayed; the
+/// transcript scrolls and changes under the pointer, so it is anchored to its text.
+pub(super) enum Selection {
+    Cells(Source),
+    Text(Anchored),
+}
+
+impl Selection {
+    fn selected(&self) -> Option<String> {
+        match self {
+            Self::Cells(source) => source.selected(),
+            Self::Text(anchored) => anchored.selected(),
+        }
+    }
+    fn has_text(&self) -> bool {
+        match self {
+            Self::Cells(source) => source.selected().is_some(),
+            Self::Text(anchored) => anchored.has_range(),
+        }
+    }
+    fn target(&self) -> &RowTarget {
+        match self {
+            Self::Cells(source) => &source.surface.target,
+            Self::Text(anchored) => &anchored.target,
+        }
+    }
+    fn control(&self) -> Option<Rect> {
+        match self {
+            Self::Cells(source) => source.control,
+            Self::Text(anchored) => anchored.control,
+        }
+    }
+    fn clear_control(&mut self) {
+        match self {
+            Self::Cells(source) => source.control = None,
+            Self::Text(anchored) => anchored.control = None,
+        }
+    }
+    fn stop_drag(&mut self) {
+        match self {
+            Self::Cells(source) => source.dragging = false,
+            Self::Text(anchored) => anchored.dragging = false,
+        }
+    }
+    fn dragging(&self) -> bool {
+        match self {
+            Self::Cells(source) => source.dragging,
+            Self::Text(anchored) => anchored.dragging,
+        }
+    }
+}
+
+impl State {
     pub(in crate::board) fn invalidate_source_geometry(&mut self) {
         self.source_surfaces.clear();
         self.source_areas.clear();
         self.response_area = None;
-        if let Some(source) = &mut self.selection {
-            source.control = None;
+        if let Some(selection) = &mut self.selection {
+            selection.clear_control();
         }
     }
 }
@@ -115,56 +168,183 @@ pub(in crate::board) fn begin_frame(app: &App) {
     state.response_area = None;
     state.source_areas.clear();
     state.source_surfaces.clear();
-    if let Some(source) = &mut state.selection {
-        source.control = None;
+    if let Some(selection) = &mut state.selection {
+        selection.clear_control();
     }
 }
 
-fn authors(app: &App, state: &super::State, target: &RowTarget, area: Rect) -> Vec<String> {
-    let name = app
-        .target_row(target)
+/// The name the recipient goes by in the conversation.
+fn recipient_name<'a>(app: &'a App, target: &RowTarget) -> &'a str {
+    app.target_row(target)
         .and_then(|row| row["name"].as_str())
-        .unwrap_or("agent");
+        .unwrap_or("agent")
+}
+
+/// Who wrote transcript line `line`; `None` is a surface that is not the transcript.
+fn author_at(app: &App, state: &State, name: &str, line: Option<usize>) -> String {
     let session = state
         .active
         .as_ref()
         .and_then(|key| state.sessions.get(key));
+    let Some((session, rendered, line)) = session
+        .zip(line)
+        .and_then(|(session, line)| Some((session, session.rendered.as_ref()?, line)))
+    else {
+        return name.to_owned();
+    };
+    let Some(line) = rendered.mapped.sources.get(line).copied() else {
+        return name.to_owned();
+    };
+    if let Some((key, _)) = session.response_key_at(line) {
+        return app.quote_author(&key.lead).unwrap_or(name).to_owned();
+    }
+    let original = rendered
+        .response_sources
+        .as_ref()
+        .map_or(Some(line), |sources| sources.get(line).copied().flatten());
+    if original
+        .and_then(|line| session.authored_lines.range(..=line).next_back())
+        .is_some_and(|(_, kind)| matches!(kind, super::AuthoredLine::Outgoing { .. }))
+    {
+        app.view
+            .as_ref()
+            .and_then(|view| view.me.clone())
+            .unwrap_or_else(|| "you".into())
+    } else {
+        name.to_owned()
+    }
+}
+
+fn authors(app: &App, state: &State, target: &RowTarget, area: Rect) -> Vec<String> {
+    let offset = app.scrolls.offset(Pane::Replies);
+    let name = recipient_name(app, target);
     (0..usize::from(area.height))
         .map(|row| {
-            let Some(session) = session.filter(|_| state.response_area == Some(area)) else {
-                return name.to_owned();
-            };
-            let Some(rendered) = session.rendered.as_ref() else {
-                return name.to_owned();
-            };
-            let Some(line) = rendered
-                .mapped
-                .sources
-                .get(app.scrolls.offset(Pane::Replies) + row)
-                .copied()
-            else {
-                return name.to_owned();
-            };
-            if let Some((key, _)) = session.response_key_at(line) {
-                return app.quote_author(&key.lead).unwrap_or(name).to_owned();
-            }
-            let original = rendered
-                .response_sources
-                .as_ref()
-                .map_or(Some(line), |sources| sources.get(line).copied().flatten());
-            if original
-                .and_then(|line| session.authored_lines.range(..=line).next_back())
-                .is_some_and(|(_, kind)| matches!(kind, super::AuthoredLine::Outgoing { .. }))
-            {
-                app.view
-                    .as_ref()
-                    .and_then(|view| view.me.clone())
-                    .unwrap_or_else(|| "you".into())
-            } else {
-                name.to_owned()
-            }
+            author_at(
+                app,
+                state,
+                name,
+                (state.response_area == Some(area)).then_some(offset + row),
+            )
         })
         .collect()
+}
+
+/// What the frame displays on the transcript lines from `offset`: the rows above
+/// the scroll indicator, and no more than the transcript holds.
+fn displayed(surface: &Surface, content: usize, offset: usize) -> impl Iterator<Item = &str> {
+    let rows = crate::board::scroll::Scrolls::viewport(surface.area, content);
+    surface
+        .text
+        .as_str()
+        .split('\n')
+        .take(rows.min(content.saturating_sub(offset)))
+}
+
+/// The "+ Quote" button after the selection's last painted glyph, or on the next
+/// row when the line has no room left.
+fn quote_control(frame: &mut Frame, app: &App, area: Rect, end: (u16, u16)) -> Option<Rect> {
+    let (x, y) = if area.right().saturating_sub(end.0 + 1) >= 9 {
+        (end.0 + 1, end.1)
+    } else {
+        (area.x, end.1 + 1)
+    };
+    if y >= area.bottom() {
+        return None;
+    }
+    crate::board::buttons::paint(
+        app,
+        frame.buffer_mut(),
+        Rect::new(x, y, area.right().saturating_sub(x), 1),
+        &[crate::board::buttons::Button::secondary("+ Quote")],
+        Align::Left,
+        None,
+    )[0]
+}
+
+/// Highlight a frozen task-field selection while the cells still show its text.
+fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Surface]) {
+    let range = source.text.selection();
+    if range.is_empty()
+        || !surfaces.iter().any(|surface| {
+            surface.target == source.surface.target && surface.area == source.surface.area
+        })
+    {
+        return;
+    }
+    let layout = source.text.layout(source.surface.area.width);
+    let mut end = None;
+    let mut matches = true;
+    let mut highlights = Vec::new();
+    for (row, line) in layout
+        .lines
+        .iter()
+        .enumerate()
+        .take(usize::from(source.surface.area.height))
+    {
+        for cell in &line.cells {
+            if cell.source.start >= range.end || cell.source.end <= range.start {
+                continue;
+            }
+            let x = source.surface.area.x + cell.column as u16;
+            let y = source.surface.area.y + row as u16;
+            if x >= source.surface.area.right() || frame.buffer_mut()[(x, y)].symbol() != cell.text
+            {
+                matches = false;
+                continue;
+            }
+            highlights.push((x, y, cell.width as u16));
+            end = Some((x + cell.width as u16, y));
+        }
+    }
+    if matches && let Some(end) = end {
+        for (x, y, width) in highlights {
+            for column in x..x.saturating_add(width).min(source.surface.area.right()) {
+                frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
+            }
+        }
+        source.control = quote_control(frame, app, source.surface.area, end);
+    }
+}
+
+/// Highlight an anchored selection on the transcript lines in view, and record
+/// what they display. `None` ends the selection: its lines are gone, or it
+/// belongs to a conversation that is no longer shown.
+fn paint_text(
+    frame: &mut Frame,
+    app: &App,
+    anchored: &mut Anchored,
+    surface: &Surface,
+    rendered: &super::Rendered,
+    offset: usize,
+) -> Option<()> {
+    match anchored.resolve(rendered) {
+        Resolution::Gone => return None,
+        Resolution::Detached => return Some(()),
+        Resolution::Attached => {}
+    }
+    let area = surface.area;
+    let (first, last) = anchored.lines();
+    let mut end = None;
+    for (row, text) in displayed(surface, rendered.mapped.lines.len(), offset).enumerate() {
+        let line = offset + row;
+        if line < first || line > last {
+            continue;
+        }
+        anchored.capture(line, text);
+        for (column, width) in anchored.highlights(line, text) {
+            let y = area.y + row as u16;
+            let x = area.x + column as u16;
+            for column in x..x.saturating_add(width as u16).min(area.right()) {
+                frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
+            }
+            end = Some((x + width as u16, y));
+        }
+    }
+    if let Some(end) = end {
+        anchored.control = quote_control(frame, app, area, end);
+    }
+    Some(())
 }
 
 /// Paint follows the ordinary conversation, without reserving rows or replacing
@@ -172,8 +352,8 @@ fn authors(app: &App, state: &super::State, target: &RowTarget, area: Rect) -> V
 pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
     let mut state = app.conversation.borrow_mut();
     state.source_surfaces.clear();
-    if let Some(source) = &mut state.selection {
-        source.control = None;
+    if let Some(selection) = &mut state.selection {
+        selection.clear_control();
     }
     if !app.button_owner_is_active(None)
         || app
@@ -198,63 +378,38 @@ pub(in crate::board) fn paint(frame: &mut Frame, app: &App) {
             Some(snapshot(frame.buffer_mut(), area, target, authors))
         })
         .collect();
-    if let Some(source) = &mut state.selection {
-        let range = source.text.selection();
-        if !range.is_empty()
-            && surfaces.iter().any(|surface| {
-                surface.target == source.surface.target && surface.area == source.surface.area
-            })
-        {
-            let layout = source.text.layout(source.surface.area.width);
-            let mut end = None;
-            let mut matches = true;
-            let mut highlights = Vec::new();
-            for (row, line) in layout
-                .lines
-                .iter()
-                .enumerate()
-                .take(usize::from(source.surface.area.height))
-            {
-                for cell in &line.cells {
-                    if cell.source.start >= range.end || cell.source.end <= range.start {
-                        continue;
-                    }
-                    let x = source.surface.area.x + cell.column as u16;
-                    let y = source.surface.area.y + row as u16;
-                    if x >= source.surface.area.right()
-                        || frame.buffer_mut()[(x, y)].symbol() != cell.text
-                    {
-                        matches = false;
-                        continue;
-                    }
-                    highlights.push((x, y, cell.width as u16));
-                    end = Some((x + cell.width as u16, y));
-                }
-            }
-            if matches && let Some((x, y)) = end {
-                for (x, y, width) in highlights {
-                    for column in x..x.saturating_add(width).min(source.surface.area.right()) {
-                        frame.buffer_mut()[(column, y)].set_style(app.look().role(Role::Selection));
-                    }
-                }
-                let area = source.surface.area;
-                let (x, y) = if area.right().saturating_sub(x + 1) >= 9 {
-                    (x + 1, y)
-                } else {
-                    (area.x, y + 1)
-                };
-                if y < area.bottom() {
-                    source.control = crate::board::buttons::paint(
+    let state_ref = &mut *state;
+    let mut ended = false;
+    match &mut state_ref.selection {
+        Some(Selection::Cells(source)) => paint_cells(frame, app, source, &surfaces),
+        Some(Selection::Text(anchored)) => {
+            let surface = surfaces.iter().find(|surface| {
+                surface.target == anchored.target && Some(surface.area) == state_ref.response_area
+            });
+            if let Some(surface) = surface {
+                let rendered = state_ref
+                    .active
+                    .as_ref()
+                    .filter(|key| **key == anchored.key)
+                    .and_then(|key| state_ref.sessions.get(key))
+                    .and_then(|session| session.rendered.as_ref());
+                ended = rendered.is_none_or(|rendered| {
+                    paint_text(
+                        frame,
                         app,
-                        frame.buffer_mut(),
-                        Rect::new(x, y, area.right().saturating_sub(x), 1),
-                        &[crate::board::buttons::Button::secondary("+ Quote")],
-                        Align::Left,
-                        None,
-                    )[0];
-                }
+                        anchored,
+                        surface,
+                        rendered,
+                        app.scrolls.offset(Pane::Replies),
+                    )
+                    .is_none()
+                });
             }
         }
+        None => {}
+    }
+    if ended {
+        state.selection = None;
     }
     state.source_surfaces = surfaces;
 }
@@ -324,12 +479,7 @@ impl App {
             return None;
         }
         Some(
-            if state
-                .selection
-                .as_ref()
-                .and_then(Source::selected)
-                .is_some()
-            {
+            if state.selection.as_ref().is_some_and(Selection::has_text) {
                 "select text to copy · y copy · Enter + Quote · Esc clear"
             } else {
                 "select text to copy · Shift+arrows select · Esc back"
@@ -345,10 +495,20 @@ impl App {
         }
         let point = (event.column, event.row).into();
         let mut state = self.conversation.borrow_mut();
-        if state.selection.as_ref().is_some_and(|source| {
-            !source.surface.area.contains(point)
-                && !source.control.is_some_and(|area| area.contains(point))
-        }) {
+        let inside = match &state.selection {
+            Some(Selection::Cells(source)) => source.surface.area.contains(point),
+            Some(Selection::Text(_)) => {
+                state.response_area.is_some_and(|area| area.contains(point))
+            }
+            None => return,
+        };
+        if !inside
+            && !state
+                .selection
+                .as_ref()
+                .and_then(Selection::control)
+                .is_some_and(|area| area.contains(point))
+        {
             state.selection = None;
         }
     }
@@ -358,6 +518,24 @@ impl App {
             program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
             feedback: CopyFeedback::Selection,
         })
+    }
+    /// The author a quote credits: the single writer of the selected lines, else
+    /// "selection".
+    fn selection_author(&self, state: &State, selection: &Selection) -> String {
+        let anchored = match selection {
+            Selection::Cells(source) => return source.author(),
+            Selection::Text(anchored) => anchored,
+        };
+        let (first, last) = anchored.lines();
+        let name = recipient_name(self, &anchored.target);
+        let names: std::collections::BTreeSet<_> = (first..=last)
+            .map(|line| author_at(self, state, name, Some(line)))
+            .collect();
+        if names.len() == 1 {
+            names.into_iter().next().unwrap()
+        } else {
+            "selection".into()
+        }
     }
     pub(in crate::board) fn conversation_source_key(&mut self, event: KeyEvent) -> Option<Effect> {
         if self.focused() != Pane::Replies
@@ -393,34 +571,71 @@ impl App {
                     .iter()
                     .find(|surface| Some(&surface.target) == target.as_ref())?
                     .clone();
-                state.selection = Some(Source {
-                    text: surface.text.clone(),
-                    surface,
-                    dragging: false,
-                    control: None,
+                state.selection = Some(if Some(surface.area) == state.response_area {
+                    let key = state.active.clone()?;
+                    let rendered = state.sessions.get(&key)?.rendered.as_ref()?;
+                    let offset = self.scrolls.offset(Pane::Replies);
+                    let row = surface.text.as_str().split('\n').next()?;
+                    Selection::Text(Anchored::start(
+                        surface.target.clone(),
+                        key,
+                        surface.area.width,
+                        rendered,
+                        (offset, 0),
+                        row,
+                        false,
+                    ))
+                } else {
+                    Selection::Cells(Source {
+                        text: surface.text.clone(),
+                        surface,
+                        dragging: false,
+                        control: None,
+                    })
                 });
             }
-            let source = state.selection.as_mut().unwrap();
-            source
-                .text
-                .key(event, source.surface.area.width, usize::MAX);
-            source.control = None;
+            let state = &mut *state;
+            match state.selection.as_mut().unwrap() {
+                Selection::Cells(source) => {
+                    source
+                        .text
+                        .key(event, source.surface.area.width, usize::MAX);
+                    source.control = None;
+                }
+                Selection::Text(anchored) => {
+                    let rendered = state
+                        .active
+                        .as_ref()
+                        .filter(|key| **key == anchored.key)
+                        .and_then(|key| state.sessions.get(key))
+                        .and_then(|session| session.rendered.as_ref());
+                    let rendered = rendered?;
+                    let surface = state
+                        .source_surfaces
+                        .iter()
+                        .find(|surface| Some(surface.area) == state.response_area)?;
+                    let offset = self.scrolls.offset(Pane::Replies);
+                    let painted: Vec<_> =
+                        displayed(surface, rendered.mapped.lines.len(), offset).collect();
+                    anchored.key(event, rendered, offset, &painted);
+                }
+            }
             return Some(Effect::None);
         }
-        let source = state.selection.as_ref()?;
+        let selection = state.selection.as_ref()?;
         if event.code == KeyCode::Esc {
             state.selection = None;
             return Some(Effect::None);
         }
-        let passage = source.selected()?;
+        let passage = selection.selected()?;
         match event.code {
             KeyCode::Char('y') if event.modifiers.is_empty() => {
                 drop(state);
                 Some(self.copy_rendered_selection(passage))
             }
             KeyCode::Enter if event.modifiers.is_empty() => {
-                let author = source.author();
-                let target = source.surface.target.clone();
+                let author = self.selection_author(&state, selection);
+                let target = selection.target().clone();
                 state.selection = None;
                 drop(state);
                 Some(self.quote_rendered(target, author, passage))
@@ -437,13 +652,13 @@ impl App {
         }
         let point = (event.column, event.row).into();
         let mut state = self.conversation.borrow_mut();
-        let source = state
+        let selection = state
             .selection
             .as_ref()
-            .filter(|source| source.control.is_some_and(|area| area.contains(point)))?;
-        let passage = source.selected()?;
-        let author = source.author();
-        let target = source.surface.target.clone();
+            .filter(|selection| selection.control().is_some_and(|area| area.contains(point)))?;
+        let passage = selection.selected()?;
+        let author = self.selection_author(&state, selection);
+        let target = selection.target().clone();
         state.selection = None;
         drop(state);
         Some(self.quote_rendered(target, author, passage))
@@ -476,19 +691,39 @@ impl App {
                     .iter()
                     .find(|surface| surface.area.contains(point))?
                     .clone();
-                let mut text = surface.text.clone();
-                text.place(
-                    surface.area.width,
-                    usize::from(event.row - surface.area.y),
-                    usize::from(event.column - surface.area.x),
-                    false,
-                );
-                state.selection = Some(Source {
-                    surface,
-                    text,
-                    dragging: true,
-                    control: None,
-                });
+                let selection = if Some(surface.area) == state.response_area {
+                    let key = state.active.clone()?;
+                    let rendered = state.sessions.get(&key)?.rendered.as_ref()?;
+                    let area = surface.area;
+                    let row = usize::from(event.row - area.y);
+                    let offset = self.scrolls.offset(Pane::Replies);
+                    let line = offset + row;
+                    let text = displayed(&surface, rendered.mapped.lines.len(), offset).nth(row)?;
+                    Selection::Text(Anchored::start(
+                        surface.target.clone(),
+                        key,
+                        area.width,
+                        rendered,
+                        (line, usize::from(event.column - area.x)),
+                        text,
+                        true,
+                    ))
+                } else {
+                    let mut text = surface.text.clone();
+                    text.place(
+                        surface.area.width,
+                        usize::from(event.row - surface.area.y),
+                        usize::from(event.column - surface.area.x),
+                        false,
+                    );
+                    Selection::Cells(Source {
+                        surface,
+                        text,
+                        dragging: true,
+                        control: None,
+                    })
+                };
+                state.selection = Some(selection);
                 if let Some(active) = state.active.clone()
                     && let Some(session) = state.sessions.get_mut(&active)
                 {
@@ -499,20 +734,28 @@ impl App {
                 Some(Effect::None)
             }
             MouseEventKind::Drag(MouseButton::Left) => {
-                let fresh = state.selection.as_ref().is_some_and(|source| {
-                    state.source_surfaces.iter().any(|surface| {
-                        surface.area == source.surface.area
-                            && surface.target == source.surface.target
-                            && surface.text.as_str() == source.surface.text.as_str()
-                    })
-                });
+                if matches!(&state.selection, Some(Selection::Text(_))) {
+                    drop(state);
+                    return self.extend_text_selection(event);
+                }
+                let fresh = matches!(&state.selection, Some(Selection::Cells(source))
+                if state.source_surfaces.iter().any(|surface| {
+                    surface.area == source.surface.area
+                        && surface.target == source.surface.target
+                        && surface.text.as_str() == source.surface.text.as_str()
+                }));
                 if !fresh {
-                    if let Some(source) = &mut state.selection {
-                        source.dragging = false;
+                    if let Some(selection) = &mut state.selection {
+                        selection.stop_drag();
                     }
                     return Some(Effect::None);
                 }
-                let source = state.selection.as_mut().filter(|source| source.dragging)?;
+                let Some(Selection::Cells(source)) = &mut state.selection else {
+                    return None;
+                };
+                if !source.dragging {
+                    return None;
+                }
                 let area = source.surface.area;
                 // A drag may end just beyond a field's final cell. Clamp its
                 // caret to the frozen surface rather than losing that last glyph.
@@ -526,16 +769,84 @@ impl App {
                 Some(Effect::None)
             }
             MouseEventKind::Up(MouseButton::Left) => {
-                let source = state.selection.as_mut().filter(|source| source.dragging)?;
-                source.dragging = false;
-                let passage = source.selected();
+                let selection = state
+                    .selection
+                    .as_mut()
+                    .filter(|selection| selection.dragging())?;
+                selection.stop_drag();
+                let passage = selection.selected();
                 drop(state);
                 Some(passage.map_or(Effect::None, |text| self.copy_rendered_selection(text)))
             }
             _ => None,
         }
     }
+
+    /// A drag of an anchored selection reads the pointer against the transcript
+    /// as it is now, so it keeps working while history updates. At the first or
+    /// last row of the pane it scrolls one line toward the pointer.
+    fn extend_text_selection(&mut self, event: MouseEvent) -> Option<Effect> {
+        let (area, content, rows) = {
+            let mut state = self.conversation.borrow_mut();
+            let state = &mut *state;
+            let Some(Selection::Text(anchored)) = &mut state.selection else {
+                return None;
+            };
+            let rendered = state
+                .active
+                .as_ref()
+                .filter(|key| **key == anchored.key)
+                .and_then(|key| state.sessions.get(key))
+                .and_then(|session| session.rendered.as_ref());
+            let area = state.response_area;
+            let (Some(area), Some(rendered), true) = (area, rendered, anchored.dragging) else {
+                anchored.dragging = false;
+                return Some(Effect::None);
+            };
+            if !anchored.attached_to(rendered) {
+                anchored.dragging = false;
+                return Some(Effect::None);
+            }
+            let content = rendered.mapped.lines.len();
+            (
+                area,
+                content,
+                crate::board::scroll::Scrolls::viewport(area, content),
+            )
+        };
+        let offset = self.scrolls.offset(Pane::Replies);
+        if event.row <= area.y && offset > 0 {
+            self.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(-1));
+        } else if usize::from(event.row.saturating_sub(area.y)) + 1 >= rows
+            && offset + rows < content
+        {
+            self.scroll_pane(Pane::Replies, crate::board::scroll::Step::Lines(1));
+        }
+        let offset = self.scrolls.offset(Pane::Replies);
+        let row = usize::from(event.row.saturating_sub(area.y)).min(rows.saturating_sub(1));
+        let (line, column) = if offset + row < content {
+            (
+                offset + row,
+                usize::from(event.column.saturating_sub(area.x).min(area.width)),
+            )
+        } else {
+            (content.saturating_sub(1), usize::from(area.width))
+        };
+        let mut state = self.conversation.borrow_mut();
+        let state = &mut *state;
+        if let Some(Selection::Text(anchored)) = &mut state.selection
+            && let Some(rendered) = state
+                .active
+                .as_ref()
+                .and_then(|key| state.sessions.get(key))
+                .and_then(|session| session.rendered.as_ref())
+        {
+            anchored.extend(rendered, line, column);
+        }
+        Some(Effect::None)
+    }
 }
 
+mod anchored;
 #[cfg(test)]
 mod tests;

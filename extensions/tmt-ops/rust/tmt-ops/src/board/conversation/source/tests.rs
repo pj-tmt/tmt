@@ -1,5 +1,6 @@
 use super::*;
 use crate::board::app::workspace::tests::MEMBER;
+use crate::board::scroll::Step;
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -152,7 +153,7 @@ fn resize_stops_a_stale_drag_without_clearing_the_frozen_quote() {
     let state = app.conversation.borrow();
     let source = state.selection.as_ref().unwrap();
     assert_eq!(source.selected().as_deref(), Some("literal"));
-    assert!(!source.dragging);
+    assert!(!source.dragging());
 }
 
 #[test]
@@ -437,4 +438,270 @@ fn changed_text_keeps_the_literal_quote_without_stray_partial_highlights() {
             .as_deref(),
         Some("literal passage")
     );
+}
+
+/// Tall enough to show a good part of an 80-line reply.
+const TALL: u16 = 80;
+
+fn long(count: usize) -> String {
+    (0..count).map(|n| format!("passage {n:03}  \n")).collect()
+}
+
+fn locate(buffer: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+    (0..buffer.area.height).find_map(|y| {
+        let row: String = (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        row.find(needle)
+            .map(|at| (row[..at].chars().count() as u16, y))
+    })
+}
+
+/// Whether `needle` is painted as selected: the same frame without a selection
+/// styles its first glyph differently.
+fn marked(app: &mut App, needle: &str) -> bool {
+    let with = draw(app, 100, TALL);
+    let Some((x, y)) = locate(&with, needle) else {
+        return false;
+    };
+    let kept = app.conversation.borrow_mut().selection.take();
+    let without = draw(app, 100, TALL);
+    app.conversation.borrow_mut().selection = kept;
+    with[(x, y)] != without[(x, y)]
+}
+
+fn selected(app: &App) -> Option<String> {
+    app.conversation
+        .borrow()
+        .selection
+        .as_ref()
+        .and_then(Selection::selected)
+}
+
+fn quote_button(app: &App) -> Option<Rect> {
+    app.conversation
+        .borrow()
+        .selection
+        .as_ref()
+        .and_then(Selection::control)
+}
+
+/// Press on `words` and drag to their end; the button is not released.
+fn press(app: &mut App, words: &str) -> (u16, u16) {
+    let (x, y) = locate(&draw(app, 100, TALL), words).expect("the passage is in view");
+    mouse(app, MouseEventKind::Down(MouseButton::Left), x, y);
+    mouse(
+        app,
+        MouseEventKind::Drag(MouseButton::Left),
+        x + words.len() as u16,
+        y,
+    );
+    (x, y)
+}
+
+fn pick(app: &mut App, words: &str) {
+    let (x, y) = press(app, words);
+    mouse(
+        app,
+        MouseEventKind::Up(MouseButton::Left),
+        x + words.len() as u16,
+        y,
+    );
+}
+
+fn replace_reply(app: &mut App, text: String) {
+    app.view.as_mut().unwrap().replies[0]["response"] = json!(text);
+}
+
+#[test]
+fn a_selection_follows_its_text_through_a_new_message_and_scrolling() {
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    assert!(marked(&mut app, "passage 070"));
+    assert!(quote_button(&app).is_some());
+
+    replace_reply(&mut app, format!("{}fresh news\n", long(80)));
+    assert!(marked(&mut app, "passage 070"));
+    assert!(quote_button(&app).is_some());
+    assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+
+    let before = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap().1;
+    app.scroll_pane(Pane::Replies, Step::Lines(-4));
+    let after = locate(&draw(&mut app, 100, TALL), "passage 070").unwrap().1;
+    assert_eq!(after, before + 4);
+    assert!(marked(&mut app, "passage 070"), "it moves with its text");
+    assert!(quote_button(&app).is_some());
+
+    app.scroll_pane(Pane::Replies, Step::Top);
+    assert!(!marked(&mut app, "passage 070"));
+    assert!(
+        quote_button(&app).is_none(),
+        "no button for text out of view"
+    );
+    assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+
+    app.scroll_pane(Pane::Replies, Step::Bottom);
+    assert!(
+        marked(&mut app, "passage 070"),
+        "restored when scrolled back"
+    );
+    assert!(quote_button(&app).is_some());
+}
+
+#[test]
+fn a_selection_follows_its_text_when_lines_are_inserted_above_it() {
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    replace_reply(&mut app, format!("one\ntwo\nthree\n\n{}", long(80)));
+    assert!(marked(&mut app, "passage 070"));
+    assert_eq!(selected(&app).as_deref(), Some("passage 070"));
+}
+
+#[test]
+fn a_selection_survives_the_input_band_growing_and_still_quotes() {
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    app.perform(&crate::action::Action::parse("talk").unwrap());
+    assert!(app.input.is_some(), "the draft opens under the transcript");
+    app.paste("a\nb\nc\nd\ne");
+    assert!(marked(&mut app, "passage 070"));
+    let button = quote_button(&app).expect("the button stays");
+    mouse(
+        &mut app,
+        MouseEventKind::Down(MouseButton::Left),
+        button.x,
+        button.y,
+    );
+    let quotes = &app.input.as_ref().unwrap().chat_quotes;
+    assert_eq!(quotes.len(), 1);
+    assert_eq!(quotes[0].text, "passage 070");
+}
+
+#[test]
+fn quote_does_not_depend_on_what_the_agent_is_doing() {
+    use crate::board::activity::{ObservedActivity, Phase};
+    for phase in [Phase::Working, Phase::Idle, Phase::Unknown] {
+        let mut app = fixture(&long(10));
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster
+            .members
+            .get_mut(MEMBER)
+            .unwrap()
+            .activity = ObservedActivity {
+            phase,
+            since_ms: Some(1),
+            last_ms: Some(1),
+        };
+        pick(&mut app, "passage 005");
+        draw(&mut app, 100, TALL);
+        assert!(quote_button(&app).is_some(), "{phase:?}");
+        app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let quotes = &app.input.as_ref().unwrap().chat_quotes;
+        assert_eq!(quotes[0].text, "passage 005", "{phase:?}");
+    }
+}
+
+#[test]
+fn a_drag_keeps_working_while_the_history_updates() {
+    let mut app = fixture(&long(80));
+    let (x, y) = press(&mut app, "passage 070");
+    replace_reply(&mut app, format!("{}tick\n", long(80)));
+    draw(&mut app, 100, TALL);
+    mouse(
+        &mut app,
+        MouseEventKind::Drag(MouseButton::Left),
+        x + 11,
+        y + 2,
+    );
+    draw(&mut app, 100, TALL);
+    let effect = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        x + 11,
+        y + 2,
+    );
+    assert!(
+        matches!(&effect, Effect::Act(Request::Copy { text, .. })
+            if text == "passage 070\n │ passage 071\n │ passage 072"),
+        "{effect:?}"
+    );
+}
+
+#[test]
+fn dragging_to_the_edge_scrolls_and_keeps_extending() {
+    let mut app = fixture(&long(80));
+    draw(&mut app, 100, TALL);
+    app.scroll_pane(Pane::Replies, Step::Top);
+    let (x, y) = locate(&draw(&mut app, 100, TALL), "passage 001").unwrap();
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+    let area = app.conversation.borrow().response_area.unwrap();
+    let before = app.scrolls.offset(Pane::Replies);
+    let edge = area.y + (area.height - 2);
+    for _ in 0..3 {
+        mouse(
+            &mut app,
+            MouseEventKind::Drag(MouseButton::Left),
+            x + 11,
+            edge,
+        );
+        draw(&mut app, 100, TALL);
+    }
+    assert_eq!(app.scrolls.offset(Pane::Replies), before + 3);
+    let effect = mouse(
+        &mut app,
+        MouseEventKind::Up(MouseButton::Left),
+        x + 11,
+        edge,
+    );
+    let Effect::Act(Request::Copy { text, .. }) = effect else {
+        panic!("{effect:?}");
+    };
+    assert!(text.starts_with("passage 001"), "{text}");
+    let last = text.lines().last().unwrap();
+    let rows = usize::from(edge - y);
+    assert!(
+        text.lines().count() >= rows + 3,
+        "{} rows of {text}",
+        text.lines().count()
+    );
+    assert!(last.contains("passage"), "{last}");
+
+    // Back at the top edge it scrolls up again.
+    let top = area.y;
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, edge);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x, top);
+    assert_eq!(app.scrolls.offset(Pane::Replies), before + 2);
+}
+
+#[test]
+fn a_keyboard_selection_quotes_whole_lines_without_the_mouse() {
+    let mut app = fixture(&long(10));
+    draw(&mut app, 100, TALL);
+    app.focus = 1;
+    for _ in 0..2 {
+        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::SHIFT));
+    }
+    app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
+    draw(&mut app, 100, TALL);
+    assert!(quote_button(&app).is_some());
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let quotes = &app.input.as_ref().unwrap().chat_quotes;
+    let text = &quotes[0].text;
+    assert_eq!(text.lines().count(), 3, "{text}");
+    assert!(text.contains(" │ passage 000"), "{text}");
+}
+
+#[test]
+fn a_selection_ends_when_its_lines_are_gone() {
+    let mut app = fixture(&long(80));
+    pick(&mut app, "passage 070");
+    replace_reply(&mut app, "short".into());
+    draw(&mut app, 100, TALL);
+    assert!(app.conversation.borrow().selection.is_none());
 }

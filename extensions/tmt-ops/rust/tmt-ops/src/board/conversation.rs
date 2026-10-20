@@ -44,7 +44,7 @@ pub(super) struct State {
     pub header_hits: Vec<HeaderHit>,
     source_surfaces: Vec<source::Surface>,
     source_areas: Vec<(RowTarget, Rect)>,
-    selection: Option<source::Source>,
+    selection: Option<source::Selection>,
     response_area: Option<Rect>,
     pub area: Rect,
     pub pane: Option<Rect>,
