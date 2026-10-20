@@ -234,10 +234,13 @@ export function DiscussionComment({
   mentionedNames,
   status,
   delivery,
+  attachments = true,
 }: {
   comment: CommentView;
   allowEdit?: boolean;
   readOnly?: boolean;
+  /** False where the same files already show elsewhere, such as a question's answer block. */
+  attachments?: boolean;
   mentionedNames?: readonly string[];
   status?: ReactNode;
   delivery?: ReactNode;
@@ -364,7 +367,9 @@ export function DiscussionComment({
               <p className="comment-body">
                 <MessageText value={comment.body} names={mentionedNames} />
               </p>
-              <MessageAttachments comment={comment} binding={binding?.attachments} />
+              {attachments && (
+                <MessageAttachments comment={comment} binding={binding?.attachments} />
+              )}
             </>
           )}
         </>
@@ -383,6 +388,7 @@ export function CommentExchange({
   blocked,
   allowEdit = true,
   readOnly = false,
+  attachments = true,
   title,
   retryInput,
 }: {
@@ -394,6 +400,8 @@ export function CommentExchange({
   blocked: boolean;
   allowEdit?: boolean;
   readOnly?: boolean;
+  /** False where the comment's files already show elsewhere. */
+  attachments?: boolean;
   title: string;
   retryInput?: AskRetryInput;
 }) {
@@ -431,6 +439,7 @@ export function CommentExchange({
       binding={binding}
       blocked={blocked}
       allowEdit={allowEdit}
+      attachments={attachments}
       mentionedNames={records.map((record) => record.agentName)}
       status={status}
       delivery={delivery}

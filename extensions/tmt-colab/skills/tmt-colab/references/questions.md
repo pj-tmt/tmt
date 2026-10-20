@@ -52,7 +52,9 @@ person's expanded/collapsed state is local and never changes the answer. Waiting
 and Answered states come from the existing verified answer path; collapse does
 not dismiss or acknowledge a question. HTML names grant no routing authority.
 
-Answers are ordinary annotation comments; read with `tmt colab threads PAGE --json`.
+Answers are ordinary annotation comments; read with `tmt colab threads PAGE --json`. A short,
+long or Other answer can carry images: they are the answer comment's attachments, which `threads`
+lists, and `tmt colab attachment read PAGE ID` writes one out.
 Changing an answer adds a normal follow-up; the latest verified device answer in
 its canonical thread wins. Each answer has its own comment/thread and each
 recipient receives one Ask for the recorded batch. Untouched and failed drafts

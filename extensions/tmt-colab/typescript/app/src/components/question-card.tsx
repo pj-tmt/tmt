@@ -15,6 +15,11 @@ import type { PageAsk, AskBinding, AskRetryInput } from '../ask-panel.js';
 import type { ThreadBinding } from '../thread-store.js';
 import type { ThreadView } from '../thread-records.js';
 import { ArchivedDraft } from '../annotation-input.js';
+import { attachmentInputHandlers } from '../attachment-drop.js';
+import type { AttachmentDraft } from '../attachment-draft.js';
+import { AttachButton, PendingAttachments } from '../attachment-tray.js';
+import { MessageAttachments } from '../message-attachments.js';
+import { text } from '../strings.js';
 import { useNotificationBlock } from '../use-notification-block.js';
 import { answerNotificationDestination } from '../reply-notification-context.js';
 
@@ -48,6 +53,7 @@ export function QuestionCard({
   onSend,
   onRetry,
   retryInput,
+  files,
 }: {
   question: Question;
   draft: QuestionDraft;
@@ -71,6 +77,9 @@ export function QuestionCard({
   /** Sends the kept draft again after a failed send. */
   onRetry?(): void;
   retryInput?: AskRetryInput;
+  /** The answer's attachment draft, owned by the group like the text draft. Absent where this
+   * binding cannot upload files. */
+  files?: AttachmentDraft;
 }) {
   const heading = useId();
   const { choices, other, value, changing } = draft;
@@ -81,6 +90,7 @@ export function QuestionCard({
   const answerText = answer?.body.slice(`Answer to “${question.title}”: `.length);
   const pageLine = answerText?.lastIndexOf('\nPage: ') ?? -1;
   const disabled = blocked || busy || recorded || !discussion;
+  const attachable = !!files && !disabled;
   // From Send until the verified record arrives, the card shows the answer being sent where the
   // verified one will stand. It is display only: nothing here is a record, and a failure drops it.
   const echoing = !readOnly && (busy || recorded) && body !== undefined;
@@ -137,6 +147,9 @@ export function QuestionCard({
         {(answer || echoing) && (
           <div className="question-answer" data-echo={echoing || undefined}>
             <p>{echo ?? (pageLine >= 0 ? answerText?.slice(0, pageLine) : answerText)}</p>
+            {answer && !echoing && (
+              <MessageAttachments comment={answer} binding={discussion?.attachments} />
+            )}
             {changeAction}
             <span className="question-pending" aria-hidden="true">
               {echoing && (
@@ -212,7 +225,10 @@ export function QuestionCard({
               </fieldset>
             )}
             {(question.kind === 'short' || question.kind === 'long' || other) && (
-              <div className="question-text">
+              <div
+                className="question-text"
+                {...(files ? attachmentInputHandlers(files, attachable, false) : {})}
+              >
                 <label htmlFor={`${heading}-answer`}>
                   {other ? 'Other answer' : 'Your answer'}
                 </label>
@@ -233,6 +249,27 @@ export function QuestionCard({
                     maxLength={QUESTION_LONG_BYTES}
                     rows={question.kind === 'long' ? 4 : 2}
                   />
+                )}
+                {files && (
+                  <>
+                    <PendingAttachments
+                      draft={files}
+                      disabled={!attachable}
+                      onRemoved={() => {
+                        section.current
+                          ?.querySelector<HTMLElement>(`[id="${heading}-answer"]`)
+                          ?.focus({ preventScroll: true });
+                      }}
+                    />
+                    <div className="question-attach">
+                      <AttachButton
+                        draft={files}
+                        disabled={!attachable}
+                        labeled
+                        label={text.messageAttach}
+                      />
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -283,6 +320,8 @@ export function QuestionCard({
                 {thread.comments.map((comment) => (
                   <CommentExchange
                     readOnly={readOnly}
+                    // The answer's files show once, in the answer block above.
+                    attachments={comment.messageId !== answer?.messageId}
                     key={`${comment.ref.writer}:${comment.ref.id}`}
                     comment={comment}
                     thread={thread}

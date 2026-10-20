@@ -1,4 +1,4 @@
-import { expect, it } from 'vite-plus/test';
+import { expect, it, vi } from 'vite-plus/test';
 import {
   askedMessageIds,
   batchAnswersText,
@@ -9,6 +9,8 @@ import {
   type BatchAnswer,
 } from '../src/answer-batch.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
+import { AttachmentStaleError } from '../src/attachment-service.js';
+import type { PrepareResult } from '../src/attachment-draft.js';
 import type { AgentDestination } from '../src/live-ask.js';
 import type { Question } from '../src/questions.js';
 import type { CommentView, DiscussionRef, ThreadView } from '../src/thread-records.js';
@@ -18,6 +20,7 @@ import {
   conversationAsks,
   type AnswerBatchContext,
   type CommentContext,
+  type MessageAttachments,
   type ThreadBinding,
 } from '../src/thread-store.js';
 import { destination, id } from './ask-fixtures.js';
@@ -200,11 +203,20 @@ function answers(list: ThreadView[], existing = false, texts = ['Only the API', 
   }));
 }
 function discussion(fail: ReadonlySet<string> = new Set()) {
-  const calls: { kind: 'reply' | 'create'; body: string }[] = [];
+  const calls: {
+    kind: 'reply' | 'create';
+    body: string;
+    attach?: MessageAttachments;
+  }[] = [];
   const binding = {
     deviceId: ME,
-    async reply(thread: DiscussionRef, body: string, revision?: string) {
-      calls.push({ kind: 'reply', body });
+    async reply(
+      thread: DiscussionRef,
+      body: string,
+      revision?: string,
+      attach?: MessageAttachments,
+    ) {
+      calls.push({ kind: 'reply', body, attach });
       if ([...fail].some((part) => body.includes(part))) throw new Error('refused');
       return {
         thread,
@@ -213,8 +225,8 @@ function discussion(fail: ReadonlySet<string> = new Set()) {
         messageRevision: '1',
       } satisfies CommentContext;
     },
-    async create(body: string) {
-      calls.push({ kind: 'create', body });
+    async create(body: string, _anchor?: unknown, attach?: MessageAttachments) {
+      calls.push({ kind: 'create', body, attach });
       if ([...fail].some((part) => body.includes(part))) throw new Error('refused');
       return {
         thread: { writer: ME, id: id(80 + calls.length) },
@@ -478,4 +490,125 @@ it('a batch Ask belongs to every question thread it covers, and its reply to the
   list[2].comments[0] = { ...list[2].comments[0], deleted: true };
   expect(conversationAsks(list[2], asks)).toEqual([]);
   expect(conversationAsks(list[2], asks, true)).toEqual([batch]);
+});
+
+function files(result: PrepareResult) {
+  return {
+    prepare: vi.fn(async () => result),
+    committed: vi.fn(),
+    stale: vi.fn(),
+  };
+}
+const attach = (messageId: string) =>
+  ({ messageId, stored: [{ filename: `${messageId}.png` }] }) as unknown as MessageAttachments;
+
+it('an answer’s files upload under its own message and go with its one comment', async () => {
+  const { calls, binding } = discussion();
+  const withFiles = files({ ok: true, attach: attach('m1') });
+  const none = files({ ok: true, attach: undefined });
+  const result = await sendAnswers(
+    { discussion: binding },
+    {
+      ...base,
+      answers: answers(threads()).map((answer, index) =>
+        index === 0
+          ? { ...answer, files: withFiles }
+          : index === 1
+            ? { ...answer, files: none }
+            : answer,
+      ),
+      recipients: [],
+    },
+    [],
+  );
+  if ('refused' in result) throw new Error('unexpected refusal');
+  expect(result.answers.map((value) => value.state)).toEqual(['recorded', 'recorded', 'recorded']);
+  expect(calls.map((call) => call.attach?.messageId)).toEqual(['m1', undefined, undefined]);
+  expect(withFiles.committed).toHaveBeenCalledTimes(1);
+  expect(none.committed).toHaveBeenCalledTimes(1);
+});
+
+it('a refused upload fails its answer alone, before any comment, and the others go on', async () => {
+  const { calls, binding } = discussion();
+  const { prepared, binding: ask } = asker(() => 'adopted');
+  const refused = files({ ok: false, why: 'refused' });
+  const fine = files({ ok: true, attach: attach('m3') });
+  const result = await sendAnswers(
+    { discussion: binding, ask },
+    {
+      ...base,
+      answers: answers(threads()).map((answer, index) =>
+        index === 1
+          ? { ...answer, files: refused }
+          : index === 2
+            ? { ...answer, files: fine }
+            : answer,
+      ),
+      recipients: recipients('alpha'),
+    },
+    [],
+  );
+  if ('refused' in result) throw new Error('unexpected refusal');
+  expect(result.answers.map((value) => [value.question, value.state])).toEqual([
+    ['q1', 'recorded'],
+    ['q2', 'failed'],
+    ['q3', 'recorded'],
+  ]);
+  // No comment was written for the refused answer, and its files stay uncommitted.
+  expect(calls.map((call) => call.body.split('\n')[0])).toEqual([
+    'Answer to “Scope”: Only the API',
+    'Answer to “Notes”: Done',
+  ]);
+  expect(refused.committed).not.toHaveBeenCalled();
+  expect(fine.committed).toHaveBeenCalledTimes(1);
+  expect(prepared[0].batch?.answers.map((answer) => answer.question)).toEqual(['q1', 'q3']);
+});
+
+it('a page that moved under stored files sends the answer again later, with the files uploaded again', async () => {
+  const { binding } = discussion();
+  const moved = files({ ok: true, attach: attach('m2') });
+  const stored = new AttachmentStaleError(['a1', 'a2']);
+  const failing = {
+    ...binding,
+    create: async () => {
+      throw stored;
+    },
+  } as unknown as ThreadBinding;
+  const result = await sendAnswers(
+    { discussion: failing },
+    {
+      ...base,
+      answers: answers(threads())
+        .slice(0, 1)
+        .map((answer) => ({ ...answer, files: moved })),
+      recipients: [],
+    },
+    [],
+  );
+  if ('refused' in result) throw new Error('unexpected refusal');
+  expect(result.answers.map((value) => value.state)).toEqual(['failed']);
+  expect(moved.stale).toHaveBeenCalledWith(['a1', 'a2']);
+  expect(moved.committed).not.toHaveBeenCalled();
+});
+
+it('an Ask that fails afterwards uploads and publishes nothing again', async () => {
+  const { calls, binding } = discussion();
+  const { binding: ask } = asker(() => 'uncertain');
+  const withFiles = files({ ok: true, attach: attach('m1') });
+  const result = await sendAnswers(
+    { discussion: binding, ask },
+    {
+      ...base,
+      answers: answers(threads())
+        .slice(0, 1)
+        .map((answer) => ({ ...answer, files: withFiles })),
+      recipients: recipients('alpha'),
+    },
+    [],
+  );
+  if ('refused' in result) throw new Error('unexpected refusal');
+  expect(result.failures).toHaveLength(1);
+  // The failure's retry is an Ask over the recorded comment: this Send's one upload and one comment stand.
+  expect(withFiles.prepare).toHaveBeenCalledTimes(1);
+  expect(calls).toHaveLength(1);
 });

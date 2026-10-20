@@ -2,6 +2,8 @@ import { requireValue } from '@tmt/colab-client';
 import type { AskAgainInput } from './ask-again.js';
 import { formatAskMessage } from './ask-intent.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
+import type { PrepareResult } from './attachment-draft.js';
+import { AttachmentStaleError } from './attachment-service.js';
 import { ASK_MESSAGE_BYTES } from './ask-records.js';
 import { sendCommentAsks, type MessageSendFailure } from './comment-send.js';
 import type { AgentDestination } from './live-ask.js';
@@ -94,6 +96,17 @@ export interface BatchAnswer {
   body: string;
   selector: QuoteSelector;
   thread?: ThreadView;
+  /** The answer's attachment draft, when it can carry files. */
+  files?: AnswerDraftFiles;
+}
+/** What a Send needs of an answer's attachment draft (`AttachmentDraft` is one). */
+export interface AnswerDraftFiles {
+  /** Uploads what still needs it; `attach` goes with the answer's one comment. */
+  prepare(): Promise<PrepareResult>;
+  /** The comment and its file records were published: the chips are done. */
+  committed(): void;
+  /** The page moved after these originals froze their base: they upload again. */
+  stale(ids: readonly string[]): void;
 }
 export interface AnswerBatchInput {
   group: QuestionGroup;
@@ -161,12 +174,24 @@ export async function sendAnswers(
   const recorded: { answer: BatchAnswer; context: CommentContext; conversation: number }[] = [];
   for (const [index, answer] of answers.entries()) {
     try {
+      // An answer's files go up under its own message ID, so one that is refused or lost fails this
+      // answer alone, before any comment: its draft and chips stay for the next Send.
+      const prepared = await answer.files?.prepare();
+      if (prepared && !prepared.ok) throw new Error('Files were not stored');
+      const attach = prepared?.attach;
       const context = answer.thread
-        ? await bindings.discussion.reply(answer.thread.ref, answer.body, answer.thread.revision)
-        : await bindings.discussion.create(answer.body, answer.selector);
+        ? await bindings.discussion.reply(
+            answer.thread.ref,
+            answer.body,
+            answer.thread.revision,
+            attach,
+          )
+        : await bindings.discussion.create(answer.body, answer.selector, attach);
+      answer.files?.committed();
       states.push({ question: answer.question.id, state: 'recorded', context });
       recorded.push({ answer, context, conversation: index });
-    } catch {
+    } catch (failure) {
+      if (failure instanceof AttachmentStaleError) answer.files?.stale(failure.attachmentIds);
       states.push({ question: answer.question.id, state: 'failed' });
     }
   }

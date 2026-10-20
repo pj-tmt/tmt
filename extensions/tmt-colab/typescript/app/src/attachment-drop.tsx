@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ClipboardEvent,
   type DragEvent,
   type ReactNode,
   type ReactElement,
@@ -75,6 +76,32 @@ export function useAttachmentDropTarget(draft: AttachmentDraft, attachable: bool
   const owner = useContext(DropContext);
   useLayoutEffect(() => owner?.register({ draft, attachable }), [owner, draft, attachable]);
   return owner;
+}
+
+/** The file handlers of a composer: a drop or a files-only paste adds inert chips to its draft, and
+ * nothing is stored or sent until its Send. Under a drop panel (`panelOwns`) the panel takes the
+ * drop. A paste that carries text stays a text paste. */
+export function attachmentInputHandlers(
+  draft: AttachmentDraft,
+  attachable: boolean,
+  panelOwns: boolean,
+) {
+  const take = (list: FileList | null | undefined, event: ClipboardEvent | DragEvent) => {
+    if (!attachable || !list?.length) return;
+    event.preventDefault();
+    void draft.add([...list]);
+  };
+  return {
+    onDragOver: (event: DragEvent) => {
+      if (attachable && event.dataTransfer.types.includes('Files')) event.preventDefault();
+    },
+    onDrop: (event: DragEvent) => {
+      if (!panelOwns) take(event.dataTransfer.files, event);
+    },
+    onPaste: (event: ClipboardEvent) => {
+      if (!event.clipboardData.types.includes('text/plain')) take(event.clipboardData.files, event);
+    },
+  };
 }
 
 /** File drags belong to this panel alone; moving between descendants never clears the overlay. */

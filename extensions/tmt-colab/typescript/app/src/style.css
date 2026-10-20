@@ -1669,6 +1669,17 @@ body:has(.needs-you-header-menu) {
   border: 1px solid var(--c-rule);
   padding: 8px;
 }
+/* An answer's tray wraps and scrolls inside, as a thread's does, so a narrow card never scrolls
+   sideways. */
+.question-text .attachment-pending-row {
+  flex-wrap: wrap;
+  align-items: start;
+  max-height: 24dvh;
+  overflow: auto;
+}
+.question-attach {
+  display: flex;
+}
 .question-answer {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
