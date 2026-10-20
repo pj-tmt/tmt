@@ -270,6 +270,15 @@ or an unverified read failure. An opaque socket disconnect, or a native fetch
 `ReopenSessionError` reason (`registration.ts` turns it into `ReopenFailedError`; a session is
 re-admitted with `reopenSession(previous, {retry:'bounded', signal})`) waits when the reason
 may pass (`unreachable`, `unconfirmed`, `transient`) and ends the page otherwise.
+An admitted update reaches the page as a fresh detached copy of the whole projection (`Live` clones
+it for each listener). The page route passes it through `shareView` (`share-view.ts`) against the
+view it holds, so every part equal by value keeps its object and a reply to one thread changes
+only that thread's path. Sections keyed on a part, such as the document highlights and the question
+layers, do not run again for a change elsewhere, and the document frame is sent nothing for an
+update that does not touch it (`e2e/large-page-update.spec.ts` counts what the frame receives).
+The view itself is still a new object for every publication: the binding (its Ask facade, its
+files) can change without the data changing, and the page must render to read it.
+
 One owner per open page decides what happens next: `useConnection` (`use-connection.ts`) wraps
 `ConnectionController` (`connection-controller.ts`), whose state (`connection-model.ts`) is
 `connected | reconnecting | ended{reason, action}`. The page reports every failure its binding
