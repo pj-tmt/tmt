@@ -141,6 +141,8 @@ export function rendererUrl(baseUri: string): string {
 
 /** Only plaintext HTML and render metadata enter the opaque frame. Page scripts
  * can impersonate its bootstrap: this handshake grants no application authority. */
+export type PageScheme = 'light' | 'dark';
+
 export async function mountRenderer(
   host: HTMLElement,
   source: string,
@@ -157,6 +159,8 @@ export async function mountRenderer(
     onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
+    /** The scheme the author's page paints (white when it paints nothing), for cards drawn over it. */
+    onScheme?(scheme: PageScheme): void;
     onSlots?(slots: AnchorPosition[]): void;
     onQuestions?(questions: QuestionAnchor[], reviews: ReviewAnchor[], checked?: boolean): void;
     onReadings?(readings: QuestionAnchor[], checked?: boolean): void;
@@ -391,6 +395,13 @@ export async function mountRenderer(
         const remaining = HEIGHT_UPDATE_MS - (performance.now() - updatedAt);
         if (remaining <= 0) applyHeight();
         else if (heightTimer === undefined) heightTimer = setTimeout(applyHeight, remaining);
+        return;
+      }
+      if (
+        value.type === 'colab.render.scheme' &&
+        (value.scheme === 'light' || value.scheme === 'dark')
+      ) {
+        options.onScheme?.(value.scheme);
         return;
       }
       if (

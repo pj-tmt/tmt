@@ -390,17 +390,22 @@ for (const width of [1440, 390])
           .toEqual({ left: 0, right: 0 });
         const frame = page.frameLocator('#ask-page-fixture iframe');
         await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
+        // The cards take the scheme the page paints, whatever the app theme (#4081).
+        const scheme = darkPage ? 'dark' : 'light';
+        await expect(
+          page.locator('.page-cards', { has: page.locator('.question-group-card') }),
+        ).toHaveAttribute('data-theme', scheme);
         const question = card.locator('.question-compact-block');
-        // The sheet in the active theme, whatever the page paints (#3959, #4068).
+        // The sheet of the scheme the page paints (#3959, #4068, #4081).
         await expect(question).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
         await expect(question).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
-        // Compact questions stay flat while text and controls follow the effective theme.
+        // Compact questions stay flat while text and controls follow the painted scheme.
         for (const surface of [
           card.locator('.question-controls'),
           card.locator('.question-group-footer'),
@@ -408,39 +413,39 @@ for (const width of [1440, 390])
           await expect(surface).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
           await expect(surface).toHaveCSS(
             'color',
-            theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+            scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
           );
-          await expect(surface).toHaveCSS('color-scheme', theme);
+          await expect(surface).toHaveCSS('color-scheme', scheme);
           await expect(surface).toHaveCSS('box-shadow', 'none');
         }
         // Compact disclosure text stays neutral; only its mark carries attention.
         await expect(card.locator('.question-line')).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(card.locator('.question-group-footer')).toHaveCSS('border-top-width', '0px');
-        // Sibling agent cards follow the same effective Colab theme.
+        // Sibling agent cards follow the same painted scheme.
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          scheme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
         );
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
-        await expect(proposal.locator('.proposal-card')).toHaveCSS('color-scheme', theme);
+        await expect(proposal.locator('.proposal-card')).toHaveCSS('color-scheme', scheme);
         await expect(proposal.locator('.proposal-card')).toHaveCSS('box-shadow', 'none');
         await expect(proposal.locator('.proposal-author')).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)',
+          scheme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)',
         );
         await expect(proposal.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(card.getByRole('button', { name: /^Send answer/ })).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(133, 133, 133)' : 'rgb(98, 98, 98)',
+          scheme === 'dark' ? 'rgb(133, 133, 133)' : 'rgb(98, 98, 98)',
         );
         const after = page.frameLocator('#ask-page-fixture iframe').locator('#after-question');
         const proposalSpacer = page
@@ -491,14 +496,14 @@ for (const width of [1440, 390])
         await expect(sendButton).toHaveCSS('text-decoration-line', 'underline');
         await expect(sendButton).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await sendButton.press('Tab');
         await page.keyboard.press('Shift+Tab');
         await expect(sendButton).toBeFocused();
         await expect(sendButton).toHaveCSS(
           'outline-color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(98, 98, 98)',
         );
         await expect(sendButton).toHaveCSS('outline-width', '2px');
         await send(page);
@@ -512,7 +517,7 @@ for (const width of [1440, 390])
         await change.blur();
         await expect(change).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
+          scheme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(proposal).not.toHaveAttribute('data-detached');
         await settledSlots();
