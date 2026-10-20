@@ -607,6 +607,20 @@ describe('prepared Infra tick evidence', () => {
       expect(calls.some((call) => call.includes('page=11'))).toBe(false);
     }
   });
+  it.each(['failure', 'waiting'])('keeps created-window %s count disagreement strict', (status) => {
+    const api = fixture();
+    const original = api.get;
+    let reads = 0;
+    api.get = (endpoint) => {
+      if (endpoint.includes(`status=${status}&created=`)) {
+        reads++;
+        return { total_count: 6, workflow_runs: Array.from({ length: 5 }, (_, i) => run(i + 1)) };
+      }
+      return original(endpoint);
+    };
+    expect(() => collectInfraTick(api, options)).toThrow('Truncated REST evidence');
+    expect(reads).toBe(1);
+  });
   it('skips prior failed-attempt detail reads and retains their cross-PR test evidence', () => {
     const api = fixture({
       runs: [run(1, { conclusion: 'failure' }), run(2, { conclusion: 'failure' })],
@@ -1466,6 +1480,8 @@ describe('one-pass hourly PR volume through the real CLI', () => {
     writeFileSync(map, JSON.stringify(options.reviewMap));
     const clockFile = path.join(directory, 'clock.txt');
     writeFileSync(clockFile, '0');
+    const liveReadFile = path.join(directory, 'live-reads.txt');
+    writeFileSync(liveReadFile, '0');
     const clockHook = path.join(directory, 'clock-hook.mjs');
     writeFileSync(
       clockHook,
@@ -1494,6 +1510,14 @@ if(args[1]==='graphql'){
 else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
 else if(endpoint.includes('/actions/runs?')){
  const q=new URL('https://api.github.com/'+endpoint).searchParams,status=q.get('status');
+ const live=/^live-count-(transient|persistent)-(queued|in_progress)$/.exec(mode);
+ if(live&&status===live[2]){
+  const fs=require('node:fs'), reads=Number(fs.readFileSync(process.env.LIVE_READ_FILE,'utf8'));
+  fs.writeFileSync(process.env.LIVE_READ_FILE,String(reads+1));
+  const rows=Array.from({length:6},(_,i)=>({...run(i+1),status,conclusion:null}));
+  console.log(JSON.stringify({total_count:6,workflow_runs:live[1]==='persistent'||reads===0?rows.slice(0,5):rows}));
+  process.exit(0);
+ }
  if(mode==='clock-budget'&&status==='failure')require('node:fs').writeFileSync(process.env.CLOCK_FILE,'120000');
  let rows=Array.from({length:failedCount||32},(_,i)=>run(i+1));
  if(status)rows=status==='failure'&&failedCount?rows:[];
@@ -1546,6 +1570,7 @@ else if(endpoint.includes('/pulls?')){
               VOLUME_COUNT: String(count),
               VOLUME_MODE: mode,
               CLOCK_FILE: clockFile,
+              LIVE_READ_FILE: liveReadFile,
               TMT_AGENT: '1',
               BROWSER: 'true',
             },
@@ -1561,6 +1586,56 @@ else if(endpoint.includes('/pulls?')){
       cleanup: () => rmSync(directory, { recursive: true, force: true }),
     };
   }
+  it.each(['queued', 'in_progress'])('recovers a transient live %s count mismatch', (status) => {
+    const test = volume(0, `live-count-transient-${status}`);
+    try {
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(test.report().complete).toBe(true);
+      const cursor = JSON.parse(test.currentCursor());
+      expect(cursor.until).toBe(options.until);
+      expect(cursor.activeRunIds).toEqual([1, 2, 3, 4, 5, 6]);
+      const reads = test.calls().filter((row) => row.endpoint?.includes(`status=${status}&`));
+      expect(reads).toHaveLength(2);
+      expect(new Set(reads.map((row) => row.endpoint)).size).toBe(1);
+      expect(test.report().evidence.requests).toBe(
+        test.calls().filter((row) => Number.isSafeInteger(row.request)).length
+      );
+    } finally {
+      test.cleanup();
+    }
+  });
+  it.each(['queued', 'in_progress'])(
+    'refuses a persistent live %s count mismatch without advancing cursor',
+    (status) => {
+      const test = volume(0, `live-count-persistent-${status}`);
+      try {
+        const result = test.invoke();
+        expect(result.status, result.stdout + result.stderr).toBe(1);
+        expect(test.currentCursor()).toBe(test.cursor);
+        const report = test.report();
+        expect(report.complete).toBe(false);
+        expect(report.anomalies).toEqual([
+          expect.objectContaining({
+            kind: 'collection refused',
+            stage: 'run evidence',
+            message: `Inconsistent live run listing: status=${status}, count=6, rows=5, page=1.`,
+          }),
+        ]);
+        expect(result.stdout.split('\n')[0]).toBe(
+          'INCOMPLETE: collection refused; cursor not advanced'
+        );
+        const reads = test.calls().filter((row) => row.endpoint?.includes(`status=${status}&`));
+        expect(reads).toHaveLength(3);
+        expect(new Set(reads.map((row) => row.endpoint)).size).toBe(1);
+        expect(report.evidence.requests).toBe(
+          test.calls().filter((row) => Number.isSafeInteger(row.request)).length
+        );
+      } finally {
+        test.cleanup();
+      }
+    }
+  );
   it('advances a sampled-log cursor and retains unread workers without retrying them', () => {
     const test = volume(1, 'sampled-logs');
     try {

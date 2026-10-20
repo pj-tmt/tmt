@@ -352,8 +352,10 @@ and multiple failed hosts count as one release.
 Health counts use `per_page=1` for 24-hour/tick windows, including >1,000 totals.
 Details enumerate created-window failure/timed-out/action-required/stale slices,
 refusing at 1,000 matches before exceeding searchable evidence. Queued/in-progress
-searches have no created filter, tracking older reruns; other active states stay
-within the window. Unobserved older reruns starting/finishing between ticks and
+searches track older reruns without a created filter; count/row mismatch gets up to two
+same-page re-reads in the shared budget, then refuses with status/count/rows; created-window
+queries stay strict and other active states stay within the window. Unobserved older reruns
+starting/finishing between ticks and
 workflow `startup_failure` are outside detail coverage, explicitly stated in reports.
 Only unseen failed attempts incur job/log reads; observed tokens remain for 24-hour recurrence.
 Reviews cover open PRs updated since `since` plus PRs merged in the interval.

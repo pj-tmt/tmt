@@ -336,23 +336,43 @@ function pages(
   const rows = [],
     paths = [],
     seen = new Set();
+  const query = new URL(endpoint, 'https://api.github.com/').searchParams;
+  const liveStatus =
+    key === 'workflow_runs' &&
+    !query.has('created') &&
+    ['queued', 'in_progress'].includes(query.get('status'))
+      ? query.get('status')
+      : null;
   let total = expected;
   for (let page = 1; ; page++) {
     const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}per_page=100&page=${page}`;
     paths.push(url);
-    const result = api.get(url, immutable);
-    const batch = key ? result?.[key] : result;
-    assert.ok(Array.isArray(batch) && batch.length <= 100, 'Incomplete REST page.');
-    if (key) {
+    let result, batch;
+    for (let read = 0; ; read++) {
+      result = api.get(url, immutable);
+      batch = key ? result?.[key] : result;
+      assert.ok(Array.isArray(batch) && batch.length <= 100, 'Incomplete REST page.');
+      if (key) {
+        assert.ok(
+          Number.isSafeInteger(result.total_count) && result.total_count >= 0,
+          'Missing REST count.'
+        );
+        if (total !== undefined) assert.equal(result.total_count, total, 'Changing REST count.');
+        if (key === 'workflow_runs')
+          assert.ok(
+            result.total_count < 1_000,
+            `Workflow run search reaches the 1,000-result limit: ${endpoint}`
+          );
+      }
+      if (!liveStatus || batch.length === Math.min(100, result.total_count - rows.length)) break;
+      // Live membership can change within a response. Discard it before two bounded
+      // re-reads through the same budgeted port; created-window queries stay strict.
       assert.ok(
-        Number.isSafeInteger(result.total_count) && result.total_count >= 0,
-        'Missing REST count.'
+        read < 2,
+        `Inconsistent live run listing: status=${liveStatus}, count=${result.total_count}, rows=${batch.length}, page=${page}.`
       );
-      if (total !== undefined) assert.equal(result.total_count, total, 'Changing REST count.');
-      total = result.total_count;
-      if (key === 'workflow_runs')
-        assert.ok(total < 1_000, `Workflow run search reaches the 1,000-result limit: ${endpoint}`);
     }
+    if (key) total = result.total_count;
     for (const row of batch) {
       const id = rowKey(row);
       assert.ok(!seen.has(id), 'Duplicate REST identity.');
