@@ -664,7 +664,20 @@
                 const inset = style
                   ? [parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0]
                   : [0, 0];
-                const width = column.width - inset[0] - inset[1];
+                let left = column.left + inset[0];
+                let width = column.width - inset[0] - inset[1];
+                if (container === document.body && document.documentElement.dataset.colabLayout) {
+                  // A direct child of a framed page sits on the frame's column (the rule below: centred,
+                  // min(1280px, 100% - 32px), or the whole width for data-width="full"), which the
+                  // body's own box does not show and the hidden target cannot be measured for (#4011).
+                  if (target.getAttribute('data-width') === 'full') {
+                    left = column.left;
+                    width = column.width;
+                  } else {
+                    width = Math.min(1280, column.width - 32);
+                    left = column.left + (column.width - width) / 2;
+                  }
+                }
                 const top = panel.getBoundingClientRect().top + scrollY;
                 if (
                   box.width &&
@@ -683,7 +696,7 @@
                       width: box.width,
                       height: box.height,
                     },
-                    left: column.left + inset[0],
+                    left,
                     width,
                   });
                 continue;
