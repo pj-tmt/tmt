@@ -345,6 +345,9 @@ renameSync(output+'.tmp',output);
           screen.includes('Squad settings: product') && screen.includes('Workspace settings'),
         shell.pane
       );
+      // Leave the board before the fixture removes the state it still writes.
+      fixture.tmux(['send-keys', '-t', shell.pane, 'Escape', 'q']);
+      await fixture.waitForCapture((screen) => screen.includes('IDLE_BOARD_EXIT=0'), shell.pane);
     });
   });
 
