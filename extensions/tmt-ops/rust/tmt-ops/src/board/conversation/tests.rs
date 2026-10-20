@@ -1383,10 +1383,10 @@ fn pane_output_pending_unavailable_and_observed_empty_are_distinct() {
     );
     assert!(session.response_key_at(0).is_none());
     session.pane_output = Observation::Observed(vec![]);
-    // Pending history says nothing for the first 400 ms, then it is loading; only
-    // a failed read is "unavailable".
+    // Pending history says nothing for the first 400 ms (one blank row keeps the
+    // pane open), then it is loading; only a failed read is "unavailable".
     for (exchanges, shown) in [
-        (transcript::Exchanges::Pending { loading: false }, None),
+        (transcript::Exchanges::Pending { loading: false }, Some("")),
         (
             transcript::Exchanges::Pending { loading: true },
             Some("Loading exchanges…"),
