@@ -3,6 +3,7 @@ export const REVIEW_QUERY: string;
 export const COVERAGE: string;
 export interface TickApi {
   get(endpoint: string, immutable?: boolean, text?: boolean): unknown;
+  failureLog(job: number): { attempted: boolean; text?: string; reason?: string };
   releases(): unknown[];
   queue(): unknown;
   reviews(ids: string[]): unknown;
@@ -59,7 +60,11 @@ export interface TickReport {
     worker: string;
     tests: string[];
     logHash: string | null;
+    unavailable: string | null;
+    job: number;
+    url: string;
   }[];
+  logCoverage: { read: number; total: number; attempted: number };
   repeated: { test: string; occurrences: unknown[] }[];
   queue: { pr: number; position: number; state: string; ageMinutes: number }[];
   failedDrafts: { id: number; tag: string }[];

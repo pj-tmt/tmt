@@ -164,6 +164,16 @@ function fixture({
       }
       throw new Error(`Unexpected endpoint ${endpoint}`);
     },
+    failureLog(job: number) {
+      try {
+        const text = this.get(`repos/pj-tmt/tmt/actions/jobs/${job}/logs`);
+        if (typeof text !== 'string') throw new Error('Invalid log');
+        return { attempted: true, text };
+      } catch (error) {
+        if ((error as Error).message.includes('budget')) throw error;
+        return { attempted: true, reason: 'download unavailable or timed out' };
+      }
+    },
     releases: () => releases,
     queue: () => queue,
     reviews: (ids: string[]) => {
@@ -322,7 +332,7 @@ describe('prepared Infra tick evidence', () => {
       return original(endpoint);
     };
     const report = collectInfraTick(api, options);
-    expect(report.complete).toBe(false);
+    expect(report.complete).toBe(true);
     expect(report.anomalies.some((item) => item.kind === 'test log unavailable')).toBe(true);
   });
   it('reports exact queue state/position/age and refuses partial queue coverage', () => {
@@ -551,6 +561,9 @@ describe('prepared Infra tick evidence', () => {
             worker: 'Unit tests',
             tests: ['same'],
             logHash: 'a'.repeat(64),
+            unavailable: null,
+            job: 111,
+            url: 'https://github.com/pj-tmt/tmt/actions/runs/1/job/111',
           },
         ],
       },
@@ -586,6 +599,188 @@ describe('prepared Infra tick evidence', () => {
   });
 });
 
+// Frozen incident costs from #3962, scaled by identities rather than real sleeps.
+// Seven catalogue pages + one open review preserve the mandatory stage workload.
+function timedFailureFixture(workers: number, attempts = 10, logCosts = [15_000, 25_000, 9_800]) {
+  const jobsPerAttempt = workers / attempts;
+  expect(Number.isInteger(jobsPerAttempt)).toBe(true);
+  const evidence = fixture({
+    runs: Array.from({ length: attempts }, (_, i) =>
+      run(i + 1, {
+        conclusion: 'failure',
+        created_at: new Date(Date.parse(options.since) + (i + 1) * 60_000).toISOString(),
+      })
+    ),
+    jobs: [
+      worker(10, 'Docker E2E'),
+      ...Array.from({ length: jobsPerAttempt }, (_, i) => worker(11 + i, `Partition ${i + 1}`)),
+    ],
+    open: [{ id: 2000, number: 2000 }],
+    files: [{ filename: '.github/ci.yml' }],
+    queue: {
+      totalCount: 1,
+      pageInfo: { hasNextPage: false },
+      nodes: [
+        {
+          position: 1,
+          state: 'AWAITING_CHECKS',
+          enqueuedAt: options.since,
+          pullRequest: {
+            number: 2000,
+            headRefOid: SHA,
+            url: 'https://github.com/pj-tmt/tmt/pull/2000',
+          },
+        },
+      ],
+    },
+  });
+  const releases = Array.from({ length: 700 }, (_, i) => ({
+    id: i + 1,
+    tag_name: `history-${i}`,
+    draft: false,
+    body: '',
+    target_commitish: SHA,
+    assets: [],
+  }));
+  const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-log-volume-'));
+  let now = 0,
+    logs = 0;
+  const calls: { endpoint: string; timeoutMs: number }[] = [];
+  const api = createTickClient({
+    repository: options.repository,
+    cache,
+    clock: () => now,
+    execute: (_program, args, command) => {
+      const endpoint =
+        args[1] === 'graphql'
+          ? args[5] === `query=${QUEUE_QUERY}`
+            ? 'graphql:queue'
+            : 'graphql:reviews'
+          : args.find((arg) => arg.startsWith('repos/'))!;
+      calls.push({ endpoint, timeoutMs: command.timeoutMs });
+      const log = endpoint.endsWith('/logs');
+      const cost = log
+        ? logCosts[Math.min(logs++, logCosts.length - 1)]
+        : endpoint.includes('/attempts/')
+          ? 1_800
+          : 500;
+      now += Math.min(cost, command.timeoutMs);
+      if (cost > command.timeoutMs) throw new Error('Command timed out.');
+      if (log) return 'test sampled_failure ... FAILED\n';
+      if (endpoint === 'graphql:queue')
+        return JSON.stringify({
+          data: { repository: { mergeQueue: { entries: evidence.queue() } } },
+        });
+      if (endpoint === 'graphql:reviews')
+        return JSON.stringify({
+          data: { rateLimit: { cost: 1 }, nodes: evidence.reviews(['PR_2000']) },
+        });
+      if (endpoint === 'repos/pj-tmt/tmt') return '{"permissions":{"push":true}}';
+      if (endpoint.includes('/releases?')) {
+        const page = Number(new URL(`https://api.github.com/${endpoint}`).searchParams.get('page'));
+        return `HTTP/2 200 OK\r\nLink: <https://api.github.com/repos/pj-tmt/tmt/releases?per_page=100&page=7>; rel="last"\r\n\r\n${JSON.stringify(releases.slice((page - 1) * 100, page * 100))}`;
+      }
+      return JSON.stringify(evidence.get(endpoint));
+    },
+  });
+  return {
+    api,
+    calls,
+    now: () => now,
+    dispose: () => rmSync(cache, { recursive: true, force: true }),
+  };
+}
+
+describe('bounded failed-worker diagnostics', () => {
+  it.each([10, 30])(
+    'completes all stages with %i failed workers at incident latencies',
+    (workers) => {
+      const f = timedFailureFixture(workers);
+      try {
+        const report = collectInfraTick(f.api, options);
+        expect(report.complete).toBe(true);
+        expect(report.failures).toHaveLength(workers);
+        expect(report.queue).toHaveLength(1);
+        expect(report.reviewEvidence).toHaveLength(1);
+        expect(f.api.evidence().requests).toBeLessThanOrEqual(80);
+        expect(f.now()).toBeLessThan(120_000);
+        const reads = f.calls.filter((call) => call.endpoint.endsWith('/logs'));
+        expect(reads.map((call) => call.endpoint.match(/jobs\/(\d+)/)?.[1])).toEqual([
+          '1011',
+          '911',
+          '811',
+        ]);
+        expect(reads.every((call) => call.timeoutMs <= 20_000)).toBe(true);
+        expect(report.logCoverage).toEqual({ read: 2, total: workers, attempted: 3 });
+        expect(report.repeated.map((row) => row.test)).toEqual(['sampled_failure']);
+        expect(f.api.evidence().requests).toBe(40);
+        expect(f.now()).toBe(76_300);
+        const firstLog = f.calls.indexOf(reads[0]);
+        expect(f.calls.findIndex((call) => call.endpoint === 'graphql:queue')).toBeLessThan(
+          firstLog
+        );
+        expect(f.calls.findIndex((call) => call.endpoint === 'graphql:reviews')).toBeLessThan(
+          firstLog
+        );
+        expect(f.calls.slice(firstLog).every((call) => call.endpoint.endsWith('/logs'))).toBe(true);
+        const markdown = renderInfraTick(report);
+        expect(markdown.split('\n')[1]).toContain(`logs read: 2 of ${workers} failed workers`);
+        expect(
+          markdown.split('\n').filter((line) => line.startsWith('- log not read:'))
+        ).toHaveLength(workers - 2);
+        for (const failure of report.failures.filter((row) => row.unavailable)) {
+          expect(failure.logHash).toBeNull();
+          expect(failure.tests).toEqual([]);
+          expect(markdown).toContain(`"job":${failure.job}`);
+          expect(markdown).toContain(failure.worker);
+        }
+      } finally {
+        f.dispose();
+      }
+    }
+  );
+  it('completes the measured 53-attempt mandatory ceiling and refuses the 54th', () => {
+    for (const attempts of [53, 54]) {
+      const f = timedFailureFixture(attempts, attempts);
+      try {
+        if (attempts === 53) {
+          const report = collectInfraTick(f.api, options);
+          expect(report.complete).toBe(true);
+          expect(report.failures).toHaveLength(53);
+          expect(report.logCoverage).toEqual({ read: 0, total: 53, attempted: 0 });
+          expect(f.now()).toBe(108_900);
+        } else expect(() => collectInfraTick(f.api, options)).toThrow(/API call budget exhausted/);
+        expect(f.api.evidence().requests).toBe(80);
+        expect(f.calls.some((call) => call.endpoint.endsWith('/logs'))).toBe(false);
+      } finally {
+        f.dispose();
+      }
+    }
+  });
+  it('keeps the full sixty-second optional phase inside the measured workload bound', () => {
+    for (const [workers, attempts, maximum] of [
+      [10, 10, 91_500],
+      [30, 10, 91_500],
+      [20, 20, 109_500],
+    ]) {
+      const f = timedFailureFixture(workers, attempts, [20_000]);
+      try {
+        const report = collectInfraTick(f.api, options);
+        expect(report.complete).toBe(true);
+        expect(report.logCoverage).toEqual({ read: 3, total: workers, attempted: 3 });
+        expect(f.now()).toBe(maximum);
+        expect(
+          f.calls
+            .filter((call) => call.endpoint.endsWith('/logs'))
+            .every((call) => call.timeoutMs === 20_000)
+        ).toBe(true);
+      } finally {
+        f.dispose();
+      }
+    }
+  });
+});
+
 describe('bounded read-only tick transport', () => {
   function client(
     execute: Parameters<typeof createTickClient>[0]['execute'],
@@ -594,6 +789,62 @@ describe('bounded read-only tick transport', () => {
     const cache = mkdtempSync(path.join(os.tmpdir(), 'infra-tick-'));
     return { cache, api: createTickClient({ repository: 'pj-tmt/tmt', cache, execute, clock }) };
   }
+  it('bounds the log phase and request time, retains headroom and reuses full-log cache', () => {
+    let now = 0;
+    const timeouts: number[] = [];
+    const { cache, api } = client(
+      (_program, _args, command) => {
+        timeouts.push(command.timeoutMs);
+        now += 20_000;
+        return 'test observed ... FAILED\n';
+      },
+      () => now
+    );
+    try {
+      expect(api.failureLog(1).text).toContain('observed');
+      expect(api.failureLog(1).text).toContain('observed'); // Full immutable cache, no call.
+      expect(api.evidence().requests).toBe(1);
+      expect(api.failureLog(2).text).toContain('observed');
+      expect(api.failureLog(3).text).toContain('observed');
+      expect(api.failureLog(4)).toMatchObject({
+        attempted: false,
+        reason: 'diagnostic time/headroom',
+      });
+      expect(timeouts).toEqual([20_000, 20_000, 20_000]);
+      now = 120_000;
+      expect(() => api.failureLog(5)).toThrow('time budget exhausted');
+      expect(api.evidence().requests).toBe(3);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  });
+  it('reduces a log timeout to retain ten seconds and sends no request without two-call headroom', () => {
+    let now = 0,
+      calls = 0;
+    const timeouts: number[] = [];
+    const { cache, api } = client(
+      (_program, args, command) => {
+        calls++;
+        if (args.includes('--allow-escape-sequences')) timeouts.push(command.timeoutMs);
+        return args.includes('--allow-escape-sequences') ? 'test observed ... FAILED\n' : '{}';
+      },
+      () => now
+    );
+    try {
+      now += 105_000;
+      expect(api.failureLog(1).text).toContain('observed');
+      expect(timeouts).toEqual([5_000]);
+      now += 5_000;
+      expect(api.failureLog(2)).toMatchObject({ attempted: false });
+      expect(calls).toBe(1);
+      for (let i = 0; i < 77; i++) api.get(`repos/pj-tmt/tmt/probe/${i}`);
+      expect(api.evidence().requests).toBe(78);
+      expect(api.failureLog(3)).toMatchObject({ attempted: false, reason: 'two-call headroom' });
+      expect(calls).toBe(78);
+    } finally {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  });
   it('permits one fixed query, refuses mutation/query substitution and shares the request budget', () => {
     const calls: string[][] = [];
     const { cache, api } = client((_program, args) => {
@@ -626,9 +877,9 @@ describe('bounded read-only tick transport', () => {
       rmSync(cache, { recursive: true, force: true });
     }
   });
-  it('resumes a 54-failure baseline in two bounded invocations using qualified immutable evidence', () => {
+  it('resumes a 70-failure baseline in two bounded invocations using qualified immutable evidence', () => {
     const evidence = fixture({
-      runs: Array.from({ length: 54 }, (_, i) => run(i + 1, { conclusion: 'failure' })),
+      runs: Array.from({ length: 70 }, (_, i) => run(i + 1, { conclusion: 'failure' })),
       jobs: [worker(11)],
       open: Array.from({ length: 39 }, (_, i) => ({
         id: i + 1,
@@ -655,7 +906,7 @@ describe('bounded read-only tick transport', () => {
       const resumed = createTickClient({ repository: 'pj-tmt/tmt', cache, execute });
       const report = collectInfraTick(resumed, options);
       expect(report.complete).toBe(true);
-      expect(report.failures).toHaveLength(54);
+      expect(report.failures).toHaveLength(70);
       expect(resumed.evidence().requests).toBeLessThanOrEqual(80);
       expect(evidence.calls.some((call) => /\/pulls\/\d+/.test(call))).toBe(false);
     } finally {
@@ -994,18 +1245,28 @@ describe('one-pass hourly PR volume through the real CLI', () => {
             until: options.since,
             failedDraftIds: [],
             failedRunAttempts: [],
-            activeRunIds: Array.from({ length: 32 }, (_, i) => i + 1),
+            activeRunIds: ['sampled-logs', 'failed-job-budget', 'clock-budget'].includes(mode)
+              ? []
+              : Array.from({ length: 32 }, (_, i) => i + 1),
           });
     writeFileSync(cursorFile, cursor);
     const map = path.join(directory, 'review-map.json');
     writeFileSync(map, JSON.stringify(options.reviewMap));
+    const clockFile = path.join(directory, 'clock.txt');
+    writeFileSync(clockFile, '0');
+    const clockHook = path.join(directory, 'clock-hook.mjs');
+    writeFileSync(
+      clockHook,
+      `import {readFileSync} from 'node:fs'; Date.now=()=>${Date.parse(options.until)}+Number(readFileSync(process.env.CLOCK_FILE,'utf8'));\n`
+    );
     writeExecutable(
       path.join(directory, 'gh'),
       `#!${process.execPath}
 const args=process.argv.slice(2), mode=process.env.VOLUME_MODE, count=Number(process.env.VOLUME_COUNT);
 const sha=${JSON.stringify(SHA)}, until=${JSON.stringify(options.until)};
 const endpoint=args.find(arg=>arg.startsWith('repos/'));
-const run=id=>({id,head_sha:sha,run_attempt:1,created_at:'2026-10-18T00:30:00Z',name:'CI',event:'pull_request',status:'completed',conclusion:'success',pull_requests:[{number:id}]});
+const failedCount=mode==='sampled-logs'?10:mode==='failed-job-budget'?90:0;
+const run=id=>({id,head_sha:sha,run_attempt:1,created_at:'2026-10-18T00:30:00Z',name:'CI',event:'pull_request',status:'completed',conclusion:failedCount?'failure':'success',pull_requests:[{number:id}]});
 const files=pr=>Array.from({length:mode==='overflow'||(mode==='pagination'&&pr===1)?101:1},(_,i)=>({filename:'.github/file-'+i+'.yml'}));
 const comment=pr=>({id:pr,body:'Observed '+sha+'\\nAgent: tmt-lead codex-sol-high',html_url:'https://github.com/pj-tmt/tmt/pull/'+pr+'#issuecomment-'+pr});
 if(args[1]==='graphql'){
@@ -1020,9 +1281,19 @@ if(args[1]==='graphql'){
 } else if(endpoint==='repos/pj-tmt/tmt')console.log('{"permissions":{"push":true}}');
 else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
 else if(endpoint.includes('/actions/runs?')){
- const status=new URL('https://api.github.com/'+endpoint).searchParams.get('status');
- console.log(JSON.stringify(status?{total_count:0,workflow_runs:[]}:{total_count:32,workflow_runs:[run(1)]}));
-} else if(endpoint.startsWith('repos/pj-tmt/tmt/actions/runs/'))console.log(JSON.stringify(run(Number(endpoint.split('/').at(-1)))));
+ const q=new URL('https://api.github.com/'+endpoint).searchParams,status=q.get('status');
+ if(mode==='clock-budget'&&status==='failure')require('node:fs').writeFileSync(process.env.CLOCK_FILE,'120000');
+ let rows=Array.from({length:failedCount||32},(_,i)=>run(i+1));
+ if(status)rows=status==='failure'&&failedCount?rows:[];
+ if(q.get('created')){const [from,to]=q.get('created').split('..').map(Date.parse);rows=rows.filter(r=>Date.parse(r.created_at)>=from&&Date.parse(r.created_at)<=to);}
+ const size=Number(q.get('per_page')),page=Number(q.get('page'));
+ console.log(JSON.stringify({total_count:rows.length,workflow_runs:rows.slice((page-1)*size,page*size)}));
+} else if(endpoint.includes('/attempts/')&&endpoint.includes('/jobs?')){
+ const id=Number(endpoint.split('/')[5]),n=mode==='sampled-logs'?3:1;
+ const jobs=Array.from({length:n+1},(_,i)=>({id:id*100+10+i,run_id:id,run_attempt:1,head_sha:sha,name:i?'Partition '+i:'Docker E2E',status:'completed',conclusion:'failure',completed_at:until,html_url:'https://github.com/pj-tmt/tmt/actions/runs/'+id+'/job/'+(id*100+10+i),steps:[{name:'Run tests',conclusion:'failure'}]}));
+ console.log(JSON.stringify({total_count:jobs.length,jobs}));
+} else if(endpoint.includes('/actions/jobs/')&&endpoint.endsWith('/logs'))console.log('test sampled_failure ... FAILED');
+else if(endpoint.startsWith('repos/pj-tmt/tmt/actions/runs/'))console.log(JSON.stringify(run(Number(endpoint.split('/').at(-1)))));
 else if(endpoint.includes('/issues?state=closed'))console.log(JSON.stringify(mode==='hydration-budget'?Array.from({length:30},(_,i)=>({id:1000+i,number:1000+i,node_id:'PR_'+(1000+i),updated_at:until,pull_request:{url:'https://api.github.com/repos/pj-tmt/tmt/pulls/'+(1000+i)}})):[]));
 else if(endpoint.includes('/pulls?')){
  const q=new URL('https://api.github.com/'+endpoint).searchParams, page=Number(q.get('page'));
@@ -1041,17 +1312,18 @@ else if(endpoint.includes('/pulls?')){
     return {
       directory,
       cursor,
-      invoke: () =>
+      invoke: (until = options.until) =>
         spawnSync(
           process.execPath,
           [
+            ...(mode === 'clock-budget' ? ['--import', clockHook] : []),
             fileURLToPath(new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)),
             '--output',
             directory,
             '--review-map',
             map,
             '--until',
-            options.until,
+            until,
           ],
           {
             encoding: 'utf8',
@@ -1061,6 +1333,7 @@ else if(endpoint.includes('/pulls?')){
               PATH: `${directory}${path.delimiter}${process.env.PATH}`,
               VOLUME_COUNT: String(count),
               VOLUME_MODE: mode,
+              CLOCK_FILE: clockFile,
               TMT_AGENT: '1',
               BROWSER: 'true',
             },
@@ -1076,6 +1349,49 @@ else if(endpoint.includes('/pulls?')){
       cleanup: () => rmSync(directory, { recursive: true, force: true }),
     };
   }
+  it('advances a sampled-log cursor and retains unread workers without retrying them', () => {
+    const test = volume(1, 'sampled-logs');
+    try {
+      const result = test.invoke();
+      expect(result.status, result.stdout + result.stderr).toBe(0);
+      expect(test.report()).toMatchObject({
+        complete: true,
+        logCoverage: { read: 3, total: 30, attempted: 3 },
+      });
+      expect(JSON.parse(test.currentCursor()).until).toBe(options.until);
+      expect(result.stdout.split('\n')[1]).toContain('logs read: 3 of 30 failed workers');
+      expect(test.calls().filter((row) => (row.endpoint ?? '').endsWith('/logs'))).toHaveLength(3);
+      const next = test.invoke('2026-10-18T02:00:00Z');
+      expect(next.status, next.stdout + next.stderr).toBe(0);
+      expect(test.report()).toMatchObject({
+        complete: true,
+        logCoverage: { read: 3, total: 30, attempted: 0 },
+      });
+      expect(JSON.parse(test.currentCursor()).until).toBe('2026-10-18T02:00:00Z');
+      expect(test.calls().filter((row) => (row.endpoint ?? '').endsWith('/logs'))).toHaveLength(3);
+    } finally {
+      test.cleanup();
+    }
+  });
+  it.each(['failed-job-budget', 'clock-budget'])(
+    'keeps cursor bytes on genuine %s refusal',
+    (mode) => {
+      const test = volume(0, mode);
+      try {
+        const result = test.invoke();
+        expect(result.status, result.stdout + result.stderr).toBe(1);
+        expect(test.currentCursor()).toBe(test.cursor);
+        expect(result.stdout, result.stderr).toContain('# Infra tick refused');
+        expect(test.report().complete).toBe(false);
+        expect(test.report().anomalies[0].message).toContain(
+          mode === 'clock-budget' ? 'time budget exhausted' : 'API call budget exhausted'
+        );
+        expect(test.calls().some((row) => (row.endpoint ?? '').endsWith('/logs'))).toBe(false);
+      } finally {
+        test.cleanup();
+      }
+    }
+  );
   it.each([20, 30])('completes a %i-PR, 52-call non-review window in one invocation', (count) => {
     const test = volume(count);
     try {
