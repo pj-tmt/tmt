@@ -684,8 +684,9 @@ It reads only the existing bounded owner catalog/fingerprint projection and fres
 cache; it starts no refresh, fold, subscription or new state. Both counts exclude archived
 pages: Pages counts the remaining pages, and `needsYou` counts waiting pages, matching the
 in-app Needs-you chip (two waiting items on one page count once). An empty catalog has known
-zero counts. If any non-archived summary is missing or stale, the answer keeps its rail and
-menu but omits `needsYou` and the Pages count, never inventing zero. An unavailable catalog
+zero counts. The Pages count comes from the catalog alone and stays known when summaries
+are unavailable. If any non-archived summary is missing or stale, the answer keeps its rail
+and menu but omits `needsYou`, never inventing zero. An unavailable catalog
 projection or a count above the descriptor bound returns a typed refusal. The reply is
 display-only and does not change page admission. Browser mount traffic cannot call it.
 

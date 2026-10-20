@@ -370,12 +370,11 @@ impl Registration {
         let mut answer = serde_json::json!({
             "version":1,
             "rail":{"label":"Colab","icon":"file-text","path":"/","order":100},
-            "menu":[{"id":"pages","label":"Pages","path":"/"}],
+            "menu":[{"id":"pages","label":"Pages","path":"/","count":{"value":pages.len(),"kind":"plain"}}],
             "settings":[]
         });
         if let Some(needs_you) = needs_you {
             answer["needsYou"] = serde_json::json!(needs_you);
-            answer["menu"][0]["count"] = serde_json::json!({"value":pages.len(),"kind":"plain"});
         }
         serde_json::to_vec(&answer).map_err(|_| Code::Unavailable)
     }
@@ -1476,7 +1475,10 @@ mod describe_tests {
                 serde_json::from_slice(&service.describe().unwrap()).unwrap();
             assert_eq!(answer["rail"]["label"], "Colab");
             assert!(answer.get("needsYou").is_none());
-            assert!(answer["menu"][0].get("count").is_none());
+            assert_eq!(
+                answer["menu"][0]["count"]["value"], 1,
+                "catalog count stays known"
+            );
             assert!(
                 service
                     .summaries

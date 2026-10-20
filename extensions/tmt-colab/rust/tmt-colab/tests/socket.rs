@@ -6197,7 +6197,7 @@ fn describe_keeps_navigation_without_unknown_counts_and_refuses_busy_catalog() {
         body.get("needsYou").is_none(),
         "unknown must never become zero"
     );
-    assert!(body["menu"][0].get("count").is_none());
+    assert_eq!(body["menu"][0]["count"]["value"], 1);
     let held = running.registration.lock().unwrap();
     let answer = running.request(&callback);
     assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
