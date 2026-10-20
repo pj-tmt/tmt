@@ -561,15 +561,15 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 ## Remote extension pilot
 
-`tmt remote`: `extensions/tmt-remote`. Fixed public Core JSON calls use absolute
+`tmt remote`: `extensions/tmt-remote`. Fixed public Core JSON uses absolute
 `TMT_EXECUTABLE` via `tmt-invoke`. Remote owns `<dataRoot>/remote/` via
 [state leaf](#shared-extension-state-layout). Core delegates replaced Remote restart;
 Remote owns listener/state/[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
-Home/Remote pages/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
+Home/Remote/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).
-Remote owns authority; UI grants none. Local: device keys/grants/signatures.
+Remote owns authority; UI grants none. Local: keys/grants/signatures/last-use/cleanup.
 Firestore: Auth/Rules only; Core never uses Remote trust.
 `message`: local envelopes/grants/scope/allowlist/hold/uncertainty/audit.
 Proposed (#3290): `talk` → Remote interface → target host → driver.

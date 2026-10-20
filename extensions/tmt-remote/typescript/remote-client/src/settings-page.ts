@@ -40,6 +40,7 @@ function confirmDevice(
   target: Device,
   kind: 'talk' | 'revoke',
 ): boolean {
+  page.removalPreview = undefined;
   const signature = targetSignature(target);
   if (confirmation?.button === button && confirmation.signature === signature) {
     cancelConfirmation();
@@ -51,7 +52,9 @@ function confirmDevice(
   consequence.textContent =
     kind === 'talk'
       ? `${target.name} will be able to send to its permitted agents. Press Enable sending again to confirm. You can disable sending later.`
-      : `This ends access for ${target.name}${target.thisBrowser ? ', the browser you are using' : ''}. Press Revoke again to confirm. Pair again to restore access.`;
+      : target.thisBrowser
+        ? `This ends Remote access for this browser (${target.name}). Press Remove again to confirm.`
+        : `This ends Remote access for ${target.name}. Press Remove again to confirm.`;
   panel.hidden = false;
   button.setAttribute('aria-describedby', consequence.id);
   button.setAttribute('aria-expanded', 'true');
@@ -87,7 +90,7 @@ function commandNotice(target: HTMLElement, text: string): void {
 
 function capacityCopy(refusal?: InstanceType<typeof RefusalError>): string | undefined {
   return refusal?.code === 'REMOTE_SESSION_LIMIT'
-    ? `This device already has ${refusal.limit} open sessions, the limit. Close another Remote tab, or change the limit with tmt remote settings sessions-per-device <n> (or off).`
+    ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged."
     : undefined;
 }
 
@@ -145,7 +148,11 @@ function deviceFeedback(clientId: string): HTMLElement {
 }
 function renderOutcome(): void {
   const origin =
-    page.intent?.kind === 'setting' ? page.intent.input.setting : page.intent?.input.clientId;
+    page.intent?.kind === 'setting'
+      ? page.intent.input.setting
+      : page.intent?.kind === 'remove-others'
+        ? undefined
+        : page.intent?.input.clientId;
   const target =
     origin &&
     [...document.querySelectorAll<HTMLElement>('[data-feedback]')].find(
@@ -230,7 +237,11 @@ function render(): void {
   if (announcement && element('access-announcement').textContent !== announcement)
     element('access-announcement').textContent = announcement;
   const editable = page.access === 'live' && page.settings?.capabilities.settingsWrite === true;
-  element('read-only').hidden = editable;
+  element('read-only').hidden = editable || page.access !== 'live';
+  const designation = element('designation-command');
+  designation.hidden = editable || page.access !== 'live';
+  if (!designation.hidden)
+    element('designation-code').textContent = `tmt remote devices designate ${page.clientId}`;
   element('access-notice').dataset.tone =
     page.access === 'live'
       ? editable
@@ -244,7 +255,9 @@ function render(): void {
     (page.busy
       ? 'A request is in progress. Wait for its outcome.'
       : !editable
-        ? 'Changes are unavailable in this browser. Use the local CLI.'
+        ? page.access === 'live'
+          ? ''
+          : 'Current browser access could not be confirmed.'
         : page.outcome?.state === 'unknown'
           ? 'Another change is still unconfirmed. Check its original result first.'
           : page.outcome?.state === 'refused' &&
@@ -308,6 +321,22 @@ function render(): void {
     limitChanged(),
     mode.value !== 'custom' || custom.checkValidity(),
   );
+  const removeOthers = element<HTMLButtonElement>('remove-others');
+  removeOthers.hidden =
+    page.removalPreview?.count === 0 ||
+    (page.onFirstPage &&
+      page.devices?.nextCursor === null &&
+      page.devices.devices.every((device) => device.clientId === page.clientId));
+  removeOthers.disabled = !page.writable || page.removalPreview?.count === 0;
+  const preview = page.removalPreview;
+  const panel = element('remove-others-confirmation');
+  panel.hidden = !preview || preview.count === 0 || !page.writable;
+  removeOthers.setAttribute('aria-expanded', String(!panel.hidden));
+  if (!panel.hidden && preview) {
+    element('remove-others-consequence').textContent =
+      `This ends Remote access for ${preview.count} other ${preview.count === 1 ? 'device' : 'devices'}. This browser stays connected. Press Remove the others again to confirm.`;
+    removeOthers.setAttribute('aria-describedby', 'remove-others-consequence');
+  }
   refresh.disabled = page.busy;
   more.hidden = !page.devices?.nextCursor;
   more.disabled = page.busy;
@@ -354,7 +383,7 @@ function render(): void {
         revoke.dataset.variant = 'destructive';
         const revokeLabel = document.createElement('span');
         revokeLabel.className = 'tmt-ui-action-label';
-        revokeLabel.textContent = 'Revoke';
+        revokeLabel.textContent = 'Remove';
         revoke.append(revokeLabel);
         revoke.addEventListener('click', (event) => {
           if (event.detail > 1 || !page.writable) return;
@@ -443,7 +472,7 @@ function render(): void {
         devices.append(row);
       }
       row.querySelector('.device-summary')!.textContent =
-        `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : `Paired · Sending ${device.talkEnabled ? 'on' : 'off'}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? 'session' : 'sessions'} · Last activity ${device.lastActivityAtMs === null ? 'unavailable' : new Date(device.lastActivityAtMs).toLocaleString()}`;
+        `${device.name}${device.thisBrowser ? ' · This device' : ''} · ${device.kind} · ${device.revoked ? 'Revoked' : `Paired · Sending ${device.talkEnabled ? 'on' : 'off'}`} · ${device.liveSessionCount} live ${device.liveSessionCount === 1 ? 'session' : 'sessions'} · Last used ${device.lastUsedAtMs === null ? 'Not recorded' : new Date(device.lastUsedAtMs).toLocaleString()}`;
       row.querySelector('[data-action="talk"] .tmt-ui-action-label')!.textContent =
         device.talkEnabled ? 'Disable sending' : 'Enable sending';
       const form = row.querySelector('form')!;
@@ -466,7 +495,7 @@ function render(): void {
         );
       row
         .querySelector('button[data-action="revoke"]')!
-        .setAttribute('aria-label', `Revoke ${device.name}`);
+        .setAttribute('aria-label', `Remove ${device.name}`);
       name.disabled = !editable || device.revoked;
       if (editable) name.removeAttribute('aria-describedby');
       else name.setAttribute('aria-describedby', 'read-only');
@@ -474,6 +503,7 @@ function render(): void {
       disabledReason.textContent =
         page.outcome?.state === 'unknown' &&
         page.intent?.kind !== 'setting' &&
+        page.intent?.kind !== 'remove-others' &&
         page.intent?.input.clientId === device.clientId
           ? ''
           : device.revoked
@@ -590,6 +620,54 @@ function navigate(cursor: string | null): void {
   }
   void run(() => refreshView(cursor));
 }
+element('copy-designation').addEventListener('click', () => {
+  if (page.access !== 'live') return;
+  void navigator.clipboard.writeText(`tmt remote devices designate ${page.clientId}`).then(
+    () => {
+      element('designation-copy-feedback').textContent = 'Copied.';
+    },
+    () => {
+      element('designation-copy-feedback').textContent =
+        'Copy failed. Select the command and copy it manually.';
+    },
+  );
+});
+element('remove-others').addEventListener('click', (event) => {
+  if ((event as MouseEvent).detail > 1 || !page.writable) return;
+  for (const device of page.devices?.devices ?? []) {
+    const draft = rows.get(device.clientId)?.querySelector<HTMLInputElement>('input');
+    if (draft && draft.value !== device.name) {
+      page.notice = 'Save or restore the unsent device name before changing pages.';
+      render();
+      draft.focus();
+      return;
+    }
+  }
+  if (page.removalPreview && page.removalPreview.count > 0) {
+    const fingerprint = page.removalPreview.fingerprint;
+    page.removalPreview = undefined;
+    void change({
+      kind: 'remove-others',
+      input: { operationId: crypto.randomUUID(), fingerprint },
+    });
+  } else {
+    cancelConfirmation();
+    void run(() => page.previewRemoval());
+  }
+});
+element('cancel-remove-others').addEventListener('click', () => {
+  page.removalPreview = undefined;
+  render();
+  element('remove-others').focus();
+});
+element('remove-others').addEventListener('keydown', (event) => {
+  const key = event as KeyboardEvent;
+  if ((key.repeat || key.isComposing) && ['Enter', ' '].includes(key.key)) event.preventDefault();
+  if (key.key === 'Escape') {
+    page.removalPreview = undefined;
+    render();
+  }
+});
 more.addEventListener('click', () => navigate(page.devices?.nextCursor ?? null));
 first.addEventListener('click', () => navigate(null));
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-recover]'))
@@ -617,7 +695,7 @@ try {
     capacity ??
       (ended
         ? 'Current browser access refused. Use the local CLI.'
-        : 'Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.'),
+        : "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged."),
   );
   element('access-announcement').textContent =
     capacity ?? (ended ? 'Access ended' : 'Access unconfirmed');

@@ -93,6 +93,7 @@ export type {
   ManagementOutcome,
   RemoteSettings,
   DevicePage,
+  RemovalPreview,
 } from './management.js';
 export type {
   ClientErrorCode,
@@ -143,6 +144,36 @@ async function load(): Promise<Stored | undefined> {
 async function save(record: Stored): Promise<void> {
   const objects = await store('readwrite');
   await request(() => objects.put(record, RECORD));
+}
+
+/** A stored identity is retained unless the pinned machine proves it is dead. */
+async function existingPairing(signal: AbortSignal): Promise<Stored | undefined> {
+  let record: Stored | undefined;
+  try {
+    record = await load();
+  } catch {
+    throw new ReopenSessionError('transient', 'pairing-unavailable');
+  }
+  active(signal);
+  if (record === undefined) return undefined;
+  try {
+    await reopenSession(undefined, { retry: 'bounded', signal });
+    return record;
+  } catch (error) {
+    if (
+      error instanceof ReopenSessionError &&
+      (error.reason === 'revoked' || error.reason === 'expired')
+    )
+      return undefined;
+    throw error;
+  }
+}
+function pairingRecovery(error: unknown): string {
+  if (error instanceof ReopenSessionError && error.detail === 'pairing-unavailable')
+    return 'Your saved pairing could not be read. Check browser storage and try again.';
+  if (error instanceof ReopenSessionError && error.reason === 'capacity')
+    return "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.";
+  return "Remote may have stopped, or its reply couldn't be verified. Your pairing is unchanged.";
 }
 
 /** The door's answer for the calling page: this run and the page's own mount. */
@@ -439,9 +470,11 @@ export async function landingPage(): Promise<void> {
         '×',
         'Not accepted',
         "Remote didn't accept this browser",
-        authorityEnded
-          ? 'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.'
-          : "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+        refusalCode === 'REMOTE_SESSION_LIMIT'
+          ? "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged."
+          : authorityEnded
+            ? 'This pairing was removed or has expired. To use Remote here, run tmt remote pair on the machine.'
+            : "This page's connection ended. Try again. Your pairing is unchanged.",
       ],
       unconfirmed: [
         '×',
@@ -453,7 +486,7 @@ export async function landingPage(): Promise<void> {
         '×',
         'Pairing unreadable',
         "This browser's pairing can't be read",
-        'Browser storage may have been cleared or blocked. Nothing was sent.',
+        'Your saved pairing could not be read. Check browser storage and try again.',
       ],
     }[state];
     element('notice').dataset.tone =
@@ -486,7 +519,8 @@ export async function landingPage(): Promise<void> {
       );
     }
     for (const name of ['missing', 'different', 'refused', 'unconfirmed', 'unreadable'])
-      element(`steps-${name}`).hidden = name !== state;
+      element(`steps-${name}`).hidden =
+        name !== state || (name === 'refused' && !authorityEnded) || name === 'unreadable';
     element('status').hidden = state === 'missing';
     element('pairing-note').hidden = state !== 'missing';
     element('command-location').hidden = ['checking', 'connected'].includes(state);
@@ -728,6 +762,18 @@ export async function pairingPage(link: string): Promise<void> {
   const form = element('pair') as HTMLFormElement;
   const button = form.querySelector('button')!;
   button.disabled = true;
+  form.hidden = true;
+  try {
+    if (await existingPairing(lifetime.signal)) {
+      active(lifetime.signal);
+      showState(status, 'paired', 'This browser is already paired.');
+      location.replace('/remote/');
+      return;
+    }
+  } catch (error) {
+    if (!lifetime.signal.aborted) showState(status, 'blocked', pairingRecovery(error));
+    return;
+  }
   let parsed: ReturnType<typeof parseLink>;
   try {
     parsed = await resolveLink(link, (url, init) =>
@@ -752,13 +798,15 @@ export async function pairingPage(link: string): Promise<void> {
       form.hidden = true;
       if (ownsFocus) status.focus({ preventScroll: true });
       const name = (element('name') as HTMLInputElement).value.trim();
-      void ceremony(parsed, name, status, lifetime.signal).catch(() => {
+      void ceremony(parsed, name, status, lifetime.signal).catch((error) => {
         if (lifetime.signal.aborted) return;
         if (document.activeElement === element('comparison')) status.focus({ preventScroll: true });
         showState(
           status,
           'blocked',
-          'Pairing did not complete. Run tmt remote pair again for a new link.',
+          error instanceof ReopenSessionError
+            ? pairingRecovery(error)
+            : 'Pairing did not complete. Run tmt remote pair again for a new link.',
         );
       });
     },
@@ -788,6 +836,7 @@ async function automaticPairingPage(link: string, lifetime: AbortController): Pr
   globalThis.addEventListener?.('pagehide', departed, { once: true });
   let code: Uint8Array | undefined;
   let openCommand = 'tmt remote open';
+  let enrollmentAllowed = false;
   try {
     showState(status, 'waiting', 'Connecting this browser…');
     const network: typeof fetch = (url, init) => fetch(url, { ...init, signal: lifetime.signal });
@@ -802,11 +851,11 @@ async function automaticPairingPage(link: string, lifetime: AbortController): Pr
       target.startsWith('/read/')
     )
       openCommand = 'tmt colab open';
-    const record = await load();
+    const record = await existingPairing(lifetime.signal);
+    enrollmentAllowed = record === undefined;
     lifetime.signal.throwIfAborted();
     if (record) {
       // The existing signed session proves the machine pin and live device, not the inventory count.
-      await reopenSession(undefined, { signal: lifetime.signal });
       const key = await DeviceKey.fromHandle(record.handle, record.publicKey);
       await cancelAutomaticOffer({
         descriptor,
@@ -833,6 +882,7 @@ async function automaticPairingPage(link: string, lifetime: AbortController): Pr
       });
       lifetime.signal.throwIfAborted();
       await save({ handle: key.handle(), publicKey: key.publicKey(), paired: result });
+      enrollmentAllowed = false;
       await openSession(result, key, descriptor.windowId, network);
     }
     lifetime.signal.throwIfAborted();
@@ -841,6 +891,10 @@ async function automaticPairingPage(link: string, lifetime: AbortController): Pr
     if (!leaving && pairingAttempt === lifetime) {
       showState(status, 'blocked', '');
       element('state-label').textContent = 'Not connected';
+      if (error instanceof ReopenSessionError) {
+        status.textContent = pairingRecovery(error);
+        return;
+      }
       const command = document.createElement('code');
       command.className = 'tmt-ui-code';
       command.textContent = openCommand;
@@ -852,9 +906,9 @@ async function automaticPairingPage(link: string, lifetime: AbortController): Pr
             : 'Could not connect this browser. Open the page again from the machine with ',
         ),
         command,
-        document.createTextNode(refused ? '.' : '. If it still fails, run '),
+        document.createTextNode(refused || !enrollmentAllowed ? '.' : '. If it still fails, run '),
       ];
-      if (!refused) {
+      if (!refused && enrollmentAllowed) {
         const fallback = document.createElement('code');
         fallback.className = 'tmt-ui-code';
         fallback.textContent = 'tmt remote pair';
@@ -897,14 +951,22 @@ async function ceremony(
     signal,
   });
   signal.throwIfAborted();
-  await save({
-    handle: key.handle(),
-    publicKey: key.publicKey(),
-    paired: result,
-  });
-  await openSession(result, key, descriptor.windowId, (url, init) =>
-    fetch(url, { ...init, signal }),
-  );
+  try {
+    await save({
+      handle: key.handle(),
+      publicKey: key.publicKey(),
+      paired: result,
+    });
+  } catch {
+    throw new ReopenSessionError('transient', 'pairing-unavailable');
+  }
+  try {
+    await openSession(result, key, descriptor.windowId, (url, init) =>
+      fetch(url, { ...init, signal }),
+    );
+  } catch {
+    throw new ReopenSessionError('unconfirmed', 'admission-unconfirmed');
+  }
   signal.throwIfAborted();
   showState(status, 'paired', 'This browser is paired. You can close this page.');
   element('entry-link').hidden = false;

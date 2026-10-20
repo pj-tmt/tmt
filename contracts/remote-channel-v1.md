@@ -336,6 +336,16 @@ operation; its origin echoes the pinned client origin. Controls are `session.ope
 response payloads, not HTTP states. Replies from agents remain core-owned; remote publishes their
 correlated availability/results, never fabricates an agent signature.
 
+Pairing is durable across session end, tab closure and serve restart until the owner removes the
+device (or an explicit grant expiry is proved). The manual and automatic pairing pages first
+try bounded session reopen with the stored identity. Success creates no grant or candidate:
+manual entry shows `This browser is already paired.` and continues to `/remote/`, leaving the
+manual offer and terminal untouched; automatic entry cancels its own fresh offer as before.
+Only an absent record or a machine-signed revoked/expired grant permits new enrollment.
+Unreadable storage, capacity, mismatch and unconfirmed admission retain the stored record and
+stop without enrolling. No replacement proof, envelope, receipt or grant-identity change exists.
+Session limit/end and page-unavailable recovery never instruct a still-paired browser to pair again.
+
 For a committed key, `session.open` is a signed control using `sessionId:"new"`, `sequence:"0"` and
 payload `{clientNonce}` (random 128-bit lowercase hex). Its timestamp must be within 60 seconds of
 machine time. Reusing that nonce within timestamp validity is refused. Return a machine-signed
@@ -344,12 +354,12 @@ response whose sessionId is the fresh session UUID and whose payload is
 when the grant has none; a session also ends when remote stops. Opening a session is silent and
 never asks the owner to pair again. The client verifies the paired machine key before trusting it.
 Each open adds an independent session for the device, bound to the same grant and revision;
-opening never widens scope. `limits::DEFAULT_SESSIONS_PER_DEVICE` caps sessions at 8 by default.
+opening never widens scope. The local per-device session limit defaults to off/unlimited.
 `tmt remote settings sessions-per-device <n>|off` sets a positive limit or disables it. An
-absent `sessionsPerDevice` key in Remote's `settings.json` means 8; explicit null (`off`) means
+absent `sessionsPerDevice` key in Remote's `settings.json` means unlimited; explicit null (`off`) means
 unlimited. Both plain settings and JSON show the limit and its source (`default` or
 `settings.json`); JSON uses null for unlimited. Serve reads the setting on each open, with no
-restart. Damaged or unreadable settings use the default of 8. The active limit ends the least
+restart. Damaged or unreadable settings use the unlimited default. The active limit ends the least
 recently used sessions of that device until the new session fits; other devices are unaffected.
 The session table is keyed by sessionId with clientId indexed. Migration preserves grants and
 maps each former single-session row, including its counters, to one entry. Persisted rows never
@@ -411,7 +421,7 @@ At the cap, an open evicts only the device's most idle session without a live tr
 an attached session is never a capacity victim. If no detached session can make room, the
 fresh signed open receives `REMOTE_SESSION_LIMIT` with the active positive `limit` and
 same-origin `settingsUrl`. Close another page or change the owner-configured session limit;
-capacity is not transient connection health and does not widen itself. The default remains 8.
+capacity is not transient connection health and does not widen itself. The default is off/unlimited.
 A rejected fresh open uses the existing machine-signed correlated response envelope with
 `sessionId:"new"` and response sequence `1`, and allocates no Session, cookie or durable
 sequence row. The fresh nonce is remembered within the existing bounded replay window;
@@ -810,9 +820,9 @@ and approvals are unchanged.
 
 The management surface is typed and Remote-only: effective `open` and `sessions-per-device`
 settings with their sources, bounded paired-device/session-count/activity metadata, and designated
-browser actions to change those settings, rename or revoke a paired device. Reads expose no keys,
+browser actions to change those settings, rename or remove paired devices, including all others while keeping the caller. Reads expose no keys,
 cookies, session tokens or core inventory. Settings use the CLI's existing store, validation and
-locking; absent/default session cap 8 and `off`/unlimited semantics remain unchanged. Device
+locking; absent/default and explicit `off` are unlimited; explicit positive limits remain available. Device
 mutations reuse Remote's grant-revision, session cleanup and device-event behavior. Explicit
 trusted UI actions authorize writes; presentation state does not. A self-talk change or revoke can
 end the caller Session after a committed effect; lost acknowledgment must not be reported as no effect.
@@ -846,20 +856,22 @@ Management payloads are at most 1024 decoded UTF-8 bytes, strict JSON objects wi
 fields. Mutation `operationId` is a canonical UUIDv4 equal to the signed envelope ID. Read
 requests use a fresh envelope ID; original-operation lookup never adopts or executes a mutation.
 
-| Operation                     | Exact input                                                                                                      | Result                                                                 |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `remote.settings.show`        | `{}` or `{firestore:true}`                                                                                       | Settings view below                                                    |
-| `remote.devices.list`         | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
-| `remote.settings.set`         | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
-| `remote.devices.rename`       | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
-| `remote.devices.talk`         | `{operationId,clientId,enabled:boolean}`                                                                         | Management outcome; changes only the talk scope                        |
-| `remote.devices.revoke`       | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
-| `remote.management.operation` | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
+| Operation                              | Exact input                                                                                                      | Result                                                                 |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `remote.settings.show`                 | `{}` or `{firestore:true}`                                                                                       | Settings view below                                                    |
+| `remote.devices.list`                  | `{cursor:null\|string,limit:integer}`                                                                            | Device page below; limit 1–50                                          |
+| `remote.settings.set`                  | `{operationId,setting:"open",value:boolean}` or `{operationId,setting:"sessions-per-device",value:string\|null}` | Management outcome below                                               |
+| `remote.devices.rename`                | `{operationId,clientId,name}`                                                                                    | Management outcome; existing 1–64-byte nonblank/control-free name rule |
+| `remote.devices.talk`                  | `{operationId,clientId,enabled:boolean}`                                                                         | Management outcome; changes only the talk scope                        |
+| `remote.devices.remove-others.preview` | `{}`                                                                                                             | `{count:integer,fingerprint:string}`; designated browser only          |
+| `remote.devices.remove-others`         | `{operationId,fingerprint}`                                                                                      | Management outcome; keeper is the authenticated caller                 |
+| `remote.devices.revoke`                | `{operationId,clientId}`                                                                                         | Management outcome                                                     |
+| `remote.management.operation`          | `{operationId}`                                                                                                  | Only the caller's original management outcome, with a live grant       |
 
 A settings value is exactly `{open:boolean,source:"default"|"settings.json",
 sessionsPerDevice:string|null,sessionsPerDeviceSource:"default"|"settings.json",warning:string|null}`.
 The cap uses a canonical positive decimal string checked against the native target's `usize`
-range, without JavaScript rounding; default is `"8"`, null means off/unlimited. This wire encoding
+range, without JavaScript rounding; default is null (off/unlimited). This wire encoding
 does not change the JSON file or CLI's numeric representation, validation or supported values.
 Warning is null or `settings.json could not be read; defaults apply`. Malformed/unreadable fallback
 reports default effective values and sources with that warning. A save does not evict current
@@ -883,22 +895,41 @@ A device summary is exactly
 `addon` or `cli`, expiry is null or a JSON-safe millisecond integer and revision is positive and
 JSON-safe; `talkEnabled` is the configured scope bit, not proof of live authority.
 A list row adds exactly `{thisBrowser:boolean,liveSessionCount:integer,
-lastActivityAtMs:null|integer}`. The page is `{devices:[row],nextCursor:null|string}`. Store performs
-UUID-keyset ordering and SQL limit+one-lookahead before materializing rows. Its 98-character
+lastActivityAtMs:null|integer,lastUsedAtMs:null|integer}`. The page is `{devices:[row],nextCursor:null|string}`. Store performs
+revoked-row exclusion, UUID-keyset ordering and SQL limit+one-lookahead before materializing rows. Its 98-character
 base64url cursor encodes only caller UUID and last UUID, is checked against the admitted caller,
 and grants no authority. It is not a snapshot lease; concurrent grant changes may affect later
 pages. The Session owner counts only live current-revision Sessions for the bounded page. Latest
 activity is observed machine wall time minus the smallest monotonic idle duration; no live Session
 means count zero and null activity. These are disposable observations, not persisted presence.
-No keys, fingerprints, cookies, Session identifiers, origins, agent grants or core inventory appear.
+`lastUsedAtMs` is separate durable machine wall-clock metadata: the latest accepted authenticated
+session open or sequence consumption, stored in that transaction and retained across restart.
+Earlier rows have null until observed (`Not recorded`); no creation-time fallback or online claim.
+The CLI device projection also adds this nullable JSON-safe timestamp. Revocations disappear
+from CLI/settings inventory, while their internal rows and revocation replay remain intact.
+
+Bulk preview covers every non-disabled device except the keeper, across page boundaries, up to
+1,000 targets. Its fingerprint is lowercase-hex SHA-256 of compact UTF-8 JSON `[keeper,[[id,revision],...]]`, with targets sorted by ID;
+it is an inventory comparison, not authority. The effect rechecks live designation and the exact
+snapshot inside the same immediate transaction as all revocations and the immutable receipt.
+Changed inventory yields `REMOTE_DEVICE_LIST_CHANGED` without mutation; above the bound yields
+`REMOTE_DEVICE_REMOVAL_LIMIT`, never a partial batch. Keeper authority is unchanged; target
+sessions end after commit. Local owner `tmt remote devices remove-others --keep <client-id>` uses
+the same atomic inventory/revocation owner, with an explicit live keeper. A non-designated browser
+can read inventory and sees its exact local `tmt remote devices designate <client-id>` command;
+it cannot designate itself or execute removal. Re-pair short-circuit preserves the existing
+designation because the device identity stays unchanged.
+
+Browser device rows contain no keys, key fingerprints, cookies, Session identifiers, origins, agent grants or Core inventory.
 
 A management outcome is one of:
 
-- `{operationId,state:"committed",result:{settings}|{device:summary},sessionEnded:boolean}`;
+- `{operationId,state:"committed",result:{settings}|{device:summary}|{removed:integer},sessionEnded:boolean}`;
 - `{operationId,state:"refused",reason:<typed Remote refusal code>}`;
 - `{operationId,state:"unknown",reason:"effect_outcome_unconfirmed"}`.
 
-A setting result contains settings; device mutations contain only the target summary.
+A setting result contains settings; individual device mutations contain the target summary.
+Bulk removal contains only the removed count (0–1,000) and `sessionEnded:false`.
 `sessionEnded` means the caller's old Session lost authority through a revision/revoke change,
 not proof that a physical TCP socket has closed. Rename preserves the revision, live Sessions,
 cookies and held work, and returns false; exact-repeat talk toggles do likewise, and revoked
@@ -924,7 +955,7 @@ phase-ambiguous after publication: the SDK raises `ClientError("outcome_unconfir
 that original ID and unknown outcome. `REMOTE_STATE_UNAVAILABLE`, `REMOTE_MANAGEMENT_UNAVAILABLE`,
 and generic closed/ended/core failures cannot prove that the mutation had no effect. Ordinary
 reads retain `RefusalError`; agent operation behavior is unchanged. Only explicit input, scope,
-rate, intent conflict, management read-only/capacity, device not-found/revoked and proved
+rate, intent conflict, management read-only/capacity, device-list-changed/removal-limit, device not-found/revoked and proved
 settings-before-touch refusal codes establish a pre-effect management refusal. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
 refusal. A prior ended Session that prevented publication is a refused unsent attempt.
 
@@ -959,7 +990,7 @@ same-key re-pair clears it; rename retains identity and live Sessions. The
 optional pairing-confirmation choice is not implemented; later local designation
 is available without another browser ceremony.
 
-The SDK `management(session)` exposes `settings`, `devices`, `set`, `rename`, `talk`, `revoke` and
+The SDK `management(session)` exposes the verified caller `clientId` and `settings`, `devices`, `previewRemoveOthers`, `removeOthers`, `set`, `rename`, `talk`, `revoke` and
 `operation(originalId)` over the same serialized verified channel as agent operations. It opens
 nothing and never resends a mutation or creates a replacement mutation ID after unknown outcome.
 Freeze the original input/ID independently of subsequent form editing.

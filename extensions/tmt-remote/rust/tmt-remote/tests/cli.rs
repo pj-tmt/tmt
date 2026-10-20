@@ -1478,19 +1478,19 @@ fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
     for (args, expected) in [
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
         (
             vec!["settings", "open", "off", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
         (
             vec!["settings", "open", "on", "--json"],
-            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
+            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default","defaultRemote":"local","defaultRemoteSource":"default"}),
         ),
     ] {
         let answer = pilot.command().args(args).output().unwrap();
@@ -3739,4 +3739,100 @@ fn owner_sending_scope_cli_works_stopped_and_running_without_changing_other_poli
     assert_eq!(live["scopes"], off["scopes"]);
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     wait_stopped(pilot.child.as_mut().unwrap());
+}
+
+#[test]
+fn owner_cli_removes_other_devices_offline_and_shows_last_use_without_tombstones() {
+    use tmt_remote::{
+        state::Layout,
+        store::{Grant, Store, uuid_v4},
+    };
+    let pilot = Pilot::new();
+    let serving = Layout::open(&pilot.root.join("state"))
+        .unwrap()
+        .serve_lock()
+        .unwrap();
+    let mut store = Store::open(&serving).unwrap();
+    store.machine().unwrap();
+    let keep = uuid_v4().unwrap();
+    for i in 0..3u8 {
+        store
+            .insert_grant(&Grant {
+                client_id: if i == 0 {
+                    keep.clone()
+                } else {
+                    uuid_v4().unwrap()
+                },
+                public_key: [i + 1; 32],
+                kind: "browser".into(),
+                origin: "http://127.0.0.1:32100".into(),
+                name: format!("Device {i}"),
+                agents: "all".into(),
+                scopes: vec!["agents.read".into()],
+                mode: "direct".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            })
+            .unwrap();
+    }
+    store
+        .start_session(
+            &store.grant(&keep).unwrap().unwrap(),
+            &uuid_v4().unwrap(),
+            &uuid_v4().unwrap(),
+            1000,
+        )
+        .unwrap();
+    drop(store);
+    drop(serving);
+    let list = pilot
+        .command()
+        .args(["devices", "--json"])
+        .output()
+        .unwrap();
+    assert!(list.status.success(), "{list:?}");
+    let list: Value = serde_json::from_slice(&list.stdout).unwrap();
+    assert_eq!(list["devices"].as_array().unwrap().len(), 3);
+    for row in list["devices"].as_array().unwrap() {
+        if row["clientId"] == keep {
+            assert_eq!(row["lastUsedAtMs"], 1000);
+        } else {
+            assert!(row["lastUsedAtMs"].is_null());
+        }
+    }
+    let plain = pilot.command().args(["devices"]).output().unwrap();
+    assert!(plain.status.success());
+    assert!(
+        String::from_utf8(plain.stdout)
+            .unwrap()
+            .contains("Not recorded")
+    );
+    let removed = pilot
+        .command()
+        .args(["devices", "remove-others", "--keep", &keep, "--json"])
+        .output()
+        .unwrap();
+    assert!(removed.status.success(), "{removed:?}");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&removed.stdout).unwrap()["removed"],
+        2
+    );
+    let removed = pilot
+        .command()
+        .args(["devices", "revoke", &keep, "--json"])
+        .output()
+        .unwrap();
+    assert!(removed.status.success());
+    let list = pilot
+        .command()
+        .args(["devices", "--json"])
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&list.stdout).unwrap()["devices"],
+        serde_json::json!([])
+    );
 }

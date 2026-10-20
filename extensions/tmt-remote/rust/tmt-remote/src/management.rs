@@ -45,6 +45,12 @@ struct TalkInput {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RemoveOthersInput {
+    operation_id: String,
+    fingerprint: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Lookup {
     operation_id: String,
 }
@@ -59,12 +65,14 @@ struct PageInput {
 enum CommittedChange {
     Name,
     Authority(String),
+    Removed(Vec<String>),
 }
 enum Mutation {
     Setting { key: &'static str, value: Value },
     Rename { client: String, name: String },
     Revoke { client: String },
     Talk { client: String, enabled: bool },
+    RemoveOthers { fingerprint: String },
 }
 fn invalid() -> RemoteError {
     RemoteError::new("REMOTE_INPUT_INVALID", "Invalid Remote management input.")
@@ -243,7 +251,7 @@ impl Store {
         let mut query = self
             .connection
             .prepare(&format!(
-                "SELECT {} FROM grants WHERE client_id>?1 ORDER BY client_id LIMIT ?2",
+                "SELECT {} FROM grants WHERE disabled=0 AND client_id>?1 ORDER BY client_id LIMIT ?2",
                 crate::store::GRANT_COLUMNS
             ))
             .map_err(database)?;
@@ -425,6 +433,23 @@ impl Store {
                     Err(error) => return Err(error),
                 }
             }
+            Mutation::RemoveOthers { fingerprint } => {
+                match crate::store::remove_others_in(&tx, &grant.client_id, &fingerprint, now) {
+                    Ok(ids) => (
+                        json!({"operationId":id,"state":"committed","result":{"removed":ids.len()},"sessionEnded":false}),
+                        Some(CommittedChange::Removed(ids)),
+                    ),
+                    Err(error)
+                        if matches!(
+                            error.code.as_str(),
+                            "REMOTE_DEVICE_LIST_CHANGED" | "REMOTE_DEVICE_REMOVAL_LIMIT"
+                        ) =>
+                    {
+                        (refused(id, &error.code), None)
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
             Mutation::Revoke { client } => match revoke_in(&tx, &client) {
                 Ok(Some(target)) => (
                     json!({"operationId":id,"state":"committed","result":{"device":summary(&target)},"sessionEnded":client==grant.client_id}),
@@ -516,11 +541,25 @@ pub(crate) fn append(
                     value["thisBrowser"] = json!(grant.client_id == permit.grant.client_id);
                     value["liveSessionCount"] = json!(count);
                     value["lastActivityAtMs"] = json!(activity);
-                    value
+                    value["lastUsedAtMs"] =
+                        json!(permit.with_store(|store| store.last_used(&grant.client_id))?);
+                    Ok(value)
                 })
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>>>()?;
             permit.revalidate()?;
             return permit.response(&json!({"devices":values,"nextCursor":next}));
+        }
+        "remote.devices.remove-others.preview" => {
+            if permit.message.input != json!({}) {
+                return Err(invalid());
+            }
+            let preview = permit.with_store(|store| {
+                let tx = store.authorized(&permit.grant, now_ms()?)?;
+                require_writable(&tx, &permit.grant)?;
+                crate::store::removal_preview(&tx, &permit.grant.client_id, now_ms()?)
+            })?;
+            permit.revalidate()?;
+            return permit.response(&serde_json::to_value(preview).map_err(database)?);
         }
         "remote.management.operation" => {
             let input: Lookup = decode(&permit.message.input)?;
@@ -575,6 +614,23 @@ pub(crate) fn append(
                 },
             )
         }
+        "remote.devices.remove-others" => {
+            let input: RemoveOthersInput = decode(&permit.message.input)?;
+            if input.fingerprint.len() != 64
+                || !input
+                    .fingerprint
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(invalid());
+            }
+            (
+                input.operation_id,
+                Mutation::RemoveOthers {
+                    fingerprint: input.fingerprint,
+                },
+            )
+        }
         "remote.devices.revoke" => {
             let input: DeviceInput = decode(&permit.message.input)?;
             if !canonical::is_core_id(&input.client_id) {
@@ -606,6 +662,7 @@ pub(crate) fn append(
                 match changed {
                     Some(CommittedChange::Name) => devices.wake(),
                     Some(CommittedChange::Authority(client)) => devices.committed_change(&client),
+                    Some(CommittedChange::Removed(clients)) => devices.committed_removals(&clients),
                     None => {}
                 }
                 outcome

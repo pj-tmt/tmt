@@ -6,6 +6,7 @@ import type {
   SettingsView,
   DevicePage,
   FirestoreSettingsView,
+  RemovalPreview,
 } from './management.js';
 import { ClientError, RefusalError, ReopenSessionError } from 'remote-browser-sdk';
 
@@ -13,7 +14,8 @@ export type PageIntent =
   | { kind: 'setting'; input: SettingChange }
   | { kind: 'rename'; input: { operationId: string; clientId: string; name: string } }
   | { kind: 'talk'; input: { operationId: string; clientId: string; enabled: boolean } }
-  | { kind: 'revoke'; input: { operationId: string; clientId: string } };
+  | { kind: 'revoke'; input: { operationId: string; clientId: string } }
+  | { kind: 'remove-others'; input: { operationId: string; fingerprint: string } };
 export class ManagementPage {
   settings?: SettingsView;
   devices?: DevicePage;
@@ -24,6 +26,10 @@ export class ManagementPage {
   access: 'checking' | 'live' | 'lost' | 'unconfirmed' = 'checking';
   accessRefusal?: InstanceType<typeof RefusalError>;
   busy = false;
+  removalPreview?: RemovalPreview;
+  get clientId(): string {
+    return this.client.clientId;
+  }
   notice = '';
   private freshAttempted = false;
   private cursor: string | null = null;
@@ -47,6 +53,7 @@ export class ManagementPage {
   async refresh(cursor: string | null = this.cursor): Promise<void> {
     if (this.busy || this.access === 'lost') return;
     this.busy = true;
+    this.removalPreview = undefined;
     this.accessRefusal = undefined;
     this.firestoreRead = undefined;
     this.firestore = undefined;
@@ -98,8 +105,21 @@ export class ManagementPage {
       this.firestoreAccess = 'unconfirmed';
     }
   }
+  async previewRemoval(): Promise<void> {
+    if (!this.writable) return;
+    this.busy = true;
+    this.removalPreview = undefined;
+    try {
+      this.removalPreview = Object.freeze(await this.client.previewRemoveOthers());
+    } catch {
+      this.notice = 'Change refused. Check the current values or use the local CLI.';
+    } finally {
+      this.busy = false;
+    }
+  }
   async submit(intent: PageIntent): Promise<void> {
     if (!this.writable) throw new Error('Management controls are read-only.');
+    this.removalPreview = undefined;
     // Retain the original input independently of subsequent form editing.
     this.intent = Object.freeze({
       ...intent,
@@ -109,8 +129,8 @@ export class ManagementPage {
     this.freshAttempted = false;
     this.busy = true;
     this.notice =
-      intent.kind === 'revoke'
-        ? 'Revoking device…'
+      intent.kind === 'revoke' || intent.kind === 'remove-others'
+        ? 'Removing devices…'
         : intent.kind === 'talk'
           ? intent.input.enabled
             ? 'Enabling sending…'
@@ -125,7 +145,9 @@ export class ManagementPage {
             ? await this.client.rename(frozen.input)
             : frozen.kind === 'talk'
               ? await this.client.talk(frozen.input)
-              : await this.client.revoke(frozen.input);
+              : frozen.kind === 'remove-others'
+                ? await this.client.removeOthers(frozen.input)
+                : await this.client.revoke(frozen.input);
       if (this.outcome.state === 'committed' && this.outcome.sessionEnded)
         this.access = 'unconfirmed';
       if (
@@ -202,20 +224,27 @@ export class ManagementPage {
               ? intent.input.enabled
                 ? 'Sending enabled for this device.'
                 : 'Sending disabled for this device.'
-              : 'Device revoked.';
+              : intent?.kind === 'remove-others'
+                ? 'The other devices were removed. This browser stays connected.'
+                : 'Device removed.';
       if (this.outcome.sessionEnded)
         this.notice += ' This session ended. Use the local CLI to continue.';
     } else if (this.outcome?.state === 'unknown')
-      this.notice = this.freshAttempted
-        ? 'The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices.'
-        : 'This change could not be confirmed. Check its original result before making another change.';
+      this.notice =
+        this.intent?.kind === 'revoke' || this.intent?.kind === 'remove-others'
+          ? 'Could not confirm the removal. Check its result before trying again.'
+          : this.freshAttempted
+            ? 'The original result is still unconfirmed. Check with tmt remote settings or tmt remote devices.'
+            : 'This change could not be confirmed. Check its original result before making another change.';
     else if (this.outcome?.state === 'refused')
       this.notice =
-        this.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
-          ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
-          : this.outcome.reason === 'REMOTE_MANAGEMENT_READ_ONLY'
-            ? 'This browser is read-only. Use the local CLI to make changes.'
-            : 'Change refused. Check the current values or use the local CLI.';
+        this.outcome.reason === 'REMOTE_DEVICE_LIST_CHANGED'
+          ? 'The device list changed. Review it, then confirm again.'
+          : this.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY'
+            ? 'Browser change limit reached. Use the local CLI; do not retry or reset storage.'
+            : this.outcome.reason === 'REMOTE_MANAGEMENT_READ_ONLY'
+              ? 'This browser is read-only. Use the local CLI to make changes.'
+              : 'Change refused. Check the current values or use the local CLI.';
   }
 }
 

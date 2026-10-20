@@ -41,6 +41,31 @@ impl Devices {
     pub fn list(&self) -> Result<Vec<Grant>, RemoteError> {
         self.store().and_then(|store| store.grants())
     }
+    pub fn describe(&self, grant: &Grant) -> Result<Value, RemoteError> {
+        let store = self.store()?;
+        observed_device(&store, grant)
+    }
+    pub fn visible(&self) -> Result<Vec<Value>, RemoteError> {
+        let store = self.store()?;
+        store
+            .active_grants()?
+            .iter()
+            .map(|grant| observed_device(&store, grant))
+            .collect()
+    }
+    pub fn remove_others(&self, keep: &str) -> Result<usize, RemoteError> {
+        let removed = self.store()?.remove_others(keep)?;
+        self.committed_removals(&removed);
+        Ok(removed.len())
+    }
+    pub(crate) fn committed_removals(&self, clients: &[String]) {
+        if let Some(sessions) = &self.sessions {
+            for client in clients {
+                sessions.end_device(client);
+            }
+        }
+        self.wake();
+    }
     /// Disable the grant before acknowledging, then end the device's session
     /// and tunnels. Revoking twice reports the same revoked grant.
     pub fn revoke(&self, client_id: &str) -> Result<Grant, RemoteError> {
@@ -189,6 +214,12 @@ pub fn event_json(grant: &Grant) -> Value {
     }
     event
 }
+fn observed_device(store: &Store, grant: &Grant) -> Result<Value, RemoteError> {
+    let mut row = device_json(grant);
+    row["lastUsedAtMs"] = json!(store.last_used(&grant.client_id)?);
+    Ok(row)
+}
+
 /// A device row as `tmt remote devices --json` reports it. The public key is
 /// identified by its four fingerprint words, never printed raw.
 pub fn device_json(grant: &Grant) -> Value {

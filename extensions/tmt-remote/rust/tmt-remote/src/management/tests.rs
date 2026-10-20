@@ -436,7 +436,7 @@ fn malformed_settings_projection_cannot_claim_a_healthy_file_or_custom_effective
     let value = settings_json(&loaded);
     assert_eq!(value["open"], true);
     assert_eq!(value["source"], "default");
-    assert_eq!(value["sessionsPerDevice"], "8");
+    assert_eq!(value["sessionsPerDevice"], Value::Null);
     assert_eq!(value["warning"], settings::UNREADABLE);
     f.designate();
     let id = uuid_v4().unwrap();
@@ -908,4 +908,182 @@ fn sending_scope_rolls_back_if_its_atomic_settlement_audit_cannot_commit() {
         "unknown"
     );
     assert_eq!(f.count("audit"), 1, "only adoption committed");
+}
+
+#[test]
+fn revoked_devices_leave_paginated_management_without_erasing_tombstones() {
+    let mut f = Fixture::new();
+    let removed = f.grant.client_id.clone();
+    f.store.revoke(&removed).unwrap();
+    let (rows, next) = f
+        .store
+        .management_page(
+            &removed,
+            PageInput {
+                cursor: None,
+                limit: 1,
+            },
+        )
+        .unwrap();
+    assert!(rows.is_empty());
+    assert!(next.is_none());
+    assert!(f.store.grants().unwrap()[0].disabled);
+    assert_eq!(
+        crate::devices::event_json(&f.store.grants().unwrap()[0])["type"],
+        "device.revoked"
+    );
+}
+
+#[test]
+fn remove_others_is_atomic_across_pages_and_checks_the_preview_again() {
+    let mut f = Fixture::new();
+    f.designate();
+    for i in 0..60u8 {
+        let mut g = f.grant.clone();
+        g.client_id = uuid_v4().unwrap();
+        g.public_key = [i + 10; 32];
+        f.store.insert_grant(&g).unwrap();
+    }
+    let preview =
+        crate::store::removal_preview(&f.store.connection, &f.grant.client_id, now_ms().unwrap())
+            .unwrap();
+    assert_eq!(preview.count, 60);
+    let mut added = f.grant.clone();
+    added.client_id = uuid_v4().unwrap();
+    added.public_key = [99; 32];
+    f.store.insert_grant(&added).unwrap();
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.remove-others", &[4; 32])
+        .unwrap();
+    let (outcome, changed) = f
+        .store
+        .management_effect(
+            &f.grant,
+            &id,
+            "remote.devices.remove-others",
+            &[4; 32],
+            Mutation::RemoveOthers {
+                fingerprint: preview.fingerprint,
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome["reason"], "REMOTE_DEVICE_LIST_CHANGED");
+    assert!(changed.is_none());
+    assert_eq!(f.store.active_grants().unwrap().len(), 62);
+    let preview =
+        crate::store::removal_preview(&f.store.connection, &f.grant.client_id, now_ms().unwrap())
+            .unwrap();
+    let id = uuid_v4().unwrap();
+    f.adopt(&id, "remote.devices.remove-others", &[5; 32])
+        .unwrap();
+    let (outcome, changed) = f
+        .store
+        .management_effect(
+            &f.grant,
+            &id,
+            "remote.devices.remove-others",
+            &[5; 32],
+            Mutation::RemoveOthers {
+                fingerprint: preview.fingerprint,
+            },
+        )
+        .unwrap();
+    assert_eq!(outcome["result"]["removed"], 61);
+    assert_eq!(outcome["sessionEnded"], false);
+    assert!(matches!(changed,Some(CommittedChange::Removed(ids)) if ids.len()==61));
+    assert_eq!(f.store.active_grants().unwrap().len(), 1);
+    assert_eq!(
+        f.store.active_grants().unwrap()[0].client_id,
+        f.grant.client_id
+    );
+    assert_eq!(
+        f.store
+            .grants()
+            .unwrap()
+            .iter()
+            .filter(|g| g.disabled)
+            .count(),
+        61
+    );
+    assert!(writable(&f.store.connection, &f.grant).unwrap());
+    assert_eq!(
+        f.adopt(&id, "remote.devices.remove-others", &[5; 32])
+            .unwrap()
+            .unwrap(),
+        outcome
+    );
+}
+#[test]
+fn bulk_removal_refuses_nondesignated_and_over_bound_and_rolls_back_failed_targets() {
+    let mut f = Fixture::new();
+    let id = uuid_v4().unwrap();
+    assert_eq!(
+        f.adopt(&id, "remote.devices.remove-others", &[1; 32])
+            .unwrap_err()
+            .code,
+        READ_ONLY
+    );
+    assert_eq!(f.count("management_receipts"), 0);
+    let mut doomed = f.grant.clone();
+    doomed.client_id = uuid_v4().unwrap();
+    doomed.public_key = [9; 32];
+    doomed.revision = 9_007_199_254_740_991;
+    f.store.insert_grant(&doomed).unwrap();
+    assert!(f.store.remove_others(&f.grant.client_id).is_err());
+    assert_eq!(f.store.active_grants().unwrap().len(), 2);
+    for _ in 0..1000 {
+        let mut g = f.grant.clone();
+        g.client_id = uuid_v4().unwrap();
+        // Public key uniqueness is independent of fixture ordering.
+        g.public_key = <sha2::Sha256 as sha2::Digest>::digest(g.client_id.as_bytes()).into();
+        f.store.insert_grant(&g).unwrap();
+    }
+    assert_eq!(
+        crate::store::removal_preview(&f.store.connection, &f.grant.client_id, now_ms().unwrap())
+            .unwrap_err()
+            .code,
+        "REMOTE_DEVICE_REMOVAL_LIMIT"
+    );
+    assert_eq!(f.store.active_grants().unwrap().len(), 1002);
+}
+#[test]
+fn last_use_is_durable_nullable_and_only_follows_accepted_authenticated_use() {
+    let mut f = Fixture::new();
+    assert_eq!(f.store.last_used(&f.grant.client_id).unwrap(), None);
+    let now = now_ms().unwrap();
+    let sid = uuid_v4().unwrap();
+    let window = uuid_v4().unwrap();
+    f.store.start_session(&f.grant, &sid, &window, now).unwrap();
+    assert_eq!(f.store.last_used(&f.grant.client_id).unwrap(), Some(now));
+    assert!(
+        f.store
+            .consume_sequence(&f.grant.client_id, &sid, &window, 9, now + 10)
+            .is_err()
+    );
+    assert_eq!(f.store.last_used(&f.grant.client_id).unwrap(), Some(now));
+    f.store
+        .consume_sequence(&f.grant.client_id, &sid, &window, 1, now + 20)
+        .unwrap();
+    f.store.connection = Connection::open_in_memory().unwrap();
+    f.store = Store::open(f.serving.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        f.store.last_used(&f.grant.client_id).unwrap(),
+        Some(now + 20)
+    );
+}
+
+#[test]
+fn last_use_migration_preserves_preexisting_grants_and_unknown_time() {
+    let mut f = Fixture::new();
+    let before = f.store.grants().unwrap();
+    f.store
+        .connection
+        .execute_batch(
+            "DROP TABLE device_last_use; DELETE FROM _migrations WHERE name='device_last_use';",
+        )
+        .unwrap();
+    f.store.connection = Connection::open_in_memory().unwrap();
+    f.store = Store::open(f.serving.as_ref().unwrap()).unwrap();
+    assert_eq!(f.store.grants().unwrap(), before);
+    assert_eq!(f.store.last_used(&f.grant.client_id).unwrap(), None);
 }

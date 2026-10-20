@@ -606,9 +606,9 @@ test('native automatic transport failure offers reopening before manual pairing'
   await page.route('**/sdk/pair-offer', (route) => route.abort('failed'));
   await page.goto(offer.link, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#status')).toHaveText(
-    'Could not connect this browser. Open the page again from the machine with tmt remote open. If it still fails, run tmt remote pair there.',
+    'Could not connect this browser. Open the page again from the machine with tmt remote open.',
   );
-  await expect(page.locator('#status code')).toHaveText(['tmt remote open', 'tmt remote pair']);
+  await expect(page.locator('#status code')).toHaveText(['tmt remote open']);
   await expectUnbrokenPairingCommands(page);
   expect(page.url()).toBe(`${origin}/remote/pair`);
   await expect(page.locator('#pair')).toBeHidden();
@@ -1403,6 +1403,12 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
                 ? 'Remote connection'
                 : 'Pair a browser',
           );
+          if (state === 'error') {
+            await expect(page.locator('#notice')).toContainText(
+              'This page is unavailable. Open it again from the machine. Your pairing is unchanged.',
+            );
+            await expect(page.locator('#notice')).not.toContainText('tmt remote pair');
+          }
           await expect(page.locator('.state-mark')).toHaveText(
             { landing: '○', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
           );
@@ -1662,17 +1668,12 @@ test('the native entry checks once and presents all seven evidenced states witho
     );
     await expect(page.locator('#command-pair, #command-devices, #command-status')).toHaveCount(0);
     const commands = page.locator('.entry-steps:visible code');
-    const expected =
-      state === 'not-accepted' ? 2 : ['checking', 'connected'].includes(state) ? 0 : 1;
+    const expected = ['not-accepted', 'pairing-unreadable', 'checking', 'connected'].includes(state)
+      ? 0
+      : 1;
     await expect(commands).toHaveCount(expected);
     expect(await commands.evaluateAll((nodes) => nodes.map((node) => node.textContent))).toEqual(
-      state === 'not-accepted'
-        ? ['tmt remote devices', 'tmt remote pair']
-        : state === 'unconfirmed'
-          ? ['tmt remote status']
-          : expected
-            ? ['tmt remote pair']
-            : [],
+      state === 'unconfirmed' ? ['tmt remote status'] : expected ? ['tmt remote pair'] : [],
     );
     expect(
       await commands.evaluateAll((nodes) =>
@@ -2011,7 +2012,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await expect(page.locator('#state-label')).toHaveText('Not accepted');
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 1 });
   await expect(page.locator('#status')).toHaveText(
-    "This browser's session ended. Choose Check again, or open your app from its link to start a new one.",
+    "This page's connection ended. Try again. Your pairing is unchanged.",
   );
   await expect(page.getByRole('button', { name: 'Check again', exact: true })).toBeEnabled();
   await expect(page.locator('#status code')).toHaveCount(0);
@@ -2340,9 +2341,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     await expect(page.locator('.device-summary').first()).toContainText(
       ' · This device · browser · Paired · ',
     );
-    const guidance =
-      'Read-only in this browser. Change Remote settings or manage devices with the local CLI.';
-    const help = 'Default is 8. Off means unlimited. Changes apply at the next session open.';
+    const guidance = 'Read-only in this browser. To remove devices here, run this on the machine:';
+    const help =
+      "No limit by default. A limit can stop another tab from connecting; it does not remove the browser's pairing.";
     await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleDescription(
       editable ? '' : guidance,
     );
@@ -2390,9 +2391,9 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'Non-designated browser, visible local CLI and disabled reasons',
   );
   await expect(page.locator('.device-summary').first()).toHaveText(
-    /^Settings browser · This device · browser · Paired · Sending on · 2 live sessions · Last activity .+$/,
+    /^Settings browser · This device · browser · Paired · Sending on · 2 live sessions · Last used .+$/,
   );
-  await expect(page.locator('#limit-value')).toHaveText('8 · default');
+  await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · default');
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
   await expect(page.locator('#opening')).toBeEnabled();
@@ -2455,7 +2456,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(page.locator('#opening')).toHaveJSProperty('value', 'off');
   await expect(page.locator('#opening')).toBeFocused();
   await page.locator('#limit-mode').click();
-  await expect(page.getByRole('option', { name: 'Default (8, not configured)' })).toBeDisabled();
+  await expect(page.getByRole('option', { name: 'Default (off, not configured)' })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(page.locator('#limit-mode')).toBeFocused();
   await page.keyboard.press('Space');
@@ -2486,7 +2487,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await captureState(
     page,
     'settings-designated-default',
-    'Designated browser; unset default8 and admitted controls',
+    'Designated browser; unset unlimited default and admitted controls',
   );
   // Explicit self scope changes use the same original-only recovery, never a resend.
   await page
@@ -2499,7 +2500,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
   ).toBeEnabled();
   await expect(page.locator('.device-summary').first()).toHaveText(
-    /^Settings browser · This device · browser · Paired · Sending off · 1 live session · Last activity .+$/,
+    /^Settings browser · This device · browser · Paired · Sending off · 1 live session · Last used .+$/,
   );
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
@@ -2521,7 +2522,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     page.getByRole('button', { name: 'Disable sending for Settings browser', exact: true }),
   ).toBeEnabled();
   await expect(page.locator('.device-summary').first()).toHaveText(
-    /^Settings browser · This device · browser · Paired · Sending on · 1 live session · Last activity .+$/,
+    /^Settings browser · This device · browser · Paired · Sending on · 1 live session · Last used .+$/,
   );
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });
@@ -2532,7 +2533,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     );
   }
   await page.emulateMedia({ colorScheme: 'light' });
-  // Refresh preserves the unset source and never turns default 8 into an explicit cap.
+  // Refresh preserves the unset source and never turns the unlimited default into an explicit cap.
   await page.click('#refresh');
   await expect(page.locator('#refresh')).toBeEnabled();
   await descriptions(true);
@@ -2809,7 +2810,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     'Fresh live Session reads committed original; next-name draft retained',
   );
   // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
-  const revoke = page.getByRole('button', { name: 'Revoke Renamed browser', exact: true });
+  const revoke = page.getByRole('button', { name: 'Remove Renamed browser', exact: true });
   await page.evaluate(() => {
     const original = crypto.randomUUID;
     const fixture = window as typeof window & { confirmationIds?: number };
@@ -2826,7 +2827,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     ),
   ).toBe(0);
   await expect(page.locator('[data-confirmation]')).toContainText(
-    'This ends access for Renamed browser, the browser you are using. Press Revoke again to confirm. Pair again to restore access.',
+    'This ends Remote access for this browser (Renamed browser). Press Remove again to confirm.',
   );
   await expect(name).toHaveValue('Unsent next name');
   expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
@@ -2986,10 +2987,10 @@ test('settings pagination retains later-page drafts across refresh and guards na
     'settings-other-device-renamed',
     'Committed non-self rename; unchanged current browser authority',
   );
-  const revoke = target.getByRole('button', { name: 'Revoke Reviewed device', exact: true });
+  const revoke = target.getByRole('button', { name: 'Remove Reviewed device', exact: true });
   await revoke.click();
   await expect(target.locator('[data-confirmation]')).toContainText(
-    'This ends access for Reviewed device. Press Revoke again to confirm. Pair again to restore access.',
+    'This ends Remote access for Reviewed device. Press Remove again to confirm.',
   );
   await captureState(
     page,
@@ -2997,17 +2998,17 @@ test('settings pagination retains later-page drafts across refresh and guards na
     'Inline revoke consequence beside admitted target',
   );
   await revoke.click();
-  await expect(target.locator('.device-summary')).toContainText('Revoked');
-  await expect(
-    target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }),
-  ).toBeDisabled();
-  await expect(
-    target.getByRole('button', { name: 'Revoke Reviewed device', exact: true }),
-  ).toHaveAccessibleDescription('This device is revoked.');
+  await expect(target).toHaveCount(0);
+  const removed = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  expect(
+    removed.devices.some((row) => row.clientId === '00000000-0000-4000-8000-000000000001'),
+  ).toBe(false);
   await captureState(
     page,
-    'settings-other-device-revoked',
-    'Revoked row stays read-only with an explicit associated disabled reason',
+    'settings-other-device-removed',
+    'Removed device is absent from the public inventory',
   );
   // Saturate the actual retained-identity quota in this disposable Store only.
   execFileSync('python3', [
@@ -3034,7 +3035,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await expect(page.locator('#warning')).toHaveText(
     'settings.json could not be read; defaults apply',
   );
-  await expect(page.locator('#limit-value')).toHaveText('8 · default');
+  await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · default');
   await captureState(
     page,
     'settings-malformed-warning',
@@ -4037,7 +4038,7 @@ for (const [width, theme] of [
     await expect(
       page.getByRole('button', { name: 'Enable sending for Device 1', exact: true }),
     ).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Revoke Device 1', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Remove Device 1', exact: true })).toBeEnabled();
     await page.locator('#firestore-budget summary').click();
     await page.evaluate(() => {
       const state = window as typeof window & { quiet?: { count: number; budget: Element } };
@@ -4821,4 +4822,134 @@ test('Home and TMT settings are navigation-only and fit both sizes and themes', 
   } finally {
     await page.close();
   }
+});
+
+test('permanent pairing short-circuits manual offers and atomically removes the other devices', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const first = await automaticOffer('/remote/');
+  await page.goto(first.link);
+  await page.waitForURL(`${origin}/remote/`);
+  const inventory = () =>
+    JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
+      devices: { clientId: string }[];
+    };
+  const keeper = inventory().devices[0]!.clientId;
+  const seed = (start: number, count: number) =>
+    execFileSync('python3', [
+      '-c',
+      "import sqlite3,sys;db=sqlite3.connect(sys.argv[1]);start=int(sys.argv[3]);count=int(sys.argv[4]);db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',[('00000000-0000-4000-8000-%012d'%i,i.to_bytes(32,'big'),'browser',sys.argv[2],'Old browser %d'%i,'all','agents.read','direct',0,None,1,0) for i in range(start,start+count)]);db.commit();db.close()",
+      join(root, 'state/remote/remote.db'),
+      origin,
+      String(start),
+      String(count),
+    ]);
+  seed(1, 60);
+  await page.goto(`${origin}/remote/settings`);
+  await expect(page.locator('#designation-code')).toHaveText(
+    `tmt remote devices designate ${keeper}`,
+  );
+  await expect(page.locator('#read-only')).toHaveText(
+    'Read-only in this browser. To remove devices here, run this on the machine:',
+  );
+  await expect(page.locator('#remove-others')).toBeDisabled();
+  await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · default');
+  await captureState(
+    page,
+    'permanent-pairing-read-only',
+    'Default unlimited; exact local designation command',
+  );
+  execFileSync(BINARY, ['devices', 'designate', keeper, '--json'], { env });
+  // Same origin-local key must not answer a new manual offer or notify its terminal.
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  let terminalOutput = '';
+  pair.stdout.on('data', (chunk) => {
+    terminalOutput += String(chunk);
+  });
+  const events = lines(pair);
+  const offer = await events.next();
+  // Observe the real redirect, then abort just that navigation to capture its
+  // preceding status. Holding a navigation prevents Playwright from reading the DOM.
+  const redirected = page.waitForEvent('requestfailed', {
+    predicate: (request) => request.isNavigationRequest() && request.url() === `${origin}/remote/`,
+  });
+  await page.route(`${origin}/remote/`, (route) => route.abort('aborted'));
+  await page.goto(offer.link as string, { waitUntil: 'domcontentloaded' });
+  await redirected;
+  await expect(page.locator('#status')).toHaveText('This browser is already paired.');
+  await captureState(
+    page,
+    'permanent-pairing-already-paired',
+    'Real short-circuit status; attempted continuation observed and aborted only for capture',
+  );
+  const stillOpen = await page.request.get(`${origin}/sdk/pair-offer`);
+  expect(stillOpen.status()).toBe(200);
+  expect((await stillOpen.json()).offerId).toBe((offer.descriptor as { offerId: string }).offerId);
+  await page.unroute(`${origin}/remote/`);
+  await page.goto(`${origin}/remote/`);
+  // With no candidate, pair has not begun reading a terminal answer. Closing
+  // only this private client cancels its offer; it must have printed no new event.
+  pair.kill('SIGTERM');
+  await exited(pair);
+  expect(
+    terminalOutput
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line).event),
+  ).toEqual(['offer']);
+  pair = undefined;
+  expect(inventory().devices.filter((row) => row.clientId === keeper)).toHaveLength(1);
+  await page.goto(`${origin}/remote/settings`);
+  await expect(page.locator('#remove-others')).toBeEnabled();
+  let commits = 0;
+  page.on('request', (request) => {
+    try {
+      if (JSON.parse(request.postData() ?? '{}').operation === 'remote.devices.remove-others')
+        commits++;
+    } catch {}
+  });
+  await page.locator('#remove-others').dblclick();
+  await expect(page.locator('#remove-others-consequence')).toHaveText(
+    'This ends Remote access for 60 other devices. This browser stays connected. Press Remove the others again to confirm.',
+  );
+  expect(commits).toBe(0);
+  expect(inventory().devices).toHaveLength(61);
+  await captureState(
+    page,
+    'permanent-pairing-remove-others-plural',
+    'Read-only preview across three device pages; no mutation on double-click',
+  );
+  execFileSync(BINARY, ['devices', 'revoke', '00000000-0000-4000-8000-000000000001', '--json'], {
+    env,
+  });
+  await page.locator('#remove-others').click();
+  await expect(page.locator('#outcome')).toHaveText(
+    'The device list changed. Review it, then confirm again.',
+  );
+  expect(commits).toBe(1);
+  expect(inventory().devices).toHaveLength(60);
+  await page.locator('#remove-others').click();
+  await expect(page.locator('#remove-others-consequence')).toContainText('59 other devices');
+  await page.locator('#remove-others').click();
+  await expect(page.locator('.device')).toHaveCount(1);
+  expect(inventory().devices.map((row) => row.clientId)).toEqual([keeper]);
+  expect(commits).toBe(2);
+  await captureState(
+    page,
+    'permanent-pairing-others-removed',
+    'Atomic removal across pages; caller grant and designation retained',
+  );
+  seed(1001, 1);
+  await page.locator('#refresh').click();
+  await expect(page.locator('#remove-others')).toBeEnabled();
+  await page.locator('#remove-others').click();
+  await expect(page.locator('#remove-others-consequence')).toHaveText(
+    'This ends Remote access for 1 other device. This browser stays connected. Press Remove the others again to confirm.',
+  );
+  await captureState(page, 'permanent-pairing-remove-others-singular', 'Singular confirmation');
+  await page.locator('#remove-others').click();
+  await expect(page.locator('.device')).toHaveCount(1);
+  expect(inventory().devices.map((row) => row.clientId)).toEqual([keeper]);
+  expect(commits).toBe(3);
+  await context.close();
 });

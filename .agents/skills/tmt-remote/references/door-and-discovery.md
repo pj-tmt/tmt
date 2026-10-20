@@ -133,6 +133,12 @@ semantics and the explicit talk-scope toggle.
 
 ## Management implementation
 
+Local pairing survives session end and restart. Opening the pairing page with a valid stored
+pairing reopens it without adding a device. The owner lists last use with `tmt remote devices --json`,
+removes one with `tmt remote devices revoke <client-id> --json`, or keeps one with
+`tmt remote devices remove-others --keep <client-id> --json`. Settings-browser authority and
+bulk confirmation follow the [management contract](../../../../contracts/remote-channel-v1.md#remote-management-protocol).
+
 The [fixed management protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
 owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and recovery policy.
 `management` composes the existing JSON settings writer and Store transaction-local device helpers.
