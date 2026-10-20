@@ -149,10 +149,14 @@ for (const width of [1440, 390]) {
       document.documentElement.dataset.theme = 'dark';
     });
     const row = rows.first();
-    // The block is the needs-you band's surface (dark here), whatever the page paints.
+    // The block is the page sheet (dark here) with a light rule, whatever the page paints.
     await expect(page.locator('.question-compact-block')).toHaveCSS(
       'background-color',
-      'rgb(52, 52, 52)',
+      'rgb(16, 16, 16)',
+    );
+    await expect(page.locator('.question-compact-block')).toHaveCSS(
+      'outline-color',
+      'rgb(48, 48, 48)',
     );
     await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '16px');
     await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '16px');

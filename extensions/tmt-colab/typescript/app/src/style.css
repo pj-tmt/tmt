@@ -1336,7 +1336,7 @@ body:has(.needs-you-header-menu) {
   padding-inline: max(16px, (100% - 1280px) / 2);
 }
 .proposal-inline .proposal-card {
-  border: 1px solid var(--tmt-ui-color-edge);
+  border: 1px solid var(--tmt-ui-surface-rule);
   border-radius: 0;
   box-shadow: none;
 }

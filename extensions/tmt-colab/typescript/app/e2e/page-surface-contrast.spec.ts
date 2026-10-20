@@ -3,8 +3,10 @@ import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Colab draws its cards over the author's page (#3959): whatever the page paints, and whatever
- * the app theme is, a card's text and edge stay readable against what is really behind them. The
- * render frame's canvas is white, so a page that sets no background is a white page in both themes.
+ * the app theme is, a card's text stays readable against what is really behind it. A card is the
+ * page sheet of the active theme with a 1px light rule, not the needs-you band and not a dark edge
+ * (#4068). The render frame's canvas is white, so a page that sets no background is a white page in
+ * both themes.
  */
 const fixture = '/test/ask-page-browser.tsx';
 const run = (page: Page, method: string, argument?: unknown) =>
@@ -30,7 +32,7 @@ const cases = {
   review: (page: Page, options: object) => run(page, 'review', { sections: 1, ...options }),
 } as const;
 
-/** The least text contrast and edge contrast among the parent-drawn cards on the page. */
+/** The text contrast, and the surface and boundary, of the parent-drawn cards on the page. */
 const measure = (page: Page, backdrop: string) =>
   page.evaluate((backdrop) => {
     const canvas = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
@@ -81,7 +83,7 @@ const measure = (page: Page, backdrop: string) =>
       );
     };
     const text: { text: string; ratio: number; ink: string; surface: string }[] = [];
-    const edges: { selector: string; ratio: number }[] = [];
+    const cards: { selector: string; fill: string; rule: string; other: string }[] = [];
     for (const root of document.querySelectorAll('.proposal-inline')) {
       if (!visible(root)) continue;
       for (const element of [root, ...root.querySelectorAll('*')]) {
@@ -102,27 +104,24 @@ const measure = (page: Page, backdrop: string) =>
             surface: `rgb(${surface.slice(0, 3).map(Math.round)})`,
           });
         }
-        // A card's boundary: an open block or a proposal card. A closed line is text on the band,
-        // identified by its text, which the bound above covers.
-        if (element.matches('.question-compact-block[data-expanded], .proposal-card')) {
+        // A card's own surface and boundary: the question block and the proposal card.
+        if (element.matches('.question-compact-block, .proposal-card')) {
           const style = getComputedStyle(element);
-          // A block draws its edge as an outline inside its box, a proposal card as a border.
-          const outlined = style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 1;
-          const edge = rgba(outlined ? style.outlineColor : style.borderTopColor);
-          const drawn = outlined || (parseFloat(style.borderTopWidth) >= 1 && edge[3] > 0);
-          // The boundary a reader sees against the author's page is the fill or the edge,
-          // whichever stands out more (WCAG 1.4.11).
-          edges.push({
+          // The block draws its rule as an outline inside its box (nothing moves), the proposal
+          // card as a border; the other of the two must be absent.
+          const block = element.matches('.question-compact-block');
+          const outline = `${style.outlineWidth} ${style.outlineStyle} ${style.outlineColor}`;
+          const border = `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}`;
+          cards.push({
             selector: element.className.split(' ')[0],
-            ratio: Math.max(
-              ratio(behind(element), page),
-              drawn ? ratio(over(edge, page), page) : 1,
-            ),
+            fill: style.backgroundColor,
+            rule: block ? outline : border,
+            other: block ? style.borderTopStyle : style.outlineStyle,
           });
         }
       }
     }
-    return { text, edges };
+    return { text, cards };
   }, backdrop);
 
 for (const width of [1440, 390])
@@ -141,22 +140,33 @@ for (const width of [1440, 390])
           await expect(
             page.frameLocator('#ask-page-fixture iframe').locator('html'),
           ).toHaveAttribute('data-theme', theme);
-          const { text, edges } = await measure(page, backdrop);
+          const { text, cards } = await measure(page, backdrop);
           if (process.env.CONTRAST_DEBUG)
             console.log(
               name,
               paint,
               theme,
               JSON.stringify(text.map((t) => [t.text, t.ratio.toFixed(2), t.ink, t.surface])),
-              JSON.stringify(edges),
+              JSON.stringify(cards),
             );
           expect(text.length).toBeGreaterThan(0);
           // A measurement that is not a number would pass every bound below.
-          expect([...text, ...edges].every((entry) => Number.isFinite(entry.ratio))).toBe(true);
+          expect(text.every((entry) => Number.isFinite(entry.ratio))).toBe(true);
           // Text against the surface it sits on: 4.5:1.
           expect(text.filter((entry) => entry.ratio < 4.5)).toEqual([]);
-          // A card's boundary (its fill or its edge) against the author's page: 3:1.
-          expect(edges.filter((entry) => entry.ratio < 3)).toEqual([]);
+          // Every card is the theme's sheet with a 1px light rule and no dark edge; the 3:1 boundary
+          // floor does not apply to it, by Ben's decision (#4068, as for floating panels in #4025).
+          const sheet = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
+          const rule = theme === 'dark' ? 'rgb(48, 48, 48)' : 'rgb(208, 208, 208)';
+          // A reading and a review band hold no card of these two kinds.
+          if (name === 'question group' || name === 'question and proposal')
+            expect(cards.length).toBeGreaterThan(0);
+          expect(
+            cards.filter(
+              (card) =>
+                card.fill !== sheet || card.rule !== `1px solid ${rule}` || card.other !== 'none',
+            ),
+          ).toEqual([]);
           const captures = process.env.COLAB_CONTRAST_CAPTURE_DIR;
           if (captures) {
             mkdirSync(captures, { recursive: true });

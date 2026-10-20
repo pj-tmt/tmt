@@ -298,11 +298,14 @@ unresolved ordinary annotations, excluding Chat/deleted records and decided
 proposals; filtering does not change it. No new token or surface variant is introduced.
 
 A card the parent draws over the author's page (the compact question block, group and answer batch,
-a proposal card) takes the needs-you band's surface in the active theme, whatever the page paints,
-and an open block or a proposal card adds the 1px edge. All text in it is the theme ink: the
-secondary grey is not used on that fill (3.9:1 on the dark band), so rank comes from size and
-place. `e2e/page-surface-contrast.spec.ts` holds text to 4.5:1 and an open card's fill or edge to
-3:1 against the page, on a light, a dark and an unpainted page in both themes at 1440 and 390 px.
+a proposal card) is the page sheet of the active theme, white on light, with a 1px
+`--tmt-ui-surface-rule` boundary and no dark edge (the block draws its rule as an outline inside
+its box, so it moves nothing), whatever the page paints; it is not the
+needs-you band (#4068 reversed #3959's band surface, which read as a dark slab). Its text keeps the
+normal secondary colours, which hold 4.5:1 on the sheet. The 3:1 boundary floor does not apply to
+the rule, by the owner's decision (as for floating panels, #4025).
+`e2e/page-surface-contrast.spec.ts` holds text to 4.5:1 and every card to the sheet and the rule, on
+a light, a dark and an unpainted page in both themes at 1440 and 390 px.
 
 **Progressive open (#3894).** `Live.snapshot()` returns once the first admitted view has
 published the document; the threads, asks and presentations follow when `#publishViews` has

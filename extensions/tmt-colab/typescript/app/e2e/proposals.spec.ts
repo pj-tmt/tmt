@@ -45,11 +45,8 @@ for (const width of [1440, 390])
       const card = inline.locator('.proposal-card');
       const sheet = theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)';
       const ink = theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)';
-      // The card is the needs-you band's surface over the page, and inside it the secondary grey is
-      // the theme ink (#3959); the buttons keep the sheet.
-      const surface = theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)';
-      const muted = ink;
-      await expect(card).toHaveCSS('background-color', surface);
+      const muted = theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)';
+      await expect(card).toHaveCSS('background-color', sheet);
       await expect(card).toHaveCSS('color', ink);
       await expect(card).toHaveCSS('color-scheme', theme);
       await expect(card.locator('.proposal-body')).toHaveCSS('color', ink);
@@ -129,7 +126,7 @@ for (const width of [1440, 390])
       await expect(composer).toBeFocused();
       // The shared borderless composer paints through to its themed card.
       await expect(composer).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      await expect(card).toHaveCSS('background-color', surface);
+      await expect(card).toHaveCSS('background-color', sheet);
       await expect(composer).toHaveCSS('color-scheme', theme);
       await expect(composer).toHaveCSS('color', ink);
       await expect(composer).toContainText('@Agent 1');
