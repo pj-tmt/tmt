@@ -102,8 +102,23 @@ ordinary mounted APIs/assets/WebSockets and anonymous admission are unchanged. A
 or extension to the static Remote-owned table requires a contract change; extensions cannot
 register root entries. Colab owns short-ID resolution and the browser's eventual app URL.
 
+### Public browser routes
+
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
-framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
+framing rules. `/` is navigation-only Home, linking to Colab and Remote. `/settings` and
+`/settings/` are navigation-only TMT settings, with a visible Remote-settings link. Dashboard data,
+Home preferences and the full shared shell remain separate consumers. Remote's existing landing,
+pairing and settings pages live at `/remote/`, `/remote/pair` and `/remote/settings` respectively.
+
+Only legacy `/pair` GET/HEAD requests return 308 with constant `Location: /remote/pair` and an
+empty body; the query is discarded without reflection. Host and Origin checks and cross-site
+`Sec-Fetch-Site` refusal precede the redirect; CSP, no-store and no-referrer remain. Only that
+redirect path admits a discarded query; other target grammars are unchanged. Browsers retain a
+fragment across the redirect, and the pairing bootstrap erases it before any subresource.
+Other methods and `/pair/…` refuse. Colab public entries, `/p/`, `/read/`, prefixed protocol/mount
+routes, `/sdk/*` and the `/x/` refusal keep their existing behavior.
+
+`GET /remote/pair` serves the pairing page with `default-src 'none'; script-src 'self';
 style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
 The landing, pairing, settings and error pages share this policy and embed the shared TMT SVG favicon as data; images cannot make network requests.
 `GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
@@ -111,7 +126,7 @@ The landing, pairing, settings and error pages share this policy and embed the s
 `{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
 or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The code remains
 exclusively in the captured fragment. Old `/pair/<descriptor>` paths refuse; no compatibility route
-remains. `GET /` serves a static pairing landing page; malformed pairing-page paths receive generic
+remains. Malformed pairing-page paths receive generic
 HTML errors with their refusal status. These pages load only the embedded same-origin
 `GET /sdk/pages.css` stylesheet, using the shared design tokens (the same `header` group as Colab's header) and system font
 fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET /sdk/remote-v1.js` serves the device SDK as
@@ -552,11 +567,12 @@ server challenge (32 lowercase hex characters). No private key is included in a 
 
 #### Native automatic opens
 
-`tmt remote open [short-target]` opens a running local door (default `/`). Targets are `/`, `/settings` or the
+`tmt remote open [short-target]` opens a running local door (default `/remote/`). Targets are `/remote/`, `/remote/settings` or the
 existing exact public `/colab`, `/colab/`, `/p/<id>` and `/read/<id>` grammar; query/fragment,
 protocol/mount paths and external redirects refuse. Human output contains only the canonical
 origin plus short target. `--json` returns the versioned result without opening; `--no-open` also
-suppresses opening. Other flags/settings/environment checks use the shared opener policy below.
+suppresses opening. The former `/` and `/settings` Remote targets refuse, without aliases.
+Other flags/settings/environment checks use the shared opener policy below.
 
 The extension-only `tmt remote launch <short-target>` seam is hidden from help, takes the same
 short target and `--open`/`--no-open`, accepts no `--json`, and always emits JSON. Its machine output
@@ -578,11 +594,11 @@ opener instead launches the canonical plain short link once, reporting the exist
 `failed` state. It neither replaces nor cancels the manual offer, even if the opener fails. An
 unpaired browser reaches its ordinary not-paired entry and receives no grant; a paired browser
 keeps its ordinary access. Other preparation errors do not trigger a plain-open fallback.
-For an automatic offer, the private launch argument is `http://127.0.0.1:PORT/pair#auto=CODE`; it never reaches public CLI output,
+For an automatic offer, the private launch argument is `http://127.0.0.1:PORT/remote/pair#auto=CODE`; it never reaches public CLI output,
 errors, JSON, extension callers or logs. The public descriptor adds only `automatic:true` and the
 validated `target`, not the code. One hashed synchronous inline script captures the fragment and
 replaces history before imports, styles or any subrequest. A fragment change in an existing
-`/pair` document repeats capture/erasure and cancels its previous attempt; CSP adds only that exact script hash,
+`/remote/pair` document repeats capture/erasure and cancels its previous attempt; CSP adds only that exact script hash,
 with `no-referrer`, `no-store`, exact Host/Origin and frame protection unchanged. Continuation
 replaces the same tab with the validated short target. No preflight or second browser launch.
 
@@ -619,7 +635,7 @@ output or TMT logs. A failed/missing first script grants no access.
 
 `tmt remote pair` keeps the explicit terminal ceremony. Replacing a manual offer explicitly
 cancels the previous offer. The terminal prints the browser pairing link and the code for add-on
-and CLI devices. Its link remains `http://127.0.0.1:PORT/pair#CODE`, with 26 ungrouped base32
+and CLI devices. Its link is `http://127.0.0.1:PORT/remote/pair#CODE`, with 26 ungrouped base32
 characters. The same synchronous bootstrap erases the fragment before any subrequest and fetches
 only the public current descriptor from `GET /sdk/pair-offer`.
 
@@ -961,7 +977,7 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 #### Remote settings page
 
-`GET /settings` serves the Remote-owned shared-presentation page with the existing page CSP,
+`GET /remote/settings` serves the Remote-owned shared-presentation page with the existing page CSP,
 origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
 embed another signer/channel implementation. The additive public SDK exports are
 `FirestoreSettingsView`, `budget.parsePublishedLimits` and `budget.publishedLimitRows`. The sections are
@@ -1483,7 +1499,7 @@ verification and `K_response`/`serverProof` derivation in Rust, and the matching
 builders. Their fixtures
 are regenerated from the independent oracle (#1039); the superseded M1 enrollment vectors are
 removed and envelope bytes are unchanged. The pairing ceremony is implemented through
-`tmt remote pair` and `/pair`: one offer per run, the owner's terminal confirmation, the default
+`tmt remote pair` and `/remote/pair`: one offer per run, the owner's terminal confirmation, the default
 grant and the receipt with `serverProof` (#1039). Door sessions (`session.open` on `/append`, the
 mount-space cookie and the device context it carries to mounts) and `tmt remote devices` list and
 revoke are implemented (#1039). Local rename and level-triggered device events over mounted
@@ -1687,7 +1703,8 @@ answer remains usable for at most 30 seconds. Missing, unsafe, slow, malformed o
 unknown-version answers never renew it. There is at most one in-flight callback per
 extension; late results are cache-only, fenced to the socket incarnation. No retries,
 poller or persisted cache exist; serve stop joins the finite workers. Shell rendering,
-Home composition and root navigation belong to their separate shell consumers.
+Home data and full shell rendering remain separate consumers; root navigation follows the
+[public browser routes](#public-browser-routes).
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
@@ -2938,7 +2955,8 @@ signs out nor revokes access. Site-data clearing removes both; changing a pairin
 references. Registry validation, storage and concurrent-edit failures use the existing
 `REMOTE_SELECTOR_INVALID`, `_UNAVAILABLE` and `_CONFLICT` family, not signed access evidence.
 
-Local Open validates the destination and the whole public handoff before navigation.
+Local Open validates the destination and the whole public handoff before navigation to that
+origin's `/remote/` entry; the stored public reference is unchanged.
 The fragment carries `tmt-remotes` (base64url compact catalog JSON in the field order above)
 and optional `tmt-page` (base64url compact `{spaceId,pageId}` JSON in that order, using Colab's ID
 grammar). All values count within the 8 KiB encoded-fragment bound. Unknown, duplicate or

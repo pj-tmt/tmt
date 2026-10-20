@@ -8,7 +8,8 @@ pub use tmt_invoke::open::{Flag, Outcome};
 
 /// Only public short entries on the selected running local door are open targets.
 pub(crate) fn valid_target(target: &str) -> bool {
-    matches!(target, "/" | "/settings") || crate::mount::Mounts::valid_short_route(target)
+    matches!(target, "/remote/" | "/remote/settings")
+        || crate::mount::Mounts::valid_short_route(target)
 }
 
 #[derive(Serialize)]
@@ -107,7 +108,7 @@ pub fn open_page_with(
             .filter(|id| crate::canonical::uuid(id).is_ok())
             .ok_or_else(control::outdated_serve)?;
         let ephemeral = answer["link"].as_str().filter(|link| {
-            link.strip_prefix(&format!("{origin}/pair#auto="))
+            link.strip_prefix(&format!("{origin}/remote/pair#auto="))
                 .is_some_and(|code| {
                     code.len() == 26 && crate::canonical::pairing_code(code).is_ok()
                 })

@@ -48,7 +48,7 @@ export class Door {
     {};
   link(): string {
     const symbols = base32(this.code);
-    return `${ORIGIN}/pair#${symbols}`;
+    return `${ORIGIN}/remote/pair#${symbols}`;
   }
   fetch = (async (url: string, init: RequestInit): Promise<Response> => {
     const body = JSON.parse(init.body as string) as Record<string, string>;

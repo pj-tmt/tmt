@@ -455,15 +455,15 @@ test('native plain opening preserves a manual offer and leaves an unpaired brows
   await mkdir(bin);
   for (const name of ['open', 'xdg-open']) await symlink('/usr/bin/printf', join(bin, name));
   const answer = JSON.parse(
-    execFileSync(BINARY, ['launch', '/', '--open'], {
+    execFileSync(BINARY, ['launch', '/remote/', '--open'], {
       env: { ...env, PATH: `${bin}:${env.PATH ?? ''}` },
       encoding: 'utf8',
     }),
   ) as { version: number; link: string; opened: boolean; state: string };
-  expect(answer).toEqual({ version: 1, link: `${origin}/`, opened: true, state: 'opened' });
+  expect(answer).toEqual({ version: 1, link: `${origin}/remote/`, opened: true, state: 'opened' });
   await page.goto(answer.link);
   await expect(page.locator('#state-label')).toHaveText('Not paired');
-  expect(page.url()).toBe(`${origin}/`);
+  expect(page.url()).toBe(`${origin}/remote/`);
   expect(await (await page.request.get(`${origin}/sdk/pair-offer`)).json()).toEqual(original);
   expect(
     JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })).devices,
@@ -510,9 +510,9 @@ test('native automatic opening is single-use, strips history and reuses a paired
     requests.every((request) => !request.url.includes(code) && !request.referer.includes(code)),
   ).toBe(true);
 
-  const second = await automaticOffer('/');
+  const second = await automaticOffer('/remote/');
   await page.goto(second.link, { waitUntil: 'domcontentloaded' });
-  await page.waitForURL(`${origin}/`);
+  await page.waitForURL(`${origin}/remote/`);
   expect(list().devices).toHaveLength(1);
   expect(list().devices[0]!.clientId).toBe(paired.devices[0]!.clientId);
   expect((await page.request.get(`${origin}/sdk/pair-offer`)).status()).toBe(404);
@@ -531,7 +531,7 @@ test('native automatic opening is single-use, strips history and reuses a paired
     );
     await expect(stranger.locator('#status code')).toHaveText('tmt remote open');
     await expectUnbrokenPairingCommands(stranger);
-    expect(stranger.url()).toBe(`${origin}/pair`);
+    expect(stranger.url()).toBe(`${origin}/remote/pair`);
     expect(list().devices).toHaveLength(1);
     await expectAutomaticLabels(stranger, true);
     await captureState(stranger, 'automatic-used', '#notice', [1280, 390], ['light', 'dark']);
@@ -547,7 +547,7 @@ test('native automatic opening is single-use, strips history and reuses a paired
 
 test('native auto bootstrap erases before the SDK request and never shows the manual form', async () => {
   const page = await browser.newPage();
-  const offer = await automaticOffer('/');
+  const offer = await automaticOffer('/remote/');
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -564,12 +564,12 @@ test('native auto bootstrap erases before the SDK request and never shows the ma
   const navigation = page.goto(offer.link, { waitUntil: 'domcontentloaded' });
   try {
     await reached;
-    expect(page.url()).toBe(`${origin}/pair`);
+    expect(page.url()).toBe(`${origin}/remote/pair`);
     expect(await page.evaluate(() => location.hash)).toBe('');
     await expect(page.locator('#pair')).toBeHidden();
     release();
     await navigation;
-    await page.waitForURL(`${origin}/`);
+    await page.waitForURL(`${origin}/remote/`);
   } finally {
     release();
     await navigation.catch(() => {});
@@ -578,7 +578,7 @@ test('native auto bootstrap erases before the SDK request and never shows the ma
 
 test('native automatic connection has a code-free waiting state', async () => {
   const page = await browser.newPage();
-  const offer = await automaticOffer('/');
+  const offer = await automaticOffer('/remote/');
   const barrier = routeBarrier();
   await page.route('**/sdk/pair-offer', async (route) => {
     barrier.arrive();
@@ -588,13 +588,13 @@ test('native automatic connection has a code-free waiting state', async () => {
   try {
     await page.goto(offer.link, { waitUntil: 'domcontentloaded' });
     await barrier.reached;
-    expect(page.url()).toBe(`${origin}/pair`);
+    expect(page.url()).toBe(`${origin}/remote/pair`);
     await expect(page.locator('#status')).toHaveText('Connecting this browser…');
     await expect(page.locator('#pair')).toBeHidden();
     await expectAutomaticLabels(page, false);
     await captureState(page, 'automatic-connecting', '#notice', [1280, 390], ['light', 'dark']);
     barrier.release();
-    await page.waitForURL(`${origin}/`);
+    await page.waitForURL(`${origin}/remote/`);
   } finally {
     barrier.release();
   }
@@ -602,7 +602,7 @@ test('native automatic connection has a code-free waiting state', async () => {
 
 test('native automatic transport failure offers reopening before manual pairing', async () => {
   const page = await browser.newPage();
-  const offer = await automaticOffer('/settings');
+  const offer = await automaticOffer('/remote/settings');
   await page.route('**/sdk/pair-offer', (route) => route.abort('failed'));
   await page.goto(offer.link, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#status')).toHaveText(
@@ -610,7 +610,7 @@ test('native automatic transport failure offers reopening before manual pairing'
   );
   await expect(page.locator('#status code')).toHaveText(['tmt remote open', 'tmt remote pair']);
   await expectUnbrokenPairingCommands(page);
-  expect(page.url()).toBe(`${origin}/pair`);
+  expect(page.url()).toBe(`${origin}/remote/pair`);
   await expect(page.locator('#pair')).toBeHidden();
   await expectAutomaticLabels(page, true);
   await captureState(page, 'automatic-unavailable', '#notice', [1280, 390], ['light', 'dark']);
@@ -749,7 +749,7 @@ for (const phase of ['SDK import', 'offer response']) {
       await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeDisabled();
       await expect(page.locator('#pair')).toBeVisible();
       await expect(page.locator('#name')).toHaveValue('Readiness browser');
-      expect(page.url()).toBe(`${origin}/pair`);
+      expect(page.url()).toBe(`${origin}/remote/pair`);
       expect(observed.posts).toEqual([]);
       expect(await observed.violations()).toEqual([]);
       await captureState(
@@ -853,7 +853,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   const offer = await events.next();
   const link = offer.link as string;
   const code = link.split('#')[1]!;
-  expect(new URL(link).pathname).toBe('/pair');
+  expect(new URL(link).pathname).toBe('/remote/pair');
   expect(code).toMatch(/^[A-Z2-7]{26}$/);
   expect(link.length).toBeLessThanOrEqual(59);
   const context = await browser.newContext();
@@ -1214,7 +1214,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     reason: 'capacity',
     code: 'REMOTE_SESSION_LIMIT',
     limit: 1,
-    settingsUrl: `${origin}/settings`,
+    settingsUrl: `${origin}/remote/settings`,
   });
   expect(await list(app)).toHaveLength(1);
   execFileSync(BINARY, ['settings', 'sessions-per-device', '8', '--json'], { env });
@@ -1522,9 +1522,9 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             });
           }
         };
-        expect((await page.goto(origin))?.status()).toBe(200);
+        expect((await page.goto(`${origin}/remote/`))?.status()).toBe(200);
         await inspect('landing');
-        expect((await page.goto(`${origin}/pair/`))?.status()).toBe(404);
+        expect((await page.goto(`${origin}/remote/pair/`))?.status()).toBe(404);
         await expect(page.locator('#heading')).toHaveText('This page is unavailable');
         await inspect('error');
 
@@ -1603,8 +1603,8 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
         await expect(page.locator('#mark')).toHaveText('✗');
         await expectStateColor(page, colorScheme, 'blocked');
         await captureState(page, 'pair-failed', 'Failure words, no retry action');
-        expect((await page.goto(`${origin}/pair/abc`))?.status()).toBe(404);
-        await page.goto(`${origin}/pair#BAD`);
+        expect((await page.goto(`${origin}/remote/pair/abc`))?.status()).toBe(404);
+        await page.goto(`${origin}/remote/pair#BAD`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
         await expect(page.locator('#pair')).toBeHidden();
         await captureState(page, 'pair-offer-unavailable', 'Unavailable offer, hidden form');
@@ -1796,7 +1796,7 @@ test('the native entry checks once and presents all seven evidenced states witho
     admissions = 0;
     observations = 0;
   };
-  await page.goto(origin);
+  await page.goto(`${origin}/remote/`);
   await expect(page.locator('#state-label')).toHaveText('Not paired');
   expect(counts()).toEqual({ mounts: 0, admissions: 0, observations: 0 });
   await captureEntry('not-paired');
@@ -1877,7 +1877,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await page.route('**/sdk/mount', hold);
   reset();
   try {
-    await page.goto(origin, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${origin}/remote/`, { waitUntil: 'domcontentloaded' });
     await gate.reached;
     await expect(page.locator('#state-label')).toHaveText('Checking');
     await expect(page.locator('#check')).toBeDisabled();
@@ -1933,14 +1933,14 @@ test('the native entry checks once and presents all seven evidenced states witho
 
   await changePin(crypto.randomUUID(), original.machinePublicKey);
   reset();
-  await page.goto(origin);
+  await page.goto(`${origin}/remote/`);
   await expect(page.locator('#state-label')).toHaveText('Different machine');
   expect(counts()).toEqual({ mounts: 1, admissions: 0, observations: 0 });
   await captureEntry('different-machine');
 
   await changePin(original.machineId, original.machinePublicKey.slice(0, 31));
   reset();
-  await page.goto(origin);
+  await page.goto(`${origin}/remote/`);
   await expect(page.locator('#state-label')).toHaveText('Pairing unreadable');
   expect(counts()).toEqual({ mounts: 0, admissions: 0, observations: 0 });
   await captureEntry('pairing-unreadable');
@@ -1948,7 +1948,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await changePin(original.machineId, original.machinePublicKey);
   reset();
   await page.route('**/sdk/mount', (route) => route.abort('failed'));
-  await page.goto(origin);
+  await page.goto(`${origin}/remote/`);
   await expect(page.locator('#state-label')).toHaveText("Can't reach Remote");
   expect(counts()).toEqual({ mounts: 1, admissions: 0, observations: 0 });
   await captureEntry('unconfirmed');
@@ -1967,7 +1967,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   changed[0] = changed[0]! ^ 1;
   await changePin(original.machineId, changed);
   reset();
-  await page.goto(origin);
+  await page.goto(`${origin}/remote/`);
   await expect(page.locator('#state-label')).toHaveText("Can't reach Remote");
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 0 });
   await changePin(original.machineId, original.machinePublicKey);
@@ -1994,7 +1994,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   reset();
   const other = await context.newPage();
   try {
-    await page.goto(origin, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${origin}/remote/`, { waitUntil: 'domcontentloaded' });
     await reading.reached;
     await other.goto(`${mounts}colab/`);
     await other.evaluate(async () => {
@@ -2037,7 +2037,7 @@ test('the native entry checks once and presents all seven evidenced states witho
   await exited(revoke);
   expect(revoke.exitCode).toBe(0);
   reset();
-  await page.goto(origin);
+  await page.goto(`${origin}/remote/`);
   // The retained key now receives a verified fresh-open revocation proof, not opaque 404.
   await expect(page.locator('#state-label')).toHaveText('Not accepted');
   expect(counts()).toEqual({ mounts: 1, admissions: 1, observations: 0 });
@@ -2055,7 +2055,7 @@ test('the native entry checks once and presents all seven evidenced states witho
     };
   });
   const unavailablePage = await unavailable.newPage();
-  await unavailablePage.goto(origin);
+  await unavailablePage.goto(`${origin}/remote/`);
   await expect(unavailablePage.locator('#state-label')).toHaveText('Pairing unreadable');
   await expect(unavailablePage.locator('#status')).not.toContainText('private storage diagnostic');
   await unavailable.close();
@@ -2211,7 +2211,7 @@ test('bare pairing is read only and settings explicitly enables audited sending'
   const device = inventory.devices[0]!;
   expect(device.scopes).toEqual(['agents.read', 'check.read', 'results.read', 'status.read']);
   execFileSync(BINARY, ['devices', 'designate', device.clientId, '--json'], { env });
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(
     page.getByRole('button', { name: 'Enable sending for Settings browser', exact: true }),
@@ -2367,7 +2367,7 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   };
   await page.route('**/sdk/settings-v1.js', holdSettings);
   try {
-    await page.goto(`${origin}/settings`, { waitUntil: 'commit' });
+    await page.goto(`${origin}/remote/settings`, { waitUntil: 'commit' });
     await loading.reached;
     await expect(page.locator('header')).toHaveClass('header tmt-ui-header');
     await captureState(
@@ -2900,7 +2900,7 @@ test('settings pagination retains later-page drafts across refresh and guards na
     join(root, 'state/remote/remote.db'),
     origin,
   ]);
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('.device')).toHaveCount(25);
   await page.click('#more');
   const name = page.locator('#name-00000000-0000-4000-8000-000000000026');
@@ -3062,7 +3062,7 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
     execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
   ) as { devices: { clientId: string }[] };
   execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('#opening')).toBeEnabled();
   const startupCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
     .split('\n')
@@ -3171,7 +3171,7 @@ test('committed signed management survives owned serve SIGKILL and fresh origina
 test('settings shared presentation keeps unavailable initialization read-only', async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('#access')).toContainText('unconfirmed');
   await expect(page.locator('#opening')).toBeDisabled();
   await expect(page.locator('#refresh')).toBeDisabled();
@@ -3274,7 +3274,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   };
   await page.route('**/append', holdOptional);
   try {
-    await page.goto(`${origin}/settings`);
+    await page.goto(`${origin}/remote/settings`);
     await optional.reached;
     await expect(page.locator('#access')).toHaveText('Current browser access confirmed.');
     await expect(page.locator('#opening')).toBeEnabled();
@@ -3368,7 +3368,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     });
   };
   await page.route('**/sdk/settings-v1.js', fixtureModule);
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Enabled');
   for (const layer of ['operations', 'attachments']) {
     await expect(page.locator(`[data-layer="${layer}"]`)).toContainText(
@@ -3425,7 +3425,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   await mkdir(projectDirectory, { recursive: true, mode: 0o700 });
   const recordPath = join(projectDirectory, 'deploy.json');
   await writeFile(recordPath, JSON.stringify(partial), { mode: 0o600 });
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('[data-item="rules"]')).toContainText(
     'Firestore rules are only partly deployed.',
   );
@@ -3473,7 +3473,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   };
   const legacyBytes = JSON.stringify(legacyComplete);
   await writeFile(recordPath, legacyBytes, { mode: 0o600 });
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   const indexItem = page.locator('[data-item="indexes"]');
   await expect(indexItem).toContainText('Firestore index readiness has not been checked.');
   await expect(indexItem).toContainText('Run tmt remote deploy firestore.');
@@ -3499,7 +3499,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   });
   const completeBytes = JSON.stringify(complete);
   await writeFile(recordPath, completeBytes, { mode: 0o600 });
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   const sharing = page.locator('[data-layer="sharing"]');
   await expect(sharing.locator('h3')).toContainText('Enabled');
   await expect(sharing).toContainText(
@@ -3551,7 +3551,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
     });
     const bytes = JSON.stringify(record);
     await writeFile(recordPath, bytes, { mode: 0o600 });
-    await page.goto(`${origin}/settings`);
+    await page.goto(`${origin}/remote/settings`);
     await expect(indexItem).toContainText('Firestore indexes:');
     await expect(indexItem.locator('.firestore-state')).toContainText(mark);
     await expect(indexItem.locator('.firestore-state [aria-hidden="true"]')).toHaveText(
@@ -3576,7 +3576,7 @@ test('Firestore settings show recorded prerequisites and the approved fixture ca
   }
 
   await writeFile(recordPath, 'damaged fixture', { mode: 0o600 });
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('[data-layer="sharing"]')).toContainText('Not checked');
   expect((await recorded()).firestoreLayers).toEqual(
     expect.arrayContaining([expect.objectContaining({ layer: 'sharing', state: 'unknown' })]),
@@ -3663,7 +3663,7 @@ async function feedbackFixture(width: number, theme: 'light' | 'dark') {
     join(root, 'state/remote/remote.db'),
     origin,
   ]);
-  await page.goto(`${origin}/settings`);
+  await page.goto(`${origin}/remote/settings`);
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(page.locator('.device')).toHaveCount(3);
   return { context, page, clientId };
@@ -4326,7 +4326,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
         );
       }
       await pairAt(env, 'Registry A');
-      await page.goto(origin);
+      await page.goto(`${origin}/remote/`);
       await expect(page.locator('#state-label')).toHaveText('Connected');
       const first = await identity();
       expect(first.extractable).toBe(false);
@@ -4373,7 +4373,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       expect(openB).not.toContain('clientId');
       expect(openB).not.toContain('machinePublicKey');
       await pairAt(secondEnv, 'Registry B');
-      await page.goto(secondOrigin);
+      await page.goto(`${secondOrigin}/remote/`);
       await expect(page.locator('#state-label')).toHaveText('Connected');
       const second = await identity();
       expect(second.publicKey).not.toEqual(first.publicKey);
@@ -4431,13 +4431,13 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await expect(page.locator('#remote-add')).toBeFocused();
       expect(await identity()).toEqual(second);
       // A's old fixed-key device record remains readable and unchanged after a B round trip.
-      await page.goto(origin);
+      await page.goto(`${origin}/remote/`);
       await expect(page.locator('#state-label')).toHaveText('Connected');
       expect(await identity()).toEqual(first);
       expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(2);
       // A preview cannot overwrite a concurrent edit, and an invalid import stores no row.
       const beforeInvalid = await sdk('list');
-      await page.goto(`${origin}/#tmt-remotes=bad`);
+      await page.goto(`${origin}/remote/#tmt-remotes=bad`);
       await expect(page.locator('#remote-status')).toHaveText('The remote name or link is invalid');
       expect(new URL(page.url()).hash).toBe('');
       expect(await sdk('list')).toEqual(beforeInvalid);
@@ -4524,7 +4524,7 @@ test('landing registry keeps two origins independent and confirms public-only ha
       await storage.send('Storage.clearDataForOrigin', { origin, storageTypes: 'indexeddb' });
       await storage.detach();
       expect(await sdk('list')).toEqual({ version: 1, entries: [] });
-      await page.goto(secondOrigin);
+      await page.goto(`${secondOrigin}/remote/`);
       await expect(page.locator('#state-label')).toHaveText('Connected');
       expect(await identity()).toEqual(second);
       expect((await sdk<{ entries: unknown[] }>('list')).entries).toHaveLength(1);
@@ -4535,11 +4535,11 @@ test('landing registry keeps two origins independent and confirms public-only ha
 test('static remote switcher preserves menu focus and settings drafts across two origins', async () => {
   await withRegistryWorld(async ({ page, secondOrigin, secondEnv, pairAt, identity, sdk }) => {
     await pairAt(secondEnv, 'Registry B');
-    await page.goto(secondOrigin);
+    await page.goto(`${secondOrigin}/remote/`);
     await expect(page.locator('#state-label')).toHaveText('Connected');
     const second = await identity();
     await pairAt(env, 'Registry A');
-    await page.goto(origin);
+    await page.goto(`${origin}/remote/`);
     await expect(page.locator('#state-label')).toHaveText('Connected');
     const first = await identity();
     await expect(
@@ -4724,4 +4724,99 @@ test('static remote switcher preserves menu focus and settings drafts across two
     await page.getByRole('menuitem', { name: 'Pair again', exact: true }).click();
     await expect(page.locator('#copy-missing-pair')).toBeFocused();
   });
+});
+
+test('legacy pair redirect retains the auto fragment and erases it before every subresource', async () => {
+  const page = await browser.newPage();
+  const offer = await automaticOffer('/remote/');
+  const link = new URL(offer.link);
+  const code = link.hash.slice(6);
+  expect(link.pathname).toBe('/remote/pair');
+  link.pathname = '/pair';
+  link.search = '?next=https://example.com/';
+  const seen: { pathname: string; hash: string; automatic: string | null }[] = [];
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  await page.route('**/sdk/**', async (route) => {
+    const state = await page.evaluate(() => ({
+      pathname: location.pathname,
+      hash: location.hash,
+      automatic: document.documentElement.getAttribute('data-tmt-auto'),
+    }));
+    if (state.pathname === '/remote/pair') seen.push(state);
+    await route.continue();
+  });
+  try {
+    const response = await page.goto(link.href, { waitUntil: 'domcontentloaded' });
+    expect(response?.request().redirectedFrom()?.url()).toBe(`${origin}/pair${link.search}`);
+    await page.waitForURL(`${origin}/remote/`);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((state) => state.hash === '' && state.automatic === 'true')).toBe(true);
+    expect(requests.every((request) => !request.includes(code))).toBe(true);
+    const devices = (
+      JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
+        devices: { scopes: string[] }[];
+      }
+    ).devices;
+    expect(devices).toHaveLength(1);
+    expect(devices[0]!.scopes).toEqual([
+      'agents.read',
+      'check.read',
+      'results.read',
+      'status.read',
+    ]);
+    await page.goBack();
+    expect(page.url()).not.toContain('#');
+    await page.goForward();
+    expect(page.url()).not.toContain('#');
+  } finally {
+    await page.close();
+  }
+});
+
+test('Home and TMT settings are navigation-only and fit both sizes and themes', async () => {
+  const page = await browser.newPage();
+  const calls: string[] = [];
+  page.on('request', (request) => calls.push(request.url()));
+  try {
+    await page.goto(`${origin}/`);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Home');
+    await expect(page.getByText('Open a TMT app.', { exact: true })).toBeVisible();
+    for (const [name, href] of [
+      ['Colab', '/colab/'],
+      ['Remote', '/remote/'],
+      ['TMT settings', '/settings/'],
+    ] as const)
+      await expect(page.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
+    expect(await page.locator('script').count()).toBe(0);
+    await captureState(
+      page,
+      'home-scaffold',
+      'Navigation only, approved copy and no dashboard claims',
+      [1440, 390],
+      ['light', 'dark'],
+    );
+    await page.getByRole('link', { name: 'TMT settings', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('TMT settings');
+    await expect(
+      page.getByText('Choose an app to open its settings.', { exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Remote settings', exact: true })).toHaveAttribute(
+      'href',
+      '/remote/settings',
+    );
+    expect(await page.locator('script').count()).toBe(0);
+    await captureState(
+      page,
+      'tmt-settings-scaffold',
+      'Visible Remote-settings link and no unsupplied setting',
+      [1440, 390],
+      ['light', 'dark'],
+    );
+    expect(calls.some((url) => new URL(url).pathname.startsWith('/r/'))).toBe(false);
+    await page.getByRole('link', { name: 'Home', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Home');
+  } finally {
+    await page.close();
+  }
 });

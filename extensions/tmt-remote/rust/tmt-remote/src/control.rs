@@ -336,7 +336,7 @@ fn session(
             Ok(offer) => json!({
                 "offerId":offer.offer_id,
                 "expiresAtMs":offer.expires_at_ms,
-                "link":format!("{}/pair#auto={}", door.door.origin, canonical::pairing_code_text(&offer.code).replace('-', "")),
+                "link":format!("{}/remote/pair#auto={}", door.door.origin, canonical::pairing_code_text(&offer.code).replace('-', "")),
             }),
             Err(error) => json!({"error":{"code":error.code,"message":error.message}}),
         };
@@ -571,7 +571,7 @@ fn session(
     );
     let code = canonical::pairing_code_text(&offered.code);
     // The code travels only in the link's fragment, never in its path.
-    let link = format!("{}/pair#{}", door.door.origin, code.replace('-', ""));
+    let link = format!("{}/remote/pair#{}", door.door.origin, code.replace('-', ""));
     let opened = json!({
         "event": "offer",
         "ownerPolicyVersion": 1,

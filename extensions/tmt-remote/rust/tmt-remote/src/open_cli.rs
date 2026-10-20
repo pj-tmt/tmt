@@ -8,7 +8,7 @@ pub fn command(extension: bool) -> Command {
         name: if extension { "launch" } else { "open" },
         summary: "Open a local page and connect this browser",
         examples: &[Example {
-            command: "tmt remote open /settings",
+            command: "tmt remote open /remote/settings",
             note: "Open Remote settings",
         }],
         outputs: if extension {
@@ -48,7 +48,7 @@ pub fn run(args: &ArgMatches, extension: bool) -> Result<(), RemoteError> {
         &root.join("remote"),
         args.get_one::<String>("target")
             .map(String::as_str)
-            .unwrap_or("/"),
+            .unwrap_or("/remote/"),
         open::flag(args),
         settings::read(&root)?.open(),
         json,

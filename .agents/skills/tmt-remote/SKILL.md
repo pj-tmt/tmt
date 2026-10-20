@@ -23,7 +23,7 @@ with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
 - [references/door-and-discovery.md](references/door-and-discovery.md): running the
   door, `status` / `stop` / remembered-port / route-prefix implementation checks,
   browser opening and `settings`.
-- [references/browser-pages.md](references/browser-pages.md): the `/pair#CODE` page,
+- [references/browser-pages.md](references/browser-pages.md): the `/remote/pair#CODE` page,
   the embedded stylesheet and header-token drift tests.
 - [references/object-backends.md](references/object-backends.md): the object backend
   trait, the `LocalFs` ledger and private payload trees, effect order, charge formula

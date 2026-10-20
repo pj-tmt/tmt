@@ -302,11 +302,16 @@ fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
     }
     Ok(())
 }
-/// Origin-form target with only the transport session query; no fragment, escapes, dot segments or empty
-/// inner segments; only the last segment may be empty (a directory such as
+/// Origin-form target: only the transport session query or a discarded legacy `/pair` query.
+/// Paths have no fragments, escapes, dot segments or empty inner segments; only the last
+/// segment may be empty (a directory such as
 /// `<prefix>/x/colab/`). Isolation between the operation routes and the mount
 /// space relies on it.
 fn target(path: &str) -> bool {
+    // Only this fixed legacy redirect discards a query. Other route grammars stay strict.
+    if let Some(query) = path.strip_prefix("/pair?") {
+        return query.bytes().all(|b| b.is_ascii_graphic() && b != b'#');
+    }
     let path = if let Some((path, id)) = path.split_once("?tmt-session=") {
         if !crate::canonical::is_core_id(id)
             || id.as_bytes()[14] != b'4'

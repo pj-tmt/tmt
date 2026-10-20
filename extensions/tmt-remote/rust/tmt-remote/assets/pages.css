@@ -284,3 +284,14 @@ input {
 [data-tmt-auto='true'] #pair {
   display: none;
 }
+
+.navigation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.navigation-list a {
+  display: inline-block;
+  min-height: 44px;
+  padding: 12px 0;
+}

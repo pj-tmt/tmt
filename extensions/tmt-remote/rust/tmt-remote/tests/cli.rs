@@ -1241,7 +1241,7 @@ fn default_human_serve_returns_after_readiness() {
     assert_eq!(status_json(&pilot)["running"], false);
 }
 #[test]
-fn human_serve_link_opens_landing_while_protocol_address_stays_separate() {
+fn human_serve_link_opens_home_while_protocol_address_stays_separate() {
     let mut pilot = Pilot::new();
     let output = start_door(&mut pilot, &["--foreground", "--port", "0"], true);
     let url = output
@@ -1261,7 +1261,14 @@ fn human_serve_link_opens_landing_while_protocol_address_stays_separate() {
     let page = exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"));
     assert!(page.starts_with("HTTP/1.1 200"));
     assert!(page.contains("text/html; charset=utf-8"));
-    assert!(page.contains("tmt remote pair"));
+    assert!(page.contains("Open a TMT app."));
+    assert!(page.contains("href=\"/remote/\""));
+    let remote = exchange(
+        socket,
+        &format!("GET /remote/ HTTP/1.1\r\nHost: {socket}\r\n\r\n"),
+    );
+    assert!(remote.starts_with("HTTP/1.1 200"));
+    assert!(remote.contains("tmt remote pair"));
     let protocol = exchange(
         socket,
         &format!("GET {prefix} HTTP/1.1\r\nHost: {socket}\r\n\r\n"),

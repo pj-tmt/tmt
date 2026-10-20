@@ -644,7 +644,7 @@ async function buildHandoff(destination, value, page) {
 	const params = new URLSearchParams({ "tmt-remotes": base64url(encoder.encode(json(catalog))) });
 	if (page !== void 0) params.set("tmt-page", base64url(encoder.encode(JSON.stringify(hint(page)))));
 	valid(encoder.encode(`#${params}`).length <= LIMIT, "The remote list is too large to send along when opening this remote. Remove an entry, then try again.");
-	return `${checked.url}#${params}`;
+	return `${new URL("/remote/", checked.url).href}#${params}`;
 }
 async function planImport(incoming, current) {
 	const next = await parseCatalog(incoming), before = await parseCatalog(current);

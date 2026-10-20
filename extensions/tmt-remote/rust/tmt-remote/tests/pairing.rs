@@ -37,7 +37,7 @@ fn automatic(h: &Harness, target: &str) -> Value {
 fn automatic_pairing_is_first_use_only_and_exactly_the_read_only_default() {
     let h = Harness::new(FAST);
     let before = tmt_remote::pairing::now_ms().unwrap();
-    let offer = automatic(&h, "/settings");
+    let offer = automatic(&h, "/remote/settings");
     let link = offer["link"]
         .as_str()
         .expect("native open returns a launch URL");
@@ -46,7 +46,7 @@ fn automatic_pairing_is_first_use_only_and_exactly_the_read_only_default() {
         .pairing
         .descriptor(&format!("{}{}", h.origin, h.prefix))
         .unwrap();
-    assert_eq!(descriptor["target"], "/settings");
+    assert_eq!(descriptor["target"], "/remote/settings");
     assert_eq!(descriptor["automatic"], true);
     assert!((before + 59_000..=before + 61_000).contains(&offer["expiresAtMs"].as_u64().unwrap()));
     let device = Device::browser(&h, 71);
@@ -85,7 +85,7 @@ fn automatic_pairing_is_first_use_only_and_exactly_the_read_only_default() {
 #[test]
 fn automatic_open_replaces_only_an_automatic_offer_and_refuses_unsafe_targets() {
     let h = Harness::new(FAST);
-    let first = automatic(&h, "/");
+    let first = automatic(&h, "/remote/");
     let first_link = first["link"].as_str().expect("auto offer");
     let first_code = canonical::pairing_code(first_link.split_once("#auto=").unwrap().1).unwrap();
     let first_descriptor = h.pairing.descriptor(&h.origin).unwrap();
@@ -103,7 +103,10 @@ fn automatic_open_replaces_only_an_automatic_offer_and_refuses_unsafe_targets() 
         404
     );
     let mut manual = open(&h);
-    assert_eq!(automatic(&h, "/")["error"]["code"], "REMOTE_PAIRING_BUSY");
+    assert_eq!(
+        automatic(&h, "/remote/")["error"]["code"],
+        "REMOTE_PAIRING_BUSY"
+    );
     assert_eq!(
         h.pairing.descriptor(&h.origin).unwrap()["offerId"],
         manual.descriptor["offerId"]
@@ -133,7 +136,7 @@ fn a_live_paired_key_cancels_an_auto_offer_only_with_a_distinct_possession_proof
     let h = Harness::new(FAST);
     let device = Device::browser(&h, 74);
     // First auto enrollment establishes the existing read-only device.
-    let first = automatic(&h, "/");
+    let first = automatic(&h, "/remote/");
     let code = canonical::pairing_code(
         first["link"]
             .as_str()
@@ -153,7 +156,7 @@ fn a_live_paired_key_cancels_an_auto_offer_only_with_a_distinct_possession_proof
         200
     );
     let unchanged = h.store.lock().unwrap().grants().unwrap();
-    let second = automatic(&h, "/settings");
+    let second = automatic(&h, "/remote/settings");
     let code = canonical::pairing_code(
         second["link"]
             .as_str()
@@ -246,7 +249,7 @@ fn suppressed_missing_and_failed_openers_do_not_leave_an_automatic_offer_or_leak
     ] {
         let result = open_page_with(
             &directory,
-            "/settings",
+            "/remote/settings",
             flag,
             true,
             json_output,
@@ -255,7 +258,7 @@ fn suppressed_missing_and_failed_openers_do_not_leave_an_automatic_offer_or_leak
         )
         .unwrap();
         assert!(!result.opened);
-        assert_eq!(result.link, format!("{}/settings", h.origin));
+        assert_eq!(result.link, format!("{}/remote/settings", h.origin));
         assert!(h.pairing.descriptor(&h.origin).is_none());
     }
     let captured = std::cell::RefCell::new(String::new());
@@ -265,7 +268,7 @@ fn suppressed_missing_and_failed_openers_do_not_leave_an_automatic_offer_or_leak
     };
     let result = open_page_with(
         &directory,
-        "/settings",
+        "/remote/settings",
         Flag::Open,
         true,
         false,
@@ -308,7 +311,7 @@ fn manual_pairing_survives_plain_short_link_open_and_failure() {
     ] {
         let result = tmt_remote::open::open_page_with(
             &h.root.join("remote"),
-            "/settings",
+            "/remote/settings",
             flag,
             true,
             json_output,
@@ -325,7 +328,7 @@ fn manual_pairing_survives_plain_short_link_open_and_failure() {
         let calls = std::cell::Cell::new(0);
         let launch = |url: &str| {
             calls.set(calls.get() + 1);
-            assert_eq!(url, format!("{}/settings", h.origin));
+            assert_eq!(url, format!("{}/remote/settings", h.origin));
             if succeeds {
                 Outcome::Opened
             } else {
@@ -334,7 +337,7 @@ fn manual_pairing_survives_plain_short_link_open_and_failure() {
         };
         let result = tmt_remote::open::open_page_with(
             &h.root.join("remote"),
-            "/settings",
+            "/remote/settings",
             Flag::Open,
             true,
             false,
@@ -379,7 +382,7 @@ fn cancellation_and_enrollment_mac_guesses_share_the_offer_failure_limit() {
     use ed25519_dalek::Signer;
     for mixed in [false, true] {
         let h = Harness::new(FAST);
-        let offered = automatic(&h, "/");
+        let offered = automatic(&h, "/remote/");
         let code = canonical::pairing_code(
             offered["link"]
                 .as_str()
@@ -440,7 +443,7 @@ fn confirmed_pairing_issues_one_grant_and_a_verifiable_receipt() {
     } = open(&h);
     // The short link carries only the 128-bit code, in its fragment.
     let (path, fragment) = link.split_once('#').unwrap();
-    assert_eq!(path, format!("{}/pair", h.origin));
+    assert_eq!(path, format!("{}/remote/pair", h.origin));
     assert_eq!(fragment.len(), 26);
     assert_eq!(canonical::pairing_code(fragment).unwrap(), code);
     assert_eq!(descriptor["address"], format!("{}{}", h.origin, h.prefix));

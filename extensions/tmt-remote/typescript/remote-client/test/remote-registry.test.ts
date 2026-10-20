@@ -58,6 +58,7 @@ test('handoff is public-only, bounded and targeted', async () => {
   const packet = await parseHandoff(new URL(url).hash);
   assert.deepEqual(packet.catalog, catalog);
   assert.equal(new URL(url).origin, new URL(b.url).origin);
+  assert.equal(new URL(url).pathname, '/remote/', 'local handoff reaches the moved Remote entry');
   await assert.rejects(parseHandoff(new URL(url).hash + '&tmt-source=host'));
   await assert.rejects(parseHandoff(`#tmt-remotes=${'x'.repeat(8193)}`));
   await assert.rejects(buildHandoff({ ...b, url: 'http://attacker/next?return=secret' }, catalog));

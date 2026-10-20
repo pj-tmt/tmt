@@ -562,9 +562,9 @@ the leaf discovers no roots and interprets no Core state or provider configurati
 
 `tmt remote`: `extensions/tmt-remote`. Fixed public Core JSON calls use absolute
 `TMT_EXECUTABLE` via `tmt-invoke`. Remote owns `<dataRoot>/remote/` via
-[state leaf](#shared-extension-state-layout). Core delegates restart for replaced running Remote;
+[state leaf](#shared-extension-state-layout). Core delegates replaced Remote restart;
 Remote owns listener/state/[lifecycle admission](contracts/remote-channel-v1.md#local-cli-discovery).
-Pages/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
+Home/Remote pages/SDK; read-only auto-pair; no companions/skills; [release gates](.agents/skills/tmt-release/SKILL.md).
 
 [Contract](contracts/remote-channel-v1.md): driver auth, wire, operations,
 settings/mounts/describe/lifecycle/discovery and [hard lines](contracts/remote-channel-v1.md#user-path).

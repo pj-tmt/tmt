@@ -139,7 +139,7 @@ function pairingUrl(link: string): URL {
   requireValue(
     url.protocol === 'http:' &&
       url.hostname === '127.0.0.1' &&
-      url.pathname === '/pair' &&
+      url.pathname === '/remote/pair' &&
       url.search === '' &&
       url.username === '' &&
       url.password === '' &&

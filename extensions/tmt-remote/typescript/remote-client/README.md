@@ -31,7 +31,7 @@ This private module implements the device side of
   exposes `pairingPage(link)` for the fragment-erasing bootstrap inlined from `assets/pair.js` and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`, and the `budget` namespace of `src/budget.ts`.
 
-`parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/pair#CODE` with a
+`parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/remote/pair#CODE` with a
 separately obtained public descriptor. `resolveLink(link, fetch?)` fetches the current
 same-origin `/sdk/pair-offer` descriptor and validates both. Neither sends the code;
 the pairing page's synchronous bootstrap captures and removes the fragment before
@@ -311,7 +311,7 @@ adoption before effects; an existing original-ID read still works at capacity. S
 local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
 the database or invent a replacement ID to bypass the limit. Compaction is deferred.
 
-The Remote-owned `/settings` page uses the shared browser presentation with three sections and
+The Remote-owned `/remote/settings` page uses the shared browser presentation with three sections and
 server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
 imports the served SDK; no second channel or public page export is introduced. Checked shared CSS
 owns presentation, while Remote owns layout, native selects and control state. An untouched default
@@ -332,7 +332,8 @@ or restored to its admitted value. Only the current bounded page's forms are ret
 ## Remote browser entry
 
 The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.
-`landingPage()` is the entry bootstrap, using the same saved non-extractable key and machine pins.
+The [public route contract](../../../../contracts/remote-channel-v1.md#public-browser-routes) owns Home and TMT settings.
+`landingPage()` bootstraps `/remote/`, using the same saved non-extractable key and machine pins.
 On load it validates local storage, then checks once through a verified Session and signed
 `capabilities` read; a saved pairing alone never proves current access. Manual Check again reuses
 that Session while current. An expired Session is silently reopened once within the manual check;
