@@ -33,7 +33,6 @@ export interface CutClient {
     row: CutRow;
     body: string;
     startedAt: number;
-    finishedAt: number;
   }): DispatchEvidence;
 }
 export function createCutClient(

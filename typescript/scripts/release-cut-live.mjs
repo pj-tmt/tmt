@@ -115,21 +115,21 @@ export function createCutClient({ repository, token, ref, observe }, execute = r
         `inputs[tag]=${tag}`,
       ]);
     },
-    reconcileDispatch: ({ id, row, body, startedAt, finishedAt }) => {
+    reconcileDispatch: ({ id, row, body, startedAt }) => {
       const draft = api(`releases/${id}`, 'GET', [], true);
       verifiedDraft(draft, row, body);
       assert.equal(draft.id, id, 'Cut draft identity changed.');
-      // GitHub run creation times have whole-second precision. Query that enclosing
-      // POST interval, then require exact workflow/event/branch/tag identity as well.
+      // GitHub timestamps have whole-second precision and creation can finish
+      // after our POST aborts. Read since its floored start, not a client-abort cap.
       const lower = Math.floor(startedAt / 1000) * 1000;
-      const upper = Math.floor(finishedAt / 1000) * 1000;
-      const interval = `${new Date(lower).toISOString()}..${new Date(upper).toISOString()}`;
+      const since = `>=${new Date(lower).toISOString()}`;
       const evidence = api(
-        `actions/workflows/native-release.yml/runs?event=workflow_dispatch&branch=main&per_page=100&created=${encodeURIComponent(interval)}`,
+        `actions/workflows/native-release.yml/runs?event=workflow_dispatch&branch=main&per_page=100&created=${encodeURIComponent(since)}`,
         'GET',
         [],
         true
       );
+      const readAt = Date.now();
       assert.ok(
         Number.isSafeInteger(evidence?.total_count) &&
           evidence.total_count >= 0 &&
@@ -155,8 +155,8 @@ export function createCutClient({ repository, token, ref, observe }, execute = r
           run.head_branch === 'main' &&
           run.path === '.github/workflows/native-release.yml' &&
           run.display_title === `Native release: ${row.tag}` &&
-          Date.parse(run.created_at) >= startedAt &&
-          Date.parse(run.created_at) <= finishedAt &&
+          Date.parse(run.created_at) >= lower &&
+          Date.parse(run.created_at) <= readAt &&
           run.html_url === `https://github.com/${repository}/actions/runs/${run.id}`
       );
       assert.equal(
@@ -311,11 +311,10 @@ export async function runReleaseCuts({
         try {
           await timed(`dispatch:${row.product}`, () => client.dispatch(row.product, row.tag));
         } catch (error) {
-          const finishedAt = Date.now();
-          // A transport timeout can occur after GitHub accepted the POST. A known
+          // A timeout or HTTP 5xx can follow an accepted POST. A known
           // rejection/budget refusal is still failed, and never gets another POST.
           if (
-            !/ETIMEDOUT|ECONNRESET|EPIPE|timed? out|uncertain dispatch|socket hang up/i.test(
+            !/ETIMEDOUT|ECONNRESET|EPIPE|timed? out|uncertain dispatch|socket hang up|HTTP 5\d\d\b/i.test(
               error.message
             )
           )
@@ -325,7 +324,7 @@ export async function runReleaseCuts({
           try {
             if (!client.reconcileDispatch) throw new Error('Dispatch read-back is unavailable.');
             evidence = await timed(`reconcile:${row.product}`, () =>
-              client.reconcileDispatch({ id: created.id, row, body, startedAt, finishedAt })
+              client.reconcileDispatch({ id: created.id, row, body, startedAt })
             );
           } catch (readError) {
             reason += `; ${readError.message.split('\n', 1)[0]}`;

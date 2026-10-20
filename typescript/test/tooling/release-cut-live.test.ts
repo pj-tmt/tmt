@@ -567,18 +567,21 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
     'workflow',
     'before',
     'before-fractional',
-    'after',
+    'after-finished-before-read',
+    'after-read',
     'draft-id',
     'draft-tag',
     'draft-target',
     'draft-body',
     'duplicate-id',
-  ])('keeps dispatch uncertain for %s evidence', (control) => {
+  ])('accepts only complete, exact dispatch evidence: %s', (control) => {
     const cut = 'a'.repeat(40);
     const row = { product: 'cli', cut, status: 'proposed', tag: 'v5.0.0-alpha.99' };
-    const startedAt =
-      Date.parse('2026-10-20T10:00:00Z') + (control === 'before-fractional' ? 500 : 0);
+    const startedAt = Date.parse('2026-10-20T10:00:00Z') + 500;
     const finishedAt = startedAt + 1000;
+    const readAt = startedAt + 3250;
+    const wholeSecond = (stamp: number) =>
+      new Date(Math.floor(stamp / 1000) * 1000).toISOString().replace('.000Z', 'Z');
     const draft = {
       id: 17,
       draft: true,
@@ -592,16 +595,16 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
       display_title: `Native release: ${row.tag}`,
       head_branch: 'main',
       path: '.github/workflows/native-release.yml',
-      created_at: new Date(startedAt).toISOString(),
+      created_at: wholeSecond(startedAt),
       html_url: 'https://github.com/pj-tmt/tmt/actions/runs/101',
     };
     if (control === 'tag') run.display_title += '-wrong';
     if (control === 'event') run.event = 'push';
     if (control === 'branch') run.head_branch = 'other';
     if (control === 'workflow') run.path = '.github/workflows/other.yml';
-    if (control === 'before-fractional') run.created_at = new Date(startedAt - 500).toISOString();
-    if (control === 'before') run.created_at = new Date(startedAt - 1000).toISOString();
-    if (control === 'after') run.created_at = new Date(finishedAt + 1000).toISOString();
+    if (control === 'before') run.created_at = wholeSecond(startedAt - 1000);
+    if (control === 'after-finished-before-read') run.created_at = wholeSecond(finishedAt + 1000);
+    if (control === 'after-read') run.created_at = wholeSecond(readAt + 1000);
     if (control === 'draft-id') draft.id += 1;
     if (control === 'draft-tag') draft.tag_name += '-wrong';
     if (control === 'draft-target') draft.target_commitish = 'b'.repeat(40);
@@ -621,29 +624,43 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
           : { total_count: control === 'truncated' ? 101 : runs.length, workflow_runs: runs }
       )
     );
-    const client = createCutClient(
-      { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
-      execute
-    );
-    expect(() =>
-      client.reconcileDispatch!({ id: 17, row, body: 'exact body', startedAt, finishedAt })
-    ).toThrow();
-    expect(
-      execute.mock.calls.every(([, args]) => args[args.indexOf('--method') + 1] === 'GET')
-    ).toBe(true);
-    expect(execute.mock.calls.length).toBeLessThanOrEqual(2);
-    expect(
-      cutExitCode({
-        actions: [{ product: 'cli', status: 'dispatch-uncertain', reconciled: false }],
-      })
-    ).toBe(1);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(readAt);
+    try {
+      const client = createCutClient(
+        { repository: 'pj-tmt/tmt', token: 'fixture-token', ref: 'refs/heads/main' },
+        execute
+      );
+      const reconcile = () =>
+        client.reconcileDispatch!({ id: 17, row, body: 'exact body', startedAt });
+      if (control === 'before-fractional' || control === 'after-finished-before-read') {
+        expect(reconcile()).toEqual({
+          runId: 101,
+          runUrl: 'https://github.com/pj-tmt/tmt/actions/runs/101',
+        });
+        const route = execute.mock.calls[1][1][1];
+        expect(new URL(`https://api.github.com/${route}`).searchParams.get('created')).toBe(
+          '>=2026-10-20T10:00:00.000Z'
+        );
+      } else expect(reconcile).toThrow();
+      expect(
+        execute.mock.calls.every(([, args]) => args[args.indexOf('--method') + 1] === 'GET')
+      ).toBe(true);
+      expect(execute.mock.calls.length).toBeLessThanOrEqual(2);
+      expect(
+        cutExitCode({
+          actions: [{ product: 'cli', status: 'dispatch-uncertain', reconciled: false }],
+        })
+      ).toBe(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('reserves only three reconciliation reads and never exceeds 180 total calls', () => {
     const cut = 'a'.repeat(40);
     const row = { product: 'cli', cut, status: 'proposed', tag: 'v5.0.0-alpha.99' };
     const stamp = Date.parse('2026-10-20T10:00:00Z');
-    const input = { id: 17, row, body: 'exact', startedAt: stamp, finishedAt: stamp + 1000 };
+    const input = { id: 17, row, body: 'exact', startedAt: stamp };
     const execute = vi.fn((_command: string, args: string[]) => {
       if (args[1].includes('/git/ref/')) return JSON.stringify({ object: { sha: cut } });
       if (args[1].includes('/releases/'))
@@ -663,7 +680,7 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
             head_branch: 'main',
             path: '.github/workflows/native-release.yml',
             display_title: `Native release: ${row.tag}`,
-            created_at: new Date(stamp).toISOString(),
+            created_at: new Date(stamp).toISOString().replace('.000Z', 'Z'),
             html_url: 'https://github.com/pj-tmt/tmt/actions/runs/101',
           },
         ],
@@ -699,7 +716,6 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
           row: { product: 'cli', status: 'proposed', cut: 'a'.repeat(40), tag: 'v5.0.0-alpha.99' },
           body: 'exact',
           startedAt: base,
-          finishedAt: base + 1,
         })
       ).toThrow('reconciliation');
       expect(execute).not.toHaveBeenCalled();
@@ -811,7 +827,34 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
     }
   });
 
-  it('reads back a timed-out successful dispatch without another POST and marks it reconciled', async () => {
+  it.each([403, 429])(
+    'keeps a known HTTP %i rejection failed without read-back or retry',
+    async (status) => {
+      const f = fixture();
+      const reconcile = vi.fn();
+      f.client.reconcileDispatch = reconcile;
+      vi.mocked(f.client.dispatch).mockImplementationOnce(() => {
+        throw new Error(`gh: rejected (HTTP ${status})`);
+      });
+      const result = await runReleaseCuts({ ...f, live: true });
+      expect(result.actions[0]).toMatchObject({
+        status: 'failed',
+        reason: `gh: rejected (HTTP ${status})`,
+      });
+      expect(result.actions[1].status).toBe('created');
+      expect(cutExitCode(result)).toBe(1);
+      expect(reconcile).not.toHaveBeenCalled();
+      expect(f.client.dispatch).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it.each([
+    'spawnSync gh ETIMEDOUT',
+    'gh: Internal Server Error (HTTP 500)',
+    'gh: Bad Gateway (HTTP 502)',
+    'gh: Service Unavailable (HTTP 503)',
+    'gh: Gateway Timeout (HTTP 504)',
+  ])('reads back a successful dispatch after %s without another POST', async (dispatchError) => {
     const f = fixture();
     let clock = Date.parse('2026-10-20T10:00:00Z');
     const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
@@ -832,11 +875,11 @@ describe('#4098 bounded cut and dispatch uncertainty', () => {
           display_title: `Native release: ${tag}`,
           head_branch: 'main',
           path: '.github/workflows/native-release.yml',
-          created_at: new Date(clock).toISOString(),
+          created_at: new Date(Math.floor(clock / 1000) * 1000).toISOString().replace('.000Z', 'Z'),
           html_url: 'https://github.com/pj-tmt/tmt/actions/runs/101',
         });
         clock += 1000;
-        throw new Error('spawnSync gh ETIMEDOUT');
+        throw new Error(dispatchError);
       }
       return result;
     });

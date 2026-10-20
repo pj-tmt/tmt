@@ -203,12 +203,16 @@ seconds between drafts; total step wall 181 seconds. MODELED six-row provision:
 These are sizing inputs, not measured planner time or a demonstrated speedup.
 Structured stderr lines report command/phase durations and every row outcome; no
 wall-time saving is claimed until a real cut emits those timings. Create and
-dispatch are never retried inside the cut. A dispatch transport timeout remains
-uncertain: bounded GETs must prove the unchanged exact draft and exactly one
-native workflow-dispatch run on main for that tag created in the POST interval
-(GitHub timestamps have whole-second precision). Reconciled uncertainty records
-the run ID and exits zero; missing, ambiguous, truncated or changed evidence exits
-nonzero for owner-authorized recovery, preserving the draft.
+dispatch are never retried inside the cut. A dispatch transport timeout or HTTP
+5xx remains uncertain: bounded GETs must prove the unchanged exact draft and
+exactly one native workflow-dispatch run on main for that tag created between
+the POST start floored to the second and the run read; creation may finish after
+the client aborts, and GitHub timestamps have whole-second precision. Reconciled
+uncertainty records the run ID and exits zero; missing, ambiguous, truncated or
+changed evidence exits nonzero for owner-authorized recovery, preserving the
+draft. The shared three-read reserve covers one full reconciliation (draft and
+run listing) plus one read; after those two reads, a second uncertain dispatch
+stays unreconciled and exits nonzero.
 **File the allocation-index work before the catalogue reaches 3,000 releases.**
 No recent-window truncation is safe yet: old held/tagless drafts still reserve
 versions. A future early-terminating scan must prove equivalence for allocated
