@@ -67,6 +67,7 @@ import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
 import { useQuickSwitcher } from './quick-switcher-context.js';
 import { NeedsYouHeader } from './needs-you-header.js';
+import { shareView } from './share-view.js';
 import { pendingNeedsYou } from './needs-you.js';
 import { useReplyNotifications } from './use-reply-notifications.js';
 import { ReplyNotificationObserver } from './reply-notifications.js';
@@ -1048,7 +1049,13 @@ function Page() {
     let firstView = true;
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
-        const next = { ...value, ownData: value.ownData ?? false };
+        // Every update arrives as a fresh copy of the whole page's state; what did not change keeps
+        // the identity it had, so only the sections keyed on what changed run again. The view
+        // itself is always a new object: a publication with the same data still renders the page,
+        // because the binding (its Ask facade, its files) can change without the data changing.
+        const next = {
+          ...shareView(latest.current, { ...value, ownData: value.ownData ?? false }),
+        };
         if (firstView) {
           firstView = false;
           replyObserver.baselineFirstView(next);
@@ -1601,25 +1608,36 @@ function Page() {
     onQuestionAnchors,
     onReadingAnchors,
   ]);
+  // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
+  // A reply or a status change elsewhere leaves this list as it was, so the document is not told
+  // to highlight again.
+  const highlights = useRef<readonly { id: string; selector: QuoteSelector; ordinal: number }[]>(
+    [],
+  );
+  highlights.current = shareView(
+    highlights.current,
+    (view.threads ?? []).flatMap((thread) =>
+      isStatusThread(thread) && !thread.resolved && thread.anchor
+        ? [
+            {
+              id: `${thread.ref.writer}:${thread.threadId}`,
+              selector: thread.anchor,
+              ordinal: numbers.get(`${thread.ref.writer}:${thread.threadId}`)!,
+            },
+          ]
+        : [],
+    ),
+  );
+  const anchoredThreads = highlights.current,
+    threadTotal = numbers.size;
   useEffect(() => {
     if (state !== 'ready') return;
     renderer.current?.highlight(
-      // Resolving hides the margin marker; Reopen restores it. Resolved history stays in Comments.
-      (view.threads ?? []).flatMap((thread) =>
-        isStatusThread(thread) && !thread.resolved && thread.anchor
-          ? [
-              {
-                id: `${thread.ref.writer}:${thread.threadId}`,
-                selector: thread.anchor,
-                ordinal: numbers.get(`${thread.ref.writer}:${thread.threadId}`)!,
-              },
-            ]
-          : [],
-      ),
+      anchoredThreads as { id: string; selector: QuoteSelector; ordinal: number }[],
       annotation?.selector ?? undefined,
-      numbers.size,
+      threadTotal,
     );
-  }, [state, view.threads, annotation, numbers]);
+  }, [state, anchoredThreads, annotation, threadTotal]);
   // A modal drawer makes the page-level card inert, so an ended connection also speaks in the
   // drawer: the same sentence and action under its header. A reconnecting page shows nothing.
   const endedNotice = endedError && (

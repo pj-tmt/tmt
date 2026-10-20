@@ -1189,6 +1189,75 @@ export function conversationActivity(options: {
   emit();
 }
 
+/** One anchored thread on paragraph `index` of `largePage`, with a single opening comment. */
+function largeThread(index: number, comments = 1): ThreadView {
+  // Fixed times, so a thread keeps its place in the page's numbering when a reply arrives.
+  const at = String(1_760_000_000_000 + index * 1000);
+  const threadId = id(1000 + index);
+  const exact = `Paragraph ${index} has its own unique sentence`;
+  const thread: ThreadView = {
+    version: 1,
+    kind: 'thread',
+    spaceId: selection().space,
+    pageId: id(1),
+    epoch: '1',
+    senderDevice: id(4),
+    deviceName: 'Asker browser',
+    threadId,
+    revision: '1',
+    at,
+    createdAt: at,
+    anchor: { exact, prefix: '', suffix: '' },
+    resolved: false,
+    deleted: false,
+    ref: { writer: id(4), id: threadId },
+    comments: [],
+  };
+  for (let n = 0; n < comments; n++) {
+    const messageId = id(100_000 + index * 100 + n);
+    thread.comments.push({
+      version: 1,
+      kind: 'comment',
+      spaceId: thread.spaceId,
+      pageId: thread.pageId,
+      epoch: '1',
+      senderDevice: id(4),
+      deviceName: thread.deviceName,
+      messageId,
+      revision: '1',
+      at,
+      thread: thread.ref,
+      body: n === 0 ? `Comment on paragraph ${index}.` : `Reply ${n} on paragraph ${index}.`,
+      deleted: false,
+      ref: { writer: id(4), id: messageId },
+    });
+  }
+  return thread;
+}
+/** A large page: `paragraphs` paragraphs of prose with a thread on each of the first `threads`. */
+export function largePage(options: { paragraphs: number; threads: number }) {
+  const source = Array.from(
+    { length: options.paragraphs },
+    (_, index) =>
+      `<p id="para-${index}">Paragraph ${index} has its own unique sentence, followed by enough ordinary words to make every block a realistic line of prose for a page that has grown over many sessions.</p>`,
+  ).join('\n');
+  current = {
+    ...current,
+    source,
+    threads: Array.from({ length: options.threads }, (_, index) => largeThread(index)),
+    asks: [],
+  };
+  emit();
+}
+/** An admitted reply on thread `index`, published as Live does: a fresh clone of the projection. */
+export function largePageReply(index: number) {
+  current = structuredClone({
+    ...current,
+    threads: current.threads!.map((thread, at) => (at === index ? largeThread(index, 2) : thread)),
+  });
+  emit();
+}
+
 /** Admitted reply/history publication double; it never prepares or dispatches an Ask. */
 export function windowReply(count = 0) {
   const thread = current.threads!.find((value) => value.anchor)!;
