@@ -391,7 +391,11 @@ for (const width of [1440, 390])
         const frame = page.frameLocator('#ask-page-fixture iframe');
         await expect(frame.locator('html')).toHaveAttribute('data-theme', theme);
         const question = card.locator('.question-compact-block');
-        await expect(question).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+        // The band's surface in the active theme, whatever the page paints (#3959).
+        await expect(question).toHaveCSS(
+          'background-color',
+          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
+        );
         await expect(question).toHaveCSS(
           'color',
           theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
@@ -415,10 +419,10 @@ for (const width of [1440, 390])
           theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(card.locator('.question-group-footer')).toHaveCSS('border-top-width', '0px');
-        // Sibling agent cards follow the same effective Colab theme.
+        // Sibling agent cards follow the same effective Colab theme and the same band surface.
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'background-color',
-          theme === 'dark' ? 'rgb(16, 16, 16)' : 'rgb(255, 255, 255)',
+          theme === 'dark' ? 'rgb(52, 52, 52)' : 'rgb(236, 236, 235)',
         );
         await expect(proposal.locator('.proposal-card')).toHaveCSS(
           'color',
@@ -426,9 +430,10 @@ for (const width of [1440, 390])
         );
         await expect(proposal.locator('.proposal-card')).toHaveCSS('color-scheme', theme);
         await expect(proposal.locator('.proposal-card')).toHaveCSS('box-shadow', 'none');
+        // Inside the band the secondary grey is the theme ink (#3959); size and place carry rank.
         await expect(proposal.locator('.proposal-author')).toHaveCSS(
           'color',
-          theme === 'dark' ? 'rgb(144, 144, 144)' : 'rgb(98, 98, 98)',
+          theme === 'dark' ? 'rgb(176, 176, 176)' : 'rgb(52, 52, 52)',
         );
         await expect(proposal.getByRole('button', { name: 'Approve', exact: true })).toHaveCSS(
           'background-color',

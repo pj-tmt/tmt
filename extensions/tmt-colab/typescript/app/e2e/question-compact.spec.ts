@@ -149,9 +149,10 @@ for (const width of [1440, 390]) {
       document.documentElement.dataset.theme = 'dark';
     });
     const row = rows.first();
+    // The block is the needs-you band's surface (dark here), whatever the page paints.
     await expect(page.locator('.question-compact-block')).toHaveCSS(
       'background-color',
-      'rgba(0, 0, 0, 0)',
+      'rgb(52, 52, 52)',
     );
     await expect(row.locator('.question-line-chevron svg')).toHaveCSS('width', '16px');
     await expect(row.locator('.question-line-chevron svg')).toHaveCSS('height', '16px');

@@ -1599,6 +1599,13 @@ export function driverClient(options: {
   emit();
 }
 
+/** The author's page paint: a light or a dark page, or `bare` for a page that sets no background
+ *  (the render frame's canvas stays white). */
+function pagePaint(options: { darkPage?: boolean; bare?: boolean }) {
+  if (options.bare) return '';
+  return `background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}`;
+}
+
 /** Inert authored questions plus admitted thread projections; no publication proof. */
 export function question(
   options: {
@@ -1610,6 +1617,7 @@ export function question(
     placement?: 'inline' | 'duplicate' | 'nested';
     mixed?: boolean;
     darkPage?: boolean;
+    bare?: boolean;
   } = {},
 ) {
   const escape = (value: string) =>
@@ -1621,7 +1629,7 @@ export function question(
   if (options.mixed) proposal('inline');
   current = {
     ...current,
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}tmt-question,tmt-proposal{display:block}</style><h1>Project notes</h1><p>Before the question.</p>${options.placement === 'nested' ? `<tmt-question data-id="${id(91)}">${markup}</tmt-question>` : markup}${options.placement === 'duplicate' ? markup : ''}<p id="after-question">The page continues here.</p>${options.mixed ? `<tmt-proposal data-id="${id(81)}"></tmt-proposal><p id="after-proposal">After both controls.</p>` : ''}`,
     threads: options.mixed ? current.threads : [],
   };
   emit();
@@ -1634,6 +1642,7 @@ export function questionGroup(
     layout?: 'centered' | 'nested';
     multiple?: boolean;
     darkPage?: boolean;
+    bare?: boolean;
     longLabels?: boolean;
     lone?: boolean;
     agents?: string[];
@@ -1673,13 +1682,13 @@ export function questionGroup(
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style>${container}`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}</style>${container}`,
   };
   emit();
 }
 
 /** A page whose answer block is the compact chip form, inline in running text. */
-export function chipPage(options: { count?: 1 | 2; darkPage?: boolean } = {}) {
+export function chipPage(options: { count?: 1 | 2; darkPage?: boolean; bare?: boolean } = {}) {
   const count = options.count ?? 2;
   const first = `<tmt-question data-id="${id(131)}" data-kind="single" data-agent="Agent 1"><p data-question>Which list version?</p><span data-choice>One column</span><span data-choice>Side categories</span></tmt-question>`;
   const second = `<tmt-question data-id="${id(132)}" data-kind="short" data-agent="Agent 1"><p data-question>Hide read pages?</p></tmt-question>`;
@@ -1691,7 +1700,7 @@ export function chipPage(options: { count?: 1 | 2; darkPage?: boolean } = {}) {
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><div id="host-text">The list must filter and show each page's state. The two versions differ in where the categories live ${block} and the details follow in the next paragraph of this very long sentence so that it wraps on a narrow screen.</div><p id="after-question">The page continues here.</p>`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}</style><h1>Project notes</h1><div id="host-text">The list must filter and show each page's state. The two versions differ in where the categories live ${block} and the details follow in the next paragraph of this very long sentence so that it wraps on a narrow screen.</div><p id="after-question">The page continues here.</p>`,
   };
   emit();
 }
@@ -1707,6 +1716,7 @@ export function review(
     group?: boolean;
     placement?: 'inline' | 'duplicate' | 'nested';
     darkPage?: boolean;
+    bare?: boolean;
     /** The page itself claims the section is closed and draws its own controls. */
     forged?: boolean;
   } = {},
@@ -1733,7 +1743,7 @@ export function review(
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Project notes</h1><p>Before the sections.</p>${sections.join('')}<p id="after-sections">The page continues here.</p>`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}</style><h1>Project notes</h1><p>Before the sections.</p>${sections.join('')}<p id="after-sections">The page continues here.</p>`,
   };
   emit();
 }
@@ -2011,7 +2021,13 @@ export function resumeAttachmentUploads() {
 
 /** Inert reading markup exercises the real page parser, renderer and person-status owner. */
 export function reading(
-  options: { count?: number; darkPage?: boolean; forged?: boolean; tall?: boolean } = {},
+  options: {
+    count?: number;
+    darkPage?: boolean;
+    bare?: boolean;
+    forged?: boolean;
+    tall?: boolean;
+  } = {},
 ) {
   const details = Array.from(
     { length: 24 },
@@ -2022,7 +2038,7 @@ export function reading(
     ...current,
     threads: [],
     asks: [],
-    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;background:${options.darkPage ? '#181818' : '#fff'};color:${options.darkPage ? '#eee' : '#222'}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read${options.tall ? ' style="min-height:900px;display:block"' : ''} data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p>${options.tall ? details : ''}</tmt-read>`).join('')}<p>The page continues here.</p>`,
+    source: `<style>body{margin:24px;font:16px/1.5 sans-serif;${pagePaint(options)}}</style><h1>Release reading</h1><p>Read the decisions before the next step.</p>${Array.from({ length: options.count ?? 2 }, (_, index) => `<tmt-read${options.tall ? ' style="min-height:900px;display:block"' : ''} data-id="${id(240 + index)}" data-agent="Agent 1" data-why="Read before approving the release"${options.forged ? ' data-colab-reading-closed="true"' : ''}><h2 data-title>Decision ${index + 1}</h2><p>Content of reading ${index + 1}. The page remains readable after marking it read.</p>${options.tall ? details : ''}</tmt-read>`).join('')}<p>The page continues here.</p>`,
   };
   emit();
 }
