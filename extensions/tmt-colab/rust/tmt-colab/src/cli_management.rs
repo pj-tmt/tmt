@@ -999,6 +999,24 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
+        // A page's work, folded only when the page changed since the last listing; a listing that
+        // cannot read work is a listing without it.
+        let listed: Vec<String> = catalog["pages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+            .collect();
+        if let Ok(mut decoder) = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)
+            && let Ok(found) =
+                tmt_colab::work_index::scan(&layout, &store, &key, &mut decoder, &listed)
+        {
+            for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+                if let Some(Some(work)) = page["pageId"].as_str().and_then(|id| found.get(id)) {
+                    page["work"] = work.derived.clone();
+                }
+            }
+        }
         // One door lookup for the whole listing; each page carries its own path and link.
         let reach = crate::reach::Reach::gather().with_pages(&ids);
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
@@ -1254,6 +1272,39 @@ fn catalog_ids(catalog: &Value) -> Vec<String> {
         .flatten()
         .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
         .collect()
+}
+/// The pages that are not archived: the pages a work-in-progress count covers.
+pub(crate) fn active_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
+    let catalog = inspection::catalog(store, key)?;
+    Ok(catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|page| page["archived"] != true)
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect())
+}
+/// A page's work on one dim line: its stage, progress, who is working and the sign-offs waiting.
+fn work_line(work: &Value) -> String {
+    let mut line = format!(
+        "work {} · {}/{} done",
+        work["stage"].as_str().unwrap_or_default(),
+        work["done"],
+        work["total"]
+    );
+    let who: Vec<&str> = work["working"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|assignee| assignee["name"].as_str())
+        .collect();
+    if !who.is_empty() {
+        line.push_str(&format!(" · working {}", who.join(", ")));
+    }
+    if let Some(waiting) = work["signoff"].as_u64().filter(|n| *n > 0) {
+        line.push_str(&format!(" · {waiting} awaiting sign-off"));
+    }
+    line
 }
 /// The rows every page-naming command shares: where to open the page, and the pairing step.
 fn page_rows(reach: &crate::reach::Reach, path: &str) -> Vec<(&'static str, String)> {
@@ -1540,6 +1591,13 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
                     out,
                     "    {}",
                     terminal.paint(Token::Dim, &escape(&format!("layout {layout}{reason}")))
+                )?;
+            }
+            if page["work"].is_object() {
+                writeln!(
+                    out,
+                    "    {}",
+                    terminal.paint(Token::Dim, &escape(&work_line(&page["work"])))
                 )?;
             }
             writeln!(

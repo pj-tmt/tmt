@@ -315,41 +315,62 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
     let recipient = input.get("creationRecipient").map(|value| {
         serde_json::from_value::<crate::decoder::CreationRecipient>(value.clone()).unwrap()
     });
-    let manifest = serde_json::to_vec(&Manifest {
-        format: "tmt-colab-page-export",
-        version: 1,
-        space_id: input["spaceId"].as_str().unwrap(),
-        page_id: input["pageId"].as_str().unwrap(),
-        title: input["title"].as_str().unwrap(),
-        page_type: None,
-        original_author: input["originalAuthor"].as_str(),
-        publisher_agent: input["publisherAgent"].as_str(),
-        creation_recipient: recipient.as_ref(),
-        exported_at_ms: input["exportedAtMs"].as_u64().unwrap(),
-        membership_head: MembershipHead {
-            revision: input["membershipHead"]["revision"].as_str().unwrap().into(),
-            statement_hash: input["membershipHead"]["statementHash"]
-                .as_str()
-                .unwrap()
-                .into(),
-        },
-        epoch: input["epoch"].as_str().unwrap().into(),
-        plaintext: true,
-        discussions: Discussions {
-            included: true,
-            scope: "current-epoch",
-            format: conversations::FORMAT,
+    let manifest_of = |files: &Vec<FileInfo>| {
+        serde_json::to_vec(&Manifest {
+            format: "tmt-colab-page-export",
             version: 1,
-        },
-        attachments: &attachments,
-        files: &files,
-    })
-    .unwrap();
+            space_id: input["spaceId"].as_str().unwrap(),
+            page_id: input["pageId"].as_str().unwrap(),
+            title: input["title"].as_str().unwrap(),
+            page_type: None,
+            original_author: input["originalAuthor"].as_str(),
+            publisher_agent: input["publisherAgent"].as_str(),
+            creation_recipient: recipient.as_ref(),
+            exported_at_ms: input["exportedAtMs"].as_u64().unwrap(),
+            membership_head: MembershipHead {
+                revision: input["membershipHead"]["revision"].as_str().unwrap().into(),
+                statement_hash: input["membershipHead"]["statementHash"]
+                    .as_str()
+                    .unwrap()
+                    .into(),
+            },
+            epoch: input["epoch"].as_str().unwrap().into(),
+            plaintext: true,
+            discussions: Discussions {
+                included: true,
+                scope: "current-epoch",
+                format: conversations::FORMAT,
+                version: 1,
+            },
+            attachments: &attachments,
+            files,
+        })
+        .unwrap()
+    };
+    let manifest = manifest_of(&files.to_vec());
     assert_eq!(
         manifest,
         fixture["manifestUtf8"].as_str().unwrap().as_bytes()
     );
     assert_eq!(hex(&crypto::digest(&manifest)), fixture["manifestSha256"]);
+    // A page with work lists `work.json` right after its HTML; the bytes are the canonical value.
+    let work = crate::closed::canonical(&fixture["work"]).unwrap();
+    assert_eq!(work, fixture["workJson"].as_str().unwrap().as_bytes());
+    let with_work = vec![
+        files[0].clone(),
+        FileInfo::new("work.json", &work),
+        files[1].clone(),
+        files[2].clone(),
+    ];
+    let manifest = manifest_of(&with_work);
+    assert_eq!(
+        manifest,
+        fixture["manifestWorkUtf8"].as_str().unwrap().as_bytes()
+    );
+    assert_eq!(
+        hex(&crypto::digest(&manifest)),
+        fixture["manifestWorkSha256"]
+    );
 }
 
 #[test]

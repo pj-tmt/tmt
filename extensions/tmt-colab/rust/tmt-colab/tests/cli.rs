@@ -1691,6 +1691,331 @@ fn shell_cli_creates_reads_and_applies_all_actions_offline_and_serving() {
 }
 
 #[test]
+fn work_commands_change_a_page_limit_each_agent_across_the_space_and_list() {
+    fn run(pilot: &Pilot, args: &[&str]) -> std::process::Output {
+        pilot
+            .command()
+            .env("TMT_AGENT", "1")
+            .env("BROWSER", "/usr/bin/true")
+            .args(args)
+            .output()
+            .unwrap()
+    }
+    fn call(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        assert!(out.stderr.is_empty(), "{args:?}: {out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+    fn refused(pilot: &Pilot, args: &[&str]) -> Value {
+        let out = run(pilot, args);
+        assert!(!out.status.success(), "{args:?}: {out:?}");
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"].clone()
+    }
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let source = pilot.root.join("source.html");
+        fs::write(&source, "<h1>Plan</h1>").unwrap();
+        let create = |title: &str| {
+            call(
+                &pilot,
+                &[
+                    "page",
+                    "create",
+                    "--title",
+                    title,
+                    "--layout",
+                    "column",
+                    "--file",
+                    source.to_str().unwrap(),
+                    "--no-open",
+                    "--json",
+                ],
+            )["pageId"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let (one, two) = (create("One"), create("Two"));
+        let listed = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(listed["work"], tmt_colab::work::empty());
+        assert_eq!(listed["derived"]["stage"], "discussion");
+        // Setting a limit keeps the other settings.
+        call(&pilot, &["settings", "open", "off", "--json"]);
+        let settings = call(&pilot, &["settings", "wip-limit", "ada", "2", "--json"]);
+        assert_eq!(settings["open"], false);
+        assert_eq!(
+            settings["wipLimit"],
+            json!({"default":1,"agents":{"ada":2}})
+        );
+        assert_eq!(
+            call(
+                &pilot,
+                &["settings", "wip-limit", "ada", "default", "--json"]
+            )["wipLimit"]["agents"],
+            json!({})
+        );
+
+        // The default limit is one: the second task assigned to ada is refused, naming her tasks.
+        let added = call(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &one,
+                "--title",
+                "Write",
+                "--assignee",
+                "ada",
+                "--json",
+            ],
+        );
+        assert_eq!(
+            (added["changed"].as_bool(), added["taskId"].as_str()),
+            (Some(true), Some("T-1"))
+        );
+        let over = refused(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &one,
+                "--title",
+                "Test",
+                "--assignee",
+                "ada",
+                "--json",
+            ],
+        );
+        assert_eq!(over["code"], "COLAB_WIP_LIMIT");
+        let message = over["message"].as_str().unwrap();
+        assert!(
+            message.contains("ada") && message.contains("T-1"),
+            "{message}"
+        );
+        assert!(message.contains("wip-limit ada 2"), "{message}");
+        assert_eq!(
+            call(&pilot, &["task", "ls", &one, "--json"])["derived"]["total"],
+            1
+        );
+        // Another page counts too, and a person or an unassigned task is not limited.
+        let elsewhere = refused(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &two,
+                "--title",
+                "Other",
+                "--assignee",
+                "agent:ada",
+                "--json",
+            ],
+        );
+        assert_eq!(elsewhere["code"], "COLAB_WIP_LIMIT");
+        call(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &two,
+                "--title",
+                "Mine",
+                "--assignee",
+                "person:ben",
+                "--json",
+            ],
+        );
+        call(&pilot, &["task", "add", &two, "--title", "Free", "--json"]);
+        // A larger limit admits it; lowering it again never invalidates what is published.
+        call(&pilot, &["settings", "wip-limit", "ada", "2", "--json"]);
+        call(
+            &pilot,
+            &[
+                "task",
+                "add",
+                &one,
+                "--title",
+                "Test",
+                "--assignee",
+                "ada",
+                "--json",
+            ],
+        );
+        call(&pilot, &["settings", "wip-limit", "ada", "1", "--json"]);
+        let work = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(work["derived"]["total"], 2);
+        // Over the limit, finishing, blocking and unassigning are admitted; taking one back is not.
+        call(
+            &pilot,
+            &["task", "state", &one, "T-1", "in-progress", "--json"],
+        );
+        call(
+            &pilot,
+            &[
+                "task", "state", &one, "T-1", "blocked", "--reason", "Waiting", "--json",
+            ],
+        );
+        let back = refused(&pilot, &["task", "state", &one, "T-1", "todo", "--json"]);
+        assert_eq!(back["code"], "COLAB_WIP_LIMIT");
+        call(&pilot, &["task", "assign", &one, "T-2", "--json"]);
+        call(&pilot, &["task", "state", &one, "T-1", "todo", "--json"]);
+        call(&pilot, &["task", "state", &one, "T-1", "done", "--json"]);
+        // A blocked task needs its reason, and an unknown task is invalid.
+        assert_eq!(
+            refused(&pilot, &["task", "state", &one, "T-2", "blocked", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        assert_eq!(
+            refused(&pilot, &["task", "state", &one, "T-9", "done", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        // Edit, summary, remove and a stale revision.
+        let file = pilot.root.join("task.json");
+        fs::write(
+            &file,
+            json!({"title":"Test it","needsSignoff":true}).to_string(),
+        )
+        .unwrap();
+        call(
+            &pilot,
+            &[
+                "task",
+                "set",
+                &one,
+                "T-2",
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ],
+        );
+        call(
+            &pilot,
+            &[
+                "summary",
+                "set",
+                &one,
+                "--line1",
+                "Release plan",
+                "--line2",
+                "Read first",
+                "--json",
+            ],
+        );
+        let before = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(
+            before["work"]["tasks"]["T-2"],
+            json!({"title":"Test it","state":"todo","needsSignoff":true})
+        );
+        assert_eq!(before["work"]["summary"]["line1"], "Release plan");
+        assert_eq!(
+            before["derived"],
+            json!({"stage":"in-progress","done":1,"total":2,"working":[],"signoff":0})
+        );
+        call(&pilot, &["task", "rm", &one, "T-2", "--json"]);
+        let stale = refused(
+            &pilot,
+            &[
+                "task",
+                "rm",
+                &one,
+                "T-1",
+                "--expected-revision",
+                before["revision"].as_str().unwrap(),
+                "--json",
+            ],
+        );
+        assert_eq!(stale["code"], "COLAB_STALE_BASE");
+        call(&pilot, &["summary", "clear", &one, "--json"]);
+        // Task numbers are never reused.
+        let again = call(&pilot, &["task", "add", &one, "--title", "Again", "--json"]);
+        assert_eq!(again["taskId"], "T-3");
+
+        // The list carries the work of the pages that have it, in JSON and under the row.
+        let rows = call(&pilot, &["ls", "--json"]);
+        let row = |id: &str| {
+            rows["pages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["pageId"] == id)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(row(&one)["work"]["stage"], "in-progress");
+        assert_eq!(row(&one)["work"]["total"], 2);
+        assert_eq!(row(&two)["work"]["working"], json!([]));
+        let text = run(&pilot, &["ls"]);
+        assert!(
+            String::from_utf8(text.stdout)
+                .unwrap()
+                .contains("work in-progress")
+        );
+
+        // An export keeps the tasks beside the page's own HTML, and a page without work has none.
+        let destination = pilot.root.join("export");
+        fs::create_dir(&destination).unwrap();
+        let exported = |id: &str| {
+            let out = call(
+                &pilot,
+                &[
+                    "export",
+                    id,
+                    "--dir",
+                    destination.to_str().unwrap(),
+                    "--json",
+                ],
+            );
+            PathBuf::from(out["directory"].as_str().unwrap())
+        };
+        let directory = exported(&one);
+        assert_eq!(
+            fs::read_to_string(directory.join("page.html")).unwrap(),
+            "<h1>Plan</h1>"
+        );
+        let live = call(&pilot, &["task", "ls", &one, "--json"]);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(directory.join("work.json")).unwrap())
+                .unwrap(),
+            live["work"]
+        );
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(directory.join("manifest.json")).unwrap()).unwrap();
+        let listed: Vec<&str> = manifest["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                "page.html",
+                "work.json",
+                "conversations.json",
+                "conversations.md"
+            ]
+        );
+        let bare = create("Bare");
+        assert!(!exported(&bare).join("work.json").exists());
+
+        // A shell page holds no work.
+        let shell = call(&pilot, &["shell", "create", "--title", "Shell", "--json"]);
+        let shell = shell["pageId"].as_str().unwrap();
+        assert_eq!(
+            refused(&pilot, &["task", "add", shell, "--title", "No", "--json"])["code"],
+            "COLAB_INPUT_INVALID"
+        );
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+
+#[test]
 fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serving() {
     for serving in [false, true] {
         let mut pilot = Pilot::new(None);
@@ -6565,12 +6890,12 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     let pilot = Pilot::new(None);
     assert_eq!(
         pilot.call(&["settings", "--json"]),
-        json!({"open":true,"source":"default"})
+        json!({"open":true,"source":"default","wipLimit":{"default":1,"agents":{}}})
     );
     assert!(!pilot.root.join("selected/colab").exists());
     assert_eq!(
         pilot.call(&["settings", "open", "off", "--json"]),
-        json!({"open":false,"source":"settings.json"})
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
     );
     let out = pilot.command().arg("settings").output().unwrap();
     let text = String::from_utf8(out.stdout).unwrap();
@@ -6588,7 +6913,7 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("settings.json could not be read"));
     assert_eq!(
         pilot.call(&["settings", "open", "on", "--json"]),
-        json!({"open":true,"source":"settings.json"})
+        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
     );
 }
 #[test]
@@ -7430,7 +7755,10 @@ fn reading_settings_waits_for_a_setter_instead_of_seeing_a_half_written_file() {
     let out = reader.wait_with_output().unwrap();
     assert!(out.status.success());
     let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(answer, json!({"open":false,"source":"settings.json"}));
+    assert_eq!(
+        answer,
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
+    );
 }
 #[test]
 fn setting_waits_for_a_reader_that_holds_the_lock() {
@@ -7456,7 +7784,7 @@ fn setting_waits_for_a_reader_that_holds_the_lock() {
     assert!(out.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&out.stdout).unwrap(),
-        json!({"open":true,"source":"settings.json"})
+        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}}})
     );
 }
 const OUTDATED_ENVELOPE: &str = r#"!{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"The running serve is older; stop it by hand."}}"#;
@@ -7723,6 +8051,10 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "components",
             include_bytes!("../../../skills/tmt-colab/references/components.md").as_slice(),
         ),
+        (
+            "work",
+            include_bytes!("../../../skills/tmt-colab/references/work.md").as_slice(),
+        ),
     ] {
         let reference = invoke(&["skill", name]);
         assert!(reference.status.success(), "{reference:?}");
@@ -7752,6 +8084,7 @@ fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
             "editing",
             "layout",
             "components",
+            "work",
         ] {
             assert!(message.contains(valid), "{message}");
         }

@@ -188,16 +188,29 @@ impl OwnerTransaction<'_> {
     /// that admits it, can: the epoch, the membership head and the page's receipt and checkpoint
     /// counts (both only grow within an epoch). The owner list's summary cache keys on it.
     pub(crate) fn page_fingerprints(&self) -> Result<std::collections::BTreeMap<String, String>> {
-        self.selected_page_fingerprints(None)
+        self.selected_page_fingerprints(None, true)
     }
     pub(crate) fn page_fingerprint(&self, page: &str) -> Result<Option<String>> {
-        Ok(self.selected_page_fingerprints(Some(page))?.remove(page))
+        Ok(self
+            .selected_page_fingerprints(Some(page), true)?
+            .remove(page))
+    }
+    /// Like `page_fingerprints` without the membership head: it moves only when the page's own
+    /// content does, so creating or sharing another page leaves it alone. For display-only
+    /// readings that no authority change may be waited on (the work index).
+    pub(crate) fn page_progress(&self) -> Result<std::collections::BTreeMap<String, String>> {
+        self.selected_page_fingerprints(None, false)
     }
     fn selected_page_fingerprints(
         &self,
         page: Option<&str>,
+        with_head: bool,
     ) -> Result<std::collections::BTreeMap<String, String>> {
-        let head = self.head().map(|h| h.revision).unwrap_or_default();
+        let head = if with_head {
+            self.head().map(|h| h.revision).unwrap_or_default()
+        } else {
+            Default::default()
+        };
         let mut query = self.tx.prepare(
             "SELECT p.page,p.epoch,
                 (SELECT COUNT(*) FROM receipts r WHERE r.page=p.page AND r.epoch=p.epoch),
