@@ -21,6 +21,10 @@ impl Metric {
             note: None,
         }
     }
+    /// The amount alone, or a dash while it is unreported.
+    pub fn amount(&self) -> &str {
+        self.amount.as_deref().unwrap_or("—")
+    }
     pub fn paint(&self, frame: &mut Frame, app: &App, area: Rect) {
         let amount = self.amount.as_deref().unwrap_or("—");
         let value = format!(

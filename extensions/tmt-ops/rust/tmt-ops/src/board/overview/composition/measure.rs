@@ -139,8 +139,11 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             },
             crate::board::stat_tiles::Tile {
                 label: "DIGEST",
-                value: text(digest::rows(app, summary)[2].key.clone()),
-                detail: Line::default(),
+                value: text(digest::rows(app, summary)[2].amount().to_owned()),
+                detail: Line::styled(
+                    digest::rows(app, summary)[2].key.clone(),
+                    look.role(Role::Muted),
+                ),
             },
             crate::board::stat_tiles::Tile {
                 label: "TIMERS",
