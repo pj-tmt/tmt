@@ -362,6 +362,75 @@ describe('prepared Infra tick evidence', () => {
       true
     );
   });
+  it('accepts an entry enqueued five seconds after the report boundary at age zero', () => {
+    const report = collectInfraTick(
+      fixture({
+        queue: {
+          totalCount: 1,
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            {
+              position: 1,
+              state: 'AWAITING_CHECKS',
+              enqueuedAt: '2026-10-18T01:00:05Z',
+              pullRequest: {
+                number: 1,
+                headRefOid: SHA,
+                url: 'https://github.com/pj-tmt/tmt/pull/1',
+              },
+            },
+          ],
+        },
+      }),
+      options
+    );
+    expect(report.complete).toBe(true);
+    expect(report.queue).toMatchObject([{ pr: 1, ageMinutes: 0 }]);
+    expect(report.anomalies).toEqual([]);
+    expect(renderInfraTick(report).startsWith('INCOMPLETE:')).toBe(false);
+  });
+  it('keeps malformed queue evidence incomplete with its reason and a first-line banner', () => {
+    const report = collectInfraTick(
+      fixture({
+        queue: {
+          totalCount: 1,
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            {
+              position: 0,
+              state: 'AWAITING_CHECKS',
+              enqueuedAt: options.until,
+              pullRequest: { number: 1, headRefOid: SHA },
+            },
+          ],
+        },
+        runs: Array.from({ length: 24 }, (_, i) => run(i + 1, { conclusion: 'failure' })),
+        jobs: [worker(11)],
+      }),
+      options
+    );
+    expect(report.complete).toBe(false);
+    expect(report.queue).toEqual([]);
+    expect(report.anomalies).toContainEqual({
+      kind: 'queue coverage unavailable',
+      message: 'Invalid queue position.',
+    });
+    report.anomalies.push({
+      kind: 'public-install release evidence unavailable',
+      message: 'fixture unavailable',
+    });
+    const lines = renderInfraTick(report).split('\n');
+    expect(lines[0]).toBe(
+      'INCOMPLETE: queue coverage unavailable; public-install release evidence unavailable; cursor not advanced'
+    );
+    const printed = lines.filter((line) => line.startsWith('- '));
+    expect(printed[0]).toContain('queue coverage unavailable');
+    expect(printed[0]).toContain('Invalid queue position.');
+    expect(printed[1]).toContain('public-install release evidence unavailable');
+    expect(
+      report.anomalies.filter((item) => item.kind === 'failed run at initial baseline')
+    ).toHaveLength(24);
+  });
   it('reports only newly observed failed drafts after the initial baseline and flags release failures', () => {
     const releases = [
       {
@@ -1153,6 +1222,7 @@ describe('Infra summary CLI artifacts and cursor', () => {
 const args=process.argv.slice(2);
 const endpoint=args.find(arg=>arg.startsWith('repos/'));
 if(process.env.FAIL_READ==='true'){process.stderr.write(process.env.GH_TOKEN);process.exit(1);}
+if(args[1]==='graphql'&&process.env.QUEUE_FAIL==='true'){process.stderr.write(process.env.GH_TOKEN);process.exit(1);}
 if(args[1]==='graphql')console.log(JSON.stringify({data:{repository:{mergeQueue:{entries:{totalCount:0,pageInfo:{hasNextPage:false},nodes:[]}}}}}));
 else if(endpoint==='repos/pj-tmt/tmt')console.log('{"permissions":{"push":true}}');
 else if(endpoint.includes('/releases?'))process.stdout.write('HTTP/2 200 OK\\r\\n\\r\\n[]');
@@ -1165,7 +1235,7 @@ else throw Error('Unexpected endpoint');
       const script = fileURLToPath(
         new URL('../../scripts/infra-tick-summary.mjs', import.meta.url)
       );
-      const execute = (fail: boolean, extra: string[] = []) =>
+      const execute = (fail: boolean, extra: string[] = [], queueFail = false) =>
         spawnSync(
           process.execPath,
           [script, '--output', directory, '--review-map', map, ...extra],
@@ -1178,6 +1248,7 @@ else throw Error('Unexpected endpoint');
               GH_TOKEN: secret,
               GITHUB_TOKEN: secret,
               FAIL_READ: String(fail),
+              QUEUE_FAIL: String(queueFail),
               TMT_AGENT: '1',
               BROWSER: 'true',
             },
@@ -1206,6 +1277,23 @@ else throw Error('Unexpected endpoint');
       expect(report.evidence.requests).toBe(20);
       expect(JSON.parse(cursor).until).toBe(report.until);
       expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(detail.stdout);
+      const queueFailure = execute(false, [], true);
+      expect(queueFailure.status).toBe(1);
+      const queueJson = readFileSync(path.join(directory, 'summary.json'), 'utf8');
+      const queueReport = JSON.parse(queueJson);
+      expect(queueReport.complete).toBe(false);
+      expect(queueReport.anomalies).toContainEqual(
+        expect.objectContaining({
+          kind: 'queue coverage unavailable',
+          message: expect.stringContaining('[REDACTED]'),
+        })
+      );
+      expect(queueFailure.stdout + queueFailure.stderr + queueJson).not.toContain(secret);
+      expect(queueFailure.stdout.split('\n')[0]).toBe(
+        'INCOMPLETE: queue coverage unavailable; cursor not advanced'
+      );
+      expect(readFileSync(path.join(directory, 'summary.md'), 'utf8')).toBe(queueFailure.stdout);
+      expect(readFileSync(path.join(directory, 'cursor.json'), 'utf8')).toBe(cursor);
       const refused = execute(true);
       expect(refused.status).toBe(1);
       expect(readFileSync(path.join(directory, 'cursor.json'), 'utf8')).toBe(cursor);
@@ -1214,6 +1302,9 @@ else throw Error('Unexpected endpoint');
       expect(refused.stdout + refused.stderr + refusedJson).not.toContain(secret);
       expect(refusedJson).toContain('[REDACTED]');
       expect(refused.stdout).not.toContain('No anomalies');
+      expect(refused.stdout.split('\n')[0]).toBe(
+        'INCOMPLETE: collection refused; cursor not advanced'
+      );
       expect(readFileSync(path.join(directory, 'calls.jsonl'), 'utf8')).not.toContain(secret);
       const overwritten = execute(false, ['--bootstrap']);
       expect(overwritten.status).toBe(1);

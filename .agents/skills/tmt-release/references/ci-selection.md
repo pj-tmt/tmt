@@ -388,13 +388,15 @@ A transient `Truncated REST evidence` may allow one retry in the same directory;
 `calls.jsonl` records network endpoint/method/outcome/elapsed time and review query
 cost; cache hits are not calls. It stores no credentials, response bodies or raw logs.
 Refusals name the acquisition stage and cohort PR count. `summary.md` ranks up to 20 anomaly lines:
-failed drafts/publication failures, failed runs/repeated tests, guide budgets, stuck queue entries,
+failed drafts/publication failures and unavailable queue/public-install evidence, failed runs/repeated tests, guide budgets, stuck queue entries,
 then PR statements (one count with three example PRs). `summary.json` retains every anomaly and
 evidence/cache path; coverage and host disk/load follow the printed anomalies. `cursor.json`
 advances atomically when all required metadata is complete under the stated log
 sample, including omitted/unavailable diagnostics. Only failed attempted downloads
 add log anomalies; omissions remain in worker records and the tail list.
-Required metadata unavailability/refusal returns nonzero with unchanged cursor.
+Required metadata unavailability/refusal returns nonzero with unchanged cursor; the first line
+says `INCOMPLETE: <kinds>; cursor not advanced`. Queue failures retain a credential-redacted
+reason. Entries enqueued after the fixed report boundary have age zero.
 Core's #2268 tick prompt must say: "Logs are sampled; log not read is unknown
 diagnostic detail, not a healthy worker." The prompt itself is not changed here.
 Only complete reports can explicitly state no anomalies. Known GitHub
