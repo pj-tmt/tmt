@@ -8,7 +8,8 @@ const mode = process.argv[2];
 if (process.argv.length !== 3 || !['--write', '--check'].includes(mode))
   throw new Error('Use --write or --check');
 
-// The opaque renderer cannot fetch styles. Project its paint roles and shared circle at build time.
+// The opaque renderer cannot fetch styles. Project its paint roles, the shared circle and the page
+// frame at build time.
 const roles = [
   ['surface', 'annotation-highlight'],
   ['surface', 'annotation-action'],
@@ -28,14 +29,30 @@ const numberStyle = await readFile(
   'utf8',
 );
 const css = `:root{${variables('light')}}:root[data-theme="dark"]{${variables('dark')}}${numberStyle.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim()}`;
-const start = '          // BEGIN GENERATED ANNOTATION TOKENS';
-const end = '          // END GENERATED ANNOTATION TOKENS';
+const frameStyle = (
+  await readFile(new URL('../typescript/app/src/page-frame.css', import.meta.url), 'utf8')
+)
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/\s+/g, ' ')
+  // Double quotes keep the formatter from rewriting the single-quoted literal that holds it.
+  .replaceAll("'", '"')
+  .trim();
 const source = await readFile(file, 'utf8');
-const from = source.indexOf(start);
-const to = source.indexOf(end);
-if (from < 0 || to <= from) throw new Error('Missing renderer token markers');
-const literal = `'${css.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
-const generated = `${start}\n          const annotationTokens =\n            ${literal};\n`;
-const expected = source.slice(0, from) + generated + source.slice(to);
+// Each generated constant sits between a pair of marker comments in renderer.html.
+const generate = (text, name, constant, value) => {
+  const start = `          // BEGIN GENERATED ${name}`;
+  const end = `          // END GENERATED ${name}`;
+  const from = text.indexOf(start);
+  const to = text.indexOf(end);
+  if (from < 0 || to <= from) throw new Error(`Missing renderer ${name.toLowerCase()} markers`);
+  const literal = `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
+  return `${text.slice(0, from)}${start}\n          const ${constant} =\n            ${literal};\n${text.slice(to)}`;
+};
+const expected = generate(
+  generate(source, 'ANNOTATION TOKENS', 'annotationTokens', css),
+  'PAGE FRAME',
+  'pageFrame',
+  frameStyle,
+);
 if (mode === '--write') await writeFile(file, expected);
-else if (source !== expected) throw new Error('Renderer annotation tokens are stale');
+else if (source !== expected) throw new Error('Renderer generated styles are stale');

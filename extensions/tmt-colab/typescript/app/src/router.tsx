@@ -71,6 +71,7 @@ import { Home, validateHomeSearch, type HomeSearch } from './home.js';
 import { knownScope, readScope } from './project-scope.js';
 import { ManagePage } from './manage-page.js';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
+import { columnInlineSize, framedLayout } from './page-layout.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
@@ -686,7 +687,15 @@ function PageFrame() {
           </Link>
         )}
       />
-      <div style={{ display: 'grid', gap: 14, padding: '32px 24px', maxInlineSize: 720 }}>
+      <div
+        style={{
+          display: 'grid',
+          gap: 14,
+          padding: '32px 0',
+          inlineSize: columnInlineSize,
+          marginInline: 'auto',
+        }}
+      >
         {[92, 100, 84, 56].map((width) => (
           <div
             key={width}
@@ -1532,6 +1541,7 @@ function Page() {
     setAnchorsChecked(false);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
+      layout: snapshot.layout,
       onState: setState,
       onSlots: inlineSlots.onSlots,
       onQuestions: onQuestionAnchors,
@@ -1587,6 +1597,7 @@ function Page() {
     };
   }, [
     view.source,
+    snapshot.layout,
     view.pageType,
     endedError,
     inlineSlots.onSlots,
@@ -1825,7 +1836,10 @@ function Page() {
         <p>{text.warning}</p>
       </BrowserDrawer>
       <div className="workspace">
-        <div className="canvas">
+        <div
+          className="canvas"
+          data-layout={framedLayout(snapshot.layout) ? snapshot.layout : undefined}
+        >
           {missingAnchor && (
             <p className="page-anchor-missing" role="status">
               {text.anchorMissing}

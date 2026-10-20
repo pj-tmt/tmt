@@ -21,6 +21,7 @@ import { ExportBundle } from '../src/export.js';
 import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding, PageTransport } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
+import type { PageLayout } from '../src/page-layout.js';
 import type { DraftStore } from '../src/draft-store.js';
 import type { ComposerEdit } from '../src/components/message-composer-edit.js';
 import type { AgentDestination } from '../src/live-ask.js';
@@ -206,6 +207,8 @@ export async function mount(
     strict?: boolean;
     /** Historical turns are part of the initial load, not a live arrival batch. */
     history?: 'thread' | 'chat';
+    /** The page's layout; absent is `freeform`, as every page is until the metadata exists (#3926). */
+    layout?: PageLayout;
   } = {},
 ) {
   resumeAttachmentUploads();
@@ -248,6 +251,7 @@ export async function mount(
     asks: records,
     threads: [],
     publisherAgent: 'Agent 1',
+    ...(options.layout ? { layout: options.layout } : {}),
     ...(options.creator
       ? { creationRecipient: { machineId: destination().machine, agentId: destination().agent } }
       : {}),
@@ -947,6 +951,11 @@ export function notificationSources(
 ) {
   records = structuredClone([...(value.asks ?? [])]);
   current = { ...current, ...structuredClone(value), asks: records };
+  emit();
+}
+/** A page of exactly this markup, in the layout `mount` chose. */
+export function authored(source: string) {
+  current = { ...current, threads: [], asks: [], source };
   emit();
 }
 export function change(source: string) {

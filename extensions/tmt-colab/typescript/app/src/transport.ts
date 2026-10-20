@@ -12,6 +12,7 @@ import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
+import type { PageLayout } from './page-layout.js';
 export interface PageView extends Projection {
   readonly archived?: boolean;
   readonly ownData?: boolean;
@@ -38,6 +39,8 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly summary?: PageActivity;
 }
 export interface PageSnapshot extends PageSummary {
+  /** Absent is `freeform`. */
+  readonly layout?: PageLayout;
   readonly pageType?: Projection['pageType'];
   readonly shell?: Projection['shell'];
   readonly originalAuthor?: Projection['originalAuthor'];

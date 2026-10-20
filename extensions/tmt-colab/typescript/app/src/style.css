@@ -1271,6 +1271,12 @@ body:has(.needs-you-header-menu) {
   z-index: 1;
   padding: 0 24px;
 }
+/* On a framed page (#3913) a band sits on the column the render frame draws: the numbers are those
+   of page-frame.css, which the frame applies to its top-level blocks. A question block takes its
+   bounds from the frame's measurement of its passage instead. */
+.canvas[data-layout] .proposal-inline:not(.question-inline) {
+  padding-inline: max(16px, (100% - 1280px) / 2);
+}
 .proposal-inline .proposal-card {
   border: 1px solid var(--tmt-ui-color-edge);
   border-radius: 0;

@@ -148,6 +148,12 @@ for (const scheme of ['light', 'dark'] as const) {
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
       expect(overflow).toBeLessThanOrEqual(0);
+      // The lines sit on the page column, the one a loaded page gets: 1280 px, or the width less
+      // a 16 px gutter on each side.
+      const lines = await frame(page).locator('[data-frame-line]').first().boundingBox();
+      const column = Math.min(1280, width - 32);
+      expect(lines!.x).toBeCloseTo((width - column) / 2, 0);
+      expect(lines!.width).toBeCloseTo(column * 0.92, 0);
       await page.screenshot({ path: capturePath(`page-frame-${width}-${scheme}.png`) });
     });
   }

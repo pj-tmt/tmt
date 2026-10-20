@@ -2116,7 +2116,8 @@ Send retain the captured source/quote/final bytes.
 
 After the bootstrap document loads, the parent sends exactly one source-init
 message containing `type:"colab.render.bind"`, `renderId`, `sourceDigest`,
-`source` and `theme` (`"light"` or `"dark"`), plus one MessagePort. The renderer accepts only these exact fields,
+`source` and `theme` (`"light"` or `"dark"`), and optionally `layout` (`"column"`,
+`"full"`, `"canvas"` or `"freeform"`; absent is `freeform`), plus one MessagePort. The renderer accepts only these exact fields,
 valid UUIDv4/digest metadata and source at most 2 MiB UTF-8, from
 `event.source === window.parent`; origin is not an admission predicate for this
 opaque channel. Direct top-level opening cannot initialize source. Invalid or
@@ -2144,6 +2145,22 @@ CSS keyed only on `prefers-color-scheme` continues to follow the OS. This cosmet
 projection does not rewrite source, inject palettes, force author backgrounds or
 change the existing white canvas for unstyled pages. Author code may tamper with it;
 it grants no capability or truth about the page.
+
+A `column` or `full` layout makes Colab own the page frame. Before author code runs, the
+bootstrap sets `data-colab-layout` on the renderer root and adds the stylesheet generated
+from the app's `src/page-frame.css` in a CSS layer declared ahead of every author style.
+The top-level blocks, the element children of `<body>` that the frame did not add itself,
+share one centred column of `min(1280px, 100% - 32px)`; `<body>` is a flex column with a
+16 px gap, 8 px above a block marked `data-gap="tight"` and 40 px above `"loose"`, and a
+block marked `data-width="full"` runs edge to edge with its text padded onto the column.
+An author's width, `max-width`, margin and the block gap, also with `!important` in a
+stylesheet, do not apply to those blocks or to `<body>`'s own inline margin and padding;
+colours, type and the layout inside a block stay free. An inline `style` attribute
+with `!important` still wins: the frame is a cosmetic projection like the theme and author
+code may tamper with it. `canvas`, `freeform` and an absent layout set nothing and add no
+stylesheet. The frame's own spacers are not blocks, and the parent draws its bands
+and question lines on the same column. No page carries a layout yet; the page metadata
+for it is tracked in #3926, and until then only test fixtures bind one.
 
 For a fixed look, author CSS uses an unconditional palette and `color-scheme`,
 without theme-attribute or OS-media palette overrides. The bootstrap overwrites an

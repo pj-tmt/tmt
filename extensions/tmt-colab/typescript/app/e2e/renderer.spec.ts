@@ -476,6 +476,57 @@ test('renderer bootstrap ignores sibling and later messages; only the parent ini
   await expect(page.frameLocator('#target').getByText('Later source')).toHaveCount(0);
 });
 
+/** One renderer frame, bound once by its parent with the given extra keys. */
+async function bindFrame(page: Page, id: string, extra: Record<string, unknown>) {
+  await page.evaluate(
+    async ({ id, extra }) => {
+      const target = document.createElement('iframe');
+      target.id = id;
+      target.setAttribute('sandbox', 'allow-scripts');
+      target.src = '/renderer.html';
+      await new Promise<void>((resolve) => {
+        target.onload = () => resolve();
+        document.body.append(target);
+      });
+      const digest = 'c'.repeat(64);
+      target.contentWindow!.postMessage(
+        {
+          type: 'colab.render.bind',
+          renderId: `00000000-0000-4000-8000-000000000003:${digest}`,
+          sourceDigest: digest,
+          source: '<p>Bound text</p>',
+          theme: 'light',
+          ...extra,
+        },
+        '*',
+        [new MessageChannel().port2],
+      );
+    },
+    { id, extra },
+  );
+}
+
+test('a bind may carry a layout; only column and full select the page frame', async ({ page }) => {
+  await page.goto('/');
+  for (const layout of [undefined, 'freeform', 'canvas', 'column', 'full'] as const) {
+    const id = `target-${layout ?? 'none'}`;
+    await bindFrame(page, id, layout ? { layout } : {});
+    const target = page.frameLocator(`#${id}`);
+    await expect(target.getByText('Bound text')).toBeVisible();
+    if (layout === 'column' || layout === 'full')
+      await expect(target.locator('html')).toHaveAttribute('data-colab-layout', layout);
+    else expect(await target.locator('html').getAttribute('data-colab-layout')).toBeNull();
+  }
+  // An unknown layout is not a bind: the frame stays unwritten.
+  await bindFrame(page, 'target-wide', { layout: 'wide' });
+  // A task in the child after message delivery proves the message had no effect.
+  await page
+    .frameLocator('#target-wide')
+    .locator('body')
+    .evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  await expect(page.frameLocator('#target-wide').getByText('Bound text')).toHaveCount(0);
+});
+
 test('selection admits bounded text from the current frame, rejects foreign and stale render IDs, and clears on teardown', async ({
   page,
 }) => {

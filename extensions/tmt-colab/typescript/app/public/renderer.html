@@ -9,9 +9,12 @@
       // Cosmetic quote capture/resolution only. Author code may tamper with this
       // renderer; nothing here authenticates text or grants an app capability.
       (() => {
-        function install(renderId, port, theme) {
+        function install(renderId, port, theme, layout) {
           // Presentation only: author code can tamper with this projection.
           document.documentElement.dataset.theme = theme;
+          // Only a framed layout selects the page frame's rules; the rest leave the author's layout.
+          if (layout === 'column' || layout === 'full')
+            document.documentElement.dataset.colabLayout = layout;
           const utf8 = new TextEncoder();
           const excluded =
             'head,script,style,template,noscript,[hidden],[data-colab-highlight],[data-colab-image]';
@@ -225,8 +228,13 @@
           const annotationTokens =
             ':root{--tmt-ui-surface-annotation-highlight:#ececeb;--tmt-ui-surface-annotation-action:#262626;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#ffffff;--tmt-ui-color-text:#343434;}:root[data-theme="dark"]{--tmt-ui-surface-annotation-highlight:#343434;--tmt-ui-surface-annotation-action:#626262;--tmt-ui-color-annotation-on-action:#ffffff;--tmt-ui-surface-sheet:#101010;--tmt-ui-color-text:#b0b0b0;}.annotation-number { box-sizing: border-box; display: inline-grid; place-items: center; flex: none; width: 22px; min-width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--tmt-ui-surface-annotation-action); color: var(--tmt-ui-color-annotation-on-action); font: 600 12px/1 system-ui, -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; letter-spacing: 0; text-align: center; text-decoration: none; box-shadow: none; appearance: none; } .annotation-number::before, .annotation-number::after { content: none; display: none; }';
           // END GENERATED ANNOTATION TOKENS
+          // BEGIN GENERATED PAGE FRAME
+          const pageFrame =
+            '@layer colab-frame { html:is([data-colab-layout="column"], [data-colab-layout="full"]) { margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > body { display: flex !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; box-sizing: border-box !important; row-gap: 16px !important; column-gap: 0 !important; width: auto !important; min-width: 0 !important; max-width: none !important; margin-inline: 0 !important; padding-inline: 0 !important; border-inline: 0 !important; > :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { box-sizing: border-box !important; flex: none !important; align-self: center !important; width: min(1280px, 100% - 32px) !important; min-width: 0 !important; max-width: none !important; margin: 0 !important; &[data-width="full"] { align-self: stretch !important; width: auto !important; padding-inline: max(16px, (100% - 1280px) / 2) !important; border-inline: 0 !important; } & ~ :not( script, style, template, noscript, link, meta, [hidden], [data-colab-highlight], [data-colab-proposal-slot], [data-colab-chip-slot] ) { &[data-gap="tight"] { margin-block-start: -8px !important; } &[data-gap="loose"] { margin-block-start: 24px !important; } } } > [data-colab-proposal-slot] { margin-block-start: -16px !important; } } } }';
+          // END GENERATED PAGE FRAME
           const highlightStyle =
             annotationTokens +
+            pageFrame +
             'body:has(>[data-colab-highlight]:not([data-colab-markers])){isolation:isolate}' +
             '::highlight(colab-reading){background:var(--tmt-ui-surface-annotation-highlight);color:inherit}' +
             '::highlight(colab-comments){background:var(--tmt-ui-surface-annotation-highlight);color:inherit;text-decoration:none}' +
@@ -239,7 +247,7 @@
             [data-colab-question]>[data-question][data-colab-question-number]::before{content:attr(data-colab-question-number) " ";font-weight:400;color:color-mix(in srgb,currentColor 55%,transparent)}
             [data-colab-question-active="false"]{display:none!important}
             [data-colab-chip]:not([hidden]){display:none!important}
-            [data-colab-chip-slot]{display:inline-block;vertical-align:middle;box-sizing:border-box}
+            [data-colab-chip-slot]{position:absolute;pointer-events:none;box-sizing:border-box}
             [data-colab-review],[data-colab-reading]{display:block}
             [data-colab-review-closed="true"]{opacity:.55!important}
           `;
@@ -1645,7 +1653,9 @@
           const value = event.data;
           if (!value || typeof value !== 'object' || Array.isArray(value)) return;
           if (
-            Object.keys(value).length !== 5 ||
+            Object.keys(value).length !== (Object.hasOwn(value, 'layout') ? 6 : 5) ||
+            (Object.hasOwn(value, 'layout') &&
+              !['column', 'full', 'canvas', 'freeform'].includes(value.layout)) ||
             value.type !== 'colab.render.bind' ||
             (value.theme !== 'light' && value.theme !== 'dark') ||
             typeof value.renderId !== 'string' ||
@@ -1663,7 +1673,8 @@
           window.removeEventListener('message', bind);
           const port = event.ports[0];
           // The temporary callback transfers no authority; it runs before author HTML.
-          window.__colabRenderStart = () => install(value.renderId, port, value.theme);
+          window.__colabRenderStart = () =>
+            install(value.renderId, port, value.theme, value.layout);
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           document.open();

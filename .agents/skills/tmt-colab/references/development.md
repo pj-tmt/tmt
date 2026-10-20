@@ -292,8 +292,9 @@ counterpart in `page_check/group.rs`, a review-section rule in `REVIEW_RULES` an
 ## App and browser client
 
 The opaque renderer's annotation paint roles come from the browser role tokens;
-its number-circle CSS comes from the app's `src/annotation-number.css`, without a
-network fetch. After either input changes run
+its number-circle CSS comes from the app's `src/annotation-number.css` and the page
+frame of a framed layout from `src/page-frame.css`, without a network fetch. After any
+input changes run
 `node extensions/tmt-colab/scripts/generate-renderer-style.mjs --write`, then
 `--check`; app check/build verify equality. The checked browser stylesheet retains
 its separate shared generator. Never hand-edit the generated renderer token block.
