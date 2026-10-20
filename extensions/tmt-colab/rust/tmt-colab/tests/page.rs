@@ -24,7 +24,7 @@ use tmt_colab::{
         Accepted, Envelope, Namespace, Store, StreamScope,
         owner::{Device, Mutation, Recipient},
     },
-    transitions::{Engine, EpochAdvance},
+    transitions::{DeviceRevoke, Engine, EpochAdvance},
 };
 use tmt_colab_model::{certificate, object, values, wrap};
 use yrs::{Doc, Map, ReadTxn, StateVector, Text, Transact, Update, updates::decoder::Decode};
@@ -32,6 +32,61 @@ const PAGE: &str = "10000000-0000-4000-8000-000000000001";
 const DEVICE: &str = "30000000-0000-4000-8000-000000000001";
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 const NOW: u64 = 1_791_025_000_000;
+/// An owner-member device with a document of its own, whose edits become its stream's updates.
+struct OwnerDevice {
+    id: &'static str,
+    signing: SigningKey,
+    doc: Doc,
+}
+impl OwnerDevice {
+    /// The device types `text` into the page's html and stores the update as its next content
+    /// update; the stream's new head is its sequence and hash.
+    fn type_text(&mut self, f: &mut Fixture, text: &str) -> (u64, [u8; 32]) {
+        let before = self.doc.transact().state_vector();
+        let html = self.doc.get_or_insert_text("html");
+        html.push(&mut self.doc.transact_mut(), text);
+        let update = self.doc.transact().encode_state_as_update_v1(&before);
+        let scope = StreamScope {
+            page: PAGE,
+            epoch: 1,
+            stream: self.id,
+        };
+        let (seq, previous) = f
+            .store
+            .stream_head(scope)
+            .unwrap()
+            .map_or((1, [0; 32]), |(seq, hash)| (seq + 1, hash));
+        let envelope = object::seal(
+            &object::Context {
+                space: f.key.space_id.clone(),
+                page: PAGE.into(),
+                epoch: "1".into(),
+                kind: "update".into(),
+                namespace: "content".into(),
+                author_device: self.id.into(),
+                membership_revision: "2".into(),
+                stream_seq: seq.to_string(),
+                prev_hash: previous,
+            },
+            &[11; 32],
+            &self.signing,
+            &update,
+        )
+        .unwrap();
+        let hash = envelope.hash().unwrap();
+        f.store
+            .append(&Envelope {
+                scope,
+                namespace: Namespace::Content,
+                seq,
+                hash,
+                previous,
+                bytes: &envelope.to_json().unwrap(),
+            })
+            .unwrap();
+        (seq, hash)
+    }
+}
 struct Fixture {
     root: PathBuf,
     retain_diagnostic: bool,
@@ -181,6 +236,66 @@ impl Fixture {
     }
     fn decoder(&self) -> Decoder {
         Decoder::with_config(support::decoder_config(BINARY.into())).unwrap()
+    }
+    /// An owner-member device other than the local writer, as a browser paired through Remote or
+    /// another machine's agent becomes one: its chain is issued by the owner's management member.
+    fn owner_device(&mut self, id: &'static str, seed: u8) -> OwnerDevice {
+        let signing = SigningKey::from_bytes(&[seed; 32]);
+        let enc = wrap::RecipientKey::from_seed(&[seed.wrapping_add(1); 32])
+            .unwrap()
+            .public_key();
+        let key = &self.key;
+        let head = self
+            .store
+            .owner_head(&key.space_id, &key.owner_public())
+            .unwrap()
+            .unwrap();
+        self.store
+            .owner_transaction(
+                &key.space_id,
+                &key.owner_public(),
+                Mutation {
+                    operation_id: &format!("40000000-0000-4000-8000-0000000000{seed:02x}"),
+                    digest: [seed; 32],
+                    expected_revision: head.revision,
+                },
+                |tx| {
+                    let public = signing.verifying_key();
+                    let cert = certificate::Certificate {
+                        space: &key.space_id,
+                        issuer_kind: "member",
+                        issuer_id: &head.owner_member.id,
+                        device_id: id,
+                        signing_key: public.as_bytes(),
+                        encryption_key: &enc,
+                        membership_revision: "1",
+                        issued_at: 1,
+                        expires_at: NOW + 86_400_000,
+                    };
+                    tx.put_device(&Device {
+                        revoked: false,
+                        chain: serde_json::to_vec(&json!({
+                            "version": 1,
+                            "issuerStatement": values::encode_binary(&tx.statement(1)?.unwrap().hash()?),
+                            "deviceCertificate": values::encode_binary(&certificate::input(&cert)?),
+                            "issuerSignature": values::encode_binary(&key.sign_device_certificate(&cert)?)
+                        }))?,
+                    })?;
+                    // An owner transaction must move the log; a device needs no statement of its own.
+                    tx.append_statement(&key.sign_statement(
+                        tx.head(),
+                        "retention.set",
+                        &serde_json::to_vec(&json!({"pageId": PAGE, "days": null}))?,
+                    )?)?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap();
+        OwnerDevice {
+            id,
+            signing,
+            doc: Doc::new(),
+        }
     }
     fn read(&self) -> page::Page {
         page::read(&self.store, &self.key, PAGE, &mut self.decoder()).unwrap()
@@ -1752,6 +1867,221 @@ fn a_second_requested_compaction_finds_nothing_to_combine_and_writes_nothing() {
     assert_eq!(f.read().source, source);
 }
 
+const FOLDED: &str = "50000000-0000-4000-8000-000000000002";
+
+/// The rows of one stream's retained objects: `(seq, has payload)` of its receipts.
+fn retained(f: &Fixture, stream: &str) -> Vec<(u64, bool)> {
+    let db = f.sql();
+    let mut statement = db
+        .prepare("SELECT seq, payload IS NOT NULL FROM receipts WHERE stream = ?1 ORDER BY seq")
+        .unwrap();
+    statement
+        .query_map([stream], |row| {
+            Ok((row.get::<_, String>(0)?.parse().unwrap(), row.get(1)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+/// Who signed the retained checkpoint of a stream, and its sequence.
+fn fold_rows(f: &Fixture, stream: &str) -> Vec<(u64, Option<String>)> {
+    let db = f.sql();
+    let mut statement = db
+        .prepare(
+            "SELECT seq, signer FROM checkpoints WHERE stream = ?1 AND payload IS NOT NULL ORDER BY seq",
+        )
+        .unwrap();
+    statement
+        .query_map([stream], |row| {
+            Ok((row.get::<_, String>(0)?.parse().unwrap(), row.get(1)?))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn a_requested_compaction_folds_an_owner_devices_stream_and_an_edit_in_flight_survives_it() {
+    let mut f = Fixture::new();
+    let mut other = f.owner_device(FOLDED, 21);
+    let receipt = f.write("old 🐈\r\n<p>local</p>");
+    for i in 0..4 {
+        other.type_text(&mut f, &format!("[{i}]"));
+    }
+    let before = f.read();
+    assert_eq!(
+        before.usage.updates,
+        1 + 1 + 4,
+        "creator, local write, four edits"
+    );
+    let writer = receipt.publication.as_ref().unwrap().stream_id.clone();
+
+    let report = request_compaction(&mut f);
+    assert!(report.compacted && report.skipped.is_none());
+    assert_eq!(
+        report.folded,
+        [page::owner_fold::Folded {
+            stream: FOLDED.into(),
+            through: 4,
+            merged_objects: 4
+        }]
+    );
+    // The member-issued creator is not an owner device: its change stays, and the report says so.
+    assert_eq!(
+        report.left,
+        [page::owner_fold::Left {
+            stream: DEVICE.into(),
+            why: page::owner_fold::Why::NotOwnerDevice
+        }]
+    );
+    assert_eq!(report.unfolded, 0);
+    assert_eq!(report.after.updates, before.usage.updates - 4 - 1);
+    // The page reads the same, the fold is the stream's checkpoint, signed by this machine's
+    // writer, and only the update the fold binds is kept of the stream.
+    let after = f.read();
+    assert_eq!(after.source, before.source);
+    assert_eq!(fold_rows(&f, FOLDED), [(4, Some(writer.clone()))]);
+    assert_eq!(
+        retained(&f, FOLDED),
+        [(1, false), (2, false), (3, false), (4, true)]
+    );
+
+    // An edit in flight cites the stream's hash at 4: it is stored on top of the fold, kept as a
+    // tail, and the page reads it.
+    other.type_text(&mut f, "[in flight]");
+    assert!(f.read().source.contains("[in flight]"));
+    assert_eq!(f.read().usage.updates, report.after.updates + 1);
+    // The next run folds again from the fold: one fold at 5 supersedes the one at 4, and the
+    // anchor moves with it.
+    let again = request_compaction(&mut f);
+    assert_eq!(
+        again.folded,
+        [page::owner_fold::Folded {
+            stream: FOLDED.into(),
+            through: 5,
+            merged_objects: 2
+        }]
+    );
+    assert_eq!(fold_rows(&f, FOLDED), [(5, Some(writer))]);
+    assert_eq!(
+        retained(&f, FOLDED),
+        [(1, false), (2, false), (3, false), (4, false), (5, true)]
+    );
+    assert!(f.read().source.contains("[in flight]"));
+    // Nothing is left that this device can combine; the creator's change is named once more.
+    let last = request_compaction(&mut f);
+    assert!(!last.compacted);
+    assert_eq!(last.skipped, Some(page::compact::Skipped::NothingToCombine));
+    assert_eq!(last.folded, []);
+}
+
+#[test]
+fn revoking_the_device_that_signed_a_fold_lists_the_fold_it_signed() {
+    let mut f = Fixture::new();
+    let mut other = f.owner_device(FOLDED, 21);
+    let receipt = f.write("old 🐈\r\n<p>local</p>");
+    let writer = receipt.publication.as_ref().unwrap().stream_id.clone();
+    other.type_text(&mut f, "[a]");
+    other.type_text(&mut f, "[b]");
+    let revoke = |f: &mut Fixture, device: &str, operation: &str| {
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        let outcome = Engine::with_decoder_config(support::decoder_config(BINARY.into()))
+            .unwrap()
+            .revoke_device(
+                &mut f.store,
+                &f.key,
+                DeviceRevoke {
+                    operation_id: operation,
+                    expected_revision: head.revision,
+                    device_id: device,
+                    grant_revision: 1,
+                },
+                NOW,
+            )
+            .unwrap();
+        let wire: Value = serde_json::from_slice(&outcome).unwrap();
+        let statement = &wire["statements"][0];
+        let payload = values::binary(
+            statement["payload"].as_str().unwrap(),
+            tmt_colab_model::payload::MAX_BYTES,
+        )
+        .unwrap();
+        serde_json::from_slice::<Value>(&payload).unwrap()
+    };
+
+    // This machine's writer folds the paired device's stream.
+    let report = request_compaction(&mut f);
+    assert_eq!(report.folded.len(), 1);
+    // The paired device signed no fold: its revoke carries no list, as before folds existed.
+    let plain = revoke(&mut f, FOLDED, "40000000-0000-4000-8000-0000000000a1");
+    assert_eq!(plain["deviceId"], FOLDED);
+    assert!(plain.get("folds").is_none());
+    // Revoking the signer lists exactly the folds the store retains, sorted as a reader compares them.
+    let mut hashes: Vec<Vec<u8>> = f
+        .sql()
+        .prepare("SELECT hash FROM checkpoints WHERE signer=?1")
+        .unwrap()
+        .query_map([&writer], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        hashes.len(),
+        1,
+        "the stream wrote the content namespace only"
+    );
+    hashes.sort();
+    let listed = revoke(&mut f, &writer, "40000000-0000-4000-8000-0000000000a2");
+    assert_eq!(
+        listed["folds"],
+        json!(
+            hashes
+                .iter()
+                .map(|hash| values::encode_binary(hash))
+                .collect::<Vec<_>>()
+        )
+    );
+}
+
+#[test]
+fn a_device_this_machine_publishes_is_left_alone_only_on_a_page_the_cloud_has_published() {
+    let mut f = Fixture::new();
+    let mut paired = f.owner_device(FOLDED, 21);
+    f.write("old 🐈\r\n<p>local</p>");
+    paired.type_text(&mut f, "[a]");
+    paired.type_text(&mut f, "[b]");
+    // A browser paired through this machine's Remote has a registration row.
+    f.sql()
+        .execute(
+            "INSERT INTO device_registrations VALUES (?1, NULL, 0, '1')",
+            [FOLDED],
+        )
+        .unwrap();
+    // The page has never been published: nothing says the cloud will read it as a fold, so it folds.
+    let report = request_compaction(&mut f);
+    assert_eq!(report.folded.len(), 1);
+    // After a publication started, a local device's next fold waits, and the report says why.
+    paired.type_text(&mut f, "[c]");
+    f.sql()
+        .execute(
+            "INSERT INTO cloud_publications VALUES (?1, '1', ?2, ?3, 'owner', '00000000000000000002', '00000000000000000002')",
+            rusqlite::params![PAGE, FOLDED, [1u8; 32].as_slice()],
+        )
+        .unwrap();
+    let report = request_compaction(&mut f);
+    assert!(!report.compacted);
+    assert_eq!(report.skipped, Some(page::compact::Skipped::NotCombined));
+    assert!(report.left.contains(&page::owner_fold::Left {
+        stream: FOLDED.into(),
+        why: page::owner_fold::Why::Published
+    }));
+    assert!(f.read().source.contains("[c]"));
+}
+
 #[test]
 fn a_requested_compaction_past_its_deadline_says_it_could_not_combine_and_writes_nothing() {
     let mut f = Fixture::new();
@@ -1775,6 +2105,32 @@ fn a_requested_compaction_past_its_deadline_says_it_could_not_combine_and_writes
     // The same request with time left combines, so the refusal was the deadline and nothing else.
     assert!(request_compaction(&mut f).compacted);
     assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn a_fold_run_past_its_deadline_counts_the_devices_it_did_not_reach_and_writes_nothing() {
+    let mut f = Fixture::new();
+    let mut other = f.owner_device(FOLDED, 21);
+    f.write("old 🐈\r\n<p>local</p>");
+    other.type_text(&mut f, "[a]");
+    other.type_text(&mut f, "[b]");
+    let late = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(1))
+        .unwrap();
+    let stored = f.bytes();
+    let mut decoder = f.decoder();
+    let report =
+        page::compact::request(&mut f.store, &f.key, PAGE, &mut decoder, Some(late)).unwrap();
+    // The person is told to run it again: the other device's changes are counted, not dropped.
+    assert!(!report.compacted);
+    assert_eq!(report.skipped, Some(page::compact::Skipped::NotCombined));
+    assert_eq!(report.unfolded, 1);
+    assert_eq!(report.folded, []);
+    assert_eq!(f.bytes(), stored, "a run that gave up changed nothing");
+    // With time left the same request folds it, so the deadline was the only reason.
+    let report = request_compaction(&mut f);
+    assert_eq!(report.folded.len(), 1);
+    assert_eq!(report.unfolded, 0);
 }
 
 #[test]
@@ -4537,7 +4893,7 @@ mod native_preparation {
         )
         .unwrap();
         db.execute(
-            "INSERT INTO checkpoints VALUES(?,?,?,?,?,?,?,?,?,0)",
+            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,pinned) VALUES(?,?,?,?,?,?,?,?,?,0)",
             params![
                 PAGE,
                 "1",

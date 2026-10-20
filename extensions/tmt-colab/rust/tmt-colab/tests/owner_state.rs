@@ -498,7 +498,14 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
                 let mut s = db
                     .prepare(&format!(
                         "SELECT {} FROM {table} ORDER BY 1",
-                        if *table == "pages" { "page,epoch" } else { "*" }
+                        match *table {
+                            "pages" => "page,epoch",
+                            // The columns of the historical table; later schemas only add to it.
+                            "checkpoints" => {
+                                "page,epoch,stream,namespace,seq,hash,digest,head,payload,pinned"
+                            }
+                            _ => "*",
+                        }
                     ))
                     .unwrap();
                 let cols = s.column_count();
@@ -647,7 +654,7 @@ fn schema_five_scoped_migration_preserves_independent_legacy_rows_and_replay() {
     db.execute_batch("ALTER TABLE owner_operations RENAME TO modern_operations;
         CREATE TABLE owner_operations(id TEXT PRIMARY KEY,digest BLOB NOT NULL,outcome BLOB NOT NULL);
         INSERT INTO owner_operations SELECT id,digest,outcome FROM modern_operations;
-        DROP TABLE modern_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; PRAGMA user_version=5;").unwrap();
+        DROP TABLE modern_operations; DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=5;").unwrap();
     let before: (String, Vec<u8>, Vec<u8>) = db
         .query_row("SELECT id,digest,outcome FROM owner_operations", [], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))

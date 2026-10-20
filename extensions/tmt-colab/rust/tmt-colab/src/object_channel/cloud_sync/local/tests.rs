@@ -237,6 +237,30 @@ fn a_compacted_stream_starts_from_its_pair_then_the_retained_tail() {
 }
 
 #[test]
+fn a_page_combined_by_an_owner_fold_before_it_was_published_stops_with_a_visible_line() {
+    let mut fixture = Fixture::new();
+    let page = fixture.page(1);
+    for _ in 0..2 {
+        fixture.append(DEVICE);
+    }
+    // The page was never active, so the compaction folded its stream; the cloud cannot carry a fold.
+    fixture.fold_pair(DEVICE, 2);
+    fixture.append(DEVICE);
+    assert!(matches!(
+        fixture.local.next(&page),
+        Err(Fault::Stuck(reason)) if reason == FOLDED_STOP
+    ));
+    // Nothing was published before the stop: the owner rows still read, the stream does not move.
+    assert!(fixture.local.preamble(&page).is_ok());
+    assert_eq!(
+        crate::cloud_sync::stopped_line("page-1", FOLDED_STOP),
+        "Cloud sync stopped for page page-1. Some changes were combined by `tmt colab page compact`, \
+         and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, \
+         then restart it to resume. Edits continue on this machine."
+    );
+}
+
+#[test]
 fn a_stream_this_machine_did_not_register_is_never_published() {
     let mut fixture = Fixture::new();
     let page = fixture.page(1);

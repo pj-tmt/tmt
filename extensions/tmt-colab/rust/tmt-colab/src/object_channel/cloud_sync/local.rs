@@ -156,6 +156,16 @@ impl StoreLocal {
                 .filter(|object| object.checkpoint && object.cursor.seq == seq)
                 // Compaction moved the cut between the position and this read: look again.
                 .ok_or(Fault::Retry)?;
+            // A fold carries no anchor to the cloud, so a cloud reader would refuse the stream:
+            // the page stops here, visibly, until the publisher and the readers carry it (#4049).
+            let envelope = mapping(
+                object::Envelope::from_json(&object.bytes).map_err(|_| documents::Invalid),
+            )?;
+            let header =
+                mapping(object::Header::decode(envelope.header()).map_err(|_| documents::Invalid))?;
+            if header.covered_device.is_some() {
+                return Err(Fault::Stuck(FOLDED_STOP));
+            }
             let base = mapping(originals::checkpoint_base(&routing, &object.bytes))?;
             documents.extend(mapping(originals::checkpoint_documents(
                 base,
@@ -174,6 +184,9 @@ impl StoreLocal {
         })
     }
 }
+/// What a person is told when a page cannot be published because a device's changes on it were
+/// combined by an owner fold.
+const FOLDED_STOP: &str = "Some changes were combined by `tmt colab page compact`, and cloud sync cannot carry combined changes yet. Update Colab when a release adds this, then restart it to resume.";
 impl Local for StoreLocal {
     fn preamble(&mut self, page: &PageRef) -> Result<Vec<Row>, Fault> {
         let now = (self.now)();

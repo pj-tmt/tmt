@@ -351,6 +351,50 @@ impl Home {
         }
         out
     }
+    /// Both namespaces' folds at `seq`: checkpoints of `stream` that the local writer signs for it,
+    /// the way an owner fold combines another device's changes.
+    pub(crate) fn fold_pair(&mut self, stream: &str, seq: u64) {
+        let (_, previous) = self.head(stream);
+        let signer = self.key.local_writer().unwrap().0;
+        for (namespace, name) in [(Namespace::Content, "content"), (Namespace::Own, "own")] {
+            let envelope = object::seal_fold(
+                &object::Context {
+                    space: self.key.space_id.clone(),
+                    page: PAGE.into(),
+                    epoch: "1".into(),
+                    kind: "fold".into(),
+                    namespace: name.into(),
+                    author_device: signer.clone(),
+                    membership_revision: "1".into(),
+                    stream_seq: seq.to_string(),
+                    prev_hash: previous,
+                },
+                stream,
+                &SECRET,
+                &SigningKey::from_bytes(&[9; 32]),
+                format!("fold-{name}-{seq}").as_bytes(),
+            )
+            .unwrap();
+            let bytes = envelope.to_json().unwrap();
+            self.store
+                .fold(
+                    &Envelope {
+                        scope: StreamScope {
+                            page: PAGE,
+                            epoch: 1,
+                            stream,
+                        },
+                        namespace,
+                        seq,
+                        hash: envelope.hash().unwrap(),
+                        previous,
+                        bytes: &bytes,
+                    },
+                    &signer,
+                )
+                .unwrap();
+        }
+    }
 }
 impl Drop for Home {
     fn drop(&mut self) {

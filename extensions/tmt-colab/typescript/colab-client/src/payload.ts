@@ -51,7 +51,7 @@ export interface Values {
   'link.remove': { linkId: string; cuts: Cut[] };
   /** `folds`: envelope hashes of the retained folds the owner accepts from this device as signer
    * (sorted, unique, absent means none); a fold signed by a revoked device is admitted only when
-   * listed (colab-v1, "Planned owner fold"). */
+   * listed (colab-v1, "Owner fold"). */
   'device.revoke': { deviceId: string; cuts: Cut[]; folds?: string[] };
   'bridge.add': { machineId: string; machineSignKey: string; encKey: string; pages: string[] };
   'epoch.advance': {

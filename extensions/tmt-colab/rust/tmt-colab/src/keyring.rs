@@ -225,8 +225,10 @@ impl Keyring {
         seed.fill(0);
         Ok(key)
     }
-    /// Caller admits the remote certificate and pinned owner-member binding first.
-    pub(crate) fn sign_device_certificate(
+    /// Caller admits the remote certificate and pinned owner-member binding first. Public only for
+    /// the integration-test fixtures that issue a device chain; no product caller outside the crate.
+    #[doc(hidden)]
+    pub fn sign_device_certificate(
         &self,
         cert: &tmt_colab_model::certificate::Certificate<'_>,
     ) -> tmt_colab_model::Result<[u8; 64]> {
@@ -282,6 +284,22 @@ impl Keyring {
         plaintext: &[u8],
     ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
         tmt_colab_model::object::seal(context, secret, &self.local_signer()?, plaintext)
+    }
+    /// Seal an owner fold of `covered`'s stream as the local writer (colab-v1, "Owner fold").
+    pub(crate) fn seal_fold(
+        &self,
+        context: &tmt_colab_model::object::Context,
+        covered: &str,
+        secret: &[u8; 32],
+        plaintext: &[u8],
+    ) -> tmt_colab_model::Result<tmt_colab_model::object::Envelope> {
+        tmt_colab_model::object::seal_fold(
+            context,
+            covered,
+            secret,
+            &self.local_signer()?,
+            plaintext,
+        )
     }
     /// Sign one admitted content manifest with the existing local writer, without exporting keys.
     pub(crate) fn sign_content_publication(

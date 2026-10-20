@@ -579,7 +579,9 @@ is added.
 - `page compact` (`cli_compact.rs`) asks the serve over `page/compact_ipc.rs` (route
   `page-compact`, `Server::compact_page` under the sync mutex) or, when stopped, runs
   `page::compact::request` under the lifecycle lock. `request` is the automatic combine with a
-  trigger of one change plus the report; it never touches another device's stream.
+  trigger of one change plus the report, then `page::owner_fold::fold_others` (the owner fold,
+  #3983): it combines other owner-member devices' streams as folds signed by the local writer and
+  reports `folded` / `left` / `unfolded`; a stream a fold cannot cover stays and is named.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:

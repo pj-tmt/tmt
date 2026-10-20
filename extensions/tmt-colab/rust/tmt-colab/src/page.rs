@@ -3,6 +3,7 @@ pub mod compact;
 pub mod compact_ipc;
 pub mod ipc;
 pub mod lines;
+pub mod owner_fold;
 pub mod patch;
 pub mod save;
 use crate::{

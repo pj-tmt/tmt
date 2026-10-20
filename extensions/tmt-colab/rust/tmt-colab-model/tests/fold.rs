@@ -1,4 +1,4 @@
-//! The `fold` object (colab-v1, "Planned owner fold (#3983)"): header shape, sealing and opening,
+//! The `fold` object (colab-v1, "Owner fold (#3983)"): header shape, sealing and opening,
 //! the anchor check and the revoke payload's fold list. Who may sign for whom is the caller's
 //! policy; these tests cover only what the model itself decides.
 use ed25519_dalek::SigningKey;

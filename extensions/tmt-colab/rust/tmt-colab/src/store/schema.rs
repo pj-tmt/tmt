@@ -117,6 +117,12 @@ const MIGRATIONS: &[&str] = &[
     INSERT INTO page_projects(page,project) SELECT page,label FROM page_labels;
     DROP TABLE page_labels;
     "#,
+    // Schema 14: who signed a checkpoint. NULL is the stream's own device, as every checkpoint
+    // before this; an owner fold (#3983) names the owner-member device that signed it for the
+    // stream, so a prune keeps its anchor and a revoke can list the folds its device signed.
+    r#"
+    ALTER TABLE checkpoints ADD COLUMN signer TEXT;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

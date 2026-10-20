@@ -2,6 +2,9 @@
 use super::*;
 use tmt_colab_model::{object, stream_cut};
 
+/// The most fold hashes one `device.revoke` lists (colab-v1, "Owner fold").
+pub const MAX_REVOKE_FOLDS: usize = 512;
+
 pub struct StoredBaseline {
     pub descriptor: Vec<u8>,
     pub envelope: Vec<u8>,
@@ -430,6 +433,65 @@ impl OwnerTransaction<'_> {
             }
         }
         Ok(())
+    }
+    /// The anchor of every retained owner fold of the epoch, by covered stream and sequence: the
+    /// update envelope the fold binds, which the store keeps past the prune of the prefix the fold
+    /// covers. A fold whose anchor is gone has no entry, and is refused at admission.
+    pub(crate) fn fold_anchors(
+        &self,
+        page: &str,
+        epoch: u64,
+    ) -> Result<std::collections::BTreeMap<(String, u64), Vec<u8>>> {
+        let mut query = self.tx.prepare(
+            "SELECT DISTINCT c.stream,c.seq,r.payload FROM checkpoints c JOIN receipts r
+             ON r.page=c.page AND r.epoch=c.epoch AND r.stream=c.stream AND r.seq=c.seq
+             WHERE c.page=? AND c.epoch=? AND c.signer IS NOT NULL
+             AND c.payload IS NOT NULL AND r.payload IS NOT NULL",
+        )?;
+        let rows = query.query_map(params![page, epoch.to_string()], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+            ))
+        })?;
+        let mut anchors = std::collections::BTreeMap::new();
+        for row in rows {
+            let (stream, seq, bytes) = row?;
+            anchors.insert((stream, seq.parse()?), bytes);
+        }
+        Ok(anchors)
+    }
+    /// The folds `device` signed that the store still retains, over every page and epoch, as the
+    /// sorted base64 list its `device.revoke` commits (colab-v1, "Owner fold"): a reader admits a
+    /// fold of a revoked signer only when the revoke lists it. A device that signed more than
+    /// [`MAX_REVOKE_FOLDS`] cannot be revoked until its folds are replaced under another device.
+    pub(crate) fn committed_folds(&self, device: &str) -> Result<Vec<String>> {
+        let mut query = self.tx.prepare(
+            "SELECT hash FROM checkpoints WHERE signer=? AND payload IS NOT NULL ORDER BY hash LIMIT ?",
+        )?;
+        let rows = query.query_map(params![device, (MAX_REVOKE_FOLDS + 1) as i64], |r| {
+            r.get::<_, Vec<u8>>(0)
+        })?;
+        let mut hashes = Vec::new();
+        for row in rows {
+            hashes.push(values::encode_binary(&array(row?)?));
+        }
+        if hashes.len() > MAX_REVOKE_FOLDS {
+            return Err(OwnerFault::FoldList.into());
+        }
+        Ok(hashes)
+    }
+    /// Whether this machine's cloud publisher has started to publish `page`: it tracks a stream of
+    /// it, or the cloud confirmed its owner row. A page with neither may still be published the
+    /// next time it is active, so this is evidence, never a promise.
+    pub(crate) fn publication_evidence(&self, page: &str) -> Result<bool> {
+        Ok(self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloud_publications WHERE page=?1)
+                 OR EXISTS(SELECT 1 FROM cloud_page_rows WHERE page=?1)",
+            params![page],
+            |r| r.get(0),
+        )?)
     }
     pub(crate) fn cut_objects(&self, cut: &Cut) -> Result<Vec<StoredObject>> {
         let mut out = Vec::new();

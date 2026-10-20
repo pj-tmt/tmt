@@ -3,7 +3,11 @@
 //! edited many times by this device keeps a short tail. Other devices' streams are never touched,
 //! and the shared document is never re-encoded: the merge is `merge_updates_v1` of this stream's
 //! updates inside the isolated decoder.
-use super::{Fault, PageUsage, hex, snapshot};
+use super::{
+    Fault, PageUsage, hex,
+    owner_fold::{self, Folded, Left},
+    snapshot,
+};
 use crate::{
     Result,
     decoder::{Decoder, Namespace as DecoderNamespace},
@@ -29,7 +33,7 @@ pub struct Trigger {
     pub until: Option<std::time::Instant>,
 }
 impl Trigger {
-    fn late(&self) -> bool {
+    pub(crate) fn late(&self) -> bool {
         self.until
             .is_some_and(|until| std::time::Instant::now() >= until)
     }
@@ -264,21 +268,35 @@ pub struct Report {
     pub compacted: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<Skipped>,
-    /// The device whose stream was combined: only this device can combine it.
+    /// The device whose own stream was combined: this one.
     pub by: String,
     /// The range of that stream the checkpoints now hold: 1..=through (0 when nothing was combined).
     pub through: u64,
+    /// Changes merged away, in this device's stream and in the streams folded below.
     pub merged_objects: usize,
+    /// Other devices' streams combined into owner folds, each with the range it now covers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folded: Vec<Folded>,
+    /// Streams with changes this run left as they are, each with the reason.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<Left>,
+    /// Streams with changes this run did not reach; running it again continues.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unfolded: usize,
     pub source_sha256: String,
     pub before: PageUsage,
     pub after: PageUsage,
 }
 
-/// Combine this device's own stream now, whatever the size of its tail, and report what changed.
-/// `compact` compares every projection of the merge with the page's own before its first
-/// checkpoint, so the folded source is the same before and after or nothing is published.
-/// Repeating it finds no tail and is a no-op. Other devices' streams are never touched; `after`
-/// shows what remains of theirs.
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+/// Combine this device's own stream now, whatever the size of its tail, then fold the streams of
+/// other owner-member devices (`owner_fold`), and report what changed. Each step compares every
+/// projection of the merge with the page's own before its first checkpoint, so the source is the
+/// same before and after or nothing is published. Repeating it finds no tail and is a no-op.
+/// `after` shows what remains: streams no fold can combine are named in `left`.
 pub fn request(
     store: &mut Store,
     key: &Keyring,
@@ -288,34 +306,41 @@ pub fn request(
 ) -> Result<Report> {
     let by = key.local_writer()?.0;
     let usage_before = snapshot(store, key, page, true)?.usage(key, page, decoder)?;
-    let done = compact(
-        store,
-        key,
-        page,
-        decoder,
-        Trigger {
-            updates: 1,
-            bytes: usize::MAX,
-            until,
-        },
-    )?;
+    let trigger = Trigger {
+        updates: 1,
+        bytes: usize::MAX,
+        until,
+    };
+    let done = compact(store, key, page, decoder, trigger)?;
+    let folds = owner_fold::fold_others(store, key, page, decoder, trigger)?;
     let after = snapshot(store, key, page, true)?;
     let usage_after = after.usage(key, page, decoder)?;
     let source_sha256 = hex(&crypto::digest(
         after.materialize(key, page, decoder)?.source.as_bytes(),
     ));
     let own_tail = usage_before.updates - usage_before.other_device_updates;
+    let compacted = done.is_some() || !folds.folded.is_empty();
+    // A device that only it can combine is no work left undone; the rest of what was left is.
+    let unreached = folds
+        .left
+        .iter()
+        .any(|left| left.why != owner_fold::Why::NotOwnerDevice)
+        || folds.unfolded > 0;
     Ok(Report {
         page_id: page.into(),
-        compacted: done.is_some(),
-        skipped: match (&done, own_tail) {
-            (Some(_), _) => None,
-            (None, 0) => Some(Skipped::NothingToCombine),
-            (None, _) => Some(Skipped::NotCombined),
+        compacted,
+        skipped: match (compacted, own_tail, unreached) {
+            (true, ..) => None,
+            (false, 0, false) => Some(Skipped::NothingToCombine),
+            (false, ..) => Some(Skipped::NotCombined),
         },
         by,
         through: done.as_ref().map_or(0, |done| done.through),
-        merged_objects: done.as_ref().map_or(0, |done| done.merged_objects),
+        merged_objects: done.as_ref().map_or(0, |done| done.merged_objects)
+            + folds.folded.iter().map(|f| f.merged_objects).sum::<usize>(),
+        folded: folds.folded,
+        left: folds.left,
+        unfolded: folds.unfolded,
         source_sha256,
         before: usage_before,
         after: usage_after,
