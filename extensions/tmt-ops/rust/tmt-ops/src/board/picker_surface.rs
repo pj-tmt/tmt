@@ -86,6 +86,28 @@ impl State {
     pub fn invalidate(&mut self) {
         self.frame = None;
     }
+    /// Scrolls the list so the group heading `group`, the row `row` and `after` more lines are in
+    /// view, if they fit. Only painted rows have geometry, so the lines after `row` are counted,
+    /// not looked up. None until a list frame has painted `row`; Some(whether the offset moved).
+    pub fn reveal_group(&mut self, group: &str, row: &str, after: usize) -> Option<bool> {
+        let list = self.frame.as_ref()?.list.as_ref()?;
+        let row = list.geometry.iter().find(|geometry| geometry.id == row)?;
+        let start = list
+            .geometry
+            .iter()
+            .find(|geometry| geometry.id == group)
+            .map_or(row.lines.start.saturating_sub(1), |geometry| {
+                geometry.lines.start
+            });
+        let end = row.lines.end + after;
+        let before = self.picker.list.scroll.offset();
+        self.picker.list.scroll.reveal(start..end);
+        let moved = self.picker.list.scroll.offset() != before;
+        if moved {
+            self.frame = None;
+        }
+        Some(moved)
+    }
     pub fn input(&mut self, event: &Event, field: PickerField) -> Option<PickerInput> {
         let frame = match &self.frame {
             Some(frame) => frame.list.clone()?,

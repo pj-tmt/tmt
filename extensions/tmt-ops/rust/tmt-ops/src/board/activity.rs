@@ -125,8 +125,8 @@ impl Label {
     }
 
     /// Fits `width` cells as the state words and the muted task text. The task
-    /// is cut first, then the age; the state word stays. A task that repeats
-    /// the state word is left out.
+    /// is dropped whole first, then the age; the state word stays. A task that
+    /// repeats the state word is left out.
     pub fn fit(&self, width: usize) -> (String, Option<String>) {
         use unicode_width::UnicodeWidthStr;
         let word = self.word();
@@ -144,10 +144,7 @@ impl Label {
             if tail.width() <= room {
                 return (head, Some(tail));
             }
-            // Keep a clipped task while at least one character and its ellipsis fit.
-            if room >= " · x…".width() {
-                return (head, Some(crate::board::view::fit(&tail, room)));
-            }
+            // A suffix that does not fit whole is dropped, never cut inside a word.
         }
         if head.width() <= width {
             return (head, None);
@@ -337,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn fitting_clips_the_task_first_then_drops_the_age() {
+    fn fitting_drops_the_whole_task_first_then_the_age() {
         let label = member(
             Phase::Working,
             Some(NOW - 12 * 60_000),
@@ -349,8 +346,9 @@ mod tests {
             label.fit(20),
             ("working 12m".into(), Some(" · review".into()))
         );
-        assert_eq!(label.fit(19).1.as_deref(), Some(" · revi…"));
-        assert_eq!(label.fit(16).1.as_deref(), Some(" · r…"));
+        // Never a word cut in the middle: a suffix that does not fit is dropped whole.
+        assert_eq!(label.fit(19), ("working 12m".into(), None));
+        assert_eq!(label.fit(16), ("working 12m".into(), None));
         assert_eq!(label.fit(15), ("working 12m".into(), None));
         assert_eq!(label.fit(11), ("working 12m".into(), None));
         assert_eq!(label.fit(10), ("working".into(), None));

@@ -469,12 +469,8 @@ pub fn activity_spans(
             .filter(|task| *task != shown)
             .and_then(|task| {
                 let tail = format!(" · {task}");
-                if tail.width() <= room {
-                    Some(tail)
-                } else {
-                    // Keep a clipped task while one character and its ellipsis fit.
-                    (room >= " · x…".width()).then(|| crate::board::view::fit(&tail, room))
-                }
+                // A suffix that does not fit whole is dropped, never cut inside a word.
+                (tail.width() <= room).then_some(tail)
             });
         return (primary, task.map(task_span));
     }

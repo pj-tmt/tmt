@@ -401,6 +401,11 @@ identities list as `idle_source`, so no presence is read), `OpsMembershipState::
 reads idle) makes `columns::activity_spans`, `team_strip::line` and the Overview team strip paint
 `state_cell::over` (`◷`, `!` under the ASCII glyph set) in the attention colour before the idle word.
 The squad row's MODEL cell names `idle alert 30m` while enabled; nothing is derived in the board.
+The per-squad settings overlay is reached from the Workspace settings menu (`Choice::SquadSettings`, last
+after a `Choice::Rule`; absent without a selected squad): `Opening::SquadSettings` opens it in that squad's
+context with `Overlay::from_menu`, which keeps a refresh from closing it, returns Esc to the menu, titles it
+`Squad settings: <squad>` and scrolls the `idle_alert` group into view once (`reveal_group`). A STATE suffix
+that does not fit its cell whole is dropped, never cut (`Label::fit`, `activity_spans`).
 
 Only ◆ and ✗ carry attention color; activity words and other marks remain neutral,
 and a member's secondary task state is muted unless it is `blocked` (✗, red). Agent working/idle

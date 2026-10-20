@@ -10,7 +10,7 @@ use ratatui::{
 };
 use serde_json::{Value, json};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
 };
 use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
@@ -119,6 +119,7 @@ struct CachedTemplate<K> {
 #[derive(PartialEq, Eq)]
 struct ReferenceStyle {
     host_title: Option<String>,
+    squad_title: Option<String>,
     key_width: usize,
     source_width: usize,
     notice_role: &'static str,
@@ -153,6 +154,8 @@ pub(super) struct Overlay {
     /// Opened for one squad from the Workspace settings menu: Esc returns there, and a
     /// refresh does not close it for showing another tab.
     pub(in crate::board) from_menu: bool,
+    /// Scroll the idle alert group (its rows and hint) into view once the list has painted.
+    pub(in crate::board) reveal_idle: Cell<bool>,
 }
 impl Overlay {
     pub fn new(mut settings: BoardSettings) -> Self {
@@ -186,6 +189,7 @@ impl Overlay {
             overrides: BTreeSet::new(),
             host_action: None,
             from_menu: false,
+            reveal_idle: Cell::new(false),
         }
     }
     pub fn open(
@@ -741,8 +745,17 @@ fn template(
     source_width: usize,
     role: &str,
     host_title: Option<&str>,
+    squad_title: Option<&str>,
 ) -> tmt_tui::components::surface::Template<()> {
-    let title = host_title.unwrap_or("settings · Enter edit · * read-only");
+    let escaped = squad_title.map(|title| {
+        title
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('"', "&quot;")
+    });
+    let title = host_title
+        .or(escaped.as_deref())
+        .unwrap_or("settings · Enter edit · * read-only");
     let host_action = host_title.is_some();
     let reference = if host_action {
         "<tmt-text token=\"dim\" wrap=\"true\">Fields: {pane} {name} {pr_link} {board_pane} · {{ }} for literal braces</tmt-text>"
@@ -960,6 +973,14 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             .host_action
             .as_ref()
             .map(|host| host.title("Host action (j)")),
+        squad_title: overlay.from_menu.then(|| {
+            format!(
+                "Squad settings: {}",
+                crate::board::workspace::render::safe(
+                    overlay.settings.context.as_deref().unwrap_or("")
+                )
+            )
+        }),
         key_width,
         source_width,
         notice_role: notice_role(overlay.notice.as_ref()),
@@ -972,6 +993,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
                 source_width,
                 key.notice_role,
                 key.host_title.as_deref(),
+                key.squad_title.as_deref(),
             ),
             key,
         });
@@ -1000,7 +1022,17 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         &format!("↑↓ select · {space}Enter edit · {reset}PgUp/PgDn page · Esc close")
     };
     let mut state = overlay.surface.borrow_mut();
-    state.render(FILE, template, json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":query, "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "saved_path":format!("Saved to {}", overlay.display_path), "footer":footer, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
+    let value = json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":query, "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "saved_path":format!("Saved to {}", overlay.display_path), "footer":footer, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())});
+    state.render(FILE, template, value.clone(), frame, look, body);
+    // Opened from the Workspace menu: show the idle alert rows and their hint whole, then repaint.
+    if overlay.reveal_idle.get()
+        && let Some(moved) = state.reveal_group("group:idle_alert", "idle_alert.enabled", 1)
+    {
+        overlay.reveal_idle.set(false);
+        if moved {
+            state.render(FILE, template, value, frame, look, body);
+        }
+    }
     if let Some(map) = &state.frame {
         for hit in &map.hits {
             let Some(id) = hit.row_id.as_ref() else {
@@ -1389,7 +1421,7 @@ mod tests {
         let screen = settings_screen(&f, 120);
         assert!(screen.contains("Space on/off"), "{screen}");
         assert!(
-            screen.contains("Tells the lead once when a member stays idle"),
+            screen.contains("Tells the lead once when a member stays idle longer"),
             "{screen}"
         );
         assert_eq!(

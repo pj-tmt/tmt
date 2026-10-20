@@ -213,7 +213,7 @@ impl Config {
             .last_mut()
             .expect("idle_alert.enabled")
             .description = Some(
-            "Tells the lead once when a member stays idle this long. \
+            "Tells the lead once when a member stays idle longer than after. \
              Not sent while a member waits on you or rests (hold)."
                 .into(),
         );

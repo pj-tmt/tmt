@@ -150,19 +150,37 @@ fn choosing_squad_settings_opens_the_overlay_for_that_squad_and_escape_returns_t
     let overlay = app.settings.as_ref().unwrap();
     assert!(overlay.from_menu);
     assert_eq!(overlay.settings.context.as_deref(), Some("product"));
-    app.settings
-        .as_ref()
-        .unwrap()
-        .surface
-        .borrow_mut()
-        .select("idle_alert.enabled");
-    let screen = paint(&app, 120, 40).join("\n");
-    assert!(
-        screen.contains("idle_alert")
-            && screen.contains("Tells the lead once")
-            && screen.contains("after"),
-        "{screen}"
-    );
+    // Opened from the entry, the overlay is titled by the squad and shows the whole idle alert
+    // group (both rows and the hint) with `enabled` selected, whatever the height.
+    for (width, height) in [(120, 40), (100, 24), (80, 20)] {
+        let mut fresh = board();
+        let (fresh_path, fresh_config) =
+            settings_config("reveal", "[squad.product.idle_alert]\nenabled = true\n");
+        fresh
+            .open_settings_in(fresh_config, Some("product"))
+            .unwrap();
+        let screen = paint(&fresh, width, height).join("\n");
+        std::fs::remove_file(fresh_path).unwrap();
+        let case = format!("{width}x{height}: {screen}");
+        assert!(screen.contains("Squad settings: product"), "{case}");
+        assert!(
+            screen.contains("Tells the lead once when a member stays idle")
+                && screen.contains("longer than after."),
+            "{case}"
+        );
+        assert!(
+            screen.lines().any(|line| line.contains('›')
+                && line.contains("enabled")
+                && line.contains("true")),
+            "{case}"
+        );
+        assert!(
+            screen
+                .lines()
+                .any(|line| line.contains("after") && line.contains("1800s")),
+            "{case}"
+        );
+    }
     // A data refresh while it is open does not close it for the workspace's own tab.
     let mut refreshed = crate::board::app::tests::snapshot(crate::board::ALL, json!([]));
     refreshed.tabs.push(crate::board::ALL.into());

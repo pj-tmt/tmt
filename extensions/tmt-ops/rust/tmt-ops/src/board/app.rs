@@ -1836,6 +1836,10 @@ impl App {
             window,
         )?;
         overlay.from_menu = squad.is_some();
+        if squad.is_some() {
+            overlay.reveal_idle.set(true);
+            overlay.surface.borrow_mut().select("idle_alert.enabled");
+        }
         overlay.opening_focus = self.focus;
         overlay.squad_keys = self.squad_keys.clone();
         overlay.staleness = self
