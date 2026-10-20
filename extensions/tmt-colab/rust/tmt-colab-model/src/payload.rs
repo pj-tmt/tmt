@@ -66,6 +66,20 @@ pub struct LinkRemove {
 pub struct DeviceRevoke {
     pub device_id: String,
     pub cuts: List<Cut, 512>,
+    /// Envelope hashes of the retained folds the owner accepts from this device as signer (a
+    /// sorted, unique list of 32-byte values); absent means none. A fold signed by a revoked
+    /// device is admitted only when its hash is listed (colab-v1, "Planned owner fold (#3983)").
+    #[serde(default)]
+    pub folds: List<String, 512>,
+}
+impl DeviceRevoke {
+    /// Whether this revoke lists the fold with this envelope hash.
+    pub fn lists_fold(&self, hash: &[u8; 32]) -> bool {
+        self.folds
+            .as_slice()
+            .iter()
+            .any(|listed| key(listed).is_ok_and(|listed| &listed == hash))
+    }
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -183,6 +197,15 @@ fn cuts(v: &List<Cut, 512>) -> Result<()> {
     }
     Ok(())
 }
+fn fold_hashes(v: &List<String, 512>) -> Result<()> {
+    let mut previous: Option<[u8; 32]> = None;
+    for item in v.as_slice() {
+        let hash = key(item)?;
+        require(previous.is_none_or(|p| p < hash))?;
+        previous = Some(hash);
+    }
+    Ok(())
+}
 fn parse<T: for<'a> Deserialize<'a>>(bytes: &[u8]) -> Result<T> {
     serde_json::from_slice(bytes).map_err(|_| Invalid)
 }
@@ -227,6 +250,7 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             let v: DeviceRevoke = parse(bytes)?;
             values::generated_id(&v.device_id)?;
             cuts(&v.cuts)?;
+            fold_hashes(&v.folds)?;
             Payload::DeviceRevoke(v)
         }
         "bridge.add" => {

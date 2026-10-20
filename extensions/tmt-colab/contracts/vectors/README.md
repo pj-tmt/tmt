@@ -97,6 +97,19 @@ them in the browser. It has no Python reference: the native fixture is the oracl
 frozen envelopes use random AEAD nonces, so regeneration (`cargo test --test bridge_vectors
 -- --ignored regenerate`) is a deliberate contract change that rewrites every byte.
 
+`fold-v1.json` freezes the planned owner fold (colab-v1, "Planned owner fold"): an owner-signed
+log (`member.add`, `bridge.add` and, per case, a `device.revoke` of the signer or of the covered
+device), the signer's and the covered device's owner-member chains, and catch-up frames (an anchor
+frame, then a fold frame), each case marked `admit` or `reject`. The browser test
+`test/fold-own.test.ts` replays every frame through `Admission` and `Objects`. Native
+`src/fold_vectors.rs` (a unit test, since signing a certificate is crate-private) replays the part
+the model decides: each fold's header and covered device, the anchor check, whether the signer's
+`device.revoke` lists the fold, and that a reader of today's thirteen-element header refuses a fold
+by its field count (`oldReader`). The native store joins the replay with its writer. Like the
+bridge vector it has no Python reference and its envelopes carry random AEAD nonces, so
+regeneration (`cargo test -p tmt-colab --lib fold_vectors::regenerate -- --ignored`) rewrites every
+byte.
+
 `link-author-v1.json` freezes owner-signed membership logs (`page.share`, `link.add`,
 `link.remove`), link-issued device chains (valid, forged, citing another statement, below the
 `link.add` revision, and the member/link issuer-kind swaps) and sealed own/content envelopes of

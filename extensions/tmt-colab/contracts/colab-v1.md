@@ -1676,7 +1676,7 @@ Crash before deletion retains replay-safe redundant data; concurrent tail
 updates survive. A gone device's stream remains as signed data within quotas.
 There is no cross-writer compaction checkpoint in v1 today; the epoch baseline above
 is a distinct owner-authorized reset. The one planned exception is the
-[owner fold](#planned-owner-fold-3983), which no code writes or admits yet.
+[owner fold](#planned-owner-fold-3983), which the browser admits and no code writes yet.
 
 Authority reductions commit the exact checkpoint envelope hash, checkpoint
 sequence and tail head/hash. A revoked device's newly signed replacement cannot
@@ -1755,10 +1755,12 @@ or rejects explicitly; it MUST NOT silently discard accepted durable data.
 
 ### Planned owner fold (#3983)
 
-This section is a ruling, not shipped behavior: Core and security accepted the direction in
-[#3983](https://github.com/pj-tmt/tmt/issues/3983#issuecomment-6283370867), and no native or browser
-code writes or admits a fold yet. Until it ships, every rule above holds, a checkpoint is by the
-stream's own device, and only that device can clear its tail from the page cap.
+This section is a ruling that ships in two steps: Core and security accepted the direction in
+[#3983](https://github.com/pj-tmt/tmt/issues/3983#issuecomment-6283370867). The object model and the
+browser's admission and fold-read ship first (the `fold` kind, the anchor, the revoke's `folds`
+list and the frozen vectors below). Nothing writes a fold yet, and native storage and catch-up do not
+carry one, so every rule above still holds in practice: a checkpoint is by the stream's own device,
+and only that device can clear its tail from the page cap.
 
 A **fold** is a checkpoint that an owner-member device signs for another owner-member device's stream
 (its own included), so the owner's `page compact` can clear every device's tail. It reuses what a
@@ -1766,10 +1768,12 @@ checkpoint is: it covers seq 1..n, binds the update hash at n, does not advance 
 published by immutable object ID, and is paired across both namespaces at the same n before
 anything is pruned.
 
-- **Object.** A new kind `fold` in the `tmt-colab-object-v1` header, not a framing version, so an old
-  reader rejects it by kind. A `fold` header carries one extra trailing field, `coveredDevice`; every
-  other kind keeps exactly twelve fields, and a reader rejects a kind it does not know before it reads
-  any trailing field. `authorDevice` is the signer; the covered stream's `streamId` is
+- **Object.** A new kind `fold` in the `tmt-colab-object-v1` header, not a framing version. A `fold`
+  header carries one extra trailing field, `coveredDevice`, so its frame has fourteen elements where
+  every other kind has thirteen (the domain tag included). A reader of today's release requires
+  thirteen, so it refuses a fold as invalid by that count before it reads the kind or any trailing
+  field; a reader that knows the kind ties the count to it: a fold without the field, or any other
+  kind with it, is invalid. `authorDevice` is the signer; the covered stream's `streamId` is
   `coveredDevice`; `streamSeq` is n and `prevEnvelopeHash` is the hash of the covered stream's update
   envelope at n. The plaintext is raw merged update-v1 of exactly the covered stream's verified
   updates 1..n in the header's `namespace`, built by the checkpoint rules above (never the merged
@@ -1783,8 +1787,9 @@ anything is pruned.
   per-edit attribution of the updates it covers with its own statement, which names the signer and the
   covered range (the trade-off own-stream compaction already makes).
 - **Bounds.** n is at most the covered stream's admitted head. For a revoked covered device n is at most
-  the `tailHeadSeq` of its signed revoke cut, never past it, so a fold cannot cover a tail the cut
-  refused. The owner publishes a fold only after the existing source-equality guard: it decodes the
+  the `tailHeadSeq` of its signed revoke cut, never past it (the cut an owner advance sealed after
+  the fold's `membershipRevision` stands in for it, as for an update), so a fold cannot cover a tail
+  the cut refused. The owner publishes a fold only after the existing source-equality guard: it decodes the
   candidate merged streams and requires the HTML, the complete metadata and every writer's own
   projection to equal the current page; a mismatch or decoder failure publishes nothing.
 - **Anchor.** The store keeps the covered stream's update envelope at n un-pruned when it prunes a
@@ -1794,7 +1799,14 @@ anything is pruned.
   covered device itself signed and not a value the signer asserts. A reader applies nothing from the
   anchor; its state is in the fold. Catch-up delivers the anchor with the fold, before the tail, and
   the tail stays contiguous from n+1. A fold without its anchor is refused (`INVALID`) and nothing is
-  applied.
+  applied. A stream has one sequence across its namespaces, so the one anchor serves the fold of both
+  namespaces; it is the update at n, whichever namespace that update is in.
+  On the wire each catch-up frame still carries one object. The anchor is its own frame, a `streams[]`
+  entry `{streamId, namespace, checkpoint: null, anchor, tail: []}` whose `anchor` is the update entry
+  (`namespace` is the update's), and the fold frame follows it with `streamId` the covered device and
+  `checkpoint` the fold entry. The extra `anchor` key is what an older reader refuses (it requires
+  exactly four keys). `chains` carries the chains of both the signer and the covered device. A reader
+  keeps the anchor for the catch-up (one per covered stream, bounded) because one anchor serves the folds of both namespaces, and applies nothing from it.
 - **Signer revoke commits its folds.** The `device.revoke` payload of a device that signed folds gains
   `folds`: a sorted, unique list of the fold envelope hashes the owner accepts from it (at most 512).
   A fold whose `authorDevice` is a revoked device is admitted only when its envelope hash is in that
@@ -1826,6 +1838,10 @@ admitted; an unlisted fold from a revoked signer refused; a listed fold from a r
 admitted; a missing anchor refused; an anchor whose hash differs from `prevEnvelopeHash` refused; a
 covered device that is not owner-member refused; a fold past the covered head or past a revoked
 device's cut refused; an unknown kind rejected before its trailing field is read.
+`contracts/vectors/fold-v1.json` freezes them (see its README entry). Native replays the model's part
+of each case (header, anchor, the revoke's list, the refusal by a reader of today's thirteen-element header) and the browser
+replays the whole catch-up through `Admission` and `Objects`; the native store joins the replay when
+it writes and reads folds.
 
 ## Pairing and machine-local grants
 

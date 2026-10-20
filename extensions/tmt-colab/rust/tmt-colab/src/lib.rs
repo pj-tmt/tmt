@@ -48,3 +48,5 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 // Reuse the integration-test decoder budget in owner-local unit fixtures.
 #[cfg(test)]
 extern crate self as tmt_colab;
+#[cfg(test)]
+mod fold_vectors;

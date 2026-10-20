@@ -49,7 +49,10 @@ export interface Values {
     pages: string[];
   };
   'link.remove': { linkId: string; cuts: Cut[] };
-  'device.revoke': { deviceId: string; cuts: Cut[] };
+  /** `folds`: envelope hashes of the retained folds the owner accepts from this device as signer
+   * (sorted, unique, absent means none); a fold signed by a revoked device is admitted only when
+   * listed (colab-v1, "Planned owner fold"). */
+  'device.revoke': { deviceId: string; cuts: Cut[]; folds?: string[] };
   'bridge.add': { machineId: string; machineSignKey: string; encKey: string; pages: string[] };
   'epoch.advance': {
     pageId: string;
@@ -96,6 +99,20 @@ function pages(value: unknown): void {
 function before(a: (string | bigint)[], b: (string | bigint)[]): boolean {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
   return false;
+}
+/** A sorted, unique list of 32-byte envelope hashes, at most 512. */
+function foldHashes(value: unknown): void {
+  let previous: Uint8Array | undefined;
+  for (const item of list(value, 512)) {
+    requireValue(typeof item === 'string');
+    const hash = binary(item, 32, 32);
+    requireValue(previous === undefined || compare(previous, hash) < 0);
+    previous = hash;
+  }
+}
+function compare(a: Uint8Array, b: Uint8Array): number {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
 }
 function cuts(value: unknown): void {
   let previous: (string | bigint)[] | undefined;
@@ -168,11 +185,14 @@ export function decode(operation: string, raw: Uint8Array): Payload {
       id(v, 'linkId');
       cuts(v.cuts);
       break;
-    case 'device.revoke':
-      exactKeys(v, ['deviceId', 'cuts']);
+    case 'device.revoke': {
+      const folded = typeof v === 'object' && v !== null && 'folds' in v;
+      exactKeys(v, folded ? ['deviceId', 'cuts', 'folds'] : ['deviceId', 'cuts']);
       id(v, 'deviceId');
       cuts(v.cuts);
+      if (folded) foldHashes(v.folds);
       break;
+    }
     case 'bridge.add':
       exactKeys(v, ['machineId', 'machineSignKey', 'encKey', 'pages']);
       id(v, 'machineId');
@@ -254,4 +274,8 @@ export function decode(operation: string, raw: Uint8Array): Payload {
   }
   // All discriminant-specific types above are checked before exposing the typed value.
   return { operation, value: v } as Payload;
+}
+/** Whether a `device.revoke` lists the fold with this envelope hash. */
+export function listsFold(revoke: Values['device.revoke'], hash: Uint8Array): boolean {
+  return (revoke.folds ?? []).some((listed) => compare(binary(listed, 32, 32), hash) === 0);
 }
