@@ -227,12 +227,14 @@ export const routes: readonly ShellRoute[] = [
       try {
         return (await import(/* @vite-ignore */ entry)) as ShellRouteModule;
       } catch {
+        // An older Colab has no module to load here; its own mounted app is still the way in.
         return {
           mount: (slot) =>
             message(
               slot,
               'Colab',
-              'Colab could not start. It may have stopped on your machine. Reload to try again.',
+              'Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.',
+              load.link ? { href: load.link, label: 'Open Colab' } : undefined,
             ),
         };
       }

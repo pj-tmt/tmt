@@ -474,6 +474,23 @@ test.describe('a module entry', () => {
     await page.close();
   });
 
+  test('opens an older Colab, which names no entry and has no module, by its own link', async () => {
+    const { page } = await openApp('/colab/', async (page) => {
+      await page.route('**/sdk/mount', (route) =>
+        route.fulfill({ json: { address: `${origin}${PREFIX}` } }),
+      );
+      await page.route(`**${PREFIX}/x/-/shell`, (route) =>
+        route.fulfill({ json: composed(MOUNT, undefined) }),
+      );
+      await page.route(`**${MOUNT}assets/colab-module.js`, (route) =>
+        route.fulfill({ status: 404 }),
+      );
+    });
+    await expect(page.locator('.tmt-ui-shell-main')).toContainText('Colab could not start here');
+    await expect(page.locator(`.tmt-ui-shell-main a[href$="${MOUNT}"]`)).toHaveText('Open Colab');
+    await page.close();
+  });
+
   test('falls back to the module link when its entry is refused', async () => {
     const { page } = await openColab(composed(MOUNT, 'https://evil.example/colab.js'));
     await expect(page.locator(`.tmt-ui-shell-main a[href$="${MOUNT}"]`)).toBeVisible();

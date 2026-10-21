@@ -3763,7 +3763,10 @@ var routes = [
 					entry
 );
 			} catch {
-				return { mount: (slot) => message(slot, "Colab", "Colab could not start. It may have stopped on your machine. Reload to try again.") };
+				return { mount: (slot) => message(slot, "Colab", "Colab could not start here. It may have stopped on your machine. Reload to try again, or open Colab on its own page.", load.link ? {
+					href: load.link,
+					label: "Open Colab"
+				} : void 0) };
 			}
 		}
 	}
