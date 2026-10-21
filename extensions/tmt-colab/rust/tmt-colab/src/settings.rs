@@ -2,11 +2,13 @@
 //! `{"open": true|false}` controls whether `serve` and `page create` open the browser;
 //! `{"wip": {"default": N, "agents": {NAME: N}}}` is the work-in-progress limit (`wip.rs`). An
 //! absent file or key means the default. Unknown keys are ignored so a newer file never breaks an
-//! older executable, and a setter keeps the keys it does not own.
+//! older executable, and a setter keeps the keys it does not own. `{"github": {"repo": "OWNER/REPO"}}`
+//! is the repository the GitHub driver pushes tasks to (`work_github.rs`).
 use crate::{
     Result,
     keyring::Layout,
     wip::{Limits, MAX_LIMIT},
+    work_github::Repo,
 };
 use serde_json::{Value, json};
 use std::{
@@ -25,6 +27,8 @@ pub struct ColabSettings {
     /// `None` when the file does not say: the default applies.
     open: Option<bool>,
     wip: Limits,
+    /// The repository the GitHub driver pushes tasks to; `None` until one is set.
+    github_repo: Option<Repo>,
     /// The file exists but could not be read; defaults apply.
     pub malformed: bool,
 }
@@ -40,25 +44,38 @@ impl ColabSettings {
     pub fn wip(&self) -> &Limits {
         &self.wip
     }
+    /// The repository the GitHub driver pushes tasks to.
+    pub fn github_repo(&self) -> Option<&Repo> {
+        self.github_repo.as_ref()
+    }
     pub fn json(&self) -> Value {
-        json!({"open": self.open(), "source": self.source(),
+        let mut settings = json!({"open": self.open(), "source": self.source(),
             "wipLimit": {"default": self.wip.default.unwrap_or(crate::wip::DEFAULT_LIMIT),
-                "agents": self.wip.agents}})
+                "agents": self.wip.agents}});
+        // Present only once a repository is set, so a space that never uses the driver reads as before.
+        if let Some(repo) = &self.github_repo {
+            settings["githubRepo"] = json!(repo.slug());
+        }
+        settings
     }
     fn parse(bytes: &[u8]) -> Self {
         match serde_json::from_slice::<Value>(bytes) {
             Ok(value) if value.is_object() => {
                 let wip = parse_wip(&value["wip"]);
+                let github = parse_github(&value["github"]);
                 Self {
                     open: value["open"].as_bool(),
                     malformed: (!value["open"].is_null() && !value["open"].is_boolean())
-                        || (!value["wip"].is_null() && wip.is_none()),
+                        || (!value["wip"].is_null() && wip.is_none())
+                        || github.is_none(),
                     wip: wip.unwrap_or_default(),
+                    github_repo: github.flatten(),
                 }
             }
             _ => Self {
                 open: None,
                 wip: Limits::default(),
+                github_repo: None,
                 malformed: true,
             },
         }
@@ -88,6 +105,15 @@ fn parse_wip(value: &Value) -> Option<Limits> {
     Some(Limits { default, agents })
 }
 
+/// `None` when the value is present but not `{"repo": "OWNER/REPO"}`; absent is no repository.
+fn parse_github(value: &Value) -> Option<Option<Repo>> {
+    if value.is_null() {
+        return Some(None);
+    }
+    let repo = value.as_object()?.get("repo")?.as_str()?;
+    Some(Some(Repo::parse(repo)?))
+}
+
 /// What a person is told when the file is damaged or unreadable.
 pub const UNREADABLE: &str = "settings.json could not be read; defaults apply";
 
@@ -100,6 +126,7 @@ pub fn read_or_default(root: &Path) -> ColabSettings {
     read(root).unwrap_or(ColabSettings {
         open: None,
         wip: Limits::default(),
+        github_repo: None,
         malformed: true,
     })
 }
@@ -208,6 +235,16 @@ pub fn set_wip_limit(
     })
 }
 
+/// Set the repository the GitHub driver pushes tasks to, or clear it (`repo` is `None`).
+pub fn set_github_repo(root: &Path, repo: Option<&Repo>) -> Result<ColabSettings> {
+    update(root, |table| {
+        table.remove("github");
+        if let Some(repo) = repo {
+            table.insert("github".into(), json!({"repo": repo.slug()}));
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::ColabSettings;
@@ -233,6 +270,24 @@ mod tests {
         ] {
             let parsed = ColabSettings::parse(bad.as_bytes());
             assert!(parsed.malformed && parsed.wip().of("ada") == 1, "{bad}");
+        }
+    }
+    #[test]
+    fn the_github_repo_reads_and_a_bad_one_is_malformed() {
+        let parsed = ColabSettings::parse(br#"{"github":{"repo":"pj-tmt/tmt"}}"#);
+        assert!(!parsed.malformed);
+        assert_eq!(parsed.github_repo().unwrap().slug(), "pj-tmt/tmt");
+        assert_eq!(parsed.json()["githubRepo"], "pj-tmt/tmt");
+        assert!(ColabSettings::parse(b"{}").github_repo().is_none());
+        for bad in [
+            r#"{"github":1}"#,
+            r#"{"github":{}}"#,
+            r#"{"github":{"repo":3}}"#,
+            r#"{"github":{"repo":"-x/y"}}"#,
+            r#"{"github":{"repo":"x"}}"#,
+        ] {
+            let parsed = ColabSettings::parse(bad.as_bytes());
+            assert!(parsed.malformed && parsed.github_repo().is_none(), "{bad}");
         }
     }
     #[test]

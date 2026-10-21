@@ -34,3 +34,20 @@ at most its limit across all pages (1 unless set). A change that would exceed it
 `COLAB_WIP_LIMIT` naming the agent and its tasks: finish, block or reassign one first. A person
 changes the limit with `tmt colab settings wip-limit [AGENT] N`; do not raise it yourself to get past a
 refusal.
+
+## GitHub
+
+A task can be pushed to a GitHub issue and marked done from GitHub. Set the space's repository once
+(a person does this): `tmt colab settings github-repo OWNER/REPO`.
+
+```sh
+tmt colab task github push PAGE T-3 --json   # publishes T-3 as an issue, links it as #N
+tmt colab task github sync --json            # marks linked tasks done after a merged Fixes #N
+```
+
+`push` publishes the task's title, detail and acceptance to GitHub, possibly to a public repository:
+run it only for a task the person asked you to share, for one task at a time, and say which repository
+and issue (it prints both). `sync` never publishes anything; it asks GitHub about open linked tasks
+(`#N` external IDs) in as few calls as it can and moves a task to `done` only when a merged pull
+request closed its issue. `COLAB_GITHUB_UNAVAILABLE` means `gh` is missing or not signed in: tell the
+person, do not retry in a loop. Edits made on GitHub are never read back.
