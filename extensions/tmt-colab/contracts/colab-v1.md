@@ -4732,6 +4732,16 @@ legacy times null without backfill. No client envelope time, file time, read tim
 or fabricated zero establishes it. The next admitted content edit starts evidence for a
 legacy page. The time is the page's last edit and is not what expiry is computed from.
 
+Schema 15 adds nullable, nonnegative safe-integer `pages.last_activity_at_ms`, the page's
+last activity: the server clock at the last new admitted update of either namespace, so a
+content edit, a comment and a reply all count. The store holds sealed bytes and cannot tell a
+comment from an Ask record in the same `own` stream, so Ask records count too. The rules are
+those of `last_update_at_ms`: sampled in the receipt transaction, never decreasing, and never
+refreshed by exact replay, a failed or rolled-back update, a read, a checkpoint or a
+policy or epoch change. The migration leaves legacy times null without backfill. A page's
+effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`; null is
+unknown, never old. No command reports the value yet.
+
 Retention defaults to 30 days; forever is null. The expiry shown is the cloud copy's and is
 never derived from local activity: `expiresAtMs` is the `expiresAt` of the page's owner row as
 the cloud last confirmed it for the page's current epoch. The serve's cloud-sync worker records

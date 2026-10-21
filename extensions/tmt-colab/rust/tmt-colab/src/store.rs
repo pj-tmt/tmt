@@ -432,6 +432,25 @@ impl Store {
         })
         .transpose()
     }
+    /// When the page last saw an admitted content or own-stream update, by this machine's clock at
+    /// admission. A page with no update since activity evidence began, or no such page, is `None`
+    /// (unknown, never old): the later of the activity time and the older content-edit time, whichever exist.
+    pub fn last_activity_ms(&self, page: &str) -> StoreResult<Option<u64>> {
+        bounded_id(page)?;
+        let times: Option<(Option<i64>, Option<i64>)> = self
+            .connection
+            .query_row(
+                "SELECT last_activity_at_ms,last_update_at_ms FROM pages WHERE page=?",
+                params![page],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let (activity, update) = times.unwrap_or_default();
+        activity
+            .max(update)
+            .map(|ms| u64::try_from(ms).map_err(|_| Fault::Invalid))
+            .transpose()
+    }
     /// Bounded namespace inventory, including checkpoint-only namespaces. This
     /// read transaction prevents an epoch transition between admission and reads.
     pub fn namespaces(&self, page: &str, epoch: u64) -> StoreResult<Vec<(String, Namespace)>> {
@@ -863,11 +882,15 @@ fn append_in(
             envelope.bytes
         ],
     )?;
+    let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
+    tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
     if envelope.namespace == Namespace::Content {
-        let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
-        tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
         tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",
             params![now as i64, s.page])?;
     }
+    // Every new update counts, whichever namespace it is in: the store only sees sealed bytes, so
+    // it cannot tell a comment or reply from an Ask record in the `own` stream.
+    tx.execute("UPDATE pages SET last_activity_at_ms=CASE WHEN last_activity_at_ms IS NULL OR last_activity_at_ms<?1 THEN ?1 ELSE last_activity_at_ms END WHERE page=?2",
+        params![now as i64, s.page])?;
     Ok(Some(Accepted::New))
 }

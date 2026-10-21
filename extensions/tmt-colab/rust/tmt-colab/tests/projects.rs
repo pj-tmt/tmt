@@ -98,7 +98,7 @@ impl Fixture {
     fn as_schema_12(&mut self, labels: &[(&str, &str)]) {
         let db = self.oracle();
         db.execute_batch(
-            "DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE checkpoints DROP COLUMN signer;
+            "DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer;
              CREATE TABLE page_labels(page TEXT NOT NULL, label TEXT NOT NULL,
                 PRIMARY KEY(page,label), FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
              PRAGMA user_version=12;",
@@ -143,7 +143,7 @@ fn the_schema_adds_projects_and_keeps_what_was_there() {
     // A store from before labels (schema 6) gains the tables on the next open; nothing else moves.
     f.oracle()
         .execute_batch(
-            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
+            "DROP TABLE edit_decisions; DROP TABLE cloud_page_rows; DROP TABLE link_publications; DROP TABLE link_admissions; DROP TABLE cloud_publications; DROP TABLE page_projects; DROP TABLE projects; ALTER TABLE pages DROP COLUMN last_activity_at_ms; ALTER TABLE checkpoints DROP COLUMN signer; PRAGMA user_version=6;",
         )
         .unwrap();
     f.reopen();
