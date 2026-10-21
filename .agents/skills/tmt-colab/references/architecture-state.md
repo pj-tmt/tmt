@@ -465,10 +465,10 @@ is added.
   5 nullable checked server-observed content time on `pages`, 6 nullable original content
   publication scope on `owner_operations`, 7 page labels (replaced in 13), 8 bounded confirmed-publication metadata, 9 `link_admissions` (a live
   link's cloud admission token, dropped with the link), and 10 `link_publications` (links whose cloud
-  row may exist, until their removal completes). 11 and 12 cache cloud rows and edit decisions; 13 `projects` and `page_projects`, which replace `page_labels`; 14 a checkpoint's `signer`; 15 `last_activity_at_ms`; 16 `page_titles`, the local plaintext title projection, and its `page_titles_backfill` mark (`store/titles.rs`; written only by the serve's fold path, `summary::TitleWriter` from the summary worker and the one-time `summary::backfill`; reads select only; removed by archive and delete; contract: Local title projection). Migration leaves legacy times null and legacy
+  row may exist, until their removal completes). 11 and 12 cache cloud rows and edit decisions; 13 `projects` and `page_projects`, which replace `page_labels`. Migration leaves legacy times null and legacy
   outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
-- `Store::open` creates and migrates; before migrating an existing store it writes `space.db.pre-v<N>.bak` (0600, synced) inside the writer lock, and a failed migration rolls back whole. `Store::read` and `Store::write_existing` open only
+- `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future

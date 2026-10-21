@@ -699,7 +699,7 @@ revocation and certificate expiry.
 The reserved owner-socket `GET /.tmt/remote/describe` implements Remote's
 [module-description contract](../../../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell).
 It reads only the existing bounded owner catalog/fingerprint projection, the fresh page-summary
-cache and the [local title projection](#local-title-projection-4218); it starts no refresh, fold,
+cache and the local title projection (`page_titles`, schema 16); it starts no refresh, fold,
 subscription or write, and only selects from that projection.
 Both counts exclude archived
 pages: Pages counts the remaining pages, and `needsYou` counts waiting pages, matching the
@@ -710,8 +710,9 @@ and menu but omits `needsYou`, never inventing zero. An unavailable catalog
 projection or a count above the descriptor bound returns a typed refusal. Optional `home`
 lists up to five recent pages, newest activity first (the later of last activity and last
 update), each a non-archived page with a projected title: `id` is the page ID without
-hyphens, `title` the projected title as opaque display text, and `path` `/pages/<pageId>`. A
-page without a projected title gets no card, never a placeholder. Titles go only to the owner:
+hyphens, `title` the projected title as opaque display text cut to 40 Unicode scalars (an
+ellipsis ends a cut title), and `path` `/pages/<pageId>`. A page without a current projected
+title gets no card, never a placeholder. Titles go only to the owner:
 this socket answers only the owner's Remote, which composes it only for a live owner-device
 session. The reply is display-only and does not change page admission. Browser mount traffic
 cannot call it.
@@ -719,35 +720,6 @@ cannot call it.
 An owner `GET <mount>/pages/<pageId>` for a generated page ID is the card's deep link: static
 markup that sends the browser to the mounted app with `#path=/pages/<pageId>`, the fragment
 target the app already accepts. Any other viewer, or a malformed ID, gets the plain not-found.
-
-#### Local title projection (#4218)
-
-Colab keeps one plaintext table in its own owner store under its private data root:
-`page_titles(page, title)`, each open page's title as display text (one line, controls and
-bidi controls replaced, 1–40 Unicode scalars with an ellipsis when cut). It holds no other
-field. It is derived only from the owner's verified fold and written only on the serve's
-owner-side fold path: the background page-summary worker records each page's title as it
-folds the page, in one transaction that requires the page's fingerprint to be unchanged since
-the fold and the page to still have an epoch secret, so a fold that finishes after a write,
-an archive or a delete records nothing. Reads (`GET /api/pages`, the describe callback) only
-select from it; browser input never writes it. It is never signed, never an owner-log
-statement, and never synced, published, exported or sent to a cloud or shared copy.
-
-It follows the page lifecycle: a delete removes the row in the delete's own transaction; an
-archive removes it in the archive's transaction, so archived pages leave the projection and
-Home never shows them; a restore re-derives the title on the page's next fold. Retention
-expiry archives through the same transition once the scheduled archive of #2600 applies it. A
-missing row means no card. Losing the table or any row loses nothing: the next fold of the page
-records it again.
-
-Schema 16 adds the table and a pending-backfill mark. A migration cannot fold (it has neither
-the keyring nor the isolated decoder), so the backfill runs right after it, owner-side: when
-the mark is present at serve start, one background worker folds every open page with its own
-read-only source, records its title through the same checked write, and clears the mark once
-every page was recorded; otherwise the next serve start tries again. Migrations are
-forward-only and add without deleting; before migrating an existing store, Colab writes a
-complete copy, `space.db.pre-v<version>.bak` (owner-only, synced), next to it, and the
-migration runs in one immediate transaction that rolls back entirely on failure.
 
 The exact reserved socket `POST /.tmt/remote/device-events` consumes remote's
 [local device events](../../../contracts/remote-channel-v1.md#extension-channel-api)

@@ -6414,65 +6414,6 @@ fn owner_chapter_details_are_complete_at_one_fingerprint_and_reject_nonowners() 
     registration.close().unwrap();
 }
 
-/// The local title projection (#4218) is written by the owner's fold, never by a read.
-#[test]
-fn the_owner_fold_records_the_page_title_and_a_list_read_writes_nothing() {
-    use tmt_colab::{registration::Registration, summary::TitleWriter};
-    let mut f = Fixture::new();
-    f.write("<h1>Plan</h1>");
-    let context = json!({"deviceId":DEVICE,"kind":"browser","origin":"http://127.0.0.1:1","name":"Laptop",
-        "publicKey":values::encode_binary(SigningKey::from_bytes(&[9;32]).verifying_key().as_bytes()),
-        "owner":true,"grantRevision":1}).to_string();
-    let key = Keyring::read(&f.layout).unwrap();
-    let writer = std::sync::Arc::new(TitleWriter::new(&f.root, &key.space_id, key.owner_public()));
-    let titles = |f: &Fixture| -> Vec<(String, String)> {
-        f.sql()
-            .prepare("SELECT page,title FROM page_titles")
-            .unwrap()
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
-    };
-    let start = |fold: bool| {
-        let registration = Registration::with_decoder_config(
-            Store::open(&f.layout).unwrap(),
-            Keyring::read(&f.layout).unwrap(),
-            support::decoder_config(BINARY.into()),
-        )
-        .unwrap()
-        .with_title_writer(std::sync::Arc::clone(&writer));
-        if !fold {
-            return registration;
-        }
-        let root = f.root.clone();
-        registration.with_summary_source(std::sync::Arc::new(move || {
-            tmt_colab::page::save::open_source(&root, support::decoder_config(BINARY.into()))
-        }))
-    };
-    // Without a fold, list and describe reads only select.
-    let reader = start(false);
-    reader.pages(Some(&context)).unwrap();
-    assert!(titles(&f).is_empty(), "a read wrote the projection");
-    reader.close().unwrap();
-    // The list read schedules the background fold; the fold records the title.
-    let registration = start(true);
-    registration.pages(Some(&context)).unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while titles(&f).is_empty() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the fold recorded no title"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    assert_eq!(
-        titles(&f),
-        vec![(PAGE.to_owned(), "Exact title \u{1f408}".to_owned())]
-    );
-    registration.close().unwrap();
-}
-
 #[test]
 fn a_summary_refresh_never_labels_a_new_fold_with_a_stale_scheduled_fingerprint() {
     use tmt_colab::summary::{CachedDetails, SummaryCache};
@@ -6484,12 +6425,7 @@ fn a_summary_refresh_never_labels_a_new_fold_with_a_stale_scheduled_fingerprint(
     });
     let cache = std::sync::Arc::new(SummaryCache::default());
     let stale = "a fingerprint scheduled before the page changed";
-    tmt_colab::summary::refresh(
-        &cache,
-        &open,
-        vec![(PAGE.to_owned(), stale.to_owned())],
-        None,
-    );
+    tmt_colab::summary::refresh(&cache, &open, vec![(PAGE.to_owned(), stale.to_owned())]);
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         match cache.details(PAGE, stale) {

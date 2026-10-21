@@ -506,15 +506,6 @@ fn serve(
         let (pages, all_pages) = open_pages(&store, &keyring);
         let save_root = root.to_path_buf();
         let summary_root = root.to_path_buf();
-        let summary_source: tmt_colab::page::save::SourceOpener = Arc::new(move || {
-            tmt_colab::page::save::open_source(
-                &summary_root,
-                tmt_colab::decoder::Config::new(std::env::current_exe()?),
-            )
-        });
-        // The owner folds record page titles in the local projection (#4218).
-        let titles = Arc::new(tmt_colab::summary::TitleWriter::new(root, &space_id, owner));
-        let backfill = store.title_backfill_pending().unwrap_or(false);
         let registration = Arc::new(Mutex::new(
             Registration::new(store, keyring, std::env::current_exe()?)?
                 .with_save_source(Arc::new(move || {
@@ -523,12 +514,13 @@ fn serve(
                         tmt_colab::decoder::Config::new(std::env::current_exe()?),
                     )
                 }))
-                .with_summary_source(Arc::clone(&summary_source))
-                .with_title_writer(Arc::clone(&titles)),
+                .with_summary_source(Arc::new(move || {
+                    tmt_colab::page::save::open_source(
+                        &summary_root,
+                        tmt_colab::decoder::Config::new(std::env::current_exe()?),
+                    )
+                })),
         ));
-        if backfill {
-            tmt_colab::summary::backfill(&summary_source, &titles);
-        }
         let release = Arc::new(tmt_colab::serve_release::ServeRelease::new(
             tmt_colab::serve_release::Running::detect(),
         ));

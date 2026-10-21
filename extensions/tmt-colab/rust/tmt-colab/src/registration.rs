@@ -160,8 +160,20 @@ pub(crate) enum Revocation {
     MembershipChanged,
 }
 
+/// A projected title (already one line of display text) cut to a card's length, ending in an
+/// ellipsis when cut.
+fn card_title(title: &str) -> String {
+    if title.chars().count() <= CARD_TITLE_SCALARS {
+        return title.to_owned();
+    }
+    let kept: String = title.chars().take(CARD_TITLE_SCALARS - 1).collect();
+    format!("{}\u{2026}", kept.trim_end())
+}
+
 /// Recent pages Colab offers the TMT web shell's Home.
 const HOME_CARDS: usize = 5;
+/// A Home card's title, in Unicode scalars, ellipsis included.
+const CARD_TITLE_SCALARS: usize = 40;
 
 pub struct Registration {
     store: Store,
@@ -172,8 +184,6 @@ pub struct Registration {
     save_source: Option<crate::page::save::SourceOpener>,
     /// The owner list's display-only page summaries; filled in the background, never signed.
     summaries: std::sync::Arc<crate::summary::SummaryCache>,
-    /// Where the background folds record page titles (#4218); without it nothing is recorded.
-    title_writer: Option<std::sync::Arc<crate::summary::TitleWriter>>,
     /// How the background refresh opens its own read-only source; without it no summary is made.
     summary_source: Option<crate::page::save::SourceOpener>,
 }
@@ -198,7 +208,6 @@ impl Registration {
             reader_clock: std::sync::Arc::new(now_ms),
             save_source: None,
             summaries: Default::default(),
-            title_writer: None,
             summary_source: None,
         })
     }
@@ -298,21 +307,7 @@ impl Registration {
             // next read has more of them; this read never waits for it.
             let order = crate::summary::recent_first(&catalog, &fingerprints);
             if !self.summaries.stale(&order, 1).is_empty() {
-                // The worker's folds record the open pages' titles; this read writes nothing.
-                let titles = self
-                    .title_writer
-                    .as_ref()
-                    .map(|writer| crate::summary::Titles {
-                        writer: std::sync::Arc::clone(writer),
-                        open: catalog["pages"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter(|page| page["archived"] != true)
-                            .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
-                            .collect(),
-                    });
-                crate::summary::drain(&self.summaries, open, titles);
+                crate::summary::drain(&self.summaries, open);
             }
         }
         serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)
@@ -356,7 +351,6 @@ impl Registration {
                     &self.summaries,
                     self.summary_source.as_ref().expect("source checked"),
                     vec![(page.to_owned(), fingerprint)],
-                    None,
                 );
                 serde_json::json!({"pageId":page,"state":"pending"})
             }
@@ -436,13 +430,18 @@ impl Registration {
         }
         serde_json::to_vec(&answer).map_err(|_| Code::Unavailable)
     }
-    /// Home's "Recent pages": the most recently active open pages that have a projected title,
-    /// newest first. Grant rule (#4218): describe answers only the owner's own socket, and Remote
-    /// composes it only for a live owner-device session, so every viewer can already read these
-    /// pages; a page without a stored title gets no card rather than a placeholder. Titles come
-    /// from the local projection the owner's folds keep; this read only selects from it.
+    /// Home's "Recent pages": the most recently active open pages that have a title in the local
+    /// projection (#4218), newest first. Grant rule: describe answers only the owner's own socket,
+    /// and Remote composes it only for a live owner-device session, so every viewer can already read
+    /// these pages; a page without a current title gets no card rather than a placeholder. This read
+    /// only selects; the owner's folds keep the projection.
     fn home_cards(&self, pages: &[&serde_json::Value]) -> Vec<serde_json::Value> {
-        let Ok(stored) = self.store.page_titles() else {
+        let Ok(stored) =
+            self.store
+                .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
+                    tx.page_titles()
+                })
+        else {
             return Vec::new();
         };
         let recency = |page: &serde_json::Value| {
@@ -462,7 +461,11 @@ impl Registration {
             .into_iter()
             .take(HOME_CARDS)
             .map(|(_, id, title)| {
-                serde_json::json!({"id": id.replace('-', ""), "title": title, "path": format!("/pages/{id}")})
+                serde_json::json!({
+                    "id": id.replace('-', ""),
+                    "title": card_title(title),
+                    "path": format!("/pages/{id}"),
+                })
             })
             .collect()
     }
@@ -645,13 +648,6 @@ impl Registration {
     /// large preparation never holds the writer or the sync mutex.
     /// The source the page summary refresh reads through; the serve supplies it, so a registration
     /// built without one (a test, an offline tool) lists pages without summaries.
-    pub fn with_title_writer(
-        mut self,
-        writer: std::sync::Arc<crate::summary::TitleWriter>,
-    ) -> Self {
-        self.title_writer = Some(writer);
-        self
-    }
     pub fn with_summary_source(mut self, open: crate::page::save::SourceOpener) -> Self {
         self.summary_source = Some(open);
         self
@@ -1618,7 +1614,6 @@ mod describe_tests {
                 page,
                 fingerprint,
                 Some(SummaryProjection::from(Summary {
-                    title: None,
                     comments: 0,
                     waiting: false,
                     needs_you: 0,
@@ -1674,7 +1669,7 @@ mod describe_tests {
     }
 
     #[test]
-    fn describe_reads_recent_titles_only_from_the_projection_the_fold_path_records() {
+    fn describe_offers_home_cards_only_for_pages_with_a_current_projected_title() {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "colab-home-{}-{}",
@@ -1689,26 +1684,25 @@ mod describe_tests {
         }
         let _cleanup = Cleanup(root.clone());
         let layout = crate::keyring::Layout::open(&root).unwrap();
-        let open = "00000000-0000-4000-8000-000000000002";
-        let gone = "00000000-0000-4000-8000-000000000003";
-        let untitled = "00000000-0000-4000-8000-000000000004";
-        let start = || {
-            let store = Store::open(&layout).unwrap();
-            let key = Keyring::open(&layout).unwrap();
-            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap()
-        };
-        let mut service = start();
-        for page in [open, gone, untitled] {
+        let store = Store::open(&layout).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let mut service =
+            Registration::new(store, key, std::path::PathBuf::from("/unused-decoder")).unwrap();
+        let pages: Vec<String> = (2..=8)
+            .map(|n| format!("00000000-0000-4000-8000-00000000000{n}"))
+            .collect();
+        for page in &pages {
             service.store.create_page(page).unwrap();
         }
         service.genesis().unwrap();
-        let key = &service.keyring;
+        let space = service.keyring.space_id.clone();
+        let owner = service.keyring.owner_public();
         service
             .store
-            .device_transaction(&key.space_id, &key.owner_public(), |tx| {
-                // `gone` has no epoch secret: a deleted page, which a late fold never revives.
-                tx.put_epoch_secret(open, 1, &[1; 32])?;
-                tx.put_epoch_secret(untitled, 1, &[1; 32])?;
+            .device_transaction(&space, &owner, |tx| {
+                for page in &pages {
+                    tx.put_epoch_secret(page, 1, &[1; 32])?;
+                }
                 Ok(b"open".to_vec())
             })
             .unwrap();
@@ -1720,81 +1714,41 @@ mod describe_tests {
                 .cloned()
                 .unwrap_or_default()
         };
-        let stored = |service: &Registration| -> Vec<(String, String)> {
-            service.store.page_titles().unwrap().into_iter().collect()
-        };
-        // A fresh summary in the cache is not a write: reads only select from the projection.
-        service.summaries.put(
-            open,
-            &fingerprints[open],
-            Some(SummaryProjection::from(Summary {
-                title: Some("Launch plan".into()),
-                comments: 0,
-                waiting: false,
-                needs_you: 0,
-                author: None,
-                work: None,
-            })),
-        );
+        // No projected title yet: no card and no placeholder.
         assert_eq!(home(&service), serde_json::Value::Null);
-        assert!(stored(&service).is_empty(), "describe wrote the projection");
-        // The fold path records: the current fingerprint and an epoch secret are required.
-        let space = service.keyring.space_id.clone();
-        let owner = service.keyring.owner_public();
-        let record = |service: &mut Registration, page: &str, fingerprint: &str, title| {
-            service
+        let long = "A title that runs well past the forty scalars a card shows";
+        for (n, page) in pages.iter().enumerate().skip(1) {
+            let title = if n == 1 {
+                long.to_owned()
+            } else {
+                format!("Page {n}")
+            };
+            let recorded = service
                 .store
-                .record_page_title(&space, &owner, page, fingerprint, title)
-                .unwrap()
-        };
-        assert!(!record(
-            &mut service,
-            open,
-            "stale fingerprint",
-            Some("Old")
-        ));
-        assert!(record(
-            &mut service,
-            open,
-            &fingerprints[open],
-            Some("Launch plan")
-        ));
-        assert!(record(
-            &mut service,
-            gone,
-            &fingerprints[gone],
-            Some("Deleted text")
-        ));
-        assert!(record(
-            &mut service,
-            untitled,
-            &fingerprints[untitled],
-            None
-        ));
-        assert_eq!(
-            stored(&service),
-            vec![(open.to_owned(), "Launch plan".to_owned())]
+                .project_transaction(&space, &owner, |tx| {
+                    tx.record_page_title(page, &fingerprints[page.as_str()], &title)
+                })
+                .unwrap();
+            assert!(recorded, "{page}");
+        }
+        let cards = home(&service);
+        let cards = cards.as_array().unwrap();
+        // At most five cards; the page without a title (pages[0]) is never one.
+        assert_eq!(cards.len(), HOME_CARDS);
+        assert!(
+            cards
+                .iter()
+                .all(|card| card["path"] != format!("/pages/{}", pages[0]))
         );
-        let expected = serde_json::json!([{
-            "id": "00000000000040008000000000000002",
-            "title": "Launch plan",
-            "path": format!("/pages/{open}")
-        }]);
-        assert_eq!(home(&service), expected);
-        // A restart starts with an empty summary cache; the projection still answers Home.
-        service.close().unwrap();
-        let mut service = start();
-        assert_eq!(home(&service), expected);
-        // The next fold replaces the title; a fold that finds no title removes the card.
-        assert!(record(
-            &mut service,
-            open,
-            &fingerprints[open],
-            Some("Launch plan v2")
-        ));
-        assert_eq!(home(&service)[0]["title"], "Launch plan v2");
-        assert!(record(&mut service, open, &fingerprints[open], None));
-        assert_eq!(home(&service), serde_json::Value::Null);
+        for card in cards {
+            let title = card["title"].as_str().unwrap();
+            assert!(title.chars().count() <= CARD_TITLE_SCALARS, "{title}");
+            let id = card["path"].as_str().unwrap().trim_start_matches("/pages/");
+            assert_eq!(card["id"], id.replace('-', ""));
+        }
+        assert_eq!(card_title(long).chars().count(), CARD_TITLE_SCALARS);
+        assert!(card_title(long).ends_with('\u{2026}'));
+        assert_eq!(card_title("Page 3"), "Page 3");
     }
 
     #[test]
@@ -1854,7 +1808,6 @@ mod describe_tests {
                 page,
                 fingerprint,
                 Some(SummaryProjection::from(Summary {
-                    title: None,
                     comments: 0,
                     waiting: count > 0,
                     needs_you: count,
