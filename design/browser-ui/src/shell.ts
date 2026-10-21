@@ -85,11 +85,19 @@ export function rememberedShellAnswer(): ShellAnswer | undefined {
 
 /** The door's mount of one module: `/r/<prefix>/x/<module>/`, the prefix being the machine's 16
  * lowercase base32 letters. The one definition of that shape for every product. */
-const MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\/$/;
+/** A module mount, `/r/<prefix>/x/<module>/`, at the start of a path. */
+const MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\//;
 
 /** The module a mount path names, or undefined when `pathname` is not exactly a module mount. */
 export function moduleMount(pathname: string): string | undefined {
-  return MODULE_MOUNT.exec(pathname)?.[2];
+  const mount = MODULE_MOUNT.exec(pathname);
+  return mount?.[0] === pathname ? mount[2] : undefined;
+}
+
+/** The module whose mount `pathname` lies under, and the rest of the path below that mount. */
+export function underModuleMount(pathname: string): { module: string; rest: string } | undefined {
+  const mount = MODULE_MOUNT.exec(pathname);
+  return mount ? { module: mount[2]!, rest: pathname.slice(mount[0].length) } : undefined;
 }
 
 /**
@@ -97,8 +105,8 @@ export function moduleMount(pathname: string): string | undefined {
  * answer for its path (`POST /sdk/mount`). Undefined when neither answers.
  */
 export async function shellAddress(): Promise<string | undefined> {
-  const mounted = /^\/r\/[a-z0-9]+(?=\/x\/)/.exec(location.pathname);
-  if (mounted) return `${location.origin}${mounted[0]}`;
+  const mounted = MODULE_MOUNT.exec(location.pathname);
+  if (mounted) return `${location.origin}${mounted[1]}`;
   try {
     const response = await fetch('/sdk/mount', {
       method: 'POST',

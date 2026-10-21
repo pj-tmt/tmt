@@ -1,6 +1,8 @@
-import { expect, it } from 'vite-plus/test';
+import { afterEach, expect, it, vi } from 'vite-plus/test';
 import {
   describedMenu,
+  moduleMount,
+  shellAddress,
   shellCount,
   shellRail,
   type ShellAnswer,
@@ -130,4 +132,23 @@ it('turns a described module into its menu with settings last and the current en
     text: '99+',
     needsYou: false,
   });
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+it('reads one module mount shape for the mount and for pages under it', async () => {
+  const prefix = '/r/abcdefghijklmnop';
+  expect(moduleMount(`${prefix}/x/colab/`)).toBe('colab');
+  for (const path of [`${prefix}/x/colab/p/a`, `${prefix}/x/colab`, '/r/abc/x/colab/', '/colab/'])
+    expect(moduleMount(path), path).toBeUndefined();
+  // A page under a mount reads the shell at that mount's prefix, without asking the door.
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  vi.stubGlobal('location', { origin, pathname: `${prefix}/x/colab/p/abcd` });
+  await expect(shellAddress()).resolves.toBe(`${origin}${prefix}`);
+  // A path that only looks like a mount (a short prefix) asks the door instead.
+  vi.stubGlobal('location', { origin, pathname: '/r/abc/x/colab/' });
+  fetch.mockResolvedValue({ status: 404 });
+  await expect(shellAddress()).resolves.toBeUndefined();
+  expect(fetch).toHaveBeenCalledOnce();
 });

@@ -63,8 +63,9 @@ function row(href: string, mark: string, title: string, detail: string): HTMLLIE
 }
 
 /** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
- * modules publish items. Recent pages are the modules' described home cards. */
-export function homePage(shell: RemoteShell): void {
+ * modules publish items. Recent pages are the modules' described home cards. `open` turns a
+ * module's described path into where this app opens it. */
+export function homePage(shell: RemoteShell, open: (href: string) => string): void {
   const needs = document.getElementById('home-needs');
   const note = document.getElementById('home-needs-note');
   const recent = document.getElementById('home-recent');
@@ -78,7 +79,12 @@ export function homePage(shell: RemoteShell): void {
     for (const module of answer?.modules ?? [])
       if (module.needsYou)
         rows.push(
-          row(module.rail.path, '◆', `${module.needsYou} in ${module.rail.label}`, 'Needs you'),
+          row(
+            open(module.rail.path),
+            '◆',
+            `${module.needsYou} in ${module.rail.label}`,
+            'Needs you',
+          ),
         );
     if (await offer)
       rows.push(
@@ -90,14 +96,17 @@ export function homePage(shell: RemoteShell): void {
         ),
       );
     needs.replaceChildren(...rows);
-    note.textContent = answer
-      ? rows.length
-        ? ''
-        : 'Nothing needs you.'
-      : 'Pair this browser in Remote to see what needs you.';
+    if (answer) note.textContent = rows.length ? '' : 'Nothing needs you.';
+    else {
+      const pair = Object.assign(document.createElement('a'), {
+        href: '/remote/',
+        textContent: 'Pair this browser',
+      });
+      note.replaceChildren(pair, ' in Remote to see what needs you.');
+    }
     note.hidden = !note.textContent;
     const cards = (answer?.modules ?? []).flatMap((module) =>
-      (module.home ?? []).map((card) => row(card.path, '▤', card.title, module.rail.label)),
+      (module.home ?? []).map((card) => row(open(card.path), '▤', card.title, module.rail.label)),
     );
     recent.replaceChildren(...cards);
     recentBlock.hidden = cards.length === 0;

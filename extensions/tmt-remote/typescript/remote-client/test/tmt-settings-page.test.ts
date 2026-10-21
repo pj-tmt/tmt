@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import type { ShellAnswer, ShellMenu } from '../../../../../design/browser-ui/src/shell.js';
 import { moduleLinks, settingsRows, tmtSettingsPage } from '../src/tmt-settings-page.js';
+import type { RemoteShell } from '../src/remote-shell.js';
 import { mockSettingsSource, type TmtSettings } from '../src/settings-source.js';
 
 // A minimal DOM: only what the page builds and reads, enough to click, key and read text.
@@ -62,17 +63,19 @@ let stored = new Map<string, string>();
 let menus: ShellMenu[] = [];
 let described: ((answer: ShellAnswer | undefined) => void) | undefined;
 
-vi.mock('../src/remote-shell.js', () => ({
-  remoteShell: () => ({
+let route: AbortController;
+const shell = () =>
+  ({
     setMenu: (menu: ShellMenu) => void menus.push(menu),
     describe: () => {},
     described: (listener: (answer: ShellAnswer | undefined) => void) => {
       described = listener;
     },
-  }),
-}));
+    signal: route.signal,
+  }) as unknown as RemoteShell;
 
 beforeEach(() => {
+  route = new AbortController();
   ids.clear();
   menus = [];
   described = undefined;
@@ -96,11 +99,9 @@ beforeEach(() => {
     },
   });
   vi.stubGlobal('window', {
-    addEventListener: (_type: string, listener: () => void) => {
+    addEventListener: (_type: string, listener: () => void, options?: { signal?: AbortSignal }) => {
       hashchange = listener;
-    },
-    removeEventListener: () => {
-      removed += 1;
+      options?.signal?.addEventListener('abort', () => (removed += 1));
     },
   });
   vi.stubGlobal('localStorage', {
@@ -194,7 +195,7 @@ it('marks a driver that no longer runs as approved, and shows hooks beside drive
 });
 
 it('renders General with the theme choice, stores a pick and applies it to the root', async () => {
-  const stop = tmtSettingsPage({ read: async () => sample });
+  tmtSettingsPage(shell(), { read: async () => sample });
   await settle();
   expect(title.textContent).toBe('General');
   const tabs = section().all((node) => node.attributes.get('role') === 'tab');
@@ -231,11 +232,10 @@ it('renders General with the theme choice, stores a pick and applies it to the r
       .map((node) => node.textContent),
   ).toEqual(['alpha']);
   expect(note().hidden).toBe(true);
-  expect(typeof stop).toBe('function');
 });
 
 it('offers the four sections as the module menu and follows the hash', async () => {
-  tmtSettingsPage({ read: async () => sample });
+  tmtSettingsPage(shell(), { read: async () => sample });
   await settle();
   expect(menus.at(-1)!.groups[0]!.items.map((item) => [item.label, item.current])).toEqual([
     ['General', true],
@@ -269,14 +269,14 @@ it('says why a section is empty, and marks sample data', async () => {
     ...sample,
     identities: { rows: [], unavailable: 'Identities could not be read.' },
   };
-  tmtSettingsPage({ read: async () => empty });
+  tmtSettingsPage(shell(), { read: async () => empty });
   await settle();
   hash = '#identities';
   hashchange!();
   expect(section().textContent).toBe('Identities could not be read.');
   const mock = await mockSettingsSource.read();
   expect(mock.sample).toBe(true);
-  tmtSettingsPage(mockSettingsSource);
+  tmtSettingsPage(shell(), mockSettingsSource);
   await settle();
   expect(note().hidden).toBe(false);
   expect(note().textContent).toContain('Sample data');
@@ -284,13 +284,15 @@ it('says why a section is empty, and marks sample data', async () => {
 
 it('reports a failed read and stops painting once cleaned up', async () => {
   let release!: (settings: TmtSettings) => void;
-  const stop = tmtSettingsPage({ read: () => new Promise((resolve) => (release = resolve)) });
-  (stop as () => void)();
+  tmtSettingsPage(shell(), { read: () => new Promise((resolve) => (release = resolve)) });
+  // Leaving the route ends the page on its signal.
+  route.abort();
   expect(removed).toBe(1);
   release(sample);
   await settle();
   expect(section().children).toEqual([]);
-  tmtSettingsPage({ read: () => Promise.reject(new Error('no read')) });
+  route = new AbortController();
+  tmtSettingsPage(shell(), { read: () => Promise.reject(new Error('no read')) });
   await settle();
   expect(note().textContent).toBe('Settings could not be read.');
   expect(note().hidden).toBe(false);
@@ -298,5 +300,6 @@ it('reports a failed read and stops painting once cleaned up', async () => {
 
 it('leaves a page without its markup alone', () => {
   ids.clear();
-  expect(tmtSettingsPage({ read: async () => sample })).toBeUndefined();
+  tmtSettingsPage(shell(), { read: async () => sample });
+  expect(menus).toEqual([]);
 });

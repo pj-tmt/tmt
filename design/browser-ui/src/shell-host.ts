@@ -4,6 +4,7 @@ import {
   rememberedShellAnswer,
   shellAddress,
   shellRail,
+  underModuleMount,
   type ShellAnswer,
   type ShellControls,
   type ShellMenu,
@@ -109,11 +110,25 @@ export function appRail(
         }
       : undefined;
   const rail = shellRail(answer, place, host);
-  for (const item of [...rail.main, ...rail.bottom]) {
-    const owner = routes.find((candidate) => candidate.rail === item.id);
-    if (owner && item.id !== 'home') item.href = `${place.origin}${owner.paths.at(-1)}`;
-  }
+  for (const item of [...rail.main, ...rail.bottom])
+    if (item.id !== 'home') item.href = appHref(routes, item.href, item.id);
   return rail;
+}
+
+/**
+ * Where this app opens `href`: a path under a module's mount opens the same path under that
+ * module's route (`…/x/colab/pages/<id>` is `/colab/pages/<id>`), and a rail item `id` the app
+ * has a route for opens that route. Anything else is left as it is.
+ */
+export function appHref(routes: readonly ShellRoute[], href: string, id?: string): string {
+  // A described path may be relative to this page.
+  const url = new URL(href, globalThis.location?.href);
+  const mounted = underModuleMount(url.pathname);
+  const owner = routes.find((route) => route.rail === (mounted?.module ?? id));
+  const base = owner?.paths.at(-1);
+  if (!base) return href;
+  if (!mounted) return `${url.origin}${base}`;
+  return `${url.origin}${base.replace(/\/?$/, '/')}${mounted.rest}${url.search}${url.hash}`;
 }
 
 /**
@@ -283,7 +298,6 @@ export function startShellHost(
     const url = new URL(anchor.href);
     const route = matchRoute(routes, url.pathname);
     if (url.origin !== window.location.origin || !route) return;
-    if (route === current?.route && url.pathname === window.location.pathname) return;
     if (route === current?.route) return;
     event.preventDefault();
     go(url.href);

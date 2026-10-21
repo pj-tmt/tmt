@@ -3,6 +3,7 @@
  * router. Remote's own pages are route modules here; Colab is loaded lazily from its own mount.
  */
 import {
+  appHref,
   appRail,
   startShellHost,
   type ShellHost,
@@ -91,13 +92,23 @@ function remotePage(
       const unstyle = await adopt(slot, html);
       const lifetime = new AbortController();
       hostRemote(slot, lifetime.signal);
-      const release = await run(slot);
-      return () => {
+      const end = () => {
         // The page's own code ends on its route's signal; nothing else in the document hears it.
         lifetime.abort();
-        release?.();
         unstyle();
         hostRemote(undefined);
+      };
+      let release: void | (() => void);
+      try {
+        release = await run(slot);
+      } catch (error) {
+        // A page that fails to start still gives back its styles, listeners and slot.
+        end();
+        throw error;
+      }
+      return () => {
+        release?.();
+        end();
       };
     },
   };
@@ -149,7 +160,8 @@ export const routes: readonly ShellRoute[] = [
     id: 'home',
     paths: ['/'],
     rail: 'home',
-    load: async () => remotePage(home, () => homePage(remoteShell()!)),
+    load: async () =>
+      remotePage(home, () => homePage(remoteShell()!, (href) => appHref(routes, href))),
   },
   {
     id: 'remote',
@@ -189,7 +201,7 @@ export const routes: readonly ShellRoute[] = [
     id: 'settings',
     paths: ['/settings', '/settings/'],
     rail: 'settings',
-    load: async () => remotePage(tmtSettings, () => tmtSettingsPage()),
+    load: async () => remotePage(tmtSettings, () => tmtSettingsPage(remoteShell()!)),
   },
   {
     id: 'colab',
@@ -224,6 +236,7 @@ export const routes: readonly ShellRoute[] = [
                     slot,
                     'Colab',
                     'Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.',
+                    { href: '/remote/', label: 'Pair this browser' },
                   ),
         };
       try {

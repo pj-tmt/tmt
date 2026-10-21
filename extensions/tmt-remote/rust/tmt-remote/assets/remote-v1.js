@@ -1322,8 +1322,9 @@ function row$2(href, mark, title, detail) {
 	return item;
 }
 /** One Needs-you row per module with a count and a waiting pairing offer; no per-item list until
-* modules publish items. Recent pages are the modules' described home cards. */
-function homePage(shell) {
+* modules publish items. Recent pages are the modules' described home cards. `open` turns a
+* module's described path into where this app opens it. */
+function homePage(shell, open) {
 	const needs = document.getElementById("home-needs");
 	const note = document.getElementById("home-needs-note");
 	const recent = document.getElementById("home-recent");
@@ -1332,12 +1333,19 @@ function homePage(shell) {
 	const offer = fetch("/sdk/pair-offer", { cache: "no-store" }).then((response) => response.status === 200).catch(() => false);
 	shell.described(async (answer) => {
 		const rows = [];
-		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(module.rail.path, "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
+		for (const module of answer?.modules ?? []) if (module.needsYou) rows.push(row$2(open(module.rail.path), "◆", `${module.needsYou} in ${module.rail.label}`, "Needs you"));
 		if (await offer) rows.push(row$2(new URL("/remote/pair", location.href).href, "◆", "A device is waiting to pair", "Remote · confirm the four words in the terminal"));
 		needs.replaceChildren(...rows);
-		note.textContent = answer ? rows.length ? "" : "Nothing needs you." : "Pair this browser in Remote to see what needs you.";
+		if (answer) note.textContent = rows.length ? "" : "Nothing needs you.";
+		else {
+			const pair = Object.assign(document.createElement("a"), {
+				href: "/remote/",
+				textContent: "Pair this browser"
+			});
+			note.replaceChildren(pair, " in Remote to see what needs you.");
+		}
 		note.hidden = !note.textContent;
-		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(card.path, "▤", card.title, module.rail.label)));
+		const cards = (answer?.modules ?? []).flatMap((module) => (module.home ?? []).map((card) => row$2(open(card.path), "▤", card.title, module.rail.label)));
 		recent.replaceChildren(...cards);
 		recentBlock.hidden = cards.length === 0;
 	});
@@ -2272,18 +2280,28 @@ function rememberedShellAnswer() {
 }
 /** The door's mount of one module: `/r/<prefix>/x/<module>/`, the prefix being the machine's 16
 * lowercase base32 letters. The one definition of that shape for every product. */
-var MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\/$/;
+/** A module mount, `/r/<prefix>/x/<module>/`, at the start of a path. */
+var MODULE_MOUNT = /^(\/r\/[a-z2-7]{16})\/x\/([a-z0-9][a-z0-9-]{0,31})\//;
 /** The module a mount path names, or undefined when `pathname` is not exactly a module mount. */
 function moduleMount(pathname) {
-	return MODULE_MOUNT.exec(pathname)?.[2];
+	const mount = MODULE_MOUNT.exec(pathname);
+	return mount?.[0] === pathname ? mount[2] : void 0;
+}
+/** The module whose mount `pathname` lies under, and the rest of the path below that mount. */
+function underModuleMount(pathname) {
+	const mount = MODULE_MOUNT.exec(pathname);
+	return mount ? {
+		module: mount[2],
+		rest: pathname.slice(mount[0].length)
+	} : void 0;
 }
 /**
 * Where this page reads the composed shell: the `/r/<prefix>` mount it sits under, else the door's
 * answer for its path (`POST /sdk/mount`). Undefined when neither answers.
 */
 async function shellAddress() {
-	const mounted = /^\/r\/[a-z0-9]+(?=\/x\/)/.exec(location.pathname);
-	if (mounted) return `${location.origin}${mounted[0]}`;
+	const mounted = MODULE_MOUNT.exec(location.pathname);
+	if (mounted) return `${location.origin}${mounted[1]}`;
 	try {
 		const response = await fetch("/sdk/mount", {
 			method: "POST",
@@ -2660,11 +2678,21 @@ function appRail(answer, routes, place, route) {
 		menu: [],
 		settings: []
 	} : void 0);
-	for (const item of [...rail.main, ...rail.bottom]) {
-		const owner = routes.find((candidate) => candidate.rail === item.id);
-		if (owner && item.id !== "home") item.href = `${place.origin}${owner.paths.at(-1)}`;
-	}
+	for (const item of [...rail.main, ...rail.bottom]) if (item.id !== "home") item.href = appHref(routes, item.href, item.id);
 	return rail;
+}
+/**
+* Where this app opens `href`: a path under a module's mount opens the same path under that
+* module's route (`…/x/colab/pages/<id>` is `/colab/pages/<id>`), and a rail item `id` the app
+* has a route for opens that route. Anything else is left as it is.
+*/
+function appHref(routes, href, id) {
+	const url = new URL(href, globalThis.location?.href);
+	const mounted = underModuleMount(url.pathname);
+	const base = routes.find((route) => route.rail === (mounted?.module ?? id))?.paths.at(-1);
+	if (!base) return href;
+	if (!mounted) return `${url.origin}${base}`;
+	return `${url.origin}${base.replace(/\/?$/, "/")}${mounted.rest}${url.search}${url.hash}`;
 }
 /**
 * Start the one app in `root`, a `.tmt-ui-shell` element holding `.tmt-ui-shell-content` with
@@ -2808,7 +2836,6 @@ function startShellHost(root, routes, options = {}) {
 		const url = new URL(anchor.href);
 		const route = matchRoute(routes, url.pathname);
 		if (url.origin !== window.location.origin || !route) return;
-		if (route === current?.route && url.pathname === window.location.pathname) return;
 		if (route === current?.route) return;
 		event.preventDefault();
 		go(url.href);
@@ -3457,21 +3484,21 @@ function settingsSection(section, settings, links) {
 		...body
 	];
 }
-function tmtSettingsPage(source = settingsSource) {
+/** The page in its route; everything it starts ends on the route's `shell.signal`. */
+function tmtSettingsPage(shell, source = settingsSource) {
 	const main = document.getElementById("tmt-settings-section");
 	const note = document.getElementById("tmt-settings-note");
 	if (!main || !note) return;
-	const shell = remoteShell();
 	const title = document.querySelector(".tmt-ui-title");
 	const href = (id) => `${location.pathname}#${id}`;
 	const current = () => SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? "general";
 	let settings;
 	let links = /* @__PURE__ */ new Map();
-	let live = true;
+	const live = () => !shell.signal.aborted;
 	const paint = () => {
-		if (!live) return;
+		if (!live()) return;
 		const section = current();
-		shell?.setMenu({
+		shell.setMenu({
 			title: "TMT settings",
 			groups: [{ items: SECTIONS.map((item) => ({
 				id: item.id,
@@ -3483,27 +3510,23 @@ function tmtSettingsPage(source = settingsSource) {
 		if (title) title.textContent = SECTIONS.find((item) => item.id === section).label;
 		if (settings) main.replaceChildren(...settingsSection(section, settings, links));
 	};
-	window.addEventListener("hashchange", paint);
-	shell?.described((answer) => {
+	window.addEventListener("hashchange", paint, { signal: shell.signal });
+	shell.described((answer) => {
 		links = moduleLinks(answer);
 		paint();
 	});
 	paint();
 	source.read().then((next) => {
-		if (!live) return;
+		if (!live()) return;
 		settings = next;
 		note.textContent = next.sample ? "Sample data: Core has no web read of this machine yet. `tmt ls`, `tmt extension ls` and `tmt driver ls` show the real values." : "";
 		note.hidden = !next.sample;
 		paint();
 	}, () => {
-		if (!live) return;
+		if (!live()) return;
 		note.textContent = "Settings could not be read.";
 		note.hidden = false;
 	});
-	return () => {
-		live = false;
-		window.removeEventListener("hashchange", paint);
-	};
 }
 //#endregion
 //#region src/shell-app.ts
@@ -3556,12 +3579,21 @@ function remotePage(html, run) {
 		const unstyle = await adopt(slot, html);
 		const lifetime = new AbortController();
 		hostRemote(slot, lifetime.signal);
-		const release = await run(slot);
-		return () => {
+		const end = () => {
 			lifetime.abort();
-			release?.();
 			unstyle();
 			hostRemote(void 0);
+		};
+		let release;
+		try {
+			release = await run(slot);
+		} catch (error) {
+			end();
+			throw error;
+		}
+		return () => {
+			release?.();
+			end();
 		};
 	} };
 }
@@ -3597,7 +3629,7 @@ var routes = [
 		id: "home",
 		paths: ["/"],
 		rail: "home",
-		load: async () => remotePage(home_default, () => homePage(remoteShell()))
+		load: async () => remotePage(home_default, () => homePage(remoteShell(), (href) => appHref(routes, href)))
 	},
 	{
 		id: "remote",
@@ -3637,7 +3669,7 @@ var routes = [
 		id: "settings",
 		paths: ["/settings", "/settings/"],
 		rail: "settings",
-		load: async () => remotePage(tmt_settings_default, () => tmtSettingsPage())
+		load: async () => remotePage(tmt_settings_default, () => tmtSettingsPage(remoteShell()))
 	},
 	{
 		id: "colab",
@@ -3651,7 +3683,10 @@ var routes = [
 			if (!entry) return { mount: (slot) => load ? message(slot, "Colab", "Colab could not be opened here.", load.link ? {
 				href: load.link,
 				label: "Open Colab"
-			} : void 0) : answer ? message(slot, "Colab", "Colab is not running on your machine. Run tmt colab serve there, then reload.") : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.") };
+			} : void 0) : answer ? message(slot, "Colab", "Colab is not running on your machine. Run tmt colab serve there, then reload.") : message(slot, "Colab", "Pair this browser with Remote to open Colab. On the machine that runs Remote, run tmt remote pair.", {
+				href: "/remote/",
+				label: "Pair this browser"
+			}) };
 			try {
 				return await import(
 					/* @vite-ignore */

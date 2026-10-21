@@ -27,19 +27,22 @@ function pairedMount(slot: ShellSlot): URL | null {
   return mount.origin === location.origin && moduleMount(mount.pathname) === 'colab' ? mount : null;
 }
 
-/** The built module's stylesheet, beside it under the mount (the dev server injects styles). */
-function stylesheet(): HTMLLinkElement | undefined {
-  if (import.meta.env.DEV) return undefined;
+/**
+ * Link the built module's stylesheet, beside it under the mount (the dev server injects styles),
+ * and return what removes it again: nothing when the page already had it before this mount.
+ */
+function stylesheet(): () => void {
+  if (import.meta.env.DEV) return () => {};
   const href = new URL('./colab-module.css', import.meta.url).href;
-  const existing = document.querySelector<HTMLLinkElement>(`link[href="${href}"]`);
-  if (existing) return existing;
-  return document.head.appendChild(
+  if (document.querySelector(`link[href="${href}"]`)) return () => {};
+  const link = document.head.appendChild(
     Object.assign(document.createElement('link'), { rel: 'stylesheet', href }),
   );
+  return () => link.remove();
 }
 
 export async function mount(slot: ShellSlot): Promise<() => void> {
-  stylesheet();
+  const unstyle = stylesheet();
   const host = document.createElement('div');
   host.className = 'colab-route';
   slot.main.replaceChildren(host);
@@ -48,7 +51,10 @@ export async function mount(slot: ShellSlot): Promise<() => void> {
     await probeCapabilities();
   } catch {
     root.render(<UnsupportedBrowserNotice />);
-    return () => root.unmount();
+    return () => {
+      root.unmount();
+      unstyle();
+    };
   }
   const paired = pairedMount(slot);
   hostInShell(paired);
@@ -62,5 +68,8 @@ export async function mount(slot: ShellSlot): Promise<() => void> {
     </StrictMode>,
   );
   // MountedApp closes its session and bindings when it unmounts.
-  return () => root.unmount();
+  return () => {
+    root.unmount();
+    unstyle();
+  };
 }

@@ -11,7 +11,7 @@ import {
   storedTheme,
   type ThemeChoice,
 } from '../../../../../design/browser-ui/src/theme.js';
-import { remoteShell } from './remote-shell.js';
+import type { RemoteShell } from './remote-shell.js';
 import {
   settingsSource,
   type Part,
@@ -245,22 +245,22 @@ export function settingsSection(
   return [heading('Theme'), themeChoice(), help, heading('Settings'), ...body];
 }
 
-export function tmtSettingsPage(source: SettingsSource = settingsSource): void | (() => void) {
+/** The page in its route; everything it starts ends on the route's `shell.signal`. */
+export function tmtSettingsPage(shell: RemoteShell, source: SettingsSource = settingsSource): void {
   const main = document.getElementById('tmt-settings-section');
   const note = document.getElementById('tmt-settings-note');
   if (!main || !note) return;
-  const shell = remoteShell();
   const title = document.querySelector<HTMLElement>('.tmt-ui-title');
   const href = (id: Section) => `${location.pathname}#${id}`;
   const current = (): Section =>
     SECTIONS.find((section) => `#${section.id}` === location.hash)?.id ?? 'general';
   let settings: TmtSettings | undefined;
   let links: Map<string, ModuleLink> = new Map();
-  let live = true;
+  const live = () => !shell.signal.aborted;
   const paint = () => {
-    if (!live) return;
+    if (!live()) return;
     const section = current();
-    shell?.setMenu({
+    shell.setMenu({
       title: 'TMT settings',
       groups: [
         {
@@ -276,15 +276,15 @@ export function tmtSettingsPage(source: SettingsSource = settingsSource): void |
     if (title) title.textContent = SECTIONS.find((item) => item.id === section)!.label;
     if (settings) main.replaceChildren(...settingsSection(section, settings, links));
   };
-  window.addEventListener('hashchange', paint);
-  shell?.described((answer) => {
+  window.addEventListener('hashchange', paint, { signal: shell.signal });
+  shell.described((answer) => {
     links = moduleLinks(answer);
     paint();
   });
   paint();
   void source.read().then(
     (next) => {
-      if (!live) return;
+      if (!live()) return;
       settings = next;
       // A section that cannot be read says so itself; the note only marks sample values.
       note.textContent = next.sample
@@ -294,13 +294,9 @@ export function tmtSettingsPage(source: SettingsSource = settingsSource): void |
       paint();
     },
     () => {
-      if (!live) return;
+      if (!live()) return;
       note.textContent = 'Settings could not be read.';
       note.hidden = false;
     },
   );
-  return () => {
-    live = false;
-    window.removeEventListener('hashchange', paint);
-  };
 }

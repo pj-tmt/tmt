@@ -360,9 +360,14 @@ test.describe('the door serving the TMT app', () => {
     test('a Recent card on Home opens its page in the same document', async ({ page }) => {
       const id = await door!.createPage('Recent page', '<h1>Recent content</h1>');
       await door!.pair(page);
-      await page.goto(`${door!.origin}/`);
       const card = page.locator('#home-recent').getByRole('link', { name: 'Recent page' });
-      await expect(card).toBeVisible();
+      // Colab records titles in the background after a page-list read; Home lists them then.
+      await page.goto(`${door!.origin}/colab/`);
+      await expect(page.getByText('Recent page').first()).toBeVisible();
+      await expect(async () => {
+        await page.goto(`${door!.origin}/`);
+        await expect(card).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 20000 });
       const rail = page.getByRole('navigation', { name: 'TMT', exact: true });
       const items = await rail.getByRole('link').allTextContents();
       await page.evaluate(() => ((window as unknown as { __same: boolean }).__same = true));
