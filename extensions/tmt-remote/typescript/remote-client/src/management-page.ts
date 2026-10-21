@@ -42,10 +42,13 @@ export class ManagementPage {
     private readonly reopen: () => Promise<RemoteManagement>,
   ) {}
   get writable(): boolean {
+    return this.writableWhenIdle && !this.busy;
+  }
+  /** Whether controls are available at all; a busy window only fences them, it never mutes them. */
+  get writableWhenIdle(): boolean {
     return (
       this.access === 'live' &&
       this.settings?.capabilities.settingsWrite === true &&
-      !this.busy &&
       this.outcome?.state !== 'unknown' &&
       !(this.outcome?.state === 'refused' && this.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY')
     );
@@ -128,14 +131,8 @@ export class ManagementPage {
     this.outcome = undefined;
     this.freshAttempted = false;
     this.busy = true;
-    this.notice =
-      intent.kind === 'revoke' || intent.kind === 'remove-others'
-        ? 'Removing devices…'
-        : intent.kind === 'talk'
-          ? intent.input.enabled
-            ? 'Enabling sending…'
-            : 'Disabling sending…'
-          : 'Saving…';
+    // The pressed action's delayed mark is the only busy signal: no words while the write is in flight.
+    this.notice = '';
     try {
       const frozen = this.intent;
       this.outcome =

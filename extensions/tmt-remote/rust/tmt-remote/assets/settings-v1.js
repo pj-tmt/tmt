@@ -1298,7 +1298,11 @@ var ManagementPage = class {
 		this.reopen = reopen;
 	}
 	get writable() {
-		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && !this.busy && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
+		return this.writableWhenIdle && !this.busy;
+	}
+	/** Whether controls are available at all; a busy window only fences them, it never mutes them. */
+	get writableWhenIdle() {
+		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
 	}
 	async refresh(cursor = this.cursor) {
 		if (this.busy || this.access === "lost") return;
@@ -1378,7 +1382,7 @@ var ManagementPage = class {
 		this.outcome = void 0;
 		this.freshAttempted = false;
 		this.busy = true;
-		this.notice = intent.kind === "revoke" || intent.kind === "remove-others" ? "Removing devices…" : intent.kind === "talk" ? intent.input.enabled ? "Enabling sending…" : "Disabling sending…" : "Saving…";
+		this.notice = "";
 		try {
 			const frozen = this.intent;
 			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : frozen.kind === "talk" ? await this.client.talk(frozen.input) : frozen.kind === "remove-others" ? await this.client.removeOthers(frozen.input) : await this.client.revoke(frozen.input);
@@ -1532,9 +1536,78 @@ function limitChanged() {
 	const value = mode.value === "off" ? null : custom.value;
 	return admitted.sessionsPerDeviceSource !== "settings.json" || value !== admitted.sessionsPerDevice;
 }
+/** Busy is not disabled: only an unavailable control is disabled. A busy one keeps its look and
+* focus and is fenced by aria-disabled; every activation handler already refuses while busy. */
+function fence(button, unavailable) {
+	button.disabled = unavailable;
+	if (page.busy && !unavailable) button.setAttribute("aria-disabled", "true");
+	else button.removeAttribute("aria-disabled");
+}
+var BUSY_MARK_DELAY_MS = 400;
+var BUSY_MARK_HOLD_MS = 400;
+var pressed;
+var busyMark;
+document.addEventListener("click", (event) => {
+	pressed = event.target.closest("button.tmt-ui-action") ?? void 0;
+}, true);
+function markSlot(button) {
+	let slot = button.querySelector(":scope > .tmt-ui-action-mark");
+	if (slot) return slot;
+	slot = document.createElement("span");
+	slot.className = "tmt-ui-action-mark";
+	slot.setAttribute("aria-hidden", "true");
+	slot.dataset.busy = "false";
+	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	for (const [name, value] of Object.entries({
+		width: "1em",
+		height: "1em",
+		viewBox: "0 0 24 24",
+		fill: "none",
+		stroke: "currentColor",
+		"stroke-width": "2",
+		"stroke-linecap": "round",
+		"stroke-linejoin": "round"
+	})) svg.setAttribute(name, value);
+	const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+	arc.setAttribute("d", "M21 12a9 9 0 1 1-6.219-8.56");
+	svg.append(arc);
+	slot.append(svg);
+	button.prepend(slot);
+	return slot;
+}
+/** The pressed action's reserved mark shows after 400 ms of busy and stays at least 400 ms. A
+* write that ends sooner changes nothing visible. */
+function syncBusyMark() {
+	for (const button of document.querySelectorAll("button.tmt-ui-action")) if (!button.closest("#remotes, #remote-switcher")) markSlot(button);
+	if (page.busy) {
+		if (busyMark?.shownAt !== void 0 && busyMark.timer !== void 0) {
+			clearTimeout(busyMark.timer);
+			busyMark.timer = void 0;
+		}
+		if (busyMark) return;
+		const current = busyMark = { owner: pressed ?? refresh };
+		current.timer = setTimeout(() => {
+			current.timer = void 0;
+			current.shownAt = Date.now();
+			markSlot(current.owner).dataset.busy = "true";
+		}, BUSY_MARK_DELAY_MS);
+		return;
+	}
+	const current = busyMark;
+	if (!current || current.timer !== void 0 && current.shownAt !== void 0) return;
+	if (current.shownAt === void 0) {
+		clearTimeout(current.timer);
+		busyMark = void 0;
+		return;
+	}
+	current.timer = setTimeout(() => {
+		markSlot(current.owner).dataset.busy = "false";
+		if (busyMark === current) busyMark = void 0;
+	}, Math.max(0, current.shownAt + BUSY_MARK_HOLD_MS - Date.now()));
+}
 function saveState(form, hint, changed, valid) {
 	const button = element(form).querySelector("button[type=submit]");
-	button.disabled = !page.writable || !changed || !valid;
+	fence(button, !page.writableWhenIdle || !changed || !valid);
 	element(hint).hidden = !page.writable || changed;
 	const described = button.getAttribute("aria-describedby");
 	if (!element(hint).hidden) button.setAttribute("aria-describedby", [described, hint].filter(Boolean).join(" "));
@@ -1593,7 +1666,7 @@ function renderOutcome() {
 		original.textContent = selected && page.intent && (page.outcome?.state === "unknown" || page.outcome?.state === "refused") ? `Original operation ${page.intent.input.operationId}` : "";
 		original.hidden = !original.textContent;
 		recover.hidden = !selected || !page.canRecover;
-		recover.disabled = page.busy;
+		fence(recover, false);
 		recover.setAttribute("aria-busy", String(page.busy));
 	}
 }
@@ -1625,7 +1698,7 @@ function render() {
 	designation.hidden = editable || page.access !== "live";
 	if (!designation.hidden) element("designation-code").textContent = `tmt remote devices designate ${page.clientId}`;
 	element("access-notice").dataset.tone = page.access === "live" ? editable ? "working" : "review" : page.access === "checking" ? "waiting" : "blocked";
-	const reason = capacity ?? (page.busy ? "A request is in progress. Wait for its outcome." : !editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
+	const reason = capacity ?? (!editable ? page.access === "live" ? "" : "Current browser access could not be confirmed." : page.outcome?.state === "unknown" ? "Another change is still unconfirmed. Check its original result first." : page.outcome?.state === "refused" && page.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser change limit reached. Use the local CLI; do not retry or reset storage." : "");
 	element("controls-reason").textContent = reason;
 	element("controls-reason").hidden = !reason;
 	for (const button of document.querySelectorAll("button")) {
@@ -1658,7 +1731,7 @@ function render() {
 		mode,
 		custom
 	]) field.disabled = !editable || field === custom && mode.value !== "custom";
-	for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) button.disabled = !page.writable;
+	for (const button of document.querySelectorAll("form button:not(.settings-choice):not([role=\"option\"])")) fence(button, !page.writableWhenIdle);
 	if (page.settings) {
 		choices ??= [settingsChoice(opening, element("opening-options")), settingsChoice(mode, element("limit-mode-options"))];
 		for (const update of choices) update();
@@ -1667,7 +1740,7 @@ function render() {
 	saveState("limit-form", "limit-unchanged", limitChanged(), mode.value !== "custom" || custom.checkValidity());
 	const removeOthers = element("remove-others");
 	removeOthers.hidden = page.removalPreview?.count === 0 || page.onFirstPage && page.devices?.nextCursor === null && page.devices.devices.every((device) => device.clientId === page.clientId);
-	removeOthers.disabled = !page.writable || page.removalPreview?.count === 0;
+	fence(removeOthers, !page.writableWhenIdle || page.removalPreview?.count === 0);
 	const preview = page.removalPreview;
 	const panel = element("remove-others-confirmation");
 	panel.hidden = !preview || preview.count === 0 || !page.writable;
@@ -1676,11 +1749,11 @@ function render() {
 		element("remove-others-consequence").textContent = `This ends Remote access for ${preview.count} other ${preview.count === 1 ? "device" : "devices"}. This browser stays connected. Press Remove the others again to confirm.`;
 		removeOthers.setAttribute("aria-describedby", "remove-others-consequence");
 	}
-	refresh.disabled = page.busy;
+	fence(refresh, false);
 	more.hidden = !page.devices?.nextCursor;
-	more.disabled = page.busy;
+	fence(more, false);
 	first.hidden = page.onFirstPage;
-	first.disabled = page.busy;
+	fence(first, false);
 	if (page.devices) {
 		const current = new Set(page.devices.devices.map((device) => device.clientId));
 		for (const [id, row] of rows) if (!current.has(id)) {
@@ -1826,7 +1899,7 @@ function render() {
 			disabledReason.textContent = page.outcome?.state === "unknown" && page.intent?.kind !== "setting" && page.intent?.kind !== "remove-others" && page.intent?.input.clientId === device.clientId ? "" : device.revoked ? "This device is revoked." : reason;
 			disabledReason.hidden = !disabledReason.textContent;
 			for (const button of row.querySelectorAll("form button")) {
-				button.disabled = !page.writable || device.revoked;
+				fence(button, !page.writableWhenIdle || device.revoked);
 				if (disabledReason.textContent) button.setAttribute("aria-describedby", disabledReason.id);
 				else if (confirmation?.button === button) button.setAttribute("aria-describedby", `confirm-${device.clientId}-consequence`);
 				else button.removeAttribute("aria-describedby");
@@ -1835,6 +1908,7 @@ function render() {
 		}
 	}
 	renderOutcome();
+	syncBusyMark();
 }
 async function run(action) {
 	cancelConfirmation();
