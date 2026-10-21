@@ -1469,6 +1469,123 @@ test('chip-form slots admit only the closed chip request and response', async ({
   ]);
 });
 
+test('a chip slot asked for before its group is registered is placed once the group is', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          const post = this.port1.postMessage.bind(this.port1);
+          const sent: { type?: string; slots?: unknown[] }[] = [];
+          Object.assign(window, { sent });
+          this.port1.postMessage = (value: { type?: string }) => {
+            sent.push(structuredClone(value));
+            post(value);
+          };
+        }
+      },
+    });
+  });
+  await mount(
+    page,
+    '<p>Before.</p><tmt-question data-id="80000000-0000-4000-8000-000000000011" data-kind="short"><p data-question>Which heading?</p></tmt-question>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const slots = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: {
+        handle: Pick<
+          Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>>,
+          'questions' | 'slots'
+        >;
+      };
+      sent: { type?: string; slots?: unknown[] }[];
+    };
+    const id = '80000000-0000-4000-8000-000000000011';
+    // The page measures its compact block as soon as the frame is ready, which can be before the
+    // frame has been told the group: that request is not lost, it waits for the group.
+    w.probe.handle.slots([{ id, height: 20, chip: { width: 120, height: 24 } }]);
+    w.probe.handle.questions(
+      [{ id, title: 'Which heading?' }],
+      [],
+      [{ id, title: null, questions: [id], active: id, form: 'chip' }],
+    );
+    return w.sent
+      .filter((value) => value.type === 'colab.render.slots')
+      .map((value) => value.slots);
+  });
+  expect(slots).toEqual([
+    [{ id: '80000000-0000-4000-8000-000000000011', height: 20, chip: { width: 120, height: 24 } }],
+  ]);
+});
+
+test('a measured page asked before the frame knows its blocks still gets every placement', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const lone = '80000000-0000-4000-8000-000000000021';
+  const group = '80000000-0000-4000-8000-000000000022';
+  const first = '80000000-0000-4000-8000-000000000023';
+  const second = '80000000-0000-4000-8000-000000000024';
+  const review = '80000000-0000-4000-8000-000000000025';
+  const member = (id: string, kind: string) =>
+    `<tmt-question data-id="${id}" data-kind="${kind}" data-agent="a"><p data-question>Question ${id.slice(-2)}?</p></tmt-question>`;
+  await mount(
+    page,
+    `<p>Before.</p>${member(lone, 'short')}<p>Between.</p><tmt-questions data-id="${group}"><p data-title>Group</p>${member(first, 'short')}${member(second, 'short')}</tmt-questions><p>Then.</p><tmt-review data-id="${review}" data-agent="a"><h2 data-title>Section</h2><p>Body.</p></tmt-review><p>After.</p>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(
+    ([lone, group, first, second, review]) => {
+      const w = window as unknown as {
+        probe: {
+          handle: Pick<
+            Awaited<ReturnType<typeof import('../src/renderer.js').mountRenderer>>,
+            'questions' | 'slots'
+          >;
+        };
+      };
+      const chip = { width: 120, height: 24 };
+      // The compact blocks and the section are measured the moment the frame is ready, before
+      // the frame has been told which blocks and groups the page holds.
+      w.probe.handle.slots([
+        { id: lone, height: 20, chip },
+        { id: group, height: 20, chip },
+        { id: review, height: 30 },
+      ]);
+      w.probe.handle.questions(
+        [lone, first, second].map((id) => ({ id, title: `Question ${id.slice(-2)}?` })),
+        [],
+        [
+          { id: lone, title: null, questions: [lone], active: lone, form: 'chip' as const },
+          {
+            id: group,
+            title: 'Group',
+            questions: [first, second],
+            active: first,
+            form: 'chip' as const,
+          },
+        ],
+        [{ id: review, title: 'Section', closed: false }],
+      );
+    },
+    [lone, group, first, second, review],
+  );
+  await expect
+    .poll(async () =>
+      page.evaluate(() =>
+        (JSON.parse(document.getElementById('probe')!.dataset.slots ?? '[]') as { id: string }[])
+          .map((slot) => slot.id)
+          .sort(),
+      ),
+    )
+    .toEqual([lone, group, review].sort());
+});
+
 test('proposal slots admit only bounded current unique geometry and cap convergence', async ({
   page,
 }) => {

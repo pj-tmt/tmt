@@ -8517,60 +8517,198 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
     assert!(serving.running());
     serving.stop(Signal::SIGTERM);
 }
+/// Runs `during` while a setter is in the middle of its update: it holds the shared document lock
+/// and the file is replaced only when it returns, as a running `tmt colab settings` would.
+fn while_a_setter_holds_the_document(pilot: &Pilot, during: impl FnOnce()) {
+    let colab = pilot.root.join("selected/colab");
+    let document = tmt_extension_state::Document::new(
+        &pilot.root.join("selected").canonicalize().unwrap(),
+        &colab.join("settings.json"),
+        4096,
+        "tmt colab settings",
+    )
+    .unwrap();
+    let mut during = Some(during);
+    document
+        .update(|current| {
+            (during.take().unwrap())();
+            Ok::<_, std::convert::Infallible>(current.unwrap_or(b"{}").to_vec())
+        })
+        .unwrap();
+}
+fn settings_json(pilot: &Pilot) -> Value {
+    serde_json::from_slice(&fs::read(pilot.root.join("selected/colab/settings.json")).unwrap())
+        .unwrap()
+}
 #[test]
-fn reading_settings_waits_for_a_setter_instead_of_seeing_a_half_written_file() {
+fn reading_settings_does_not_wait_for_a_setter_and_sees_the_whole_old_file() {
     let pilot = Pilot::new(None);
     pilot.call(&["settings", "open", "off", "--json"]);
-    // Hold the setter's lock as a running setter would; a reader must wait for it.
-    let held = fs::File::open(pilot.root.join("selected/colab/settings.lock")).unwrap();
-    let lock = nix::fcntl::Flock::lock(held, nix::fcntl::FlockArg::LockExclusiveNonblock)
-        .map_err(|(_, e)| e)
-        .unwrap();
-    let mut reader = pilot
-        .command()
-        .args(["settings", "--json"])
-        .stdout(Stdio::piped())
-        .spawn_owned()
-        .unwrap();
-    thread::sleep(Duration::from_millis(400));
-    assert!(
-        reader.try_wait().unwrap().is_none(),
-        "the reader did not wait for the lock"
-    );
-    drop(lock);
-    let out = reader.wait_with_output().unwrap();
-    assert!(out.status.success());
-    let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
+    while_a_setter_holds_the_document(&pilot, || {
+        // The file is replaced whole at the end of an update, so a reader needs no lock.
+        let started = Instant::now();
+        let out = pilot
+            .command()
+            .args(["settings", "--json"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "the reader waited"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+            json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
+        );
+    });
+}
+#[test]
+fn a_setter_waits_for_another_update_and_both_changes_survive() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let mut setter = None;
+    while_a_setter_holds_the_document(&pilot, || {
+        let mut child = pilot
+            .command()
+            .args(["settings", "wip-limit", "2", "--json"])
+            .stdout(Stdio::piped())
+            .spawn_owned()
+            .unwrap();
+        thread::sleep(Duration::from_millis(400));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "the setter did not wait for the document lock"
+        );
+        setter = Some(child);
+    });
+    let out = setter.unwrap().wait_with_output().unwrap();
+    assert!(out.status.success(), "{out:?}");
     assert_eq!(
-        answer,
-        json!({"open":false,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
+        serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+        json!({"open":false,"source":"settings.json","wipLimit":{"default":2,"agents":{}},"pageExpiryDays":180})
     );
 }
 #[test]
-fn setting_waits_for_a_reader_that_holds_the_lock() {
+fn a_setter_that_waits_out_the_shared_bound_names_the_file_and_the_exact_retry() {
     let pilot = Pilot::new(None);
     pilot.call(&["settings", "open", "off", "--json"]);
-    let held = fs::File::open(pilot.root.join("selected/colab/settings.lock")).unwrap();
-    let lock = nix::fcntl::Flock::lock(held, nix::fcntl::FlockArg::LockExclusiveNonblock)
-        .map_err(|(_, e)| e)
-        .unwrap();
-    let mut setter = pilot
-        .command()
-        .args(["settings", "open", "on", "--json"])
-        .stdout(Stdio::piped())
-        .spawn_owned()
-        .unwrap();
-    thread::sleep(Duration::from_millis(400));
+    let before = fs::read(pilot.root.join("selected/colab/settings.json")).unwrap();
+    let mut refused = None;
+    while_a_setter_holds_the_document(&pilot, || {
+        let started = Instant::now();
+        let mut child = pilot
+            .command()
+            .args(["settings", "open", "on"])
+            .stderr(Stdio::piped())
+            .spawn_owned()
+            .unwrap();
+        // The shared document wait is five seconds; hold a little past it.
+        while child.try_wait().unwrap().is_none() && started.elapsed() < Duration::from_secs(12) {
+            thread::sleep(Duration::from_millis(50));
+        }
+        refused = Some((child.wait_with_output().unwrap(), started.elapsed()));
+    });
+    let (out, waited) = refused.unwrap();
+    assert!(!out.status.success(), "{out:?}");
     assert!(
-        setter.try_wait().unwrap().is_none(),
-        "the setter did not wait for the lock"
+        waited >= Duration::from_secs(5) && waited < Duration::from_secs(10),
+        "{waited:?}"
     );
-    drop(lock);
-    let out = setter.wait_with_output().unwrap();
-    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("settings.json") && stderr.contains("Retry: tmt colab settings open on"),
+        "{stderr}"
+    );
     assert_eq!(
-        serde_json::from_slice::<Value>(&out.stdout).unwrap(),
-        json!({"open":true,"source":"settings.json","wipLimit":{"default":1,"agents":{}},"pageExpiryDays":180})
+        fs::read(pilot.root.join("selected/colab/settings.json")).unwrap(),
+        before,
+        "a refused change wrote the file"
+    );
+}
+#[test]
+fn concurrent_setters_each_keep_their_change() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let setters: Vec<_> = (1..=8)
+        .map(|n| {
+            pilot
+                .command()
+                .args([
+                    "settings",
+                    "wip-limit",
+                    &format!("agent-{n}"),
+                    &n.to_string(),
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn_owned()
+                .unwrap()
+        })
+        .collect();
+    for setter in setters {
+        let out = setter.wait_with_output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+    }
+    let saved = settings_json(&pilot);
+    assert_eq!(saved["open"], false);
+    for n in 1..=8 {
+        assert_eq!(saved["wip"]["agents"][format!("agent-{n}")], n, "{saved}");
+    }
+}
+#[test]
+fn a_setter_that_died_before_its_rename_leaves_the_old_file_whole_and_the_next_one_recovers() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    // What a setter killed between staging and rename leaves beside the file.
+    let staging = pilot.root.join("selected/colab/.settings.json.tmt-staging");
+    fs::write(&staging, r#"{"open":true,"half":"#).unwrap();
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        pilot.call(&["settings", "--json"])["open"],
+        false,
+        "a reader saw the staged bytes"
+    );
+    assert_eq!(
+        pilot.call(&["settings", "page-expiry", "90", "--json"])["pageExpiryDays"],
+        90
+    );
+    assert!(
+        !staging.exists(),
+        "the next setter did not recover the staging file"
+    );
+    let saved = settings_json(&pilot);
+    assert_eq!(
+        (saved["open"].clone(), saved["pageExpiry"].clone()),
+        (json!(false), json!(90))
+    );
+}
+#[test]
+fn a_settings_file_past_its_bound_reads_as_the_defaults_and_a_setter_does_not_replace_it() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let file = pilot.root.join("selected/colab/settings.json");
+    let foreign = format!(r#"{{"open":false,"note":"{}"}}"#, "x".repeat(5000));
+    fs::write(&file, &foreign).unwrap();
+    let out = pilot.command().arg("settings").output().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stdout).contains("on (default)"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("settings.json could not be read"));
+    let out = pilot
+        .command()
+        .args(["settings", "open", "on"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("exceeds its byte bound"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        foreign,
+        "the file was replaced"
     );
 }
 const OUTDATED_ENVELOPE: &str = r#"!{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"The running serve is older; stop it by hand."}}"#;

@@ -58,8 +58,8 @@ interactive shell tabs.
 Filters use the section language: field presence, `=`, `!=`, `and`, `or`, `not`
 and parentheses. Fields include `squad`, `name`/`member`, `state`, `pending`,
 `presence`, `lifetime`, `role`, `task`, `activity`, projected custom fields, and
-`waiting_on_you` (present when a member waits on the recorded user). With no
-recorded user, that field is absent. Sort keys ascend by default; prefix `-` to
+`waiting_on_you` (present when a member waits on the user). With no
+user name resolved, that field is absent. Sort keys ascend by default; prefix `-` to
 descend. Missing values stay last; bound numeric values retain numeric order.
 The view filter selects rows before sections. Each matching section may repeat
 a row, with unmatched rows following untitled; an omitted filter selects all.
@@ -114,7 +114,7 @@ workspace's tree, conversation or pending-continuation geometry.
   and its source member counts exclude it. The workspace's UUID roster includes
   the lead once in the squad count rather than adding a second synthetic row.
 - `squad.noteAnnotations` is optional: open notebook-line requests from the
-  recorded user to the current lead, as `{requestId, line, quote}` with a
+  user to the current lead, as `{requestId, line, quote}` with a
   zero-based source `line` and bounded sanitized `quote`. It is absent when
   none are observed. This remains an independent source projection; the workspace
   uses the selected agent's response annotation flow rather than notebook markers.
@@ -167,7 +167,7 @@ workspace's tree, conversation or pending-continuation geometry.
   1 hour, and `Custom…`), the current one marked `(current)`. Enter or a click runs a choice; the wheel and Up/Down move the
   highlight; Esc closes. The click and the wheel work in every action menu; a click
   outside its entries does nothing. `Custom…` asks for a duration such as `20s`, `10m` or `1h`;
-  empty text goes back to the default. Only the recorded user and the squad's lead may
+  empty text goes back to the default. Only the user and the squad's lead may
   change a digest, as with `tmt ops digest`; anyone else is told so and nothing runs,
   and the check is made again when the choice is applied. A member without an offered
   choice, or no extension at all, says so on `D` and has no Digest menu entry. The
@@ -337,13 +337,14 @@ anchors. `e` opens full observed member values. Authored sort changes the curren
 layer within unread/waiting/other groups. Retired summaries, Recent exchanges and
 the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
-the selected window and total. Independent Range and Each dropdowns use Enter to
+the selected window and total. Independent Range and Time per bar dropdowns use Enter to
 open/pick, arrows to navigate and Esc to close; the current choice is checked.
-Range offers 1h, 6h, 1d, 7d and 30d. Each offers Auto, 5m, 15m, 30m, 1h, 2h,
-6h, 12h and 1d, hiding intervals longer than the range. Choices exceeding 720 bars
-stay visible but disabled, with the minimum interval explained in the menu footer.
-Auto picks the finest interval fitting the plot width and 720; fixed choices
-survive resize. Range changes keep a valid fixed interval or choose the closest
+Range offers 1h, 6h, 1d, 7d and 30d. Time per bar offers Automatic, 5m, 15m,
+30m, 1h, 2h, 6h, 12h and 1d, hiding intervals longer than the range. The button
+shows the time represented by one bar, such as `2h per bar (auto)`. Choices exceeding
+720 bars stay visible but disabled, with the minimum time per bar explained in the
+menu footer. Automatic picks the finest interval fitting the plot width and 720;
+fixed choices survive resize. Range changes keep a valid fixed interval or choose the closest
 admitted one. These authored choices are saved per view layer, separately from
 configured token-meter windows. Long ranges use retained Core observations;
 history before collection is unknown, and gaps are never filled with zero.
@@ -381,7 +382,7 @@ Workspace settings selects it, and clicking the window word of an Agents `TOK 1h
 heading, clicking the Digest Range control or an explicit `cycle-tok-range`
 binding (unbound by default) cycles the same setting 1h, 3h, 6h, 1d, 7d, 1h. The
 window word is its own hit area, apart from the TOK word. Agents TOK headings
-and values follow it. Chart Each/Range controls remain their independent viewport.
+and values follow it. Chart Time per bar/Range controls keep their independent viewport.
 `all` sums the admitted visible identities and never sends a message or changes a
 member's mode. Real members keep UUID selection as usage sorting changes.
 Activity shows 24 hourly cells, scaled to each row's busiest hour; unknown is `?`,
@@ -646,7 +647,7 @@ references use neutral underlined text; GitHub issue URLs shorten to
 Default Enter focuses Talk for the selected agent through the shared conversation
 composer; clicking it also focuses. The composer stays visible while idle and
 after Send. Factory `t` is unassigned; compatible explicit bindings retain their
-meaning. Writing requires a recorded sender. Common pool supports Talk without
+meaning. Writing requires a sender (the user). Common pool supports Talk without
 inventing
 a squad; notes and manual squad status require a real membership.
 On a selected workspace member, `y` copies `{name}: {task} ({state})`, and `a`
@@ -757,8 +758,8 @@ exact command to repair; do not roll the room name back or blindly retry.
 
 `tmt ops sq digest <member> [duration|off] [--squad <name>] [--json]` shows, sets or clears
 one active member or lead policy. Showing, setting and clearing all require the
-recorded user or the current squad lead; a lead needs the saved owner recorded with
-`tmt ops sq me <owner>`. Human output names the member. JSON includes `member` (the
+user or the current squad lead; the owner is the user (Core's `user.name`, set
+with `tmt ops sq me <name>`). Human output names the member. JSON includes `member` (the
 resolved name) and `identityId` (the UUID), alongside the policy fields.
 Use whole `s`/`m`/`h` segments from **1s through 24h**, such as `30m` or `1h30m`.
 Zero, negative and larger windows are refused. Omit duration to inspect; `off` clears.
@@ -794,8 +795,8 @@ at least 4096 (preview capped). This is not tokens or dollars, and depends on th
 owner and clock. Apply rechecks the original actor, room and revision. Multiline messages use the shared editor; oversized stored messages
 remain intact when editing only owner or schedule.
 
-Changes use the same permission/revision checks as the CLI: only the recorded
-user or squad lead can change jobs; changed jobs are refused, never overwritten.
+Changes use the same permission/revision checks as the CLI: only the user
+or squad lead can change jobs; changed jobs are refused, never overwritten.
 Failures remain visible with no automatic retry. `x` sends once through the same
 manual service as `tmt ops sq cron send`. A missing owner is shown as
 `paused · owner missing`. Re-add/reassign never resumes a paused job; only explicit
@@ -832,8 +833,8 @@ A single reference is inert HTTP(S), at most 4096 bytes, never fetched or opened
 Authored strings remain data.
 
 The verified invoking caller decides authority. Only when no caller is bound may
-the recorded active user be used; ambiguous or invalid callers refuse. Active
-recorded users and room leads are managers. Collaborators can create unassigned
+the active user be used; ambiguous or invalid callers refuse. Active
+users and room leads are managers. Collaborators can create unassigned
 items, edit content, complete and reopen unarchived items. Initial assignment
 requires manager permission, including self-assignment; only managers assign,
 unassign, archive, restore, delete or reorder. Assignment chooses an exact active
@@ -862,7 +863,7 @@ deletion data supplies `current`; denial exposes no current projection. Human
 errors go to stderr and print no success line. Missing checklist, empty inventory,
 filtered-empty inventory and storage/read failure are distinct; corrupt data is
 never treated as empty or repaired. Exact UUID reads preserve a renamed room;
-a same-name successor is distinct. Only the recorded active user may inspect an
+a same-name successor is distinct. Only the active user may inspect an
 unavailable room's retained data read-only, and all orphan writes refuse.
 
 After `CHECKLIST_CONFLICT`, review the supplied current revisions and make a new
@@ -888,9 +889,9 @@ tmt ops sq cron reassign product c1 reviewer
 tmt ops sq cron rm product c1
 ```
 
-Writes require the recorded user or that squad's current lead. `--identity`
-selects an explicit actor; otherwise the verified caller wins, then the recorded
-user only when no caller exists. An ordinary identified member cannot fall back
+Writes require the user or that squad's current lead. `--identity`
+selects an explicit actor; otherwise the verified caller wins, then the user
+only when no caller exists. An ordinary identified member cannot fall back
 to the user. Add accepts `--paused`; edit accepts the same schedule flags or
 `--message`. Reassignment clears no owner but retains its pause; resume separately.
 
@@ -917,7 +918,7 @@ are anonymous requests recorded with origin `automation`, so they are told apart
 typed messages; the same room/job/slot operation is accepted once.
 The same tick runs the [idle alert](#alert-the-lead-to-an-idle-member) scan.
 
-`tmt ops sq cron send product c1` sends once now using the recorded or explicit
+`tmt ops sq cron send product c1` sends once now using the user or explicit
 user/lead actor. It can send a paused job with a current owner and changes no
 schedule. Each explicit send is a separate action. Output confirms acceptance,
 not delivery or completion; Squad stores no run results. If acceptance is
@@ -1116,7 +1117,7 @@ jumps to the available host. Source-provided labels retain their semantic roles
 and choice actions; a choice click opens that exact control rather than sending.
 Digest uses the same UUID context and existing Core authorization. Refresh and
 resize retain the target and clear old hit rectangles. Reading requires no sender
-and sends/acknowledges nothing; writing requires `tmt ops sq me`.
+and sends/acknowledges nothing; writing requires a user name (Core's `user.name`; see `tmt ops sq me`).
 
 ## Conversation and message editing
 
@@ -1298,19 +1299,17 @@ to it, because that is how the user sees you handled it.
 ## Configuration belongs to the user
 
 `ops.toml` sits in TMT's global configuration directory, next to
-`config.json` (`tmt config show` prints that path). It may hold `me` (the
-user's saved identity, recorded with `tmt ops squad me <name>`) and `me_id` (its
-UUID, which lets `me` follow a rename; squad maintains it), each squad's `layout`, the board panes, sections, columns,
-states and key bindings. Bindings and actions are the user's. Never edit them
+`config.json` (`tmt config show` prints that path). It may hold each squad's
+`layout`, the board panes, sections, columns, states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
-Recording the user (`tmt ops squad me <name>`, `init --me`, and each board start)
-also gives that identity Core's reserved `user = true` metadata entry, so Digest
-never holds their messages or replies. Only an absent entry is written; an
-existing value, even `false`, is yours, and the entry is never removed. No other
-identity is marked. Without Ops, `tmt identity meta set user true --identity <name>`
-does the same.
+The user is Core's: its `user.name` setting (default: your OS login name) names
+the identity that is you, and Core marks it with the reserved `user = true`
+metadata entry, so Digest never holds your messages or replies. `tmt ops squad
+me <name>` (and `init --me`) is `tmt config set user.name <name> --global`. A
+`me` or `me_id` an earlier `ops.toml` held is carried into `user.name` once and
+removed from the file.
 
 On first config/state use, Squad migrates `squad.toml` to `ops.toml` and its
 `<dataRoot>/squad/` state to `<dataRoot>/ops/` under a lock. Config comments and
@@ -1402,7 +1401,7 @@ Usage row. Click 7d/5h in its heading, or use the existing `u` controls (arrows,
 Enter and Tab fields); changing quota never changes the token chart or rereads
 Core. Bars and percentages are neutral. The rate uses the last 2h of observed
 quota changes, divided by actual source elapsed time; its arrow compares with
-the preceding 2h. Token Each/Range controls do not affect either horizon. A reset
+the preceding 2h. Chart Time per bar/Range controls do not affect either horizon. A reset
 or percentage drop starts a new suffix. Fewer than two observations or less than
 30 minutes of spacing means `—`; an unknown prior rate shows no arrow.
 Only a positive known rate projects depletion. ◆ marks a projected runout before

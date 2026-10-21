@@ -19,6 +19,24 @@ pub fn catalog(store: &Store, key: &Keyring) -> Result<Value> {
 }
 
 /// [`catalog`] with each page's archive time judged by this space's page expiry setting.
+/// Every page of the space that is not deleted, archived ones included.
+pub fn all_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
+    page_ids(store, key, false)
+}
+/// The pages that are not archived: the pages a work-in-progress count covers.
+pub fn active_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
+    page_ids(store, key, true)
+}
+fn page_ids(store: &Store, key: &Keyring, active: bool) -> Result<Vec<String>> {
+    let catalog = catalog(store, key)?;
+    Ok(catalog["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|page| !active || page["archived"] != true)
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect())
+}
 pub fn catalog_for(store: &Store, key: &Keyring, space: SpaceExpiry) -> Result<Value> {
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
         let mut catalog = tx.page_list_for_cli(space)?;

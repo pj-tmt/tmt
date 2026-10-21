@@ -433,7 +433,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   propagate to share; a zero denominator has no share. Consumers format this
   projection without sampling or recomputing totals.
 - HOME presentation: `home::counters` retains disposable digits keyed to the
-  recorded user, exact squad room/lead UUID or header roster, policy and window.
+  user, exact squad room/lead UUID or header roster, policy and window.
   It reuses `meter::Counter` easing; `App::home_usage` and `home_header_usage`
   remain raw evidence for aggregation, shares, top/model attribution and coverage.
   First usable evidence, unavailable transitions and reduced motion settle;

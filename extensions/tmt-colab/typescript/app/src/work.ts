@@ -14,12 +14,7 @@ import {
   plain,
   requireValue,
 } from './closed.js';
-import {
-  setSummary,
-  validateSummary,
-  type Attribution,
-  type SummaryLines,
-} from './summary-lines.js';
+import { validateSummary, type SummaryLines } from './summary-lines.js';
 
 export const TASK_STATES = ['todo', 'in-progress', 'blocked', 'in-review', 'done'] as const;
 export type TaskState = (typeof TASK_STATES)[number];
@@ -83,7 +78,7 @@ export function taskNumber(value: string): number | undefined {
   const digits = /^T-([1-9][0-9]{0,6})$/.exec(value)?.[1];
   return digits === undefined ? undefined : Number(digits);
 }
-function taskId(value: unknown): asserts value is string {
+export function validateTaskId(value: unknown): asserts value is string {
   requireValue(typeof value === 'string' && taskNumber(value) !== undefined);
 }
 function title(value: unknown) {
@@ -118,8 +113,8 @@ function criterion(value: unknown) {
   }
 }
 /** The fields a person or agent edits: everything except state, reason and assignee. */
-const EDITABLE = ['title', 'detail', 'acceptance', 'needsSignoff', 'externalId'] as const;
-function editable(value: Record<string, unknown>) {
+export const EDITABLE = ['title', 'detail', 'acceptance', 'needsSignoff', 'externalId'] as const;
+export function validateEditable(value: Record<string, unknown>) {
   title(value.title);
   if (Object.hasOwn(value, 'detail')) multiline(value.detail, DETAIL_BYTES);
   if (Object.hasOwn(value, 'acceptance')) {
@@ -130,13 +125,22 @@ function editable(value: Record<string, unknown>) {
   if (Object.hasOwn(value, 'needsSignoff')) requireValue(value.needsSignoff === true);
   if (Object.hasOwn(value, 'externalId')) nonempty(value.externalId, EXTERNAL_ID_BYTES);
 }
+/** What a task keeps when only its title and detail are edited: `task.set` replaces the whole
+ * editable set, so the rest is sent back as it is. */
+export function keptByEdit(task: Task): Record<string, unknown> {
+  return {
+    ...(task.acceptance ? { acceptance: task.acceptance } : {}),
+    ...(task.needsSignoff ? { needsSignoff: true } : {}),
+    ...(task.externalId !== undefined ? { externalId: task.externalId } : {}),
+  };
+}
 export function validateTask(value: unknown): asserts value is Task {
   const task = keys(
     value,
     ['title', 'state'],
     ['detail', 'reason', 'assignee', 'acceptance', 'needsSignoff', 'externalId', 'child'],
   );
-  editable(task);
+  validateEditable(task);
   // A task links to a page or to an external issue, never both: its state has one owner.
   if (Object.hasOwn(task, 'child')) {
     id(task.child);
@@ -170,92 +174,12 @@ export function validateWork(value: unknown): asserts value is Work {
   requireValue(Array.isArray(work.order) && work.order.length === Object.keys(tasks).length);
   const seen = new Set<string>();
   for (const entry of work.order) {
-    taskId(entry);
+    validateTaskId(entry);
     requireValue(Object.hasOwn(tasks, entry) && !seen.has(entry));
     seen.add(entry);
   }
   if (Object.hasOwn(work, 'summary')) validateSummary(work.summary);
   requireValue(byteLength(canonical(work)) <= WORK_BYTES);
-}
-/** A page that has had no work yet carries no `meta.work`; its first action starts from this. */
-export function emptyWork(): Work {
-  return { version: 1, next: 1, tasks: {}, order: [] };
-}
-/** Produces a detached result or refuses the whole action; the base is not mutated.
- * `attribution` comes from the write owner, never from the action body. The work-in-progress limit
- * is not checked here: the write owner admits an assignment before it prepares one. */
-export function applyWorkAction(
-  base: unknown,
-  action: string,
-  input: unknown,
-  attribution: Attribution,
-): Work {
-  validateWork(base);
-  const next = structuredClone(base);
-  const body = object(input);
-  if (action === 'summary.set') next.summary = setSummary(body, attribution);
-  else if (action === 'summary.clear') {
-    keys(body, []);
-    delete next.summary;
-  } else if (action === 'task.add') {
-    keys(body, ['task']);
-    const task = keys(
-      body.task,
-      ['title'],
-      ['detail', 'assignee', 'acceptance', 'needsSignoff', 'externalId'],
-    );
-    requireValue(next.next <= WORK_ID_MAX);
-    const key = `T-${next.next}`;
-    next.tasks[key] = { ...structuredClone(task), state: 'todo' } as Task;
-    next.order.push(key);
-    next.next += 1;
-  } else {
-    const spec: Record<string, [string[], string[]]> = {
-      'task.set': [
-        ['taskId', 'title'],
-        ['detail', 'acceptance', 'needsSignoff', 'externalId'],
-      ],
-      'task.state': [['taskId', 'state'], ['reason']],
-      'task.assign': [['taskId'], ['assignee']],
-      'task.link': [['taskId', 'pageId'], []],
-      'task.unlink': [['taskId'], []],
-      'task.remove': [['taskId'], []],
-    };
-    requireValue(Object.hasOwn(spec, action));
-    keys(body, ...spec[action]);
-    taskId(body.taskId);
-    const key = body.taskId;
-    requireValue(Object.hasOwn(next.tasks, key));
-    const task = next.tasks[key] as unknown as Record<string, unknown>;
-    if (action === 'task.set') {
-      // The whole editable part is replaced: a field the body omits is cleared.
-      editable(body);
-      for (const field of EDITABLE)
-        if (Object.hasOwn(body, field)) task[field] = structuredClone(body[field]);
-        else delete task[field];
-    } else if (action === 'task.state') {
-      // A linked task's state follows its page: nothing sets it.
-      requireValue(!Object.hasOwn(task, 'child'));
-      task.state = body.state;
-      if (Object.hasOwn(body, 'reason')) task.reason = body.reason;
-      else delete task.reason;
-    } else if (action === 'task.assign') {
-      if (Object.hasOwn(body, 'assignee')) task.assignee = structuredClone(body.assignee);
-      else delete task.assignee;
-    } else if (action === 'task.link') {
-      id(body.pageId);
-      // Another page replaces nothing: the task is unlinked first.
-      requireValue(!Object.hasOwn(task, 'child') || task.child === body.pageId);
-      task.child = body.pageId;
-    } else if (action === 'task.unlink') {
-      delete task.child;
-    } else {
-      delete next.tasks[key];
-      next.order = next.order.filter((entry) => entry !== key);
-    }
-  }
-  validateWork(next);
-  return next;
 }
 /** What a task shows while its page is at `stage`: nothing yet is `todo`, work under way is
  * `in-progress`, and a finished page is `done`, or `in-review` when the task waits for sign-off. */

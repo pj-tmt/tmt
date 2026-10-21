@@ -39,14 +39,14 @@ pub fn known(action: &str) -> bool {
     )
 }
 
-/// Prepare outside every lock. Also names the task a `task.add` makes, which is the page's counter
-/// at the revision the action applies to; the commit's fences turn a page that moved meanwhile into
-/// a stale-base refusal.
 /// A browser's convert: a page made from a task, then the link, as one operation.
 pub fn is_convert(action: &str) -> bool {
     action == "task.convert"
 }
 
+/// Prepare outside every lock. Also names the task a `task.add` makes, which is the page's counter
+/// at the revision the action applies to; the commit's fences turn a page that moved meanwhile into
+/// a stale-base refusal.
 pub fn prepare(
     open: &SourceOpener,
     edit: &WorkEdit,

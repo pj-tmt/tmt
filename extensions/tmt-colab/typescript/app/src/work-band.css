@@ -215,3 +215,9 @@
     display: none;
   }
 }
+.work-stranded {
+  align-items: center;
+}
+.work-stranded-error {
+  flex-basis: 100%;
+}

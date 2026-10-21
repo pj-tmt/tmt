@@ -2118,8 +2118,8 @@ fn authenticated_attachment_reads_survive_rotation_archive_and_reject_stale_disc
 }
 
 // #2956: a store that cannot be read is not an access verdict. A second connection holds the
-// database past the 2 s busy timeout, so every admission read fails with a SQLite busy error;
-// the peer must be told to resync, while a device the store really refuses stays `DENIED`.
+// database past the 5 s busy wait (`store::BUSY`), so every admission read fails with a SQLite busy
+// error; the peer must be told to resync, while a device the store really refuses stays `DENIED`.
 #[test]
 fn a_store_that_cannot_be_read_asks_for_a_resync_and_a_real_refusal_stays_denied() {
     use tmt_colab::{
@@ -2157,9 +2157,16 @@ fn a_store_that_cannot_be_read_asks_for_a_resync_and_a_real_refusal_stays_denied
     );
     let holder = f.oracle();
     holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    let started = std::time::Instant::now();
     assert_eq!(
         admission.authorize(DEVICE, &scope, Access::Read),
         Err(SyncCode::ResyncRequired)
+    );
+    // The read waited the whole shared bound before it gave up, and no longer.
+    let waited = started.elapsed();
+    assert!(
+        waited >= tmt_colab::store::BUSY && waited < tmt_colab::store::BUSY * 2,
+        "{waited:?}"
     );
     assert!(matches!(
         admission.catchup_context(DEVICE, &scope, &store),

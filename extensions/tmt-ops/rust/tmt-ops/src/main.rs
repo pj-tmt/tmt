@@ -98,19 +98,12 @@ fn grammar() -> Command {
                     Arg::new("me")
                         .long("me")
                         .value_name("NAME")
-                        .help("Also record your saved identity (same as tmt ops squad me <name>)"),
+                        .help("Also set your name (same as tmt ops squad me <name>)"),
                 ),
         )
         .subcommand(
             build(specs::ME)
-                .arg(Arg::new("name").help("Saved identity that is you"))
-                .arg(
-                    Arg::new("clear")
-                        .long("clear")
-                        .action(ArgAction::SetTrue)
-                        .conflicts_with("name")
-                        .help("Stop recording who you are"),
-                ),
+                .arg(Arg::new("name").help("Your name: the identity that is you")),
         )
         .subcommand(
             build(specs::LEAD)
@@ -483,21 +476,15 @@ fn hotkeys_text(document: &Value, terminal: Terminal) -> String {
 /// `me`: who "you" is and where it comes from, or the one step to set it.
 fn me_text(document: &Value, terminal: Terminal) -> String {
     let name = document["me"]["name"].as_str().unwrap_or_default();
-    let path = document["path"].as_str().unwrap_or_default();
     match (document["action"].as_str(), document["source"].as_str()) {
-        (Some("set"), _) => done(terminal, &format!("You are {name}; recorded in {path}")),
-        (Some("clear"), _) if document["changed"] == true => done(
-            terminal,
-            &format!("Stopped recording who you are in {path}"),
-        ),
-        (Some("clear"), _) => "No identity was recorded; nothing changed.\n".into(),
-        (_, Some("recorded")) => format!("You are {name} (recorded in {path}).\n"),
+        (Some("set"), _) => done(terminal, &format!("You are {name} (user.name in Core)")),
+        (_, Some("recorded")) => format!("You are {name} (user.name in Core).\n"),
         (_, Some("pane")) => {
-            format!("You are {name}: this pane's saved identity. Nothing is recorded.\n")
+            format!("You are {name}: this pane's saved identity. Core has no user name.\n")
         }
         _ => {
             let mut output =
-                b"No identity is recorded as you, and this pane has no saved identity.\n".to_vec();
+                b"Core has no user name for you, and this pane has no saved identity.\n".to_vec();
             let _ = message::hint(&mut output, terminal, "tmt ops squad me <name>");
             String::from_utf8(output).unwrap_or_default()
         }
@@ -803,34 +790,20 @@ fn playbook_command(matches: &ArgMatches, interaction: Interaction) -> Result<Ou
     .map(Outcome::from)
 }
 
-/// `me`: shows who "you" is and where that comes from, records a saved
-/// identity, or clears the record. It never asks.
-fn me_command(
-    core: &Core,
-    config: &mut Config,
-    name: Option<&str>,
-    clear: bool,
-) -> Result<Outcome, SquadError> {
-    let path = config.path().display().to_string();
+/// `me`: shows who "you" is and where that comes from, or sets your name in
+/// Core (`user.name`). It never asks.
+fn me_command(core: &Core, name: Option<&str>) -> Result<Outcome, SquadError> {
     let shown =
         |me: Option<&me::Me>| me.map_or(Value::Null, |me| json!({"id": me.id, "name": me.name}));
     if let Some(name) = name {
-        let recorded = me::set(core, config, name)?;
-        return Ok(json!({"action": "set", "me": shown(Some(&recorded)), "source": "recorded", "path": path}).into());
+        let user = me::set(core, name)?;
+        return Ok(json!({"action": "set", "me": shown(Some(&user)), "source": "recorded"}).into());
     }
-    if clear {
-        let changed = config.me()?.is_some();
-        if changed {
-            config.clear_me()?;
-        }
-        return Ok(json!({"action": "clear", "changed": changed, "me": Value::Null, "source": Value::Null, "path": path}).into());
-    }
-    let you = me::resolve_you(core, config)?;
+    let you = me::resolve_you(core)?;
     Ok(json!({
         "action": "show",
         "me": shown(you.as_ref().map(|(me, _)| me)),
         "source": you.map(|(_, source)| source.as_str()),
-        "path": path,
     })
     .into())
 }
@@ -870,8 +843,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    me::migrate(&core, &mut config)?;
     if command == "digest" {
-        return digest_command::run(&core, &config, matches).map(Outcome::from);
+        return digest_command::run(&core, matches).map(Outcome::from);
     }
     if command == "cron" {
         return cron_command::run(&core, &config, matches).map(|document| Outcome {
@@ -914,15 +888,10 @@ fn run(
         .map(Outcome::from);
     }
     if command == "init" {
-        return membership::init(
-            &core,
-            &mut config,
-            text("name").unwrap_or_default(),
-            text("me"),
-        );
+        return membership::init(&core, text("name").unwrap_or_default(), text("me"));
     }
     if command == "me" {
-        return me_command(&core, &mut config, text("name"), matches.get_flag("clear"));
+        return me_command(&core, text("name"));
     }
     if command == "rename" {
         let old = text("old").unwrap_or_default();
@@ -1002,7 +971,7 @@ fn ls_tab_document(core: &Core, config: &mut Config, name: &str) -> Result<Outco
         .map(|squad| squad.name.clone())
         .collect::<Vec<_>>();
     let (tabs, _) = tabs::arrange(&names, &config.tabs()?);
-    let you = me::resolve_you(core, config)?;
+    let you = me::resolve_you(core)?;
     let mut document = tab_view::load(
         core,
         config,
@@ -1048,7 +1017,7 @@ fn squads_document(
     single: bool,
     refresh_fields: bool,
 ) -> Result<Outcome, SquadError> {
-    let you = me::resolve_you(core, config)?;
+    let you = me::resolve_you(core)?;
     let mut documents = Vec::with_capacity(squads.len());
     let mut active_ids = std::collections::BTreeSet::new();
     for squad in &squads {

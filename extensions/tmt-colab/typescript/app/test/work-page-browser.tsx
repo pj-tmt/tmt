@@ -5,7 +5,8 @@ import { createAppRouter } from '../src/router.js';
 import type { PageView } from '../src/transport.js';
 import { SaveRefused } from '../src/save.js';
 import { localTransport, type PageBinding } from '../src/transport.js';
-import { applyWorkAction, type Work } from '../src/work.js';
+import type { Work } from '../src/work.js';
+import { applyWorkAction } from './work-apply.js';
 
 const attribution = { writerId: '10000000-0000-4000-8000-000000000001', timeMs: 1_000 };
 const work = (done: boolean, owner = false): Work => ({
@@ -27,7 +28,7 @@ export interface WorkPageHook {
   /** The actions the owner controls sent, in order. */
   calls: { action: string; body: unknown }[];
   /** The next action is refused with this code and message, and nothing changes. */
-  refuse?: { code: string; message: string };
+  refuse?: { code: string; message: string; childPage?: string };
 }
 declare global {
   interface Window {
@@ -36,15 +37,17 @@ declare global {
 }
 let root: Root | undefined;
 const FOLLOWED = '20000000-0000-4000-8000-000000000002';
+const MADE = '20000000-0000-4000-8000-000000000009';
 
 /** `withWork` false is a page that never had work; `owner` true is the owner device, whose
  * binding sends work actions and shows the serve's commit only when it is published back.
  * `scenario`: `linked-done` has T-2 follow a page whose list summary says done; `linked-missing`
- * follows one the list does not name; `summary-only` is a summary with no task. */
+ * follows one the list does not name; `summary-only` is a summary with no task; `external` has
+ * T-2 tracked by an external issue. */
 export function mountWorkPage(
   withWork = true,
   owner = false,
-  scenario?: 'linked-done' | 'linked-missing' | 'summary-only',
+  scenario?: 'linked-done' | 'linked-missing' | 'summary-only' | 'external',
 ) {
   root?.unmount();
   document.getElementById('root')!.style.display = 'none';
@@ -64,6 +67,11 @@ export function mountWorkPage(
       order: [],
       tasks: {},
       summary: { line1: 'Release notes', line2: 'Nothing planned yet', attribution },
+    };
+  else if (scenario === 'external')
+    current = {
+      ...current,
+      tasks: { ...current.tasks, 'T-2': { ...current.tasks['T-2'], externalId: '#7' } },
     };
   else if (scenario?.startsWith('linked'))
     current = {
@@ -89,9 +97,21 @@ export function mountWorkPage(
             page.calls.push({ action, body });
             await new Promise((resolve) => setTimeout(resolve, 50));
             if (page.refuse) {
-              const { code, message } = page.refuse;
+              const { code, message, childPage } = page.refuse;
               page.refuse = undefined;
-              throw new SaveRefused(code, message);
+              throw new SaveRefused(code, message, undefined, childPage);
+            }
+            if (action === 'task.convert') {
+              // The serve makes the page, then links the task to it.
+              const childPage = MADE;
+              current = applyWorkAction(
+                current,
+                'task.link',
+                { taskId: (body as { taskId: string }).taskId, pageId: childPage },
+                attribution,
+              );
+              publishNow?.({ ...base, work: current });
+              return { childPage };
             }
             current = applyWorkAction(current, action, body, attribution);
             publishNow?.({ ...base, work: current });

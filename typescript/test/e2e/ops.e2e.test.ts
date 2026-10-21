@@ -954,7 +954,10 @@ renameSync(output+'.tmp',output);
       await fixture.attachSessionClient('e2e');
       const shell = fixture.createShellPane('checklist-board');
       fixture.tmux(['select-window', '-t', shell.pane]);
-      const config = fs.readFileSync(path.join(fixture.globalDir, 'ops.toml'));
+      // ops.toml may not exist: the user lives in Core, not in this file.
+      const configPath = path.join(fixture.globalDir, 'ops.toml');
+      const readConfig = () => (fs.existsSync(configPath) ? fs.readFileSync(configPath) : null);
+      const config = readConfig();
       const state = durableState(fixture);
       const beforeRequests = requestAttempts(fixture);
       {
@@ -1043,7 +1046,7 @@ renameSync(output+'.tmp',output);
         expect(stored.inventoryRevision).toBe(1);
         expect(durableState(fixture)).toEqual(state);
         expect(requestAttempts(fixture)).toEqual(beforeRequests);
-        expect(fs.readFileSync(path.join(fixture.globalDir, 'ops.toml'))).toEqual(config);
+        expect(readConfig()).toEqual(config);
         await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(

@@ -444,9 +444,14 @@ is added.
   `$TMT_EXECUTABLE` (`core.rs`, the only core access). A missing or invalid root fails
   before any state is created; `spaces` creates nothing.
 - State is `<dataRoot>/colab/` (owned 0700, no symlink) holding `owner.key`, `serve.lock`,
-  `keyring.lock`, `space.db` and the socket `door.sock` (0600 files). The layout is the
+  `keyring.lock`, `space.db`, `settings.json`, `work-index.json` (a rebuildable page-work cache,
+  under `work-index.lock`) and the socket `door.sock` (0600 files). The layout is the
   `tmt-extension-state` leaf behind `keyring::Layout`; Colab adds only its file names and
-  error codes. `Keyring` publishes the owner seed create-only; an existing wrong-length key
+  error codes. A settings change is one `tmt_extension_state::Document` update (the shared lock
+  in `<dataRoot>/document-locks/`, an atomic rename, a five-second wait whose refusal names the
+  file and the exact `tmt colab settings` retry), so a reader takes no lock and a crash leaves the
+  old file; a file past its 4,096-byte bound is refused, never replaced. `space.db` waits five
+  seconds (`store::BUSY`) for another connection. `Keyring` publishes the owner seed create-only; an existing wrong-length key
   fails closed (`COLAB_KEY_INVALID`) and is never replaced. The seed never leaves
   `Keyring`; callers ask it to sign or seal.
 - `space.db` schemas are append-only (`store/schema.rs`): 1 ciphertext (pages, streams,
@@ -660,7 +665,8 @@ the pages shown, while the manage dialog counts every page in the project and sa
 them are archived.
 
 The views are the tabs In progress, Discussion, Done, Archived and All, in that order
-(`BrowserTabs variant="flush"`). `stage` in the route search selects a stage or `all`, `archived`
+(`BrowserTabs variant="flush"`); `list-stage.ts` owns the stage vocabulary (`HOME_STAGES`,
+`DEFAULT_VIEW`, `pageStage`, `stageCounts`, `takeStage`). `stage` in the route search selects a stage or `all`, `archived`
 selects Archived and wins, and the absent key is `DEFAULT_VIEW`, In progress (a list without the
 management port has no tabs and is every active page; a link that wants every page carries `stage=all`). A mounted address names the list as `/colab/` and carries none of this search, so `keepListSearch` (`list-history.ts`) stores it in the history entry's state and `parseLocation` reads it back: a reload, Back and Forward return to the list as it was left, and a fresh visit opens `DEFAULT_VIEW`. Each label counts what the scope holds: an archived page
 counts only under Archived, and a page whose summary has not arrived (`pageStage` is `undefined`; a
@@ -876,7 +882,9 @@ gives the stage, progress, workers and sign-off count; `work-list.tsx` lists the
 breadcrumb for a page that follows a task (#4118). Where this device may change the work
 (`PageBinding.canWork`, the owner device's alone), `PageWorkBand` (`work-band-live.tsx`) fills the
 slots from `work-controls.tsx`: state (with a reason for blocked), sign-off and send back, assign,
-edit title and detail, remove after a second click, and add a task by title. Each control sends one
+edit title and detail, convert to Colab (`task.convert`: the serve makes a page from the task and links it;
+refused for a task that follows a page or has an external ID; a page made but not linked is named, with
+"Link to that page" and "Open the page"), remove after a second click, and add a task by title. Each control sends one
 closed action through `PageBinding.work`, which `Live` runs as a `work` frame (`Connection.work`,
 answered by `workresult`; a lost reply is settled by one `savestatus`, never resent). Nothing is
 applied locally: one action is in flight at a time, and the list changes when the page's own stream

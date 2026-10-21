@@ -185,19 +185,19 @@ pub const INIT: &CommandSpec = spec!(
     "Create the squad room squad-<name>; never asks anything",
     [
         "Create a squad" => "tmt ops squad init product",
-        "Create one and record your saved identity, for a script" => "tmt ops squad init product --me ada",
+        "Create one and set your name, for a script" => "tmt ops squad init product --me ada",
     ]
 );
 
 pub const ME: &CommandSpec = spec!(
     "me",
-    "Show, set or clear which saved identity is you (for ◆ waiting on you)",
-    details = "Without a recorded identity, ◆ uses the saved identity bound to your pane, and
-the board's talk, answer and annotate act as the pane's identity. It follows tmt mv.",
+    "Show or set which identity is you (for ◆ waiting on you)",
+    details = "Your name is Core's user.name setting (default: your OS login name); this
+sets it, like tmt config set user.name ada --global. Without a user name, ◆ uses the saved
+identity bound to your pane, and the board's talk, answer and annotate act as the pane's identity.",
     [
         "See who you are" => "tmt ops squad me",
-        "Record your saved identity" => "tmt ops squad me ada",
-        "Stop recording one" => "tmt ops squad me --clear",
+        "Set your name" => "tmt ops squad me ada",
     ]
 );
 

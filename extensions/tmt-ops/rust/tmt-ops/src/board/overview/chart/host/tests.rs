@@ -148,7 +148,10 @@ fn every_range_control_fits_with_complete_padding_and_exact_hit_bounds() {
                     assert_eq!(hit.area.intersection(area), hit.area);
                     let label = match hit.target {
                         Target::OpenEach => {
-                            format!(" Each {} ▾ ", super::super::format::interval(each_minutes))
+                            format!(
+                                " {} per bar ▾ ",
+                                super::super::format::interval(each_minutes)
+                            )
                         }
                         Target::OpenRange => {
                             format!(" Range {} ▾ ", super::super::format::range(range_minutes))
@@ -188,7 +191,7 @@ fn header_keeps_caption_and_independent_dropdowns_in_their_tracks() {
             assert_eq!(hits.len(), 2);
             assert_eq!(hits[1].area.right(), area.right() - 1);
             let shown = text(&buffer);
-            assert!(shown.contains("Each Auto ("));
+            assert!(shown.contains("per bar (auto)"));
             if width >= 103 {
                 assert!(shown.contains(&title), "{shown}");
             }
@@ -670,7 +673,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
                     && matches!(hit.target, Target::Bar(_))),
                 "missing data exposes no bars; known zero remains inspectable: {shown}"
             );
-            assert!(shown.contains("Usage · last 1h") && shown.contains("Each Auto (5m)"));
+            assert!(shown.contains("Usage · last 1h") && shown.contains("5m per bar (auto)"));
             let expected = if known_zero {
                 format!(
                     "Usage · last 1h · {}0 tok",

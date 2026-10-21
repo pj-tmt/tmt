@@ -1,6 +1,5 @@
 //! Shared active-actor and user-or-lead admission; callers retain their errors.
 use crate::{
-    config::Config,
     core::{Core, SquadError},
     me,
     squad::{Member, Squad},
@@ -46,7 +45,6 @@ impl From<me::Me> for ManagementActor {
 /// an identified member or ambiguous runtime never falls back to the user.
 pub fn actor(
     core: &Core,
-    config: &Config,
     explicit: Option<&str>,
     rules: &Rules,
 ) -> Result<ManagementActor, SquadError> {
@@ -56,7 +54,7 @@ pub fn actor(
     if let Some(caller) = me::caller(core)? {
         return Ok(caller.me.into());
     }
-    me::current(core, config)?
+    me::current(core)?
         .map(ManagementActor::from)
         .ok_or_else(|| {
             failure(
@@ -94,14 +92,13 @@ pub fn active_identity(core: &Core, id: &str, rules: &Rules) -> Result<String, S
 }
 pub fn admit(
     core: &Core,
-    config: &Config,
     selected: &Squad,
     actor: &ManagementActor,
     rules: &Rules,
 ) -> Result<Vec<Member>, SquadError> {
     active_identity(core, &actor.id, rules)?;
     let roster = selected.roster(core)?;
-    let user = me::current(core, config)?.is_some_and(|user| user.id == actor.id);
+    let user = me::current(core)?.is_some_and(|user| user.id == actor.id);
     if !user
         && !roster
             .iter()
@@ -122,17 +119,15 @@ mod tests {
         let squad = Squad::resolve(&f.core, Some("product")).unwrap();
         for id in [USER, LEAD] {
             let actor = member(&f.core, id, &CRON).unwrap();
-            assert!(admit(&f.core, &f.config, &squad, &actor, &CRON).is_ok());
-            assert!(admit(&f.core, &f.config, &squad, &actor, &DIGEST).is_ok());
+            assert!(admit(&f.core, &squad, &actor, &CRON).is_ok());
+            assert!(admit(&f.core, &squad, &actor, &DIGEST).is_ok());
         }
         let worker = member(&f.core, WORKER, &CRON).unwrap();
-        let refused = admit(&f.core, &f.config, &squad, &worker, &CRON).unwrap_err();
+        let refused = admit(&f.core, &squad, &worker, &CRON).unwrap_err();
         assert_eq!(refused.code, "SQUAD_CRON_PERMISSION_DENIED");
         assert_eq!(refused.message, CRON.denial);
         assert_eq!(
-            admit(&f.core, &f.config, &squad, &worker, &DIGEST)
-                .unwrap_err()
-                .code,
+            admit(&f.core, &squad, &worker, &DIGEST).unwrap_err().code,
             DIGEST.denied
         );
         f.change_model(|m| m["retired"] = serde_json::json!([LEAD]));
@@ -141,20 +136,16 @@ mod tests {
             name: "Sol".into(),
         };
         assert_eq!(
-            admit(&f.core, &f.config, &squad, &lead, &CRON)
-                .unwrap_err()
-                .code,
+            admit(&f.core, &squad, &lead, &CRON).unwrap_err().code,
             CRON.unavailable
         );
         assert_eq!(
-            admit(&f.core, &f.config, &squad, &lead, &DIGEST)
-                .unwrap_err()
-                .code,
+            admit(&f.core, &squad, &lead, &DIGEST).unwrap_err().code,
             DIGEST.denied
         );
         f.change_model(|m| m["caller"] = serde_json::json!("ambiguous"));
         assert_eq!(
-            actor(&f.core, &f.config, None, &CRON).unwrap_err().code,
+            actor(&f.core, None, &CRON).unwrap_err().code,
             "CALLER_IDENTITY_AMBIGUOUS"
         );
     }

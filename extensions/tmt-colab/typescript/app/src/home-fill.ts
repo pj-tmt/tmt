@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 
 /** The owner folds page summaries in the background; until every page has one the list reads again. */
-export const REREAD_MS = 2000;
+const REREAD_MS = 2000;
 /** At most this many re-reads while pages are still missing a summary; a reload starts again. */
 export const REREADS = 15;
 
-export type FillStep = 'schedule' | 'wait' | 'stop';
+type FillStep = 'schedule' | 'wait' | 'stop';
 /**
  * What the list does about pages without a summary: with none left, or after `REREADS` tries, it
  * stops; a hidden tab waits (and never reads); a visible one schedules the next re-read.

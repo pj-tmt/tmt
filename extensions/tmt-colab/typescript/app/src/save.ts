@@ -21,6 +21,8 @@ export interface SaveResult {
   message?: string;
   /** Rejected as `COLAB_PATCH_CONFLICT` only: the hunks, as sent (0-based), that do not fit. */
   conflicts?: number[];
+  /** A `task.convert` only: the page the operation made, whatever became of its link. */
+  childPage?: string;
 }
 
 /** The one reply to a `work` frame: a save's fields, plus the ID a committed `task.add` made. */
@@ -37,7 +39,9 @@ export type WorkAction =
   | 'task.assign'
   | 'task.link'
   | 'task.unlink'
-  | 'task.remove';
+  | 'task.remove'
+  /** Makes a page from the task, then links it; the one action that makes a page. */
+  | 'task.convert';
 
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {
@@ -56,6 +60,8 @@ export class SaveRefused extends Error {
     readonly code: string,
     message: string,
     readonly conflicts?: number[],
+    /** A convert refused after its page was made: the page exists and the task is not linked. */
+    readonly childPage?: string,
   ) {
     super(message);
   }
@@ -72,7 +78,11 @@ export class SaveConflict extends Error {
 }
 /** The operation never reached commit: nothing changed, and a new save is a new operation. */
 export class SaveNotApplied extends Error {
-  constructor(readonly operationId: string) {
+  constructor(
+    readonly operationId: string,
+    /** A convert whose page was made but whose link never landed. */
+    readonly childPage?: string,
+  ) {
     super('Save did not reach the page');
   }
 }
@@ -100,6 +110,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(state === 'rejected' ? ['code'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'message') ? ['message'] : []),
     ...(state === 'rejected' && Object.hasOwn(frame, 'conflicts') ? ['conflicts'] : []),
+    ...(Object.hasOwn(frame, 'childPage') ? ['childPage'] : []),
   ]);
   requireValue(frame.operationId === operationId);
   if (state === 'committed' || state === 'unchanged')
@@ -112,6 +123,15 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
         (frame.message === undefined ||
           (typeof frame.message === 'string' && frame.message.length <= 512)),
     );
+  // A made page is named only where a convert's outcome is final: committed, absent or rejected.
+  requireValue(
+    frame.childPage === undefined ||
+      (typeof frame.childPage === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+          frame.childPage,
+        ) &&
+        (state === 'committed' || state === 'absent' || state === 'rejected')),
+  );
   requireValue(frame.merged === undefined || frame.merged === true);
   if (frame.merged === true)
     requireValue(
@@ -143,6 +163,7 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(typeof frame.code === 'string' ? { code: frame.code } : {}),
     ...(typeof frame.message === 'string' ? { message: frame.message } : {}),
     ...(Array.isArray(conflicts) ? { conflicts: conflicts as number[] } : {}),
+    ...(typeof frame.childPage === 'string' ? { childPage: frame.childPage } : {}),
   };
 }
 export function workResult(frame: Record<string, unknown>, operationId: string): WorkResult {
@@ -157,12 +178,13 @@ export function workResult(frame: Record<string, unknown>, operationId: string):
 export function settled(result: SaveResult): SaveResult {
   // Still preparing on the page: the outcome is not final, and the save is never sent again.
   if (result.state === 'pending') throw new SaveOutcomeUnknown(result.operationId);
-  if (result.state === 'absent') throw new SaveNotApplied(result.operationId);
+  if (result.state === 'absent') throw new SaveNotApplied(result.operationId, result.childPage);
   if (result.state === 'rejected')
     throw new SaveRefused(
       result.code ?? 'COLAB_UNAVAILABLE',
       result.message ?? '',
       result.conflicts,
+      result.childPage,
     );
   return result;
 }

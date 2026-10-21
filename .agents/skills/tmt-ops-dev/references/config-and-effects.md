@@ -17,7 +17,7 @@ board-only home/meter/`usage.*` data.
   `config show --json` child. An inherited marker refuses another bootstrap spawn
   with `SQUAD_CORE_UNAVAILABLE`, bounding indirect launchers too. Ordinary Core/API
   calls and hook dispatch retain their existing policy; the parent environment is unchanged.
-- `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
+- `Config::write` owns format-preserving replacement for the legacy `me`/`me_id` removal, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
   publication. A changed file is refused, not overwritten. The shared
@@ -131,12 +131,16 @@ projection and providers stay on the shared fetcher path.
 The new interactive shell uses `config::workspace` preferences Auto/Side/Stack,
 room-UUID pins and optional hidden room UUIDs, written by the existing
 Config CAS owner. Authored sort/reverse values are cold defaults; interactive
-sort, filters, committed search, authored chart Range/Each, quota-window choice and pane scroll belong to the selected
+sort, filters, committed search, authored chart range/time per bar, quota-window choice and pane scroll belong to the selected
 [view-state layer](board.md#workspace-and-retained-identity). `workspace.hidden` is a unique array of at most 1,024 canonical
 lowercase room UUIDs. An absent key means none; an empty saved set removes the key.
 Unknown/deleted room IDs remain stored without pruning and do not inflate the
 live hidden count. Pins remain independent. Session launch scope/reveal belongs
 to App and ephemeral reload carry, never Config or retained view hints.
+The chart's time per bar is an aggregation interval, not a Digest member mode or
+delivery delay. Automatic resolution follows the chart width; the layer retains
+the automatic choice rather than that resolved interval. Shared `workspace.tok_range`
+is independent of these chart controls and is reloaded through Config on restart.
 `workspace.overview_sort` names an existing identity sort field;
 `workspace.overview_reverse` reverses its initial direction; optional
 `workspace.agent_pins` retains up to 1,024 canonical identity UUIDs. Pinned agents

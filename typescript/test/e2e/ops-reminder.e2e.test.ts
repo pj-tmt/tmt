@@ -34,11 +34,8 @@ it.each(['claude', 'codex'] as const)(
           (await fixture.runCli(['ops', 'squad', 'lead', 'Reminder Lead', '--json'])).code
         ).toBe(0);
         const config = path.join(fixture.globalDir, 'ops.toml');
-        fs.writeFileSync(
-          config,
-          fs.readFileSync(config, 'utf8') +
-            '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n'
-        );
+        // Core owns the user now, so `init --me` no longer creates ops.toml.
+        fs.appendFileSync(config, '\n[squad.product.reminders]\nenabled=true\nstale_after="1m"\n');
         const notes = await fixture.runJsonCli<{ path: string }>([
           'notes',
           'path',

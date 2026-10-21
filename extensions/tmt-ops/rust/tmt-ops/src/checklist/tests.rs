@@ -545,11 +545,15 @@ fn no_op_assignment_refreshes_only_projection_and_user_privilege_reload_refuses(
     );
     f.change(|m| m["caller"] = json!(USER));
     let user = f.service();
-    let config_path = f.root.join("ops.toml");
+    let model_path = f.root.join("model.json");
     let error = store::with_fault(
         Box::new(move |stage| {
             if stage == store::Stage::BeforePublish {
-                fs::write(&config_path, "")?;
+                // Core stops resolving this actor as the user mid-admission.
+                let mut model: serde_json::Value = serde_json::from_slice(&fs::read(&model_path)?)
+                    .map_err(std::io::Error::other)?;
+                model["user"] = serde_json::Value::Null;
+                fs::write(&model_path, model.to_string())?;
             }
             Ok(())
         }),
@@ -562,15 +566,13 @@ fn no_op_assignment_refreshes_only_projection_and_user_privilege_reload_refuses(
 }
 
 #[test]
-fn recorded_uuid_case_alias_does_not_create_another_actor_or_namespace() {
+fn a_retired_user_leaves_no_actor_and_a_same_name_member_is_never_adopted() {
     let f = Fixture::new();
     let user = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    f.change(|m| m["members"][0]["id"] = json!(user));
-    fs::write(
-        f.root.join("ops.toml"),
-        format!("me='Ben'\nme_id='{}'\n", user.to_uppercase()),
-    )
-    .unwrap();
+    f.change(|m| {
+        m["members"][0]["id"] = json!(user);
+        m["user"] = json!(user);
+    });
     let service = f.service();
     service
         .apply(&create(ITEM, InventoryExpectation::Absent, None))

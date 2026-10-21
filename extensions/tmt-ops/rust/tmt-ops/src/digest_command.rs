@@ -1,6 +1,5 @@
 //! Digest grammar and management over the existing trusted Core policy seam.
 use crate::{
-    config::Config,
     core::{Core, SquadError},
     digest, management,
     squad::Squad,
@@ -77,16 +76,15 @@ pub(crate) fn admission(error: SquadError) -> SquadError {
         _ => error,
     }
 }
-pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, SquadError> {
+pub fn run(core: &Core, matches: &ArgMatches) -> Result<Value, SquadError> {
     let input = matches.get_one::<String>("duration").map(String::as_str);
     let window = input
         .filter(|input| *input != "off")
         .map(duration)
         .transpose()?;
     let squad = Squad::resolve(core, matches.get_one::<String>("squad").map(String::as_str))?;
-    let actor = management::actor(core, config, None, &management::DIGEST).map_err(admission)?;
-    let roster =
-        management::admit(core, config, &squad, &actor, &management::DIGEST).map_err(admission)?;
+    let actor = management::actor(core, None, &management::DIGEST).map_err(admission)?;
+    let roster = management::admit(core, &squad, &actor, &management::DIGEST).map_err(admission)?;
     let target = management::member(
         core,
         matches.get_one::<String>("member").expect("required"),
@@ -105,15 +103,15 @@ pub fn run(core: &Core, config: &Config, matches: &ArgMatches) -> Result<Value, 
         document["member"] = json!(target.name);
         return Ok(document);
     }
-    let owner = config.me_id()?.ok_or_else(|| {
+    let owner = crate::me::current(core)?.ok_or_else(|| {
         SquadError::hinted(
             "SQUAD_DIGEST_OWNER_REQUIRED",
-            "No owner UUID is recorded.",
+            "Core has no user name for the owner.",
             " ",
-            "Record the saved owner with tmt ops squad me <name>.",
+            "Set your name with tmt ops squad me <name>.",
         )
     })?;
-    let mut fields = json!({"identityId":target.id,"ownerIdentityId":owner,
+    let mut fields = json!({"identityId":target.id,"ownerIdentityId":owner.id,
         "setterIdentityId":actor.id,"expectedRevision":policy.revision});
     let operation = if let Some(window) = window {
         fields["untilMs"] = json!(
@@ -223,7 +221,7 @@ mod tests {
             });
             for show in [false, true] {
                 assert_eq!(
-                    run(&f.core, &f.config, &flags(show)).unwrap_err().code,
+                    run(&f.core, &flags(show)).unwrap_err().code,
                     "SQUAD_DIGEST_PERMISSION_DENIED"
                 );
             }

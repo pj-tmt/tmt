@@ -1,9 +1,9 @@
 import { BrowserAction, BrowserField, BrowserMenu } from '@tmt/browser-ui/react';
 import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { saveMessage, type WorkAction } from './save.js';
+import { SaveNotApplied, SaveRefused, saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
 import type { PageBinding } from './transport.js';
-import { TASK_STATES, type Task, type TaskState } from './work.js';
+import { TASK_STATES, keptByEdit, type Task, type TaskState } from './work.js';
 import { waitsForSignoff } from './work-people.js';
 
 type Body = Record<string, unknown>;
@@ -13,6 +13,11 @@ export interface WorkRun {
   busy: boolean;
   /** The sentence for the last refusal, in the serve's own words where it gave them. */
   error?: string;
+  /** A convert that made its page but could not link it: the task and the page that exists. */
+  stranded?: { task: string; page: string };
+  /** Where the refusal belongs: `stranded` is the made-but-not-linked row, otherwise the New task
+   * field's error slot. A refusal is told under the control that was refused. */
+  errorAt?: 'stranded';
 }
 
 /** One action at a time: a control is disabled while one is in flight, and nothing is applied
@@ -20,18 +25,37 @@ export interface WorkRun {
 export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): WorkRun {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [stranded, setStranded] = useState<WorkRun['stranded']>();
+  const [errorAt, setErrorAt] = useState<WorkRun['errorAt']>();
+  const current = useRef<WorkRun['stranded']>(undefined);
+  current.current = stranded;
   const flying = useRef(false);
   const run = useCallback(
     async (action: WorkAction, body: Body) => {
       if (!binding?.work || flying.current) return false;
       flying.current = true;
       setBusy(true);
+      // Linking the page a convert made answers the row that offered it: that row stays.
+      const answering = action === 'task.link' && current.current?.page === body.pageId;
       setError(undefined);
+      setErrorAt(undefined);
+      if (!answering) setStranded(undefined);
       try {
         await binding.work(action, body);
         return true;
       } catch (failure) {
-        setError(saveMessage(failure));
+        const page =
+          failure instanceof SaveRefused || failure instanceof SaveNotApplied
+            ? failure.childPage
+            : undefined;
+        if (page !== undefined && action === 'task.convert')
+          setStranded({ task: String(body.taskId), page });
+        if ((page !== undefined && action === 'task.convert') || answering) setErrorAt('stranded');
+        setError(
+          failure instanceof SaveNotApplied && page !== undefined
+            ? text.workBand.controls.madeNotLinked
+            : saveMessage(failure),
+        );
         return false;
       } finally {
         flying.current = false;
@@ -40,20 +64,10 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
     },
     [binding],
   );
-  return { run, busy, error };
+  return { run, busy, error, stranded, errorAt };
 }
 
 const label = text.workBand.controls;
-
-/** What a task keeps when only its title and detail are edited: `task.set` replaces the whole
- * editable set, so the rest is sent back as it is. */
-function kept(task: Task): Body {
-  return {
-    ...(task.acceptance ? { acceptance: task.acceptance } : {}),
-    ...(task.needsSignoff ? { needsSignoff: true } : {}),
-    ...(task.externalId !== undefined ? { externalId: task.externalId } : {}),
-  };
-}
 
 function TextField({
   label: name,
@@ -116,11 +130,13 @@ export function TaskControls({
   task,
   state,
   work,
+  pageHref,
 }: {
   id: string;
   task: Task;
   state: TaskState;
   work: WorkRun;
+  pageHref?(pageId: string): string;
 }): ReactNode {
   const { run, busy } = work;
   const [reason, setReason] = useState<string>();
@@ -131,6 +147,12 @@ export function TaskControls({
   const [detail, setDetail] = useState(task.detail ?? '');
   const [removing, setRemoving] = useState(false);
   const follows = task.child !== undefined;
+  const reasonNotConvertible = follows
+    ? label.convertFollows
+    : task.externalId !== undefined
+      ? label.convertExternal
+      : undefined;
+  const stranded = work.stranded?.task === id ? work.stranded.page : undefined;
 
   const setState = async (next: TaskState, why?: string) => {
     if (await run('task.state', { taskId: id, state: next, ...(why ? { reason: why } : {}) }))
@@ -151,7 +173,7 @@ export function TaskControls({
         taskId: id,
         title: title.trim(),
         ...(detail.trim() ? { detail } : {}),
-        ...kept(task),
+        ...keptByEdit(task),
       })
     )
       setEditing(false);
@@ -310,6 +332,15 @@ export function TaskControls({
               setEditing(true);
             }}
           />
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={label.convert}
+            disabled={busy || reasonNotConvertible !== undefined}
+            disabledReason={reasonNotConvertible}
+            disabledReasonId={`${id}-convert-reason`}
+            onActivate={() => void run('task.convert', { taskId: id })}
+          />
           {removing ? (
             <>
               <BrowserAction
@@ -338,6 +369,28 @@ export function TaskControls({
           )}
         </div>
       )}
+      {stranded !== undefined && (
+        <div className="work-control-group work-stranded">
+          <span className="work-control-note">{label.pageMade}</span>
+          <BrowserAction
+            type="button"
+            variant="primary"
+            label={label.linkIt}
+            disabled={busy}
+            onActivate={() => void run('task.link', { taskId: id, pageId: stranded })}
+          />
+          {pageHref && (
+            <a className="tmt-ui-action" data-variant="text" href={pageHref(stranded)}>
+              {label.openIt}
+            </a>
+          )}
+          {work.error !== undefined && work.errorAt === 'stranded' && (
+            <div className="tmt-ui-field-error work-stranded-error" role="alert">
+              {work.error}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -360,7 +413,7 @@ export function AddTask({ work }: { work: WorkRun }): ReactNode {
         value={title}
         maxLength={120}
         disabled={work.busy}
-        error={work.error}
+        error={work.errorAt === 'stranded' ? undefined : work.error}
         onChange={setTitle}
         trailing={
           <BrowserAction

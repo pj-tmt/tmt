@@ -9,6 +9,7 @@ use ratatui::{
     crossterm::event::{KeyCode, MouseEvent},
     layout::Rect,
 };
+use unicode_width::UnicodeWidthStr;
 
 pub(super) struct Dropdown {
     pub selected: usize,
@@ -48,14 +49,16 @@ impl Dropdown {
             .map(|target| {
                 let label = match target {
                     Target::Each(Each::Auto) => format!(
-                        "Auto ({})",
+                        "Automatic ({} per bar)",
                         super::super::format::interval(
                             Each::Auto
                                 .resolve(state.selection.range_minutes, state.viewport.width)
                                 .each_minutes
                         )
                     ),
-                    Target::Each(Each::Fixed(n)) => super::super::format::interval(*n),
+                    Target::Each(Each::Fixed(n)) => {
+                        format!("{} per bar", super::super::format::interval(*n))
+                    }
                     Target::Range(n) => super::super::format::range(*n),
                     _ => unreachable!(),
                 };
@@ -73,7 +76,7 @@ impl Dropdown {
                             .find(|n| state.selection.range_minutes / *n <= Selection::MAX_BARS)
                             .unwrap();
                         format!(
-                            "{} needs Each >= {}",
+                            "{} needs at least {} per bar",
                             super::super::format::range(state.selection.range_minutes),
                             super::super::format::interval(minimum)
                         )
@@ -108,7 +111,7 @@ impl Dropdown {
         let title = if focus == Focus::Range {
             "Range"
         } else {
-            "Each"
+            "Time per bar"
         };
         let surface = MenuSurface::dropdown(title, &entries);
         Self {
@@ -132,7 +135,7 @@ impl Dropdown {
             .position(|t| *t == Target::Each(Each::Auto))
         {
             self.entries[index].label = format!(
-                "Auto ({})",
+                "Automatic ({} per bar)",
                 super::super::format::interval(Each::Auto.resolve(range, width).each_minutes)
             );
         }
@@ -219,23 +222,34 @@ impl Dropdown {
             height: screen.height.saturating_sub(1),
             ..screen
         };
+        // Keep the complete time-per-bar labels beside the three-cell checkmark
+        // track; the existing menu owner still clips to the available screen.
+        let width = self
+            .entries
+            .iter()
+            .map(|entry| entry.label.width())
+            .max()
+            .unwrap_or_default()
+            .saturating_add(3)
+            .max(18);
+        let width = u16::try_from(width).unwrap_or(u16::MAX);
         let mut area =
             crate::board::member_links::menu_area(usable, self.anchor, self.entries.len() as u16)
                 .unwrap_or_else(|| {
                     Rect::new(
                         self.anchor.x,
                         usable.y,
-                        18,
+                        width,
                         usable.height.min(self.entries.len() as u16),
                     )
                 });
-        area.width = screen.width.saturating_sub(2).min(18);
+        area.width = screen.width.saturating_sub(2).min(width);
         area.x = self
             .anchor
             .x
             .min(screen.right().saturating_sub(area.width + 1));
         let label = if self.trigger == Target::OpenEach {
-            "Each"
+            "Time per bar"
         } else {
             "Range"
         };

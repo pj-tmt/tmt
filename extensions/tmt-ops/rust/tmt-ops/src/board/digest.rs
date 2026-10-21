@@ -7,7 +7,6 @@ use super::{
     notes::sanitize,
 };
 use crate::{
-    config::Config,
     core::Core,
     digest_command::admission,
     labels::Choose,
@@ -57,12 +56,11 @@ impl Granted {
 
 /// Checks that the person at the board may change this member's digest.
 pub fn grant(core: &Core, ask: Ask) -> Result<Granted, String> {
-    let config = Config::load(core).map_err(|error| error.message)?;
     let squad = Squad::resolve(core, Some(&ask.squad)).map_err(|error| error.message)?;
-    let actor = management::actor(core, &config, None, &management::DIGEST)
+    let actor = management::actor(core, None, &management::DIGEST)
         .map_err(admission)
         .map_err(|error| error.message)?;
-    management::admit(core, &config, &squad, &actor, &management::DIGEST)
+    management::admit(core, &squad, &actor, &management::DIGEST)
         .map_err(admission)
         .map_err(|error| error.message)?;
     Ok(Granted { ask, actor })
@@ -72,9 +70,8 @@ pub fn grant(core: &Core, ask: Ask) -> Result<Granted, String> {
 /// changed since the dropdown opened. A refused or failed change says so and is
 /// never repeated; a lost answer says the outcome is unknown.
 pub fn apply(core: &Core, set: Set) -> Result<String, String> {
-    let config = Config::load(core).map_err(|error| error.message)?;
     let squad = Squad::resolve(core, Some(&set.squad)).map_err(|error| error.message)?;
-    management::admit(core, &config, &squad, &set.actor, &management::DIGEST)
+    management::admit(core, &squad, &set.actor, &management::DIGEST)
         .map_err(admission)
         .map_err(|error| error.message)?;
     match core.succeeds(&set.argv) {

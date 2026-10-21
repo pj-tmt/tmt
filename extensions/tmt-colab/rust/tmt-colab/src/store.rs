@@ -162,6 +162,10 @@ pub struct ReadObject {
     pub bytes: Vec<u8>,
 }
 
+/// How long a connection waits for another one before the store refuses with busy: the shared
+/// state wait bound (`tmt_extension_state`'s five-second write wait), for a reader and a writer alike.
+pub const BUSY: Duration = Duration::from_secs(5);
+
 type Clock = dyn Fn() -> StoreResult<u64> + Send + Sync;
 fn now_ms() -> StoreResult<u64> {
     let now = SystemTime::now()
@@ -184,7 +188,7 @@ impl Store {
             layout.directory.join("space.db"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
-        connection.busy_timeout(Duration::from_secs(2))?;
+        connection.busy_timeout(BUSY)?;
         schema::check_version(&connection)?;
         connection.pragma_update(None, "journal_mode", "DELETE")?;
         schema::migrate(&mut connection)?;
@@ -227,7 +231,7 @@ impl Store {
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
             }) | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
-        connection.busy_timeout(Duration::from_secs(2))?;
+        connection.busy_timeout(BUSY)?;
         schema::check_version(&connection)?;
         if writable {
             schema::check_read_version(&connection)?;
