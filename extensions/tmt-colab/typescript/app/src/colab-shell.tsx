@@ -178,7 +178,15 @@ export function ColabShell({
       // The same remembered scope the list's own project choice writes.
       const name = id.startsWith('project:') ? id.slice('project:'.length) : undefined;
       if (id !== 'colab') writeScope(space, name);
-      void router.navigate({ to: '/', search: name === undefined ? {} : { scope: name } });
+      // On the list a scope changes only the scope, as the list's own choice does: its tab and
+      // filters stay, in the same history entry. From elsewhere it opens the list fresh.
+      if (location.pathname === '/' && id !== 'colab')
+        void router.navigate({
+          to: '/',
+          search: (previous: Record<string, unknown>) => ({ ...previous, scope: name }),
+          replace: true,
+        });
+      else void router.navigate({ to: '/', search: name === undefined ? {} : { scope: name } });
       return true;
     }
     return false;
