@@ -983,7 +983,7 @@ export const text = {
   failureTooLarge: 'This change is too large to sync. Reopen the page and make a smaller change.',
   failureGeneric: 'This page stopped syncing. Reopen it to try again.',
   failureSessionLimit:
-    "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
+    "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.",
   failureCodeLabel: 'Code:',
   failureReference: {
     access: 'Access denied',

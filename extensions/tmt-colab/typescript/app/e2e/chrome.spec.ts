@@ -446,7 +446,7 @@ for (const entry of ['restart', 'public'] as const) {
     ['mismatch', 'Your access to this page ended. Open it again to continue.', false],
     [
       'capacity',
-      "This browser has reached the owner's connection limit. Close another tab, or ask the owner to change the limit. Your pairing is unchanged.",
+      "This browser has reached your machine's connection limit. Close another tab, or change the limit on your machine. Your pairing is unchanged.",
       false,
     ],
     ['unreachable', 'Reopen the page to try again.', false],

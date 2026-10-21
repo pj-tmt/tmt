@@ -31,8 +31,8 @@ const errors: Record<string, string> = {
   STALE_HEAD: 'Sharing changed while you were reviewing. Refresh and review, then try again.',
   CONFLICT:
     'This change conflicts with one already saved. Refresh and review; the saved one is not changed.',
-  CAPACITY: 'The owner is at a size limit. The change was not confirmed.',
-  UNAVAILABLE: 'The owner is unavailable right now. The change was not confirmed.',
+  CAPACITY: 'Your machine is at a size limit. The change was not confirmed.',
+  UNAVAILABLE: 'Your machine is unavailable right now. The change was not confirmed.',
   UNKNOWN:
     'Result unknown: the change may have gone through. Retry this same request before it expires.',
 };
