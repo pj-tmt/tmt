@@ -34,6 +34,11 @@ fn target_grammar_isolates_prefixes() {
         "/p/abcd1234",
         "/p/abcd1234?open=1",
         "/p/abcd1234?a=b&c=d-e_f.g~h",
+        // The app's routes carry the same plain query (the app's own keys, a redirected short link).
+        "/colab/p/abcd1234?a=b",
+        "/colab/pages/abcd?read=x&anchor=a-1",
+        "/settings?a=b",
+        "/colab/pages/abcd?read=tmt-session",
     ] {
         assert!(target(valid), "{valid}");
     }
@@ -49,7 +54,7 @@ fn target_grammar_isolates_prefixes() {
         "/x/colab//a",
         "/x/colab/a#b",
         "/x\\colab",
-        // The short link's query is plain text; every other route stays query-free.
+        // The short link's and app routes' query is plain text; every other route stays query-free.
         "/p/abcd1234?",
         "/p/abcd1234?a=%2e",
         "/p/abcd1234?a=b#c",
@@ -59,8 +64,11 @@ fn target_grammar_isolates_prefixes() {
         "/p/abcd1234?tmt-session=x",
         "/p/../r/ab/append?a=b",
         "/p//abcd?a=b",
-        "/colab/p/abcd1234?a=b",
-        "/settings?a=b",
+        "/colab/pages/abcd?read=%2e",
+        "/colab/pages/abcd?read=x&tmt-session=y",
+        "/home?a=b",
+        "/x/colab/?read=a",
+        "/r/ab/x/colab/pages/abcd?open=a",
     ] {
         assert!(!target(invalid), "{invalid}");
     }
