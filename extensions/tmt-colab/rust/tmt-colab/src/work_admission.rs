@@ -35,6 +35,12 @@ pub(crate) fn refused(
     })
 }
 /// An action the value or its body cannot take, or a task the page does not have.
+/// The refusal for an action that names a task the page does not have: one sentence for the write
+/// command, the GitHub push, a convert and the browser's actions.
+pub fn no_such_task(task: &str) -> String {
+    format!("This page has no task {task}; tmt colab task ls shows its tasks.")
+}
+
 pub fn invalid(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     refused("COLAB_INPUT_INVALID", message)
 }
@@ -45,25 +51,6 @@ pub struct Space<'a> {
     pub layout: &'a Layout,
     pub store: &'a Store,
     pub key: &'a Keyring,
-}
-
-/// Every page of the space that is not deleted, archived ones included.
-pub fn all_page_ids(store: &Store, key: &Keyring) -> crate::Result<Vec<String>> {
-    page_ids(store, key, false)
-}
-/// The pages that are not archived: the pages a work-in-progress count covers.
-pub fn active_page_ids(store: &Store, key: &Keyring) -> crate::Result<Vec<String>> {
-    page_ids(store, key, true)
-}
-fn page_ids(store: &Store, key: &Keyring, active: bool) -> crate::Result<Vec<String>> {
-    let catalog = inspection::catalog(store, key)?;
-    Ok(catalog["pages"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|page| !active || page["archived"] != true)
-        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
-        .collect())
 }
 
 fn quoted(name: &str) -> String {
@@ -141,9 +128,7 @@ pub fn admit(
     if let Some(task) = body["taskId"].as_str()
         && before["tasks"].get(task).is_none()
     {
-        return Err(invalid(&format!(
-            "This page has no task {task}; tmt colab task ls shows its tasks."
-        )));
+        return Err(invalid(&no_such_task(task)));
     }
     if !action.starts_with("task.") {
         return Ok(());
@@ -154,7 +139,7 @@ pub fn admit(
         .iter()
         .any(|task| !wip::held(page, before).contains(task))
     {
-        let pages = active_page_ids(space.store, space.key)?;
+        let pages = inspection::active_page_ids(space.store, space.key)?;
         let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;
         let elsewhere = work_index::held_elsewhere(&found, page);
         let limits = crate::settings::read_or_default(space.root);
@@ -167,7 +152,7 @@ pub fn admit(
             body["taskId"].as_str().unwrap_or_default(),
             body["pageId"].as_str().unwrap_or_default(),
         );
-        let pages = all_page_ids(space.store, space.key)?;
+        let pages = inspection::all_page_ids(space.store, space.key)?;
         let found = work_index::scan(space.layout, space.store, space.key, decoder, &pages)?;
         if let Some(why) = Graph(&found).refusal(page, task, child) {
             return Err(link_refusal(&why, page, task, child));

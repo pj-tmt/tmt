@@ -1,6 +1,7 @@
 //! A task made into a page of its own, shared by `tmt colab task convert` and the serve's
 //! browser `task.convert`: what a task may be converted, the first text of the page, and the page
 //! ID a browser's operation derives, so one operation can never make two pages.
+use crate::work_admission::no_such_task;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -13,6 +14,19 @@ pub enum Blocked {
     Follows,
     /// The task is tracked by an external issue, which a followed page excludes.
     External,
+}
+
+impl Blocked {
+    /// The refusal sentence for `task_id`, the same for the command and the browser.
+    pub fn message(&self, task_id: &str) -> String {
+        match self {
+            Blocked::Missing => no_such_task(task_id),
+            Blocked::Follows => format!("{task_id} already follows a page."),
+            Blocked::External => format!(
+                "{task_id} has an external ID, so it cannot follow a page; clear the ID first (tmt colab task set)."
+            ),
+        }
+    }
 }
 
 /// The task `task_id` of a work value, when it may be converted.
