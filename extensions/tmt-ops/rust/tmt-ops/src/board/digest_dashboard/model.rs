@@ -70,6 +70,9 @@ pub(in crate::board) fn details(
 ) -> Vec<String> {
     let mut fields = Vec::new();
     let Some((status, stale)) = supplied.digest() else {
+        // Labels have independent admission and may still carry a valid chooser
+        // when the typed statistics document is unavailable.
+        fields.extend(labels(supplied, id).into_iter().map(|(text, _, _)| text));
         fields.push("Settings and statistics unavailable".into());
         return fields;
     };
