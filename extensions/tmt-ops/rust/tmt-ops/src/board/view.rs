@@ -33,6 +33,7 @@ pub fn fit(text: &str, width: usize) -> String {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    app.terminal_rows.set(frame.area().height);
     let _rows = app.workspace_frame_rows();
     app.home_counters.borrow_mut().begin();
     // Overview owns its Subscriptions panel; do not build or register the former strip too.

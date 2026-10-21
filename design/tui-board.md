@@ -272,9 +272,10 @@ input; it does not replace the draft. Up from the input's first line enters the
 chip row, Left/Right moves, `x`/Delete removes, and Down/Esc returns. Sending
 attaches compact quotes above the comment; failed sends retain the chips.
 
-The conversation input is one row when empty and unfocused, and three rows when
-focused or holding a draft. It grows upward inside one reserved envelope; focus
-changes its fill, not its frame. The stable line below it shows the recipient,
+The conversation input is at least three rows tall: a blank padding row above and below
+the text, which starts on the middle row. It grows upward inside one reserved envelope
+up to six text rows and then scrolls inside, keeping the padding; focus changes its fill,
+not its height or frame. Terminals under 28 rows give the padding up and keep one row. The stable line below it shows the recipient,
 acquired unread/open-request counts, optional running-session context usage and
 the send/newline/mention keys. Unknown context is omitted; a known zero remains
 visible, and an unknown window is never inferred. Overflow stays inside the box

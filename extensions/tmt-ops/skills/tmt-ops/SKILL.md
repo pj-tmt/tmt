@@ -1134,9 +1134,10 @@ correlated to its request. Single line breaks remain visible in replies and pane
 output. Pane output stays in a separate labelled block, even when it repeats a
 reply's text; reading older messages holds position while later replies arrive.
 
-The composer stays at the conversation bottom when an agent is shown: one row
-when empty and unfocused, three rows when focused or holding a draft, growing
-upward without moving its info line. Focus changes only the fill. The line below
+The composer stays at the conversation bottom when an agent is shown: a box of at
+least three rows, a blank padding row above and below the text, growing upward
+without moving its info line. Focus changes only the fill, never the height.
+Terminals under 28 rows give the padding up and keep the one-row box. The line below
 shows the recipient, acquired unread/open-request counts, optional running-session
 context usage and `⏎ send  Alt+⏎ new line  @ mention`; narrow widths shorten the
 words before dropping keys. Unknown context is omitted, not estimated.
@@ -1151,7 +1152,7 @@ caret; Shift with movement selects; Backspace/Delete remove selected text or a
 grapheme. Click places the caret and drag selects. Enter submits. Shift+Enter inserts
 a newline when enhanced keyboard reporting is active; Alt+Enter and Ctrl+J work
 without it, and Ctrl+N remains available. The input box grows with its content up to
-six rows, then scrolls; the info line and footer stay in place. The info line and the
+six text rows (plus the padding rows), then scrolls; the info line and footer stay in place. The info line and the
 footer name Shift+Enter when the terminal reports it and Alt+Enter otherwise
 (Alt+Enter and Ctrl+J always work). Shift+Enter inside tmux needs
 `set -g extended-keys on` (or `always`) and `set -g extended-keys-format csi-u`

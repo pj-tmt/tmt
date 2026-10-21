@@ -791,6 +791,8 @@ pub struct App {
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
     body_width: u16,
+    /// The height of the last frame, for the choices that short terminals give up.
+    pub(super) terminal_rows: std::cell::Cell<u16>,
 }
 
 pub(super) fn matches(row: &Value, needle: &str) -> bool {

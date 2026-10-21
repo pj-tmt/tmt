@@ -399,7 +399,7 @@ fn approved_focus_geometry_has_cell_captures_at_both_widths_and_all_looks() {
                         assert!(pane.y > 9);
                     }
                     let band = app.input_band.get().unwrap();
-                    assert_eq!(band.height, 2);
+                    assert_eq!(band.height, 4);
                     assert_eq!(band.bottom(), pane.bottom());
                     assert!(text.contains(if selected == "tmt-night" {
                         "lead night-lead"

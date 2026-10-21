@@ -344,7 +344,8 @@ See [member references and source](board-notebooks.md#inert-text-and-independent
 - Message fields use the same editor for grapheme-safe multiline
   editing, source-preserving bracketed paste and cached cell geometry. Enter
   submits; distinct Shift+Enter, Alt+Enter, Ctrl+J or retained Ctrl+N inserts a newline, and Escape
-  retains the draft. The input box has `MAX_BOX_ROWS` (6) rows at most and grows upward
+  retains the draft. The input box is 1 to `MAX_TEXT_ROWS` (6) text rows plus one padding row above and
+  below (`input_field::padding`; `App::composer_padded` drops them under 28 terminal rows) and grows upward
   with its wrapped content while the info line and footer rows stay fixed. Inside tmux,
   Ops reads `extended-keys` and `extended-keys-format` once at start and requests
   `CSI > 4;1 m` only when extended-keys is on/always and the format is csi-u (popped with
