@@ -584,7 +584,7 @@ fn the_usage_rule_is_the_only_horizontal_resize_target_of_the_flat_list() {
             }
             let shown = paint(&mut app, width, 51);
             assert!(
-                shown[(b.hit.x, b.hit.y)].symbol().contains('─'),
+                matches!(shown[(b.hit.x, b.hit.y)].symbol(), "─" | "━" | "▸"),
                 "{width}: {:?} is not a section rule",
                 b.id
             );

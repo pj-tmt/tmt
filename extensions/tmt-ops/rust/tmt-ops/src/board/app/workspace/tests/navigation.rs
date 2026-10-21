@@ -14,7 +14,7 @@ fn escape_returns_one_level_and_never_quits_the_board() {
             Effect::None
         );
         let screen = paint(&app, width, height).join("\n");
-        assert!(screen.contains("── worker "), "{screen}");
+        assert!(screen.contains("━━ worker "), "{screen}");
         assert!(screen.contains("Esc back"), "{screen}");
         assert!(
             !screen.contains("press j:"),

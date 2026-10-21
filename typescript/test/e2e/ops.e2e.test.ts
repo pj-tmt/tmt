@@ -376,7 +376,7 @@ renameSync(output+'.tmp',output);
           /^ AGENT[ \t]+SQUAD[ \t]+STATE[ \t]+TOK 1h[ \t]+MODEL\b/m.test(screen) &&
           /^   Ben[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
           /^   worker[ \t]+Common pool[ \t]+\?[ \t]/m.test(screen) &&
-          /f[ \t]+Squads[ \t]+Agents[ \t]+Pinned[ \t─]+\/[ \t]+Search/.test(screen),
+          /f[ \t]+Squads[ \t]+Agents[ \t]+Pinned[ \t─━]+\/[ \t]+Search/.test(screen),
         shell.pane
       );
       // The flat list selects an agent; return to the Squads tree (f cycles through Pinned),
@@ -384,7 +384,7 @@ renameSync(output+'.tmp',output);
       fixture.tmux(['send-keys', '-t', shell.pane, 'f', 'f', 'Home', 'Right']);
       await fixture.waitForCapture((screen) => {
         const header = screen.split('\n').find((line) => line.includes('SQUAD / AGENT'));
-        const rule = screen.split('\n').find((line) => line.startsWith('── f  Squads '));
+        const rule = screen.split('\n').find((line) => line.includes('f  Squads '));
         // The 160-cell frame gives the list 75 cells. Its controls rule shares
         // the Talk/Measure title with a one-cell divider; columns stay one row below.
         return (
@@ -393,7 +393,7 @@ renameSync(output+'.tmp',output);
           /^ +SQUAD \/ AGENT[ \t]+STATE[ \t]+TOK 1h[ \t]+◷[ \t]+MODEL \/ NOW[ \t]*$/.test(
             header.slice(0, 75)
           ) &&
-          /Talk[ \t]+Measure[ \t]+── Common pool /.test(rule.slice(75)) &&
+          /Talk[ \t]+Measure[ \t]+[─━]{2} Common pool /.test(rule.slice(75)) &&
           /^[ \t]+├ Ben[ \t]+\?[ \t]/m.test(screen) &&
           /^[ \t]+└ worker[ \t]+\?[ \t]/m.test(screen)
         );

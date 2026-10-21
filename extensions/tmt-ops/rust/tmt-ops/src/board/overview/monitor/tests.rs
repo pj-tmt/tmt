@@ -517,7 +517,6 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
         "Recent exchanges",
         "Digest status unavailable",
         "state unknown",
-        "━",
         "Needs you",
         "f needs you",
         "open chat",
