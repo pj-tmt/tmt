@@ -5,16 +5,15 @@ import {
   compareProjects,
   filterPages,
   authorCounts,
-  pageStage,
   projectCounts,
   projectNameError,
   projectRequests,
-  stageCounts,
   withProject,
   waitingCount,
   type ProjectChange,
   type PageFilter,
 } from '../src/projects.js';
+import { pageStage, stageCounts } from '../src/list-stage.js';
 import type { PageSummary } from '../src/transport.js';
 
 const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

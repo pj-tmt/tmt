@@ -3,7 +3,7 @@ import { useCallback, useId, useRef, useState, type FormEvent, type ReactNode } 
 import { SaveNotApplied, SaveRefused, saveMessage, type WorkAction } from './save.js';
 import { text } from './strings.js';
 import type { PageBinding } from './transport.js';
-import { TASK_STATES, type Task, type TaskState } from './work.js';
+import { TASK_STATES, keptByEdit, type Task, type TaskState } from './work.js';
 import { waitsForSignoff } from './work-people.js';
 
 type Body = Record<string, unknown>;
@@ -68,16 +68,6 @@ export function useWorkRun(binding: Pick<PageBinding, 'work'> | undefined): Work
 }
 
 const label = text.workBand.controls;
-
-/** What a task keeps when only its title and detail are edited: `task.set` replaces the whole
- * editable set, so the rest is sent back as it is. */
-function kept(task: Task): Body {
-  return {
-    ...(task.acceptance ? { acceptance: task.acceptance } : {}),
-    ...(task.needsSignoff ? { needsSignoff: true } : {}),
-    ...(task.externalId !== undefined ? { externalId: task.externalId } : {}),
-  };
-}
 
 function TextField({
   label: name,
@@ -183,7 +173,7 @@ export function TaskControls({
         taskId: id,
         title: title.trim(),
         ...(detail.trim() ? { detail } : {}),
-        ...kept(task),
+        ...keptByEdit(task),
       })
     )
       setEditing(false);

@@ -1,14 +1,12 @@
 import { PROJECT_POINTS, PROJECTS_PER_PAGE } from './bootstrap.js';
 import { orderPages, pageTitle } from './page-index.js';
+import { pageStage, type PageStage } from './list-stage.js';
 import type { PageSummary } from './transport.js';
 
 /** Pages one `page.projects` request may name; `limits.rs` and the contract's Projects section hold it too. */
 export const PROJECT_REQUEST_PAGES = 64;
 
 export type PageSort = 'updated' | 'title';
-/** The stages the page list tabs name; the owner derives them from a page's tasks. */
-export type PageStage = 'in-progress' | 'discussion' | 'done';
-export const PAGE_STAGES: readonly PageStage[] = ['in-progress', 'discussion', 'done'];
 /** What the page list shows; the route search is its only stored form. */
 export interface PageFilter {
   /** Project names a page must all be in. */
@@ -31,7 +29,7 @@ export interface ProjectChange {
 export type ProjectManage =
   | { action: 'create' | 'delete'; name: string }
   | { action: 'rename'; name: string; to: string };
-export type ProjectNameError = 'empty' | 'long' | 'form';
+type ProjectNameError = 'empty' | 'long' | 'form';
 
 /**
  * The owner store's grammar: single interior spaces, no control character and no other Unicode
@@ -95,25 +93,6 @@ export function waitingCount(pages: readonly PageSummary[]): number {
   return pages.filter((page) => page.summary?.waiting).length;
 }
 
-/**
- * The stage a page's summary says. A fresh summary without work is a page with no task, so it is in
- * discussion; a page without a summary has not reported yet and is at no stage.
- */
-export function pageStage(page: PageSummary): PageStage | undefined {
-  const summary = page.summary;
-  return summary ? (summary.work?.stage ?? 'discussion') : undefined;
-}
-
-/** How many of `pages` are at each stage; a page that has not reported counts under none. */
-export function stageCounts(pages: readonly PageSummary[]): Record<PageStage, number> {
-  const counts = { 'in-progress': 0, discussion: 0, done: 0 };
-  for (const page of pages) {
-    const stage = pageStage(page);
-    if (stage) counts[stage] += 1;
-  }
-  return counts;
-}
-
 export function filterPages(
   pages: readonly PageSummary[],
   filter: PageFilter,
@@ -162,7 +141,7 @@ export function projectRequests(changes: readonly ProjectChange[]): ProjectChang
   return requests;
 }
 
-export interface ProjectWriter {
+interface ProjectWriter {
   setProjects(changes: readonly ProjectChange[]): Promise<void>;
   manageProject(change: ProjectManage): Promise<void>;
 }
