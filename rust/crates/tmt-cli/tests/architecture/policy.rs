@@ -203,6 +203,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // The offline page markup check parses a page source with the browser's tree builder
             // (#2753); only `page_check/tree.rs` imports it.
             "html5ever",
+            // The scheduled archive's report names the last activity as a local date (#2600).
+            "jiff",
         ],
         // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
         "tmt-colab-model" => &[

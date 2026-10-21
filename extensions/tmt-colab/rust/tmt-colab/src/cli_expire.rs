@@ -66,7 +66,8 @@ pub fn run(root: &Path, json_output: bool) -> Result<()> {
     if plan.clock_behind {
         rows.push((
             "clock",
-            "behind the recorded page activity; the scheduled archive waits".to_owned(),
+            "this machine's clock is behind the last recorded activity; auto-archive waits"
+                .to_owned(),
         ));
     }
     if plan.shells > 0 {
@@ -76,10 +77,11 @@ pub fn run(root: &Path, json_output: bool) -> Result<()> {
         rows.push(("more", "the next pass archives the rest".to_owned()));
     }
     rows.push((
-        "page-expiry",
-        space
-            .days()
-            .map_or_else(|| "off".to_owned(), |days| format!("{days} days")),
+        "auto-archive",
+        space.days().map_or_else(
+            || "off".to_owned(),
+            |days| format!("{days} days after last activity"),
+        ),
     ));
     tmt_cli_style::detail::write(&mut out, terminal, heading, &rows)?;
     Ok(())

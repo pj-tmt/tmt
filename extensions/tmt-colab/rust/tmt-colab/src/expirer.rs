@@ -280,7 +280,9 @@ fn pass(
     let mut view = source()?;
     let plan = plan_for(&mut view, expiry, now, shells)?;
     if plan.clock_behind {
-        report("The scheduled archive is paused: the clock is behind the recorded page activity.");
+        report(
+            "The scheduled archive is paused: this machine's clock is behind the recorded page activity.",
+        );
         return Ok(());
     }
     drop(view);
@@ -290,8 +292,10 @@ fn pass(
         }
         if let Some(done) = archive_one(sync, &idle.page)? {
             report(&format!(
-                "Archived page {} after {} days without activity (last activity {}).",
-                done.page, done.days, done.last_activity_ms
+                "Auto-archived page {} after {} days without activity (last activity {}).",
+                done.page,
+                done.days,
+                local_date(done.last_activity_ms)
             ));
             if let Some(cloud) = cloud {
                 let epoch = locked(registration).page_epoch(&done.page);
@@ -306,6 +310,22 @@ fn pass(
         }
     }
     Ok(())
+}
+
+/// `YYYY-MM-DD` of a recorded time in this machine's time zone; the raw milliseconds when the
+/// time is outside the range a date can name.
+fn local_date(ms: u64) -> String {
+    i64::try_from(ms)
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map_or_else(
+            || format!("{ms} ms"),
+            |time| {
+                time.to_zoned(jiff::tz::TimeZone::system())
+                    .strftime("%Y-%m-%d")
+                    .to_string()
+            },
+        )
 }
 
 /// Archive one page if it is still idle, judged in the signing transaction under the sync lock:
@@ -339,6 +359,19 @@ mod tests {
         let due = active.zip(days).map(|(at, days)| at + days * DAY);
         json!({"pageId": id, "archived": archived, "lastActivityAtMs": active,
             "archiveAfterDays": days, "archiveAtMs": if archived { None } else { due }})
+    }
+
+    #[test]
+    fn a_recorded_time_reads_as_a_local_date_and_an_unrepresentable_one_as_its_milliseconds() {
+        let date = local_date(1_760_000_000_000);
+        let parts: Vec<&str> = date.split('-').collect();
+        assert_eq!(
+            parts.iter().map(|part| part.len()).collect::<Vec<_>>(),
+            [4, 2, 2],
+            "{date}"
+        );
+        assert!(date.starts_with("2025-10-"), "{date}");
+        assert_eq!(local_date(u64::MAX), format!("{} ms", u64::MAX));
     }
 
     #[test]

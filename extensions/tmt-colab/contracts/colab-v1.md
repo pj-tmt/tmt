@@ -4565,8 +4565,9 @@ pass. A page that is already archived or deleted, a page with no recorded activi
 page are never archived for inactivity; if the clock is behind any recorded page activity the
 whole pass archives nothing. A `settings.json` that cannot be read archives nothing either, since the
 defaults must not stand in for an owner who may have set `off`: the pass says so and waits, and
-`expire --dry-run` reports `settingsDamaged`. Every archive is reported with the page ID, the
-days that applied and the activity it was judged on. Each owner machine serving the space runs its own pass with
+`expire --dry-run` reports `settingsDamaged`. Every archive is reported as `Auto-archived page
+<id> after <N> days without activity (last activity YYYY-MM-DD).`, with the date in this machine's
+time zone. Each owner machine serving the space runs its own pass with
 its own setting. The pass is restart-safe: an archived page is not idle. `tmt colab expire
 --dry-run` prints what the next pass would archive, changes nothing, and is the only form of the
 command.

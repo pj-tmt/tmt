@@ -7345,6 +7345,10 @@ fn expire_dry_run_lists_what_the_next_pass_archives_and_changes_nothing() {
         "{text}"
     );
     assert!(text.contains("200 days idle, limit 180 days"), "{text}");
+    assert!(
+        text.contains("auto-archive") && text.contains("180 days after last activity"),
+        "{text}"
+    );
     assert!(!text.contains(&fresh), "{text}");
     // The space setting and a page's own retention change what is due; nothing was archived.
     pilot.call(&["settings", "page-expiry", "5", "--json"]);
@@ -7378,6 +7382,21 @@ fn expire_dry_run_lists_what_the_next_pass_archives_and_changes_nothing() {
     let behind = pilot.call(&["expire", "--dry-run", "--json"]);
     assert_eq!(behind["clockBehind"], true);
     assert_eq!(behind["archive"], json!([]));
+    let behind_text = String::from_utf8(
+        pilot
+            .command()
+            .args(["expire", "--dry-run"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(
+        behind_text.contains(
+            "this machine's clock is behind the last recorded activity; auto-archive waits"
+        ),
+        "{behind_text}"
+    );
     // A settings file that cannot be read archives nothing: `off` must not silently become 180.
     set_active(&idle, now - 200 * day);
     let settings = pilot.root.join("selected/colab/settings.json");
