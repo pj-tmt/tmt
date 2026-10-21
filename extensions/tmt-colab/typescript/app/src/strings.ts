@@ -24,6 +24,8 @@ function where(excerpt: string, line: number): string {
 }
 
 const pairCommand = 'tmt remote pair';
+const frameLimit =
+  'A page’s scripts can open another address inside the page’s own frame, which can pass along what the page can read. Colab cannot fully prevent that.';
 
 export const text = {
   pageLink: {
@@ -857,8 +859,8 @@ export const text = {
   navigation: 'The page navigated. Reopen it to continue.',
   failed: 'The renderer could not start. Reopen the page to try again.',
   limit: 'This preview accepts pages up to 2 MiB of HTML.',
-  warning:
-    'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
+  frameLimit,
+  warning: `Page scripts run inside an isolated frame. ${frameLimit}`,
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
   readerOnly: 'Read-only',
   readerCanEdit: 'Can edit',

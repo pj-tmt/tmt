@@ -1,6 +1,7 @@
 import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import { homeList } from '../test/home-list.js';
+import { text } from '../src/strings.js';
 import * as c from '@tmt/colab-client';
 
 // Keep only error diagnostics: other console levels can include fixture data.
@@ -582,6 +583,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   ).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toContainText('Editors can change');
+  await expect(dialog).toContainText(text.frameLimit);
   expect(await page.locator('iframe').count()).toBe(0);
   for (const theme of ['light', 'dark']) {
     await page.evaluate((theme) => {

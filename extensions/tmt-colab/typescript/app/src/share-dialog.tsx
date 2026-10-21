@@ -469,9 +469,8 @@ export function ShareDialog({
             <section>
               <h3>Members and links</h3>
               <p>
-                Editors can change what this page’s scripts do for everyone who opens it. A page’s
-                scripts can open another address inside the page’s own frame, which can pass along
-                what the page can read. Colab cannot fully prevent that.
+                Editors can change what this page’s scripts do for everyone who opens it.{' '}
+                {text.frameLimit}
               </p>
               {view.members.map((m) => (
                 <div className="recipient" key={m.id}>
