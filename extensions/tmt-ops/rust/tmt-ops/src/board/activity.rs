@@ -117,10 +117,11 @@ impl Label {
     /// The shown state word: unknown activity has none, only the `?` that the
     /// glyph also shows, so it never reads as a fault beside the task state.
     pub fn word(&self) -> &'static str {
-        if self.state == "unknown" {
-            "?"
-        } else {
-            self.state
+        match self.state {
+            "unknown" => "?",
+            // The one vocabulary: a request that waits on the user reads Needs you.
+            "waiting" => "Needs you",
+            state => state,
         }
     }
 
@@ -303,7 +304,7 @@ mod tests {
             waiting: true,
             ..working.clone()
         };
-        assert_eq!(words(&waiting.label(true, NOW), 80), "waiting · review");
+        assert_eq!(words(&waiting.label(true, NOW), 80), "Needs you · review");
         assert_eq!(
             words(&working.label(true, NOW), 80),
             "stale 59m ago · review",

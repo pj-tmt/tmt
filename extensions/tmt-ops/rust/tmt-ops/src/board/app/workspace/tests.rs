@@ -5229,14 +5229,14 @@ fn every_surface_agrees_when_the_task_disagrees_with_core_activity() {
     use tmt_cli_style::Role;
     for (waiting, words) in [
         (false, "● working · blocked"),
-        (true, "◆ waiting · blocked"),
+        (true, "◆ Needs you · blocked"),
     ] {
         let look = crate::look::Look::default();
         let mut app = disagreeing_board(waiting, look);
         let tree = painted_member_row(&app, 160, 36);
         // The 16-cell tree cell drops the whole suffix rather than cutting `blocked`.
         let kept = if waiting {
-            "◆ waiting"
+            "◆ Needs you"
         } else {
             "● working"
         };
@@ -5559,6 +5559,8 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         ("idle", Phase::Idle, false, "◌"),
         ("waiting", Phase::Working, true, "◆"),
     ] {
+        // The activity word on screen is the one vocabulary's; the task text stays Core's.
+        let shown = if word == "waiting" { "Needs you" } else { word };
         let mut app = disagreeing_board(waiting, crate::look::Look::default());
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         snapshot
@@ -5582,7 +5584,7 @@ fn unread_replies_keep_a_task_that_repeats_the_replaced_activity_word() {
         // Control: without unread replies the repeat is left out.
         let tree = painted_member_row(&app, 160, 36);
         assert!(
-            tree.contains(&format!("{glyph} {word}")),
+            tree.contains(&format!("{glyph} {shown}")),
             "{word} tree: {tree}"
         );
         assert!(!tree.contains(&format!("· {word}")), "{word} tree: {tree}");

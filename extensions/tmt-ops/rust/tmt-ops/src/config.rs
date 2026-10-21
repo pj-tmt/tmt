@@ -122,7 +122,7 @@ pub enum DigestWindow {
 impl DigestWindow {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
-            "24h" => Some(Self::Day),
+            "24h" | "1d" => Some(Self::Day),
             "7d" => Some(Self::Week),
             "lifetime" => Some(Self::AllTime),
             _ => None,
@@ -139,7 +139,7 @@ impl DigestWindow {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Day => "24h",
+            Self::Day => "1d",
             Self::Week => "7d",
             Self::AllTime => "all time",
         }

@@ -497,7 +497,14 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
     let shown = text(&paint(&mut app, 103, 51));
     assert!(shown.contains("~3 agents"));
     assert!(!shown.contains("waiting first"));
-    assert!(shown.contains("AGENT") && !shown.contains("Needs you"));
+    assert!(shown.contains("AGENT"));
+    // No Needs you section; the words may still read on a waiting request or state cell.
+    assert!(
+        !shown
+            .lines()
+            .any(|line| line.trim().starts_with("Needs you")),
+        "{shown}"
+    );
     assert!(!shown.contains("◆ 0 waiting"));
 }
 #[test]
@@ -517,13 +524,21 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
         "Recent exchanges",
         "Digest status unavailable",
         "state unknown",
-        "Needs you",
         "f needs you",
         "open chat",
     ] {
         assert!(
             !squads.contains(retired) && !agents.contains(retired),
             "retired {retired}"
+        );
+    }
+    // The retired Needs you section had a title line; the state word reads mid-line in a row.
+    for shown in [&squads, &agents] {
+        assert!(
+            !shown
+                .lines()
+                .any(|line| line.trim().starts_with("Needs you")),
+            "retired Needs you section"
         );
     }
     for shown in [&squads, &agents] {

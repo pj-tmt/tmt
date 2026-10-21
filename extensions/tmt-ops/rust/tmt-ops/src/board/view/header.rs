@@ -470,7 +470,7 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
         .map_or(0, |attention| attention.waiting);
     if waiting > 0 {
         spans.push(Span::styled(
-            format!(" · {waiting} waiting on you"),
+            format!(" · Needs you {waiting}"),
             look.role(Role::Text),
         ));
     }

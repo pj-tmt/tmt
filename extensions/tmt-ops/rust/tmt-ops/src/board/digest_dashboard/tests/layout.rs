@@ -253,7 +253,7 @@ fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection
     let mut app = fixture();
     let selected = app.workspace.selected.clone();
     let shown = paint(&mut app, 80, 40);
-    assert!(shown.contains("ACTIVITY · last 24h"));
+    assert!(shown.contains("ACTIVITY · last 1d"));
     assert!(!shown.contains("SHARE"));
     assert!(!shown.contains("≈ $ in"));
     assert!(shown.contains("Details"));
@@ -264,7 +264,7 @@ fn narrow_table_keeps_24_hours_and_tab_exposes_exchange_matrix_without_selection
     assert_eq!(app.workspace.selected, selected);
     key(&mut app, KeyCode::Esc);
     let shown = paint(&mut app, 60, 40);
-    assert!(shown.contains("24h "));
+    assert!(shown.contains("1d "));
     assert!(!shown.contains("ACTIVITY"));
 }
 #[test]

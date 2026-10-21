@@ -663,11 +663,11 @@ fn savings_captions_keep_estimate_window_and_partial_coverage() {
     };
     assert_eq!(
         model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 24h: 18.2k (3 of 5)"
+        "Est. ctx avoided 1d: 18.2k (3 of 5)"
     );
     assert_eq!(
         model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 30),
-        "Est. avoided 24h: 18.2k (3 of 5)"
+        "Est. avoided 1d: 18.2k (3 of 5)"
     );
     value.tokens = Some(1_400_000);
     assert_eq!(
@@ -684,7 +684,7 @@ fn savings_captions_keep_estimate_window_and_partial_coverage() {
     value.included = 0;
     assert_eq!(
         model::savings_caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 24h: — (0 of 5)"
+        "Est. ctx avoided 1d: — (0 of 5)"
     );
 }
 
@@ -715,16 +715,16 @@ fn every_unit_keeps_one_label_and_changes_only_the_value() {
     };
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Tokens, 100),
-        "Est. ctx avoided 24h: 18.2k"
+        "Est. ctx avoided 1d: 18.2k"
     );
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
-        "Est. ctx avoided 24h: 12% of input"
+        "Est. ctx avoided 1d: 12% of input"
     );
     // Each unit has its own coverage.
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
-        "Est. ctx avoided 24h: ≈ $12.40 at list price (2 of 3)"
+        "Est. ctx avoided 1d: ≈ $12.40 at list price (2 of 3)"
     );
     // Lifetime has no percent: the saved choice reads as tokens.
     assert_eq!(
@@ -762,7 +762,7 @@ fn every_unit_keeps_one_label_and_changes_only_the_value() {
         value.cost.included = 3;
         assert_eq!(
             caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
-            format!("Est. ctx avoided 24h: {shown} at list price")
+            format!("Est. ctx avoided 1d: {shown} at list price")
         );
     }
     // Values that could not be combined are unavailable, named, and the note
@@ -779,25 +779,25 @@ fn every_unit_keeps_one_label_and_changes_only_the_value() {
     };
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
-        "Est. ctx avoided 24h: — (intervals differ)"
-    );
-    assert_eq!(
-        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 38),
-        "Est. avoided 24h: — (intervals differ)"
+        "Est. ctx avoided 1d: — (intervals differ)"
     );
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Percent, 37),
-        "Est. avoided 24h: —"
+        "Est. avoided 1d: — (intervals differ)"
+    );
+    assert_eq!(
+        caption(&value, DigestWindow::Day, SavingsUnit::Percent, 36),
+        "Est. avoided 1d: —"
     );
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Cost, 100),
-        "Est. ctx avoided 24h: — (prices differ)"
+        "Est. ctx avoided 1d: — (prices differ)"
     );
     // Nobody has the valuation: unavailable with its own coverage, not zero.
     value.percent = Valuation::default();
     assert_eq!(
         caption(&value, DigestWindow::Day, SavingsUnit::Percent, 100),
-        "Est. ctx avoided 24h: — (0 of 3)"
+        "Est. ctx avoided 1d: — (0 of 3)"
     );
 }
 
@@ -868,7 +868,7 @@ fn digest_usage_shows_the_estimate_for_unique_roster_members() {
     let mut app = savings_board();
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("Est. ctx avoided 24h: 18.2k"), "{shown}");
+    assert!(shown.contains("Est. ctx avoided 1d: 18.2k"), "{shown}");
 }
 
 #[test]
@@ -876,7 +876,7 @@ fn member_conversation_status_shows_the_supplied_estimate() {
     let mut app = savings_board();
     app.right_tab = crate::board::shell::RightTab::Measure;
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("≈24h: 18.2k"), "{shown}");
+    assert!(shown.contains("≈1d: 18.2k"), "{shown}");
 }
 
 #[test]
@@ -887,7 +887,7 @@ fn selected_squad_summary_shows_the_same_supplied_estimate() {
     ));
     app.workspace_reconcile();
     let shown = paint(&mut app, 160, 36);
-    assert!(shown.contains("≈24h: 18.2k"), "{shown}");
+    assert!(shown.contains("≈1d: 18.2k"), "{shown}");
 }
 
 pub(in crate::board) fn valued_document() -> serde_json::Value {
@@ -994,9 +994,9 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         let shown = paint(&mut app, 160, 36);
         assert!(
             shown.contains(if matches!(surface, "member" | "squad") {
-                "≈24h: 18.2k"
+                "≈1d: 18.2k"
             } else {
-                "Est. ctx avoided 24h: 18.2k"
+                "Est. ctx avoided 1d: 18.2k"
             }),
             "{surface}: {shown}"
         );
@@ -1006,9 +1006,9 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         let shown = paint(&mut app, 160, 36);
         assert!(
             shown.contains(if matches!(surface, "member" | "squad") {
-                "≈24h: 18%"
+                "≈1d: 18%"
             } else {
-                "Est. ctx avoided 24h: 18% of input"
+                "Est. ctx avoided 1d: 18% of input"
             }),
             "{surface}: {shown}"
         );
@@ -1018,9 +1018,9 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         let shown = paint(&mut app, 160, 36);
         assert!(
             shown.contains(if matches!(surface, "member" | "squad") {
-                "≈24h: $12.40"
+                "≈1d: $12.40"
             } else {
-                "Est. ctx avoided 24h: ≈ $12.40 at list price"
+                "Est. ctx avoided 1d: ≈ $12.40 at list price"
             }),
             "{surface}: {shown}"
         );
@@ -1030,9 +1030,9 @@ fn a_click_or_the_key_moves_every_surface_to_the_next_unit() {
         save(&mut app, effect);
         assert!(
             paint(&mut app, 160, 36).contains(if matches!(surface, "member" | "squad") {
-                "≈24h: 18.2k"
+                "≈1d: 18.2k"
             } else {
-                "Est. ctx avoided 24h: 18.2k"
+                "Est. ctx avoided 1d: 18.2k"
             })
         );
         // Lifetime has no percent: a saved percent reads as tokens and the
@@ -1090,7 +1090,7 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
             "{expected}\n{shown}"
         );
     }
-    assert!(shown.contains("Supplier context avoided 24h: 18.2k · under 1 s"));
+    assert!(shown.contains("Supplier context avoided 1d: 18.2k · under 1 s"));
     assert!(shown.contains("over 1–2 min"));
     assert!(!shown.contains(" ms"));
     // The origin is the supplier's word: each known one is named, others are not.
@@ -1155,10 +1155,10 @@ fn the_unit_hint_appears_only_beside_a_painted_estimate() {
     let shown = paint(&mut measure, 160, 44);
     assert_eq!(
         shown.contains("$ unit"),
-        shown.contains("≈24h") || shown.contains("Est. ctx avoided"),
+        shown.contains("≈1d") || shown.contains("Est. ctx avoided"),
         "unit={} est={} ctx={}",
         shown.contains("$ unit"),
-        shown.contains("≈24h"),
+        shown.contains("≈1d"),
         shown.contains("Est. ctx avoided")
     );
     // Narrow enough that the Digest line drops the estimate and no pane paints
@@ -1225,7 +1225,7 @@ fn a_clipped_or_absent_estimate_has_no_hit() {
     // The hit is the caption's own cells, never the whole row.
     assert_eq!(
         painted[0].width as usize,
-        "Est. ctx avoided 24h: 18.2k".len()
+        "Est. ctx avoided 1d: 18.2k".len()
     );
     // No hit ever extends past the cells that were painted.
     for width in [24u16, 40, 60, 100, 160] {
@@ -1290,7 +1290,7 @@ fn member_savings_remain_visible_at_each_supported_width() {
             ratatui::crossterm::event::KeyModifiers::NONE,
         ));
         let shown = paint(&mut app, width, 36);
-        assert!(shown.contains("≈24h:"), "width {width}: {shown}");
+        assert!(shown.contains("≈1d:"), "width {width}: {shown}");
         assert!(shown.contains("18.2k"), "width {width}: {shown}");
     }
 }
@@ -1303,7 +1303,7 @@ fn digest_shared_range_does_not_relabel_a_supplier_lifetime_estimate() {
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
     press(&mut app, '2');
     let shown = paint(&mut app, 160, 44);
-    assert!(shown.contains("Est. ctx avoided 24h: —"), "{shown}");
+    assert!(shown.contains("Est. ctx avoided 1d: —"), "{shown}");
     assert!(
         shown.contains("Supplier context avoided all time: 18.2k"),
         "{shown}"
@@ -1365,7 +1365,7 @@ fn window_choice_uses_the_existing_cas_and_never_relabels_old_evidence() {
         "old-window estimate cannot become a new-window value"
     );
     assert!(
-        shown.contains("Supplier context avoided 24h: 18.2k"),
+        shown.contains("Supplier context avoided 1d: 18.2k"),
         "the original source window remains inspectable"
     );
     assert_eq!(app.workspace.selected, selected);

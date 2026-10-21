@@ -257,7 +257,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ]));
     }
     sections.push(section("digest-estimate", "Digest estimate", &[
-        ("window", "Choose Digest estimate window in workspace settings: 24h, 7d or all time; the choice is shared by member, squad and Digest views."),
+        ("window", "Choose Digest estimate window in workspace settings: 1d, 7d or all time; the choice is shared by member, squad and Digest views."),
         ("Est. ctx avoided", "Estimated context input tokens avoided by delivering messages together. Assumes each message would otherwise have been delivered on its own. Not billed tokens, not cost, not turns saved."),
         ("coverage", "— means unavailable; known zero is 0. (N of M) counts included members. All time starts when each member's Digest began recording."),
         ("unit", "Click the estimate, choose Savings unit in the Actions menu, or press a key bound to savings-unit, to cycle tokens, percent of input and cost; the choice is shared by every view. Percent is not available for all time. Cost is an estimate at list price for uncached input, never money saved or a bill; Digest Details lists the price table behind it."),

@@ -485,7 +485,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 let (now, pending) =
                                     crate::board::overview::monitor::squad_now(snapshot, squad);
                                 if pending {
-                                    "waiting on you".to_owned()
+                                    "Needs you".to_owned()
                                 } else {
                                     crate::board::workspace::render::safe(&now)
                                 }

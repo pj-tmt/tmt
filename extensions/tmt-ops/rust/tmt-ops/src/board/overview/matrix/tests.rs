@@ -69,7 +69,7 @@ fn native_wide_table_draws_one_three_and_many_identities_below_the_all_row() {
                     .collect();
                 let header = lines
                     .iter()
-                    .position(|line| line.contains("CTX 24h"))
+                    .position(|line| line.contains("CTX 1d"))
                     .expect("wide table header");
                 let left = lines[header].chars().position(|c| c == '│').unwrap() + 1;
                 // The full-width footer can extend past the pane divider; it is
@@ -227,7 +227,7 @@ fn a_different_supplier_window_never_changes_the_fixed_twenty_four_hour_captions
     document["members"][0]["savings"]["window"] = serde_json::json!("7d");
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
     let matrix = Matrix::project(&app, 5);
-    assert_eq!(digest_matrix::HEADERS[4], "CTX 24h");
+    assert_eq!(digest_matrix::HEADERS[4], "CTX 1d");
     assert!(matrix.rows[0].values[3..].iter().all(Option::is_none));
     assert!(
         app.workspace_snapshot()
@@ -273,7 +273,7 @@ fn narrow_overview_keeps_the_cost_window_in_actual_frames() {
                                 lines.join("\n")
                             )
                         });
-                    assert!(cost.contains("cost avoided 24h"), "{width}/{count}: {cost}");
+                    assert!(cost.contains("cost avoided 1d"), "{width}/{count}: {cost}");
                     assert!(!cost.contains("cost avoided 2…"));
                     assert!(cost.contains("≈ $"), "cost remains an estimate: {cost}");
                 }

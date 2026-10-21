@@ -693,7 +693,7 @@ fn no_positive_reading_uses_one_summary_without_false_bar_authority() {
                 "Range dropdown remains reachable without positive tokens"
             );
             let controls = text(&paint(&mut app, 160, 44));
-            assert!(controls.contains("Range") && controls.contains("24h"));
+            assert!(controls.contains("Range") && controls.contains("1d"));
             assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
             assert!(!app.usage_controls);
             assert_eq!(app.workspace.selected, selected);
