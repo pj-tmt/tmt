@@ -328,8 +328,8 @@ not remote transport or authentication.
 Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
 whitespace, BOM, NUL, CR/LF, Unicode, and marker-like text. Stdin is
 EOF-driven with a five-second input deadline. Successful submission means the
-result was delivered, not that the task succeeded; show a brief truthful
-summary only after submission, never as completion evidence.
+result was delivered, not that the task succeeded. The reply is the whole
+answer: do not repeat it in your pane or say you replied elsewhere.
 
 An identical retry for the same request and attempt keeps the original
 `submittedAtMs`; a different body is a conflict and cannot replace the stored
@@ -341,8 +341,7 @@ use that duration from submission; pre-retention-migration requests and bodies
 keep seven days. Identical retries are safe only while the body is retained,
 with the same receipt and body; retries and reads never renew expiry.
 A missing result does not cancel the work. Surface a failed
-submission without a success summary; if final summarization fails after
-acceptance, do not resubmit.
+submission as a failure; never resubmit an accepted reply.
 
 With `--json`, reply success is `{status:"submitted",requestId,bodyBytes,submittedAtMs}`
 and result success is `{status:"completed",requestId,response,bodyBytes,submittedAtMs}`.

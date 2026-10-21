@@ -2,6 +2,7 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
+import type { PageWorkRow } from '../src/bootstrap.js';
 import { ManagementError, type ManagementPort, type Selection } from '../src/management.js';
 import type { ProjectChange, ProjectManage } from '../src/projects.js';
 import { localTransport, type PageSnapshot, type PageSummary } from '../src/transport.js';
@@ -45,8 +46,32 @@ function page(n: number, title: string, projects: string[], changes: Partial<Pag
   };
 }
 
+/** The stage a fixture page's summary reports: tasks done of all, and who works on them. */
+function work(
+  stage: 'discussion' | 'in-progress' | 'done',
+  done: number,
+  total: number,
+  working: PageWorkRow['working'] = [],
+  more?: number,
+): PageWorkRow {
+  return { stage, done, total, signoff: 0, working, ...(more ? { more } : {}) };
+}
+const idle = { comments: 0, waiting: false, needsYou: 0 };
+
 export async function mountPageList(
-  size: 'few' | 'bulk' | 'none' | 'unmanaged' | 'long' | 'full' = 'few',
+  size:
+    | 'few'
+    | 'bulk'
+    | 'none'
+    | 'unmanaged'
+    | 'long'
+    | 'full'
+    /** Pages at every stage, one that has not reported, and an archived one that was in progress. */
+    | 'stages'
+    /** Every page is in discussion: nothing in progress, nothing done. */
+    | 'quiet'
+    /** No page has reported its tasks yet, as after a cold start. */
+    | 'cold' = 'few',
   hash = '/',
 ) {
   document.getElementById('root')!.style.display = 'none';
@@ -72,53 +97,96 @@ export async function mountPageList(
   const state: { pages: PageSummary[]; projects: Set<string> } = {
     projects: new Set(),
     pages:
-      size === 'bulk'
+      size === 'stages'
         ? [
-            ...Array.from({ length: 130 }, (_, n) =>
-              page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
-            ),
-            page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
+            page(1, 'Alpha plan', ['design'], {
+              summary: {
+                ...idle,
+                work: work('in-progress', 7, 10, [
+                  { kind: 'agent', name: 'feat-1' },
+                  { kind: 'person', name: 'Ada' },
+                ]),
+              },
+            }),
+            page(2, 'Beta review', ['design'], {
+              summary: {
+                ...idle,
+                work: work(
+                  'in-progress',
+                  1,
+                  9,
+                  [
+                    { kind: 'agent', name: 'feat-1' },
+                    { kind: 'agent', name: 'feat-2' },
+                    { kind: 'agent', name: 'remote-1' },
+                  ],
+                  2,
+                ),
+              },
+            }),
+            page(3, 'Gamma notes', [], { summary: idle }),
+            page(4, 'Delta ops', ['ops'], { summary: { ...idle, work: work('done', 4, 4) } }),
+            // No summary yet: it is at no stage, so it is only in All.
+            page(5, 'Epsilon draft', []),
+            page(6, 'Archived spec', ['design'], {
+              archived: true,
+              summary: { ...idle, work: work('in-progress', 0, 2) },
+            }),
           ]
-        : size === 'none'
-          ? []
-          : [
-              // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
-              ...(size === 'long'
-                ? [
-                    page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
-                      summary: {
-                        comments: 0,
-                        waiting: false,
-                        needsYou: 0,
-                        author: 'W'.repeat(120),
-                      },
+        : size === 'quiet'
+          ? [
+              page(1, 'Gamma notes', ['design'], { summary: idle }),
+              page(2, 'Zeta notes', [], { summary: idle }),
+            ]
+          : size === 'cold'
+            ? [page(1, 'Gamma notes', ['design']), page(2, 'Zeta notes', [])]
+            : size === 'bulk'
+              ? [
+                  ...Array.from({ length: 130 }, (_, n) =>
+                    page(n + 1, `Bulk ${String(n + 1).padStart(3, '0')}`, ['old']),
+                  ),
+                  page(131, 'Bulk archived', ['old', 'z'], { archived: true }),
+                ]
+              : size === 'none'
+                ? []
+                : [
+                    // The longest names the owner admits: 32 wide characters, 32 letters, a long creator.
+                    ...(size === 'long'
+                      ? [
+                          page(6, 'Long names', ['漢'.repeat(32), 'W'.repeat(32)], {
+                            summary: {
+                              comments: 0,
+                              waiting: false,
+                              needsYou: 0,
+                              author: 'W'.repeat(120),
+                            },
+                          }),
+                        ]
+                      : []),
+                    // A page already in the most projects it can be, and one project it is not in.
+                    ...(size === 'full'
+                      ? [
+                          page(
+                            7,
+                            'Full page',
+                            Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
+                          ),
+                          page(8, 'Extra page', ['extra']),
+                        ]
+                      : []),
+                    page(1, 'Alpha plan', ['design', 'q4 plan'], {
+                      summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
                     }),
-                  ]
-                : []),
-              // A page already in the most projects it can be, and one project it is not in.
-              ...(size === 'full'
-                ? [
-                    page(
-                      7,
-                      'Full page',
-                      Array.from({ length: 8 }, (_, n) => `p${n + 1}`),
-                    ),
-                    page(8, 'Extra page', ['extra']),
-                  ]
-                : []),
-              page(1, 'Alpha plan', ['design', 'q4 plan'], {
-                summary: { comments: 3, waiting: true, needsYou: 1, author: 'Studio agent' },
-              }),
-              page(2, 'Beta review', ['design'], {
-                summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
-              }),
-              // No summary yet: the row shows only what the list already knows.
-              page(3, 'Gamma notes', []),
-              page(4, 'Delta ops', ['ops'], {
-                summary: { comments: 0, waiting: false, needsYou: 0 },
-              }),
-              page(5, 'Archived spec', ['design'], { archived: true }),
-            ],
+                    page(2, 'Beta review', ['design'], {
+                      summary: { comments: 1, waiting: false, needsYou: 0, author: 'Ada' },
+                    }),
+                    // No summary yet: the row shows only what the list already knows.
+                    page(3, 'Gamma notes', []),
+                    page(4, 'Delta ops', ['ops'], {
+                      summary: { comments: 0, waiting: false, needsYou: 0 },
+                    }),
+                    page(5, 'Archived spec', ['design'], { archived: true }),
+                  ],
   };
   for (const p of state.pages) for (const name of p.projects ?? []) state.projects.add(name);
   const snapshots: PageSnapshot[] = state.pages.map((p) => ({ ...p, source: '<h1>Fixture</h1>' }));

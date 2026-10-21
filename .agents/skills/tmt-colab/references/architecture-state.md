@@ -562,10 +562,12 @@ is added.
   them in an in-memory `SummaryCache` keyed by each page's fingerprint (epoch, membership head,
   receipt and checkpoint counts, read in the same store transaction as `page_list()`). A list
   read replies at once with the fresh entries, omits `summary` elsewhere and schedules one
-  single-flight background worker over at most `REFRESH_PAGES` stale pages; the worker folds
+  single-flight background worker (`summary::drain`) over every stale page, most recently updated
+  first (`recent_first`), reading that order again every `REFRESH_PAGES` pages; the worker folds
   through a second read-only `page::save::Source` (its own opener, `with_summary_source`), never
-  the request path's store, keyring or decoder. A failed or timed-out page keeps no summary and
-  waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
+  the request path's store, keyring or decoder. A drain folds each page at most once (its `tried`
+  set is keyed by page ID, so a page an agent keeps writing cannot hold it): a failed or timed-out
+  page keeps no summary and waits behind pages not yet tried at its fingerprint. The cached `work` is the page's own
   (`work_index::page_work`, the same derivation the CLI index uses); the list read resolves each
   fresh page's row and parent across the fresh entries with `work_links::Graph`, so a followed
   page's stage is never cached. The same projection caches complete reading
@@ -620,18 +622,20 @@ which fills a missing title by the bounded hint read; the ⌘K search is the hea
 groups, reviews) from the admitted owner fold and `page_check::summary`'s static-source quote
 associations (200 ms projection bound), without executing authored code or trusting device labels.
 The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
-zero. Returning through the existing Home loader or reloading reads again; no new polling loop.
+zero. Returning through the existing Home loader or reloading reads again; while a non-archived
+page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`).
 
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
 
 `home.tsx` renders the list from the same pages;
 `manage-page.tsx` holds the shared management dialog host. The filter lives in the route search
-(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `archived`, `needs`, `scope`; the router merges its result
+(`validateHomeSearch`: `q`, `project[]`, `by[]`, `sort`, `stage`, `archived`, `needs`, `scope`; the router merges its result
 over the raw query, so it names every key and sets an unreadable one to `undefined`), never in
 component state, so a reload, Back and the quick switcher share it; the editor (`page-list-search.tsx`, the shared
 rich input with one `FilterTokenNode` for `project:` and `by:`) holds only a draft until Enter
-applies it, and a chip click or token removal applies at once. A row's `summary` (the contract's
+applies it, and a chip click or token removal applies at once. `stage:` is a third suggestion kind that
+is never a token (below). A row's `summary` (the contract's
 Page summary section; `bootstrap.ts` validates it, including the work row and parent, and holds
 `AUTHOR_BYTES` and the 2 MiB `DISCOVERY_BYTES`) feeds the `by <creator> · updated · N comments` metadata and the
 `◆ Waiting for you` mark, and the `by:` filter and free text read the creator; a page without a
@@ -654,8 +658,18 @@ keeps search, sort and filters because `projects` arrive in `/api/pages`. The pr
 the pages shown, while the manage dialog counts every page in the project and says how many of
 them are archived.
 
-The views are the `All` and `Archived` tabs (`BrowserTabs variant="flush"`; `archived` in the route
-search selects the second, and each label counts what the scope holds). A page waiting on the viewer
+The views are the tabs In progress, Discussion, Done, Archived and All, in that order
+(`BrowserTabs variant="flush"`). `stage` in the route search selects a stage or `all`, `archived`
+selects Archived and wins, and the absent key is `DEFAULT_VIEW` (a list without the management
+port has no tabs and is every active page). Each label counts what the scope holds: an archived page
+counts only under Archived, and a page whose summary has not arrived (`pageStage` is `undefined`; a
+fresh summary without `work` is in discussion) under no stage, so it is in All only. A stage is one
+state with the search: a typed `stage:<name>` (`takeStage`, applied with Enter) or a suggestion pick
+selects the tab and leaves the search text, and a tab click removes one still typed. A row shows its
+progress and who works (`page-work.tsx`: a `<progress>`, the count in digits and at most three
+assignees from `summary.work`, the rest counted); an empty stage tab names its stage, an empty
+In progress offers Discussion and All and never opens another tab by itself, and a stage tab says
+`Reading page details…` while pages have not reported. A page waiting on the viewer
 shows `◆ Waiting for you · N`: only the ◆ is the waiting colour (the Needs you chip's mark), so the
 word and the count carry it without colour. The row's actions (open in a new tab, projects, archive, the ⋯
 menu with `Manage page`, `Archive…` (or `Restore…` when archived) and `Delete…`) show on hover or focus where there is a pointer

@@ -43,8 +43,29 @@ import {
   $selectRichInputRange,
   type RichInputRange,
 } from './components/rich-input-document.js';
+import type { PageStage } from './projects.js';
 import { text } from './strings.js';
 import './page-list-search.css';
+
+/** What the page list's tabs show: a stage, or every active page. */
+export type HomeStage = PageStage | 'all';
+export const HOME_STAGES: readonly HomeStage[] = ['in-progress', 'discussion', 'done', 'all'];
+/**
+ * The last `stage:<name>` word of the free text, taken out of it: a stage is one state with the
+ * tabs, so it never stays in the search as a token. Any other word, `stage:` with an unknown name
+ * included, stays as text.
+ */
+export function takeStage(q: string): { q: string; stage?: HomeStage } {
+  let stage: HomeStage | undefined;
+  const rest: string[] = [];
+  for (const word of q.split(/\s+/).filter(Boolean)) {
+    const named = /^stage:(.+)$/i.exec(word)?.[1]?.toLowerCase();
+    const known = HOME_STAGES.find((name) => name === named);
+    if (known) stage = known;
+    else rest.push(word);
+  }
+  return { q: rest.join(' '), ...(stage ? { stage } : {}) };
+}
 
 /** The two filters the search takes as tokens: a project the page is in, a creator it has. */
 export type FilterKind = 'project' | 'by';
@@ -235,14 +256,16 @@ const searchDocument: RichInputDocument<SearchEdit> = {
   equal: (a, b) => a.value === b.value && JSON.stringify(a.tokens) === JSON.stringify(b.tokens),
 };
 
-/** The `project:` or `by:` text before the caret in the text run it sits in; tokens are never queries. */
+/** What a suggestion list completes: a project or a creator becomes a token, a stage selects the tab. */
+export type SuggestKind = FilterKind | 'stage';
+/** The `project:`, `by:` or `stage:` text before the caret in the text run it sits in; tokens are never queries. */
 export function filterQuery(run: string, caret: number) {
-  const match = /(?:^|\s)(project|by):([^\n]*)$/i.exec(run);
+  const match = /(?:^|\s)(project|by|stage):([^\n]*)$/i.exec(run);
   if (!match) return undefined;
-  const kind = match[1].toLowerCase() as FilterKind;
+  const kind = match[1].toLowerCase() as SuggestKind;
   return {
     kind,
-    start: caret - match[2].length - TRIGGERS[kind].length,
+    start: caret - match[2].length - kind.length - 1,
     end: caret,
     query: match[2],
   };
@@ -268,6 +291,10 @@ export interface PageListSearchProps {
   projects: readonly { name: string; count: number }[];
   /** Creators of the pages the list could show, for `by:`. */
   authors: readonly { name: string; count: number }[];
+  /** The stage names `stage:` completes, with their page counts; a host without stage tabs gives none. */
+  stages?: readonly { name: string; count: number }[];
+  /** A stage picked from the suggestions: the page list selects that tab. */
+  onStage?(stage: string): void;
   /** Enter with no suggestion list open. */
   onApply(edit: SearchEdit): void;
   /** Escape with no suggestion list open. */
@@ -347,9 +374,13 @@ function SearchField(props: PageListSearchProps) {
     [editor],
   );
   const kind = query?.kind ?? 'project';
-  const taken = props.edit.tokens.filter((token) => token.kind === kind).map((token) => token.name);
+  // A stage is one state with the tabs, never a token: nothing is taken, and picking one selects it.
+  const taken =
+    kind === 'stage'
+      ? []
+      : props.edit.tokens.filter((token) => token.kind === kind).map((token) => token.name);
   const candidates = nameCandidates(
-    kind === 'project' ? props.projects : props.authors,
+    kind === 'project' ? props.projects : kind === 'by' ? props.authors : (props.stages ?? []),
     query?.query ?? '',
     taken,
   );
@@ -359,15 +390,21 @@ function SearchField(props: PageListSearchProps) {
   }));
   function choose(name: string) {
     if (!query) return;
+    const { kind: chosen } = query;
     editor.update(
       () => {
         const selection = $selectRichInputRange(query.start, query.end);
-        selection.insertNodes([new FilterTokenNode(query.kind, name), $createTextNode(' ')]);
+        if (chosen === 'stage') {
+          selection.removeText();
+          return;
+        }
+        selection.insertNodes([new FilterTokenNode(chosen, name), $createTextNode(' ')]);
         const active = $getSelection();
         if ($isRangeSelection(active)) active.format = 0;
       },
       { tag: HISTORY_PUSH_TAG, discrete: true },
     );
+    if (chosen === 'stage') current.current.onStage?.(name);
     setOpen(false);
   }
   return (

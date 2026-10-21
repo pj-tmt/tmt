@@ -5080,20 +5080,24 @@ deadline leaves the summary unavailable, never a false zero. The decoder keeps i
 
 The list's needs-you filter keeps the pages whose summary says `waiting`. A page without a
 summary is unknown, never a false zero, so the filter does not count it. Navigation back to Home
-or a browser reload makes the existing owner-list read again; there is no new polling or refresh
-loop. Chapter reading descriptors use the separate bounded owner-only read below; they never
-enter discovery.
+or a browser reload makes the existing owner-list read again. While a page that is not archived
+still has no summary, the visible Home list also reads again every 2 s, at most 15 times, and stops
+at once when every page has one or the route changes; a hidden tab does not read. Chapter reading
+descriptors use the separate bounded owner-only read below; they never enter discovery.
 
 The values come from the owner fold, which is too slow for a list read, so the serving process
 keeps them in memory (no schema, no table), each valid for the page's _fingerprint_: its epoch,
 the membership head and its receipt and checkpoint counts, read in the same store transaction
 as the list, so an accepted write or a membership change makes it stale. A read replies at once
 with the summaries that are fresh and omits `summary` for every other page; it never waits for the
-fold and shows no placeholder. It also schedules a refresh of at most 8 stale pages (`REFRESH_PAGES`),
-run by one background worker, one page at a time, through the same materialize path and 2 s decoder
-deadline as `threads`; a read that finds a worker running schedules nothing. A page whose fold
-fails or times out stays without a summary and is tried again on a later read after every page
-that has not failed at its fingerprint, never in a loop. A restart refills the cache lazily.
+fold and shows no placeholder. It also schedules a refresh of every stale page, most recently
+updated first, run by one background worker, one page at a time, through the same materialize path
+and 2 s decoder deadline as `threads`; the worker reads the order again every 8 pages
+(`REFRESH_PAGES`), so a page that changed before its turn is served next, and a read that finds a
+worker running schedules nothing. A run folds each page at most once: a page whose fold fails or
+times out stays without a summary, and one that changes after its fold waits for the next read,
+which tries the pages that have not failed at their fingerprint first. A restart refills the cache
+lazily.
 The cache holds each page's _own_ work (its derived values and, only when a task follows a page,
 its task lines); the effective `work` and `parent` are resolved from the fresh entries on every list
 read (`work_links.rs`) and never cached, because a page's stage changes when the page it follows
@@ -6161,8 +6165,10 @@ no download and follows the create-only rules above.
 
 The paired owner app exposes sharing/history, member add/remove/role, link
 create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
-the same dialog; local samples remain read-only. Home defaults to the All tab (active pages)
-and offers an Archived tab; its rows offer archive and delete, each behind a confirmation that
+the same dialog; local samples remain read-only. Home offers the tabs In progress, Discussion
+and Done (the stage of each row's `summary.work`, a fresh summary without work being in
+discussion), Archived and All, and opens on All; an archived page counts only under Archived, and a
+page whose summary has not arrived is in no stage tab. Its rows offer archive and delete, each behind a confirmation that
 names the page, and a selection of rows takes them together (one signed statement per page, in
 order, stopping at the first refusal), and the dialog provides retention days/forever, archive and explicit
 delete confirmation. An archived row offers `Restore…` with a named confirmation, using the

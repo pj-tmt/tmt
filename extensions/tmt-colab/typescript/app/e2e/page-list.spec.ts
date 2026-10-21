@@ -1277,7 +1277,11 @@ for (const width of [1440, 390, 320])
       await expect(bulkBar(page).getByRole('status')).toHaveText(selected);
     });
 
-/** Nothing on the page reaches past the viewport, and the filter rows stay inside their column. */
+/**
+ * Nothing on the page reaches past the viewport, and the filter rows stay inside their column. The
+ * tab strip scrolls on its own at phone widths, so its tabs may lie past the edge while the strip
+ * itself stays inside it.
+ */
 async function insideViewport(page: Page) {
   const report = await page.evaluate(() => {
     const width = document.documentElement.clientWidth;
@@ -1285,6 +1289,7 @@ async function insideViewport(page: Page) {
       .querySelector('#list-fixture .page-list-controls')!
       .getBoundingClientRect();
     const outside = [...document.querySelectorAll('#list-fixture *, [role="listbox"]')]
+      .filter((node) => !node.parentElement?.closest('.tmt-ui-tab-list'))
       .map((node) => ({ node, box: node.getBoundingClientRect() }))
       .filter(({ box }) => box.width > 0 && (box.right > width + 0.5 || box.left < -0.5))
       .map(({ node }) => `${node.tagName}.${(node as HTMLElement).className}`);

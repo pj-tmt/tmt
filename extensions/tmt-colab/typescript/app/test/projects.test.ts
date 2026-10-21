@@ -5,9 +5,11 @@ import {
   compareProjects,
   filterPages,
   authorCounts,
+  pageStage,
   projectCounts,
   projectNameError,
   projectRequests,
+  stageCounts,
   withProject,
   waitingCount,
   type ProjectChange,
@@ -88,6 +90,51 @@ describe('the page list', () => {
     expect(ids([], 'design notes')).toEqual([id(3)]);
     expect(ids([], 'q4 page')).toEqual([id(1)]);
     expect(ids(['missing'], '')).toEqual([]);
+  });
+  describe('stages', () => {
+    const activity = { comments: 0, waiting: false, needsYou: 0 };
+    const row = (stage: 'discussion' | 'in-progress' | 'done', done: number, total: number) => ({
+      stage,
+      done,
+      total,
+      signoff: 0,
+      working: [],
+    });
+    const staged = [
+      page(1, [], { summary: { ...activity, work: row('in-progress', 1, 3) } }),
+      page(2, [], { summary: { ...activity, work: row('done', 2, 2) } }),
+      // A fresh summary without work is a page with no task.
+      page(3, [], { summary: activity }),
+      // A page whose summary is not known yet is at no stage.
+      page(4, []),
+      page(5, [], { archived: true, summary: { ...activity, work: row('in-progress', 0, 1) } }),
+    ];
+    it('reads the stage from the summary, never inventing one for a page that has none', () => {
+      expect(staged.map(pageStage)).toEqual([
+        'in-progress',
+        'done',
+        'discussion',
+        undefined,
+        'in-progress',
+      ]);
+    });
+    it('counts the pages it is given at each stage and leaves the unknown ones out', () => {
+      expect(stageCounts(staged.filter((p) => !p.archived))).toEqual({
+        'in-progress': 1,
+        discussion: 1,
+        done: 1,
+      });
+      expect(stageCounts([])).toEqual({ 'in-progress': 0, discussion: 0, done: 0 });
+    });
+    it('keeps only the pages at the stage, alone or with the other filters', () => {
+      const ids = (stage: 'in-progress' | 'discussion' | 'done' | undefined, text = '') =>
+        filterPages(staged, { projects: [], authors: [], text, stage }, 'updated').map((p) => p.id);
+      expect(ids('in-progress')).toEqual([id(1), id(5)]);
+      expect(ids('done')).toEqual([id(2)]);
+      expect(ids('discussion')).toEqual([id(3)]);
+      expect(ids(undefined)).toHaveLength(5);
+      expect(ids('in-progress', 'page 5')).toEqual([id(5)]);
+    });
   });
   describe('needs you', () => {
     const waiting = (n: number, projects: string[] = [], author?: string) =>
