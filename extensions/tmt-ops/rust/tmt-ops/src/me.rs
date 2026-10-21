@@ -95,8 +95,8 @@ pub fn migrate(core: &Core, config: &mut Config) -> Result<(), SquadError> {
     config.clear_me()
 }
 
-/// Core's reserved `user` entry (contracts/extension-api.md) for the migrated
-/// identity: written only when absent and the metadata table has room; an
+/// Core's reserved `user` entry (the extension API contract's identity metadata
+/// section) for the migrated identity: written only when absent and the metadata table has room; an
 /// existing value, even `false`, is the person's own choice and is kept.
 fn mark_as_person(core: &Core, id: &str) -> Result<(), SquadError> {
     let listed = core.json(&["identity", "meta", "list", "--identity", id])?;
