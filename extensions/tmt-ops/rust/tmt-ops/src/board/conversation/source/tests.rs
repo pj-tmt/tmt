@@ -141,19 +141,33 @@ fn refresh_keeps_the_selected_literal_quote_without_request_identity_checks() {
 }
 
 #[test]
-fn resize_stops_a_stale_drag_without_clearing_the_frozen_quote() {
+fn a_resize_that_rewraps_the_transcript_ends_the_selection_and_its_keys() {
     let mut app = fixture("literal passage");
     let (x, y) = select_words(&mut app, "literal");
+    assert!(app.conversation.borrow().selection.is_some());
+    // The wrap width changes: the columns no longer count in the same text, so the
+    // selection cannot be shown and must not stay live behind the user's back.
     draw(&mut app, 60, 24);
-    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 14, y);
+    assert!(
+        app.conversation.borrow().selection.is_none(),
+        "a selection that cannot be seen ends"
+    );
+    assert_eq!(
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 14, y),
+        Effect::None
+    );
     assert_eq!(
         mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 14, y),
         Effect::None
     );
-    let state = app.conversation.borrow();
-    let source = state.selection.as_ref().unwrap();
-    assert_eq!(source.selected().as_deref(), Some("literal"));
-    assert!(!source.dragging());
+    app.focus = 1;
+    assert!(
+        !matches!(
+            app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            Effect::Act(Request::Copy { .. })
+        ),
+        "y copies nothing once the selection ended"
+    );
 }
 
 #[test]
@@ -412,7 +426,7 @@ fn leaving_the_conversation_never_reuses_its_old_frame_rectangle() {
 }
 
 #[test]
-fn changed_text_keeps_the_literal_quote_without_stray_partial_highlights() {
+fn changed_text_ends_the_selection_without_stray_partial_highlights() {
     let mut app = fixture("literal passage");
     let (x, y) = select_words(&mut app, "literal passage");
     mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 15, y);
@@ -428,15 +442,9 @@ fn changed_text_keeps_the_literal_quote_without_stray_partial_highlights() {
             "stale selection must not highlight coincidental glyphs"
         );
     }
-    assert_eq!(
-        app.conversation
-            .borrow()
-            .selection
-            .as_ref()
-            .unwrap()
-            .selected()
-            .as_deref(),
-        Some("literal passage")
+    assert!(
+        app.conversation.borrow().selection.is_none(),
+        "a selection whose text changed can no longer be seen, so it ends"
     );
 }
 

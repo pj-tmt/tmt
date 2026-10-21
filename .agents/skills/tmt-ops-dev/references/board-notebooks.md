@@ -193,10 +193,11 @@ lines and cell columns instead: a progress tick, new output, a growing input ban
 or a scroll keeps the highlight and the button, text out of view is clipped and
 comes back with its line, and a rebuilt transcript finds the line again by its text.
 A drag reads the pointer against the transcript as it is now and, at the pane's
-first or last row, scrolls one line per pointer event. The selection ends only on
-Esc, an outside press, a new drag, a conversation switch or when its lines are gone;
-a changed or re-wrapped transcript detaches it (nothing painted, the frozen passage
-still quotable). Quoting never depends on the agent's state. The
+first or last row, scrolls one line per pointer event, so holding the pointer still
+at the edge does not keep scrolling. The selection ends on Esc, an outside press, a
+new drag, a conversation switch, or when it can no longer be shown: its lines are
+gone, an end's text changed, or a resize re-wrapped the transcript. Quoting never
+depends on the agent's state. The
 `+ Quote` control or Enter adds a literal author/excerpt chip above the input,
 without replacing the draft text or granting request authority. Up from the first
 input line enters that chip row; Left/Right move between chips, `x` or Delete

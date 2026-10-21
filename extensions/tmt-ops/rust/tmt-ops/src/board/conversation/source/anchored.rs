@@ -33,15 +33,6 @@ impl Spot {
     }
 }
 
-pub(super) enum Resolution {
-    /// Both ends sit on their text, so the selection can be painted.
-    Attached,
-    /// The text changed or was re-wrapped. The frozen passage stays quotable.
-    Detached,
-    /// The selected lines no longer exist.
-    Gone,
-}
-
 pub(in crate::board::conversation) struct Anchored {
     pub(super) target: RowTarget,
     pub(super) key: ConversationKey,
@@ -105,12 +96,12 @@ impl Anchored {
         (first.line, last.line)
     }
 
-    /// Whether the ends differ; a bare press selects nothing.
     /// Whether the transcript still wraps as the columns were counted.
     pub(super) fn attached_to(&self, rendered: &Rendered) -> bool {
         rendered.width == self.wrap
     }
 
+    /// Whether the ends differ; a bare press selects nothing.
     pub(super) fn has_range(&self) -> bool {
         self.fixed.position() != self.moving.position()
     }
@@ -181,10 +172,11 @@ impl Anchored {
     }
 
     /// Keep both ends on their text through a rebuilt transcript: the same line
-    /// nearest to where it was, else detached while the lines still exist.
-    pub(super) fn resolve(&mut self, rendered: &Rendered) -> Resolution {
+    /// nearest to where it was. `false` when the transcript was re-wrapped or an
+    /// end's text is gone; the selection can no longer be shown, so it ends.
+    pub(super) fn resolve(&mut self, rendered: &Rendered) -> bool {
         if rendered.width != self.wrap {
-            return Resolution::Detached;
+            return false;
         }
         let text = &rendered.anchor_text;
         let mut lines = [self.fixed.line, self.moving.line];
@@ -197,8 +189,7 @@ impl Anchored {
                 .min_by_key(|index| (index.abs_diff(spot.line), Reverse(*index)))
             {
                 Some(found) => *line = found,
-                None if spot.line >= text.line_count() => return Resolution::Gone,
-                None => return Resolution::Detached,
+                None => return false,
             }
         }
         if lines != [self.fixed.line, self.moving.line] {
@@ -208,7 +199,7 @@ impl Anchored {
             let (first, last) = self.lines();
             self.backfill(rendered, first..last + 1);
         }
-        Resolution::Attached
+        true
     }
 
     /// Extend by a Shift+arrow key over the lines the frame displays

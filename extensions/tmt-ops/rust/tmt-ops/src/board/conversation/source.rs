@@ -6,7 +6,7 @@ use crate::{
     board::app::{CopyFeedback, Effect, Request},
     config::Pane,
 };
-use anchored::{Anchored, Resolution};
+use anchored::Anchored;
 use ratatui::{
     Frame,
     crossterm::event::{
@@ -308,8 +308,8 @@ fn paint_cells(frame: &mut Frame, app: &App, source: &mut Source, surfaces: &[Su
 }
 
 /// Highlight an anchored selection on the transcript lines in view, and record
-/// what they display. `None` ends the selection: its lines are gone, or it
-/// belongs to a conversation that is no longer shown.
+/// what they display. `None` ends the selection: its text changed, was re-wrapped
+/// or is gone, so it could no longer be seen.
 fn paint_text(
     frame: &mut Frame,
     app: &App,
@@ -318,10 +318,8 @@ fn paint_text(
     rendered: &super::Rendered,
     offset: usize,
 ) -> Option<()> {
-    match anchored.resolve(rendered) {
-        Resolution::Gone => return None,
-        Resolution::Detached => return Some(()),
-        Resolution::Attached => {}
+    if !anchored.resolve(rendered) {
+        return None;
     }
     let area = surface.area;
     let (first, last) = anchored.lines();
@@ -838,6 +836,7 @@ impl App {
             && let Some(rendered) = state
                 .active
                 .as_ref()
+                .filter(|key| **key == anchored.key)
                 .and_then(|key| state.sessions.get(key))
                 .and_then(|session| session.rendered.as_ref())
         {
