@@ -420,6 +420,12 @@ impl OwnerTransaction<'_> {
                 ).optional()?;
                 let (tail_seq, tail_hash) = match tail {
                     Some((seq, hash)) => (seq.parse()?, array(hash)?),
+                    // A bootstrapped stream holds the checkpoint's head, not the update's receipt.
+                    None if cp_seq != 0 => (
+                        cp_seq,
+                        hash_at(self.tx, page, &epoch.to_string(), stream, cp_seq)?
+                            .ok_or(OwnerFault::Invalid)?,
+                    ),
                     None => (0, [0; 32]),
                 };
                 result.push(Cut {
@@ -450,8 +456,13 @@ impl OwnerTransaction<'_> {
         let cut = stream_cut::decode(&bytes)?;
         let tail = values::decimal(cut.tail_head_seq, true)?;
         if tail != 0 {
-            let found: bool=self.tx.query_row("SELECT EXISTS(SELECT 1 FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=? AND hash=?)",
-                params![wrapper.page_id,wrapper.epoch,cut.stream_id,sequence(tail),cut.tail_head_hash.as_slice()],|r|r.get(0))?;
+            let found = hash_at(
+                self.tx,
+                &wrapper.page_id,
+                &wrapper.epoch,
+                cut.stream_id,
+                tail,
+            )? == Some(*cut.tail_head_hash);
             if !found {
                 return Err(OwnerFault::Invalid.into());
             }
@@ -555,16 +566,14 @@ impl OwnerTransaction<'_> {
             let previous = if seq == 1 {
                 [0; 32]
             } else {
-                array(self.tx.query_row(
-                    "SELECT hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
-                    params![
-                        cut.page,
-                        cut.epoch.to_string(),
-                        cut.stream,
-                        sequence(seq - 1)
-                    ],
-                    |r| r.get(0),
-                )?)?
+                hash_at(
+                    self.tx,
+                    &cut.page,
+                    &cut.epoch.to_string(),
+                    &cut.stream,
+                    seq - 1,
+                )?
+                .ok_or(OwnerFault::Invalid)?
             };
             out.push(StoredObject {
                 seq,

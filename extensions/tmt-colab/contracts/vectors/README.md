@@ -119,7 +119,8 @@ device), the signer's and the covered device's owner-member chains, and catch-up
 frame, then a fold frame), each case marked `admit` or `reject`. The browser test
 `test/fold-own.test.ts` replays every frame through `Admission` and `Objects`. Its `cloudCases`
 reuse those originals as log anchors and chunked folds through `HostedPageReader`; bootstrap
-requires a namespace pair. Native cloud inbound keeps the fail-closed limit in #4113. Native
+requires a namespace pair. Native cloud inbound installs the same pair and anchor (see the
+contract's native cloud bootstrap), proved by its own tests. Native
 `src/fold_vectors.rs` (a unit test, since signing a certificate is crate-private) replays the part
 the model decides: each fold's header and covered device, the anchor check, whether the signer's
 `device.revoke` lists the fold, and that a reader of today's thirteen-element header refuses a fold

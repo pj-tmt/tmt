@@ -4,7 +4,7 @@ mod bootstrap;
 pub(crate) mod epoch;
 pub use epoch::{Cut, StoredBaseline};
 
-use super::{Store, sequence};
+use super::{Store, hash_at, sequence};
 use crate::Result;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};

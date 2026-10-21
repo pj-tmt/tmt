@@ -478,7 +478,10 @@ fn reads(remote: &ScriptedRemote) -> Reads {
         };
         match query {
             sync::Query::Stream { .. } => found.tails += 1,
-            sync::Query::Discovery { scope, .. } => match scope["kind"]["stringValue"].as_str() {
+            sync::Query::Discovery { scope, .. } => match scope
+                .get("kind")
+                .and_then(|kind| kind["stringValue"].as_str())
+            {
                 Some("membership") => found.membership += 1,
                 Some("chain") => found.chains += 1,
                 _ => {}

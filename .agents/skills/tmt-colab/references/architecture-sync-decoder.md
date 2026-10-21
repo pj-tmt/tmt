@@ -27,8 +27,9 @@ and `limits.rs`; do not restate them.
   sends the anchor frame, then the fold; the browser admits both in `Objects` through
   `Admission.readFold`. A fold is not accepted as an `append` from another device yet. The cloud
   publisher sends its retained anchor in `log` before the fold pair in `checkpoints`; the hosted
-  reader admits the anchor frame before either fold. Native cloud checkpoint bootstrap remains
-  refused pending [#4113](https://github.com/pj-tmt/tmt/issues/4113).
+  reader admits the anchor frame before either fold. Native cloud inbound installs a pair (and a
+  fold's anchor) for a stream it holds nothing of with `Store::bootstrap`, one transaction; the
+  stream position is `store::position`, the one definition `stream_head` and `append_in` share.
   `contracts/vectors/fold-v1.json` is replayed by `src/fold_vectors.rs`, `tests/fold_vectors.rs` and
   `test/fold-own.test.ts`.
 - Overflow, an unknown or pruned cursor and any abnormal close end in `RESYNC_REQUIRED`:

@@ -28,6 +28,42 @@ pub(crate) enum Tail {
     Malformed,
 }
 
+/// One complete checkpoint or fold object found in the cloud, still to be admitted.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Found {
+    /// The stream it covers: a fold's covered device, else its author.
+    pub stream: String,
+    pub namespace: String,
+    pub fold: bool,
+    pub seq: u64,
+    /// The update hash at `seq` that it binds.
+    pub previous: [u8; 32],
+    pub bytes: Vec<u8>,
+}
+/// Every checkpoint object of a page the cloud holds whole, from one discovery run. A record that
+/// cannot be read as one belongs to no stream and is left out.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Checkpoints {
+    pub found: Vec<Found>,
+}
+/// What the cloud holds for the stream a bootstrap was asked for.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Boot {
+    /// The latest pair of the stream, content then own, as exact originals; and, for a fold, the
+    /// exact update it binds.
+    Pair {
+        pair: Vec<Vec<u8>>,
+        anchor: Option<Vec<u8>>,
+    },
+    /// Only part of the latest pair is in the cloud yet: the next change of the checkpoints asks
+    /// again.
+    Waiting,
+    /// The cloud holds nothing this stream can start from.
+    Unavailable,
+    /// A record of this stream disagrees with its routing or with the other half of its pair.
+    Malformed,
+}
+
 pub(crate) struct Reader {
     client: SealedClient,
     binding: String,
@@ -127,6 +163,145 @@ impl Reader {
             out.push(bytes);
         }
         Ok(out)
+    }
+    /// The document with this exact ID, if the provider holds it.
+    fn read(&self, resource: &str, id: &str) -> Result<Option<sync::Document>, Fault> {
+        match self.request(sync::Call::Read {
+            binding: self.binding.clone(),
+            target: sync::Target {
+                resource: resource.into(),
+                id: id.into(),
+            },
+        })? {
+            sync::Outcome::Read { document } => Ok(document),
+            // Colab's Rules allow a get only on a document that exists, so the provider refuses
+            // the get of an absent one, and a refusal here reads as absent.
+            sync::Outcome::Error { error } if error.code == sync::Code::Denied => Ok(None),
+            sync::Outcome::Error { error } => Err(refusal(&error)),
+            _ => Err(Fault::Retry),
+        }
+    }
+    /// Every checkpoint object of the page that the cloud holds whole, in one discovery run. An
+    /// object whose chunks are still being written is not listed: the publisher confirms only a
+    /// whole one, and the next change of the checkpoints brings the rest.
+    pub(crate) fn checkpoints(&self, page: &PageRef) -> Result<Checkpoints, Fault> {
+        let scope = sealed_documents::page_scope(&page.space, &page.page, page.epoch)
+            .map_err(|_| malformed())?;
+        let mut objects: BTreeMap<String, Vec<(u64, u64, sync::Document)>> = BTreeMap::new();
+        for document in self.discover("checkpoints", "objects", scope)? {
+            let Ok(fields) = sealed_documents::decode(Resource::Checkpoints, &document) else {
+                continue;
+            };
+            let (
+                Some(sealed_documents::Field::String(object)),
+                Some(sealed_documents::Field::Integer(index)),
+                Some(sealed_documents::Field::Integer(count)),
+            ) = (
+                fields.get("object"),
+                fields.get("index"),
+                fields.get("count"),
+            )
+            else {
+                continue;
+            };
+            let (Ok(index), Ok(count)) = (index.parse::<u64>(), count.parse::<u64>()) else {
+                continue;
+            };
+            objects
+                .entry(object.clone())
+                .or_default()
+                .push((index, count, document));
+        }
+        let mut found = Vec::new();
+        for (_, mut chunks) in objects {
+            chunks.sort_by_key(|(index, ..)| *index);
+            let partial = (chunks.len() as u64) < chunks[0].1
+                && chunks
+                    .iter()
+                    .enumerate()
+                    .all(|(index, chunk)| chunk.0 == index as u64);
+            if partial {
+                continue;
+            }
+            let documents: Vec<_> = chunks.into_iter().map(|(.., document)| document).collect();
+            let Ok(original) = originals::checkpoint(&documents) else {
+                continue;
+            };
+            let context = &original.header.context;
+            let Ok(seq) = context.stream_seq.parse::<u64>() else {
+                continue;
+            };
+            found.push(Found {
+                stream: original
+                    .header
+                    .covered_device
+                    .clone()
+                    .unwrap_or_else(|| context.author_device.clone()),
+                namespace: context.namespace.clone(),
+                fold: original.header.covered_device.is_some(),
+                seq,
+                previous: context.prev_hash,
+                bytes: original.bytes,
+            });
+        }
+        Ok(Checkpoints { found })
+    }
+    /// What `stream` can start from, out of the page's checkpoints: its latest pair of both
+    /// namespaces at one sequence and head, and for a fold the update it binds, read by exact ID
+    /// from the log. Nothing here is admitted.
+    pub(crate) fn bootstrap(
+        &self,
+        page: &PageRef,
+        checkpoints: &Checkpoints,
+        stream: &str,
+    ) -> Result<Boot, Fault> {
+        let mine: Vec<&Found> = checkpoints
+            .found
+            .iter()
+            .filter(|found| found.stream == stream)
+            .collect();
+        let Some(latest) = mine.iter().map(|found| found.seq).max() else {
+            return Ok(Boot::Unavailable);
+        };
+        let at: Vec<&Found> = mine.into_iter().filter(|f| f.seq == latest).collect();
+        let content = at.iter().find(|found| found.namespace == "content");
+        let own = at.iter().find(|found| found.namespace == "own");
+        let (Some(content), Some(own)) = (content, own) else {
+            return Ok(if at.len() == 1 {
+                Boot::Waiting
+            } else {
+                Boot::Malformed
+            });
+        };
+        if at.len() != 2 || content.previous != own.previous {
+            return Ok(Boot::Malformed);
+        }
+        let anchor = if content.fold || own.fold {
+            let id = format!(
+                "{}_{}_{}_{stream}_{latest}",
+                page.space, page.page, page.epoch
+            );
+            let Some(document) = self.read("log", &id)? else {
+                return Ok(Boot::Unavailable);
+            };
+            let Ok(original) = originals::log(&document) else {
+                return Ok(Boot::Malformed);
+            };
+            let context = &original.header.context;
+            if context.author_device != stream
+                || context.page != page.page
+                || context.stream_seq != latest.to_string()
+            {
+                return Ok(Boot::Malformed);
+            }
+            Some(original.bytes)
+        } else {
+            None
+        };
+        Ok(Boot::Pair {
+            pair: vec![content.bytes.clone(), own.bytes.clone()],
+            anchor,
+        })
     }
     /// The contiguous log originals of `stream` after `after`, at most one provider page.
     pub(crate) fn tail(&self, page: &PageRef, stream: &str, after: u64) -> Result<Tail, Fault> {
