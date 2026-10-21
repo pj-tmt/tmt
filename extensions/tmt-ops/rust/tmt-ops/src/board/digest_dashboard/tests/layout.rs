@@ -372,3 +372,96 @@ fn mixed_batch_windows_and_missing_agents_cannot_manufacture_an_aggregate_or_zer
     );
     assert!(super::super::metrics::activity(Some(&report), &[&ids[0], "unavailable"])[1].is_some());
 }
+
+#[test]
+#[ignore = "local release-mode Digest event/draw evidence; not a CI threshold"]
+fn digest_event_draw_timing() {
+    if cfg!(debug_assertions) {
+        panic!("run the Digest probe with --release");
+    }
+    use super::super::metrics;
+    use crate::board::timing::probe::{measure, report};
+    use ratatui::{Terminal, backend::TestBackend};
+    crate::status::with_now_ms(187_000_000, || {
+        for count in [150, 1_000, 10_000] {
+            let mut app = crate::board::app::workspace::tests::populated_board(36, count);
+            app.shell.tab = crate::board::shell::OpsTab::Digest;
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .preferences
+                .tok_range = crate::config::TokRange::Day;
+            let template = metrics::report(&fixture()).unwrap().seats[0].clone();
+            let ids: Vec<_> = app
+                .workspace_snapshot()
+                .unwrap()
+                .roster
+                .members
+                .keys()
+                .cloned()
+                .collect();
+            app.view
+                .as_mut()
+                .unwrap()
+                .home
+                .as_mut()
+                .unwrap()
+                .workspace
+                .identity_ids = ids.clone().into();
+            let seats = ids
+                .iter()
+                .enumerate()
+                .map(|(index, id)| {
+                    let mut seat = template.clone();
+                    seat.who.id = Some(id.clone());
+                    seat.input = index as u64 + 1;
+                    seat
+                })
+                .collect();
+            app.usage_report
+                .apply(crate::board::usage_report::Delivery {
+                    since: crate::config::TokRange::Day,
+                    result: Ok(crate::board::usage_report::Report {
+                        since: crate::config::TokRange::Day,
+                        observed_at_ms: 186_400_000,
+                        window_from_ms: Some(100_000_000),
+                        seats,
+                        unavailable: vec![],
+                        exchange: None,
+                        warnings: vec![],
+                    }),
+                });
+            app.workspace_reconcile();
+            let mut terminal = Terminal::new(TestBackend::new(160, 36)).unwrap();
+            let _no_commands = crate::runner::forbid_commands();
+            for _ in 0..10 {
+                measure(&mut app, &mut terminal, |_, _| {});
+            }
+            report(
+                count,
+                "digest-steady",
+                (0..100)
+                    .map(|_| measure(&mut app, &mut terminal, |_, _| {}))
+                    .collect(),
+            );
+            report(
+                count,
+                "digest-row-step",
+                (0..100)
+                    .map(|_| {
+                        measure(&mut app, &mut terminal, |app, _| {
+                            assert_eq!(
+                                app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                                Effect::None
+                            );
+                        })
+                    })
+                    .collect(),
+            );
+        }
+    });
+}

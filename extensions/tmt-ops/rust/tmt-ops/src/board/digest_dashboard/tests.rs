@@ -1067,6 +1067,10 @@ fn details_carry_the_price_table_and_the_quote_behind_each_figure() {
             line[usize::from(pane.x)..usize::from(pane.right())]
                 .iter()
                 .collect::<String>()
+                .trim()
+                .trim_matches('│')
+                .trim()
+                .to_owned()
         })
         .collect::<Vec<_>>()
         .join(" ");
