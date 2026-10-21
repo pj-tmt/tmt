@@ -3609,6 +3609,15 @@ describe('required CI gate', () => {
     expect(acceptance).toContain('cancel-in-progress: false');
     expect(acceptance).toContain('runs-on: ubuntu-24.04');
     expect(acceptance).toContain('timeout-minutes: 30');
+    expect(acceptance.indexOf('name: Record acceptance job start')).toBeLessThan(
+      acceptance.indexOf('uses: actions/checkout@v4')
+    );
+    expect(acceptance).toContain('TMT_ACCEPTANCE_STARTED_AT=$(date +%s)');
+    expect(acceptance).not.toContain('actions: read');
+    expect(acceptance).toContain('node scripts/colab-acceptance-run.mjs ${{ matrix.shard }} pnpm');
+    expect(acceptance).toContain(
+      'name: Prove the real producer and hosted reader through the emulators\n        timeout-minutes: 3'
+    );
     expect(acceptance).toContain('permissions:\n      contents: read');
     expect(acceptance).not.toContain('CARGO_BUILD_JOBS:');
     expect(acceptance).toContain('cargo build --locked --manifest-path rust/Cargo.toml -j 2');
