@@ -2775,7 +2775,8 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
   it('timeout and answer notifications reach an opted-in originator through its channel only', async () => {
     await withE2EFixture(async (fixture) => {
       // The mock stalls after logging the timeout notice, so the late answer is
-      // committed before that notice's hint is evaluated (#3835).
+      // committed while the mock still handles it (#3835): that notice must not
+      // yield a hint-response.
       const boss = start(fixture, 'Boss', {
         channel: true,
         env: { MOCK_AUTOREPLY: '0', MOCK_RESULT_ON_HINT: '1', MOCK_STALL_FIRST_CHANNEL_MS: '3000' },
