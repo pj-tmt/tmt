@@ -24,6 +24,7 @@ mod object_channel;
 pub use object_channel::{Client as SealedClient, Error as ChannelError};
 pub mod page;
 pub mod page_check;
+pub mod page_expiry;
 pub mod projects;
 pub mod publication;
 pub mod readers;

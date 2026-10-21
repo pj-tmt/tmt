@@ -4528,6 +4528,17 @@ writable unless signed archive/delete policy forbids it. Local retention accepts
 its existing positive day count or forever; this is separate from the finite
 cloud lifetime. Local data is never automatically deleted.
 
+The space's page expiry (#2600) is the days a page may sit without activity before it is
+archived: 180 by default. `tmt colab settings page-expiry DAYS|off|default` sets it to a whole
+number from 1 through 3650, to `off` (never archive for inactivity), or back to the default. It
+is a machine-local setting in `settings.json` (`{"pageExpiry": N|"off"}`, absent for the
+default; any other value makes the file read as damaged and the defaults apply) and settings
+output reports it as `pageExpiryDays`, null for `off`. A page's own signed `retention.set`
+overrides it (`forever` never archives), and one function decides which applies: a page with no
+`retention.set` takes the space's setting. Each owner machine applies its own setting, so where
+several machines serve one space the shortest wins. The setting signs nothing and changes no
+stored statement. Nothing applies it yet; the scheduled archive of #2600 will.
+
 Firestore Rules deny expired reads; owner cleanup of expired cloud data is admitted.
 The browser/CLI cleanup caller is part of the pending relay binding. Optional Blaze
 TTL is eventual physical cleanup, not timely revocation.
