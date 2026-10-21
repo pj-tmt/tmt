@@ -21,7 +21,7 @@ fn metrics_reuse_observed_values_and_never_write_the_unit_preference() {
     let rows = rows(&app, &summary(&app));
     assert_eq!(rows[0].amount.as_deref(), Some("0"));
     assert_eq!(rows[1].amount.as_deref(), Some("1 · 0 · 0"));
-    assert_eq!(rows[2].key, "ctx avoided 24h");
+    assert_eq!(rows[2].key, "ctx avoided 1d");
     assert_eq!(rows[2].amount.as_deref(), Some("18.2k"));
     assert_eq!(rows[3].amount.as_deref(), Some("≈ $12.40 at list price"));
     assert_eq!(rows[4].amount.as_deref(), Some("2026-10-14"));
@@ -85,7 +85,7 @@ fn narrow_cost_rows_keep_the_full_window_before_the_price_basis_note() {
                 (None, "", "—"),
             ] {
                 let metric = Metric {
-                    key: "cost avoided 24h".into(),
+                    key: "cost avoided 1d".into(),
                     amount: amount.map(str::to_owned),
                     coverage: coverage.into(),
                     note: None,
@@ -104,7 +104,7 @@ fn narrow_cost_rows_keep_the_full_window_before_the_price_basis_note() {
                         .iter()
                         .map(|cell| cell.symbol())
                         .collect::<String>();
-                    assert!(line.contains("cost avoided 24h"), "{line}");
+                    assert!(line.contains("cost avoided 1d"), "{line}");
                     assert!(line.contains(expected), "{line}");
                     assert!(!line.contains("cost avoided 2…"));
                     assert_eq!(

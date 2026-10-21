@@ -5,6 +5,7 @@ use super::*;
 use crate::{
     board::{
         app::{Choice, Request},
+        header_sort::Header,
         shell::OpsTab,
         workspace::AgentsFilter,
     },
@@ -76,13 +77,21 @@ fn the_window_word_is_a_hit_beside_the_tok_word_in_both_lists() {
             let line = &rows[usize::from(area.y)];
             let before: String = line.chars().take(usize::from(area.x)).collect();
             assert!(before.ends_with("TOK "), "{name} {range:?}: {line}");
-            // The hit never covers the TOK word, which stays free for a sort hit.
+            // The hit never covers the TOK word, which only the flat list's sort hit owns.
             let tok_end = area.x - 1;
             assert_eq!(area.width, 2, "{name} {range:?}");
-            for (other, _) in app.workspace_strip_hits.borrow().iter() {
-                assert!(
-                    !other.contains((tok_end - 1, area.y).into()),
-                    "{name} {range:?}: a hit covers the TOK word"
+            for (other, choice) in app.workspace_strip_hits.borrow().iter() {
+                if matches!(choice, Choice::TokRange(_)) {
+                    continue;
+                }
+                assert!(!other.intersects(area), "{name} {range:?}: {choice:?}");
+                assert_eq!(
+                    other.contains((tok_end - 1, area.y).into()),
+                    *choice
+                        == Choice::SortBy(Header::Overview(
+                            crate::config::OverviewColumn::TokensPerHour
+                        )),
+                    "{name} {range:?}: {choice:?} on the TOK word"
                 );
             }
         }

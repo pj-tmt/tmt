@@ -294,7 +294,12 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
             ..inside
         },
     );
-    if let Some(chip) = columns::paint_agents_header(
+    let marks = crate::board::header_sort::Marks::new(
+        app.workspace_order(),
+        app.header_hover,
+        app.cron_glyphs,
+    );
+    let header = columns::paint_agents_header(
         frame.buffer_mut(),
         Rect {
             y: inside.y + rule_height,
@@ -305,11 +310,19 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
         look,
         app.cron_glyphs,
         app.tok_range(),
-    ) {
-        app.workspace_strip_hits
-            .borrow_mut()
-            .push((chip, Choice::TokRange(app.tok_range().next())));
+        &marks,
+    );
+    let mut strip_hits = app.workspace_strip_hits.borrow_mut();
+    if let Some(chip) = header.window {
+        strip_hits.push((chip, Choice::TokRange(app.tok_range().next())));
     }
+    strip_hits.extend(
+        header
+            .sorts
+            .into_iter()
+            .map(|(area, header)| (area, Choice::SortBy(header))),
+    );
+    drop(strip_hits);
     let body = Rect::new(
         inside.x,
         inside.y + rule_height + header_height,
@@ -485,7 +498,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect) {
                                 let (now, pending) =
                                     crate::board::overview::monitor::squad_now(snapshot, squad);
                                 if pending {
-                                    "waiting on you".to_owned()
+                                    "Needs you".to_owned()
                                 } else {
                                     crate::board::workspace::render::safe(&now)
                                 }

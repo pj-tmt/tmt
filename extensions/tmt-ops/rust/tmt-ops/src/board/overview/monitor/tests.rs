@@ -148,7 +148,7 @@ fn agents_omit_the_waiting_note_when_none_are_waiting() {
         .map(|cell| cell.symbol())
         .collect();
     assert!(line.trim_end().ends_with("3 agents"));
-    assert!(!line.contains("waiting first") && !line.contains('◆'));
+    assert!(!line.contains("need you first") && !line.contains('◆'));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn filtered_counts_keep_the_admitted_denominator_in_both_views() {
                 lines[filter]
             );
             assert!(!lines[filter + 2].contains(" of "));
-            assert!(!lines[filter + 2].contains("waiting first"));
+            assert!(!lines[filter + 2].contains("need you first"));
         }
     }
 }
@@ -394,32 +394,6 @@ fn authored_sort_changes_only_the_layer_order_and_retains_the_selected_uuid() {
     assert_eq!(app.workspace_snapshot().unwrap().preferences, preferences);
 }
 #[test]
-fn the_retired_table_header_has_no_pointer_sort_or_recipient_authority() {
-    let mut app = board();
-    paint(&mut app, 103, 51);
-    let selected = app.workspace.selected.clone();
-    let order = app.workspace_order();
-    let body = app
-        .workspace_placement(app.conversation.borrow().area)
-        .unwrap()
-        .list
-        .unwrap();
-    assert_eq!(
-        app.mouse(
-            MouseEvent {
-                kind: MouseEventKind::Down(MouseButton::Left),
-                column: body.x + 2,
-                row: body.y + 1,
-                modifiers: KeyModifiers::NONE
-            },
-            std::time::Instant::now()
-        ),
-        Effect::None
-    );
-    assert_eq!(app.workspace_order(), order);
-    assert_eq!(app.workspace.selected, selected);
-}
-#[test]
 fn real_frames_publish_only_clipped_agent_hits_and_neutral_state_words() {
     for width in [60, 103, 148, 160] {
         for height in [8, 18, 36, 51] {
@@ -496,9 +470,16 @@ fn missing_sources_stay_unknown_instead_of_claiming_zero_waiting() {
     app.overview_rows.borrow_mut().clear();
     let shown = text(&paint(&mut app, 103, 51));
     assert!(shown.contains("~3 agents"));
-    assert!(!shown.contains("waiting first"));
-    assert!(shown.contains("AGENT") && !shown.contains("Needs you"));
-    assert!(!shown.contains("◆ 0 waiting"));
+    assert!(!shown.contains("need you first"));
+    assert!(shown.contains("AGENT"));
+    // No Needs you section; the words may still read on a waiting request or state cell.
+    assert!(
+        !shown
+            .lines()
+            .any(|line| line.trim().starts_with("Needs you")),
+        "{shown}"
+    );
+    assert!(!shown.contains("◆ 0 need you"));
 }
 #[test]
 fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
@@ -517,13 +498,21 @@ fn final_primary_sections_replace_the_legacy_summaries_and_recent_table() {
         "Recent exchanges",
         "Digest status unavailable",
         "state unknown",
-        "Needs you",
         "f needs you",
         "open chat",
     ] {
         assert!(
             !squads.contains(retired) && !agents.contains(retired),
             "retired {retired}"
+        );
+    }
+    // The retired Needs you section had a title line; the state word reads mid-line in a row.
+    for shown in [&squads, &agents] {
+        assert!(
+            !shown
+                .lines()
+                .any(|line| line.trim().starts_with("Needs you")),
+            "retired Needs you section"
         );
     }
     for shown in [&squads, &agents] {

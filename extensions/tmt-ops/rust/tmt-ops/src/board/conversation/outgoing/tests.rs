@@ -337,7 +337,7 @@ fn sent_feedback_uses_provider_time_even_when_request_attention_and_task_disagre
             let _no_acquisition = crate::runner::forbid_commands();
             let screen = crate::status::with_now_ms(SENT + 42_000, || draw(&app));
             assert!(screen.contains(expected), "{screen}");
-            assert!(screen.contains("waiting · blocked · product"), "{screen}");
+            assert!(screen.contains("Needs you · blocked · product"), "{screen}");
             assert_eq!(
                 app.conversation
                     .borrow()
@@ -1075,7 +1075,7 @@ fn a_new_incoming_question_does_not_discard_an_unsettled_send() {
 #[test]
 fn header_shows_core_activity_and_feedback_never_infers_it_from_task_state() {
     use crate::board::app::workspace::tests::{MEMBER, ROOM};
-    for (waiting, words) in [(false, "working · blocked"), (true, "waiting · blocked")] {
+    for (waiting, words) in [(false, "working · blocked"), (true, "Needs you · blocked")] {
         let mut app = crate::board::app::workspace::tests::board();
         let snapshot = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
         let membership = snapshot.roster.squads[0]

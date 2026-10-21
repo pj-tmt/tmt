@@ -208,7 +208,7 @@ fn digest_window_uses_supplier_arguments_and_honest_display_names() {
     use crate::config::DigestWindow;
     assert_eq!(DigestWindow::default(), DigestWindow::Day);
     for (window, argument, label) in [
-        (DigestWindow::Day, "24h", "24h"),
+        (DigestWindow::Day, "24h", "1d"),
         (DigestWindow::Week, "7d", "7d"),
         (DigestWindow::AllTime, "lifetime", "all time"),
     ] {

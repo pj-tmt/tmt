@@ -175,6 +175,11 @@ pub const WORK_BYTES: usize = 128 * 1024;
 /// The highest task number; `next` may reach one past it, and a task is never numbered twice.
 pub const WORK_ID_MAX: u64 = 9_999_999;
 pub const WORK_TITLE_POINTS: usize = 120;
+/// The longest page title the owner's local title projection keeps, in UTF-8 bytes: a longer one is
+/// not stored, so every consumer's reply stays bounded and shows its own fallback instead. The title
+/// is measured after it is made one line of plain text (control and bidirectional formatting
+/// characters become spaces, whitespace collapses).
+pub const PAGE_TITLE_BYTES: usize = 512;
 pub const WORK_DETAIL_BYTES: usize = 4096;
 pub const WORK_REASON_BYTES: usize = 256;
 pub const WORK_NAME_BYTES: usize = 128;

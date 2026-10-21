@@ -302,8 +302,8 @@ Digest keeps the same identity context and existing Core-owned policy controls. 
 squad's theme applies to Agents/Digest.
 Member conversation status, selected-squad usage and the Measure Digest table show `Est. ctx avoided`: Digest's estimate of context input tokens avoided by batching,
 not billed tokens, cost or turns saved. In workspace settings (`,`), choose the shared
-Digest estimate window: 24h (default), 7d or all time. The saved preference is
-`workspace.digest_window` (`24h`, `7d`, `lifetime`). `—` means unavailable; known zero
+Digest estimate window: 1d (default), 7d or all time. The saved preference is
+`workspace.digest_window` (`24h` or `1d`, `7d`, `lifetime`). `—` means unavailable; known zero
 is `0`. Partial sums show `(N of M)` included members. All time begins separately
 for each member when Digest started recording; the detail names those local dates.
 The Measure Digest table sums the agents it counts and follows with the estimate only
@@ -339,7 +339,7 @@ the separate Needs you section are absent. Unreported data stays unknown.
 Usage sits above the body panes and shows
 the selected window and total. Independent Range and Time per bar dropdowns use Enter to
 open/pick, arrows to navigate and Esc to close; the current choice is checked.
-Range offers 1h, 6h, 24h, 7d and 30d. Time per bar offers Automatic, 5m, 15m,
+Range offers 1h, 6h, 1d, 7d and 30d. Time per bar offers Automatic, 5m, 15m,
 30m, 1h, 2h, 6h, 12h and 1d, hiding intervals longer than the range. The button
 shows the time represented by one bar, such as `2h per bar (auto)`. Choices exceeding
 720 bars stay visible but disabled, with the minimum time per bar explained in the
@@ -411,7 +411,7 @@ savings-unit preference. Small widths stack the lower modules. Wide screens put 
 agent's exchange and a filled three-row reply field above Timers and a Digest
 table: a bold all row for scoped totals, then the agents with the highest observed
 TOK 1h, one per row as height allows. Metric labels are muted and numbers align
-right without truncation. Unreported cells stay `—`. The fixed 24h estimate columns require matching
+right without truncation. Unreported cells stay `—`. The fixed 1d estimate columns require matching
 supplier observations. The idle field shows its effective start key; factory Enter
 replies to the selected incoming request, and authored bindings retain precedence.
 The active field uses Enter to send and Escape to retain its draft. Its fill is
@@ -481,7 +481,13 @@ Tab moves between the tree and conversation. `1`/`2`/`3` switch
 sections only when an editor, search, completion, overlay or conversation has not
 claimed the key. The compatible `p` action retains saved identity pins
 without changing waiting order. Keyboard sort is opt-in: bind `sort` or
-`reverse-sort` in the usual binding table.
+`reverse-sort` in the usual binding table. Column headers sort without a binding:
+the pointer turns a header word accent with `↕` (`~` in ASCII), a click sorts by it
+(TOK starts with the most tokens) and a second click reverses it. The flat Agents
+list sorts by AGENT, SQUAD, STATE, TOK and MODEL; the Squads tree by `SQUAD / AGENT`
+(name) and STATE (attention). The sorted word shows `↑` or `↓` (`^`, `v` in ASCII);
+on TOK the mark takes the blank cell before the word. A click changes only the saved
+order, never the selection or a message.
 In Agents, `p` pins/unpins a squad. `n`
 creates a squad, `m` manages a squad or assigns a member, `x` removes only the
 selected membership, `D` opens Digest and `c` opens Timers. The compact footer omits Digest, Manage, Create, Remove and Details;

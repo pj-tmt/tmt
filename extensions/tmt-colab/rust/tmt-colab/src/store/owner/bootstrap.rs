@@ -8,6 +8,24 @@ pub(crate) struct MembershipPage {
     pub revision: u64,
     pub more: bool,
 }
+/// A page title as one line of plain display text: control and bidirectional formatting characters
+/// become spaces and runs of whitespace collapse. `None` when nothing is left. The projection's one
+/// definition of displayable, so the catalog and the cards never re-validate a title.
+pub(crate) fn display_title(title: &str) -> Option<String> {
+    let cleaned: String = title
+        .chars()
+        .map(|c| {
+            let bidi = matches!(
+                c,
+                '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+            );
+            if c.is_control() || bidi { ' ' } else { c }
+        })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
 impl OwnerTransaction<'_> {
     pub(crate) fn membership_page(
         &self,
@@ -201,6 +219,64 @@ impl OwnerTransaction<'_> {
     /// readings that no authority change may be waited on (the work index).
     pub(crate) fn page_progress(&self) -> Result<std::collections::BTreeMap<String, String>> {
         self.selected_page_fingerprints(None, false)
+    }
+    /// The owner's local plaintext title of a page, display-only projection state (#4218). It is
+    /// stored only while `expected` is still the page's fingerprint: the one the verified fold that
+    /// produced `title` started from, so a page that changed meanwhile (an edit, a membership change,
+    /// an archive or a delete) keeps its old row, or none, until its next fold. The title is stored as
+    /// [`display_title`] makes it; one that is then empty or over [`crate::limits::PAGE_TITLE_BYTES`]
+    /// is not stored and removes the older row, so every consumer reads only text it can show.
+    /// Returns whether a row was written.
+    pub fn record_page_title(&mut self, page: &str, expected: &str, title: &str) -> Result<bool> {
+        values::generated_id(page).map_err(|_| OwnerFault::Invalid)?;
+        if self.page_fingerprint(page)?.as_deref() != Some(expected) {
+            return Ok(false);
+        }
+        let Some(title) =
+            display_title(title).filter(|t| t.len() <= crate::limits::PAGE_TITLE_BYTES)
+        else {
+            self.drop_page_title(page)?;
+            return Ok(false);
+        };
+        let progress = self
+            .selected_page_fingerprints(Some(page), false)?
+            .remove(page)
+            .ok_or(OwnerFault::Invalid)?;
+        self.tx.execute(
+            "INSERT INTO page_titles(page,progress,title) VALUES (?1,?2,?3)
+             ON CONFLICT(page) DO UPDATE SET progress=excluded.progress,title=excluded.title",
+            params![page, progress, title],
+        )?;
+        Ok(true)
+    }
+    /// An archive, like a delete, takes the page's title row away; unarchiving leaves it absent
+    /// until the next verified fold writes it again.
+    pub(crate) fn drop_page_title(&self, page: &str) -> Result<()> {
+        self.tx
+            .execute("DELETE FROM page_titles WHERE page=?", [page])?;
+        Ok(())
+    }
+    /// The title rows still valid for their page: a row whose progress key is no longer the page's
+    /// is stale and left out. Holding no row is never an error; the caller shows its own fallback.
+    pub fn page_titles(&self) -> Result<std::collections::BTreeMap<String, String>> {
+        let progress = self.page_progress()?;
+        let mut query = self
+            .tx
+            .prepare("SELECT page,progress,title FROM page_titles ORDER BY page LIMIT 1001")?;
+        let mut titles = std::collections::BTreeMap::new();
+        for row in query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (page, stored, title) = row?;
+            if progress.get(&page) == Some(&stored) {
+                titles.insert(page, title);
+            }
+        }
+        Ok(titles)
     }
     fn selected_page_fingerprints(
         &self,

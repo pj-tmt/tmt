@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) const METRICS: usize = 6;
 pub(in crate::board) const HEADERS: [&str; 7] =
-    ["AGENT", "MODE", "HELD", "TOK 1h", "CTX 24h", "% IN", "≈ $"];
+    ["AGENT", "MODE", "HELD", "TOK 1h", "CTX 1d", "% IN", "≈ $"];
 const METRIC_CELLS: [usize; METRICS] = [4, 5, 8, 8, 6, 8];
 const GUTTERS_AND_GAPS: usize = 2 + METRICS;
 pub(in crate::board) struct Row {
@@ -153,7 +153,7 @@ mod tests {
             if width == 59 {
                 assert_eq!(
                     text[0],
-                    " AGENT        MODE  HELD   TOK 1h  CTX 24h   % IN      ≈ $ "
+                    " AGENT        MODE  HELD   TOK 1h   CTX 1d   % IN      ≈ $ "
                 );
                 assert_eq!(
                     text[1],
