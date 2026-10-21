@@ -756,37 +756,45 @@ result that arrives after a close, a reopen or a change of transport or space.
 ## The shell page
 
 A shell opens in the owner app as `ShellPage` (`shell-page.tsx`), mounted by the page route in place
-of the HTML frame; the app owns every pixel and the document supplies only data. `shell-grid.ts`
-is the plain per-item view: `shellCells` matches each item, in `order`, to its source page in the
-space list (title, archived, last edit, Needs you count); a page the list does not show is
-`unavailable`, listed but never linked, and a reference grants no access. `shellByline` names the
-summary writer only by the Core-resolved display agent, never by identity (the page draws it as one
-inline `AgentChip`), and `pagesChangedSince` counts the distinct source pages edited after the summary
-(unknown times never count).
+of the HTML frame; the app owns every pixel and the document supplies only data. The look is the v4
+design (#4082): a greeting, three counts, numbered chapters joined by hairlines, and a list of older
+pages. `shell-grid.ts` is the plain per-item view: `shellCells` matches each item, in `order`, to its
+source page in the space list (title, archived, last edit, Needs you count, author, first project); a
+page the list does not show is `unavailable`, never linked, and a reference grants no access.
+`shellByline` names the summary writer only by the Core-resolved display agent, never by identity,
+and `pagesChangedSince` counts the distinct source pages edited after the summary.
+
+`shell-model.ts` is the pure computation, given the cells, the owner chapter details and a clock:
+the referenced pages are the distinct available, non-archived pages (a page named by several items
+is one chapter); `waiting` is the sum of their `needsYou` (the number the page header shows); a page
+not waiting and edited within seven days is in progress (`inProgress()`, the one place a page's work
+stage can replace that rule); waiting chapters come first, then in progress, each by update time with
+the shell's `order` as the tie-break; older pages fold into `earlier`. A chapter's passage is the
+pending item an item names (a reading ID or an anchor equal to a pending ID), else the first pending
+item by rank (review, question, reading, proposal), else the latest comment, else the item note;
+`pending` only while a waiting page's details are unanswered. `shell-sections.tsx` draws the parts
+(`ShellGreeting`, `ShellCounts`, `ShellChapter`, `ShellEarlier`); the counts jump to the first row
+they count.
 
 The page reads the space list once (`spaceHome()` through `useHomeSpace`, so a missing title is
-filled by the same bounded hint read as the list); a failed read keeps every item as a link with
-an "unavailable" notice. Cells are real `Link`s (`pageLinkKey` keeps the modified-open
-behaviour); a reading item adds the page route's `read` hint, and an anchor item adds the `anchor`
-search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer to
-`reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
+filled by the same bounded hint read as the list); a failed read keeps every page as a link in the
+older list with a notice. Links are real `Link`s (`pageLinkKey` keeps the modified-open behaviour); a
+passage that names a reading adds the page route's `read` hint, and an anchor item's element adds the
+`anchor` search parameter (`pageSearch` in `reading-link.ts`). The page route then asks the renderer
+to `reveal` it: the frame counts the elements with that exact id and, only when exactly one exists,
 reports its top so the host scrolls there, finishing the scroll if the frame grows within two
-seconds and the reader has not moved (a later growth never pulls them back); anything else leaves
-the page open at the top with a short notice. Before it leaves for an item the page
-records the item in its own history entry (`shellFocus`), and the shell restores focus to it when
-the browser comes back. The layout is borderless and wide (grid columns, no card or shadow) and
-holds no per-user state; a shell page whose value was not admitted shows one state line instead of
-an empty page.
+seconds and the reader has not moved; anything else leaves the page open at the top with a short
+notice. Before it leaves for a chapter the page records the page in its own history entry
+(`shellFocus`), and the shell restores focus to it when the browser comes back. The layout is
+borderless and full bleed (no card or shadow) and holds no per-user state; a shell page whose value
+was not admitted shows one state line instead of an empty page.
 
-Reading items show their source reading's state. `ShellContent` reads the owner chapter details
-(`reading-details.ts`, the optional owner-only transport port `readingDetails`) once per distinct
-source page the space list shows, through `ReadingDetailsQueue`: one read in flight, at most
-`READING_DETAILS_PAGES` pages per opening, aborted when the page is left. `readingView` turns a
-ready result into the item's state (`Unread`/`Read` with the reading's own title and reason) or
-`missing` when the page no longer lists it; pending, unavailable, failed, over-cap and hosted reads
-leave no state. The shell stores and writes none: opening an item never marks it read (only the
-page's own `Mark read` does), and returning to the shell reads again, so the page's new state shows
-without a poll. Editing stays with the seven validated actions; the browser has no edit
+Passages come from the owner chapter details (`reading-details.ts`, the optional owner-only
+transport port `readingDetails`) of the first `READING_DETAILS_PAGES` chapters, through
+`ReadingDetailsQueue`: one read in flight, aborted when the page is left; a failed read is published
+as `unavailable`, so a chapter never loads forever. The shell stores and writes none: opening a
+chapter never marks a reading read (only the page's own `Mark read` does), and returning to the
+shell reads again. Editing stays with the seven validated actions; the browser has no edit
 controls, and the shared and hosted readers keep `ShellNotice`.
 
 ## Trusted browser management

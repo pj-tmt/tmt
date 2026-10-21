@@ -246,11 +246,16 @@ describe('the passage of a chapter', () => {
     ).toEqual({ kind: 'none' });
     // A waiting page whose details have not arrived yet is pending, not an empty chapter.
     expect(model(items(), waitingPage).chapters[0].passage).toEqual({ kind: 'pending' });
-    // A pending or unavailable answer is not ready and says nothing.
+    // A pending or unavailable answer is not ready: the item note stands, never a false passage.
     expect(
       model(items(), waitingPage, [[pid(1), { pageId: pid(1), state: 'unavailable' }]]).chapters[0]
         .passage,
-    ).toEqual({ kind: 'pending' });
+    ).toEqual({ kind: 'note', note: 'Start here' });
+    expect(
+      model({ [iid(1)]: { kind: 'page', pageId: pid(1) } }, waitingPage, [
+        [pid(1), { pageId: pid(1), state: 'pending' }],
+      ]).chapters[0].passage,
+    ).toEqual({ kind: 'none' });
   });
 
   it('asks for the details of the first twenty chapters only', () => {
@@ -262,5 +267,22 @@ describe('the passage of a chapter', () => {
     }
     const m = model(many, pages);
     expect(detailPageIds(m)).toEqual(Array.from({ length: 20 }, (_, i) => pid(i + 1)));
+  });
+});
+
+describe('the element an anchor item names', () => {
+  it('rides on the chapter so its passage opens the page there', () => {
+    const [chapter] = model(
+      {
+        [iid(1)]: { kind: 'page', pageId: pid(1) },
+        [iid(2)]: { kind: 'anchor', pageId: pid(1), anchor: 'decisions' },
+        [iid(3)]: { kind: 'anchor', pageId: pid(1), anchor: 'later' },
+      },
+      [page(1)],
+    ).chapters;
+    expect(chapter.anchor).toBe('decisions');
+    expect(
+      model({ [iid(1)]: { kind: 'page', pageId: pid(1) } }, [page(1)]).chapters[0],
+    ).not.toHaveProperty('anchor');
   });
 });

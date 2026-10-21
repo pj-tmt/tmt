@@ -157,6 +157,25 @@ it('caps an opening at twenty pages including failed and unavailable reads', asy
   expect(read.mock.calls.map(([id]) => id)).toEqual(pages.slice(0, 20));
 });
 
+it('publishes a failed read as unavailable, never as an empty ready result, and a canceled one as nothing', async () => {
+  const gate = deferred<ReturnType<typeof ready>>();
+  const read = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockReturnValueOnce(gate.promise);
+  const publish = vi.fn();
+  const queue = new ReadingDetailsQueue(read, publish);
+  queue.enqueue([pageId, readingId]);
+  await vi.waitFor(() =>
+    expect(publish).toHaveBeenCalledWith(pageId, { pageId, state: 'unavailable' }),
+  );
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  const closing = queue.close();
+  gate.resolve(ready());
+  await closing;
+  expect(publish).toHaveBeenCalledTimes(1);
+});
+
 it('aborts and joins on leaving, fencing a late result and every successor', async () => {
   const gate = deferred<ReturnType<typeof ready>>();
   const read = vi.fn((_id: string, _signal: AbortSignal) => gate.promise);

@@ -1,4 +1,3 @@
-import type { ReadingDetails } from './reading-details.js';
 import type { Shell, ShellItem } from './shell.js';
 import type { PageSummary } from './transport.js';
 
@@ -52,42 +51,6 @@ export function shellCells(shell: Shell, pages: readonly PageSummary[]): ShellCe
       ...(item.audience === undefined ? {} : { audience: item.audience }),
     };
   });
-}
-
-/** What the owner chapter details say about a reading item: the source reading as the page lists
- * it, or that the page no longer lists it. Opening an item never changes this; only the page's own
- * `Mark read` does. */
-export type ReadingView =
-  | { kind: 'listed'; title: string; agent: string; why: string; state: 'unread' | 'read' }
-  | { kind: 'missing' };
-
-/** The source pages of the reading items the space list shows, each once, in order. A page the
- * list does not show is never asked about: a reference grants no access. */
-export function readingPageIds(cells: readonly ShellCell[]): string[] {
-  return [
-    ...new Set(
-      cells.filter((cell) => cell.kind === 'reading' && !cell.unavailable).map((c) => c.pageId),
-    ),
-  ];
-}
-
-/** A reading item's state from its source page's details. Unknown (`undefined`) unless the page's
- * details are ready: pending, unavailable, a failed read and a hosted reader show no state. */
-export function readingView(
-  cell: ShellCell,
-  details: ReadingDetails | undefined,
-): ReadingView | undefined {
-  if (cell.kind !== 'reading' || cell.unavailable || details?.state !== 'ready') return undefined;
-  const reading = details.readings.find((candidate) => candidate.id === cell.readingId);
-  return reading
-    ? {
-        kind: 'listed',
-        title: reading.title,
-        agent: reading.agent,
-        why: reading.why,
-        state: reading.state,
-      }
-    : { kind: 'missing' };
 }
 
 /** Who wrote the summary and when. The writer's identity is never shown as a name; only the

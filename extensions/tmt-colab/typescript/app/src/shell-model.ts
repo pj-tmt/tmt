@@ -61,6 +61,8 @@ export interface Chapter {
   stage: Stage;
   needsYou: number;
   passage: Passage;
+  /** The element an anchor item of this page names (the first one), which the page opens at. */
+  anchor?: string;
 }
 
 /** A page that folds into the list of older pages: large-type rows, no passage. */
@@ -122,9 +124,12 @@ export function passageFor(
     return { kind: 'need', need, more: Math.max(0, ready.needs.length - 1) };
   }
   if (ready?.latest) return { kind: 'latest', latest: ready.latest };
+  // A waiting page whose details have not been answered yet is loading; one whose details came
+  // back pending, unavailable or failed has no passage to show and says nothing more.
+  const loading = waiting && details === undefined;
   const note = group.cells.find((cell) => cell.note !== undefined)?.note;
-  if (note !== undefined && !(ready === undefined && waiting)) return { kind: 'note', note };
-  return waiting && ready === undefined ? { kind: 'pending' } : { kind: 'none' };
+  if (note !== undefined && !loading) return { kind: 'note', note };
+  return loading ? { kind: 'pending' } : { kind: 'none' };
 }
 
 /** The shell page's model. `details` holds what the owner chapter details said of each page so far;
@@ -163,6 +168,9 @@ export function shellModel(
     stage,
     needsYou: entry.needsYou,
     passage: passageFor(entry.group, details.get(entry.group.pageId), stage === 'waiting'),
+    ...(entry.group.cells.find((cell) => cell.anchor !== undefined)?.anchor === undefined
+      ? {}
+      : { anchor: entry.group.cells.find((cell) => cell.anchor !== undefined)!.anchor }),
   });
   const chapters = [
     ...waiting.map((entry) => ({ entry, stage: 'waiting' as const })),
