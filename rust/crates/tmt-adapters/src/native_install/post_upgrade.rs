@@ -148,7 +148,7 @@ fn invoke(
     let program = super::env_program_operand(executable)
         .map_err(|_| crate::process::CommandError::new(CommandFailure::Spawn))?;
     let mut core_argument = OsString::from("TMT_EXECUTABLE=");
-    core_argument.push(core);
+    core_argument.push(crate::core_executable::callback_executable(core));
     let mut args = vec![
         "-u".into(),
         "GH_TOKEN".into(),

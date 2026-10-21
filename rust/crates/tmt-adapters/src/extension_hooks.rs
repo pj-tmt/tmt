@@ -394,7 +394,7 @@ pub fn deliver_pending() -> usize {
         Ok(mut pending) if !pending.is_empty() => std::mem::take(&mut *pending),
         _ => return 0,
     };
-    let Ok(tmt) = std::env::current_exe() else {
+    let Ok(tmt) = crate::core_executable::selected() else {
         return 0;
     };
     let tmt = tmt.as_path();
@@ -476,7 +476,7 @@ pub fn context_contributions(
     if !context_consented(&consents) {
         return Vec::new();
     }
-    let Ok(tmt) = std::env::current_exe() else {
+    let Ok(tmt) = crate::core_executable::selected() else {
         return Vec::new();
     };
     let deadline = deadline.min(Instant::now() + CONTEXT_DEADLINE);
