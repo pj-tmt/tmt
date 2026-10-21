@@ -1,4 +1,4 @@
-import { BrowserAction, useBusyMark } from '@tmt/browser-ui/react';
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { Circle, CircleDot, CircleHelp, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentChip } from './components/agent-chip.js';
@@ -89,8 +89,7 @@ export function AgentStatusPanel({
   const observation = current?.observation;
   const last = current?.last;
   const loading = current?.state === 'loading';
-  // A check that ends within the busy-mark delay changes nothing: its rows keep what they showed.
-  const checking = useBusyMark(loading);
+  // A check changes no row's words: the Recheck mark is the only busy signal.
   const held = last ? text.agentStatusRead : '\u00a0';
   const stale = !!last && observation?.kind !== 'ready';
   const failure = observation?.kind === 'unavailable' ? observation : undefined;
@@ -107,9 +106,7 @@ export function AgentStatusPanel({
             : text.agentStatusUnavailable
       : text.agentStatusUnavailable;
   const session = loading
-    ? checking
-      ? text.agentStatusChecking
-      : held
+    ? held
     : observation?.kind === 'ready'
       ? text.agentStatusRead
       : channelUnavailable ||
@@ -121,9 +118,7 @@ export function AgentStatusPanel({
           ? text.agentStatusRead
           : text.agentStatusUnavailable;
   const directory = loading
-    ? checking
-      ? text.agentStatusChecking
-      : held
+    ? held
     : observation?.kind === 'ready'
       ? text.agentStatusRead
       : failure?.phase === 'directory'

@@ -125,7 +125,7 @@ test('empty successful directory and unavailable page are distinct', async ({ pa
 });
 
 for (const kind of ['fast', 'slow'] as const)
-  test(`a Recheck that takes ${kind === 'fast' ? 'under' : 'over'} 400 ms ${kind === 'fast' ? 'changes nothing' : 'shows Checking… and one mark'}`, async ({
+  test(`a Recheck that takes ${kind === 'fast' ? 'under' : 'over'} 400 ms ${kind === 'fast' ? 'changes nothing' : 'shows one mark and no new words'}`, async ({
     page,
   }) => {
     const start = new Date('2026-10-20T00:00:00Z');
@@ -148,7 +148,9 @@ for (const kind of ['fast', 'slow'] as const)
     await expect(marks).toHaveCount(0);
     if (kind === 'slow') {
       await page.clock.runFor(1);
-      await expect(panel.getByText('Checking…')).toHaveCount(2);
+      // The mark is the only busy signal: the rows keep their words.
+      await expect(panel.getByText('Checking…')).toHaveCount(0);
+      await expect(panel.getByText('Read succeeded', { exact: true })).toHaveCount(2);
       await expect(marks).toHaveCount(1);
     }
     await command(page, 'resolvePrevious');
