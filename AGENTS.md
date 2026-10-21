@@ -169,9 +169,10 @@ The tmux server an agent runs in hosts the whole team; losing it stops every age
   `kill-server` or `kill-session`, and never change server options or hooks. There,
   use `tmt` commands, and read or type into an explicit pane or window you are
   responsible for (`list-*`, `capture-pane`, `send-keys -t <target>`). A lead may
-  also open a member window in its own squad session (`new-window -t <session>:`)
-  and retire one by exact name (`kill-window -t <session>:<name>`); no other
-  `kill-window` or `kill-pane` runs on the host.
+  also open a member window in its own squad session (`new-window -t '=<session>:'`)
+  and retire one by exact name (`kill-window -t '=<session>:=<name>'`; the `=`
+  turns off tmux prefix and pattern matching); no other `kill-window` or
+  `kill-pane` runs on the host.
   A bare `tmux` in an agent shell reaches the host through the inherited `TMUX`, so
   never use one for a scratch server.
 - If a command reaches the host server by mistake, stop at once, tell your lead,
