@@ -3,11 +3,11 @@
 //! work-in-progress limit is the write owner's admission rule over the whole space, never a rule
 //! of this value, so no published state is ever invalid for it (contract: Work).
 use crate::closed::{
-    Invalid, canonical, integer, keys, multiline, nonempty, object, plain, require, text,
+    Invalid, canonical, id, integer, keys, multiline, nonempty, object, plain, require, text,
 };
 use crate::summary_lines;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use tmt_colab_model::values;
 
 use crate::limits::{
@@ -119,9 +119,15 @@ pub fn validate_task(value: &Value) -> Result<()> {
             "acceptance",
             "needsSignoff",
             "externalId",
+            "child",
         ],
     )?;
     editable(value)?;
+    // A task links to a page or to an external issue, never both: its state has one owner.
+    if let Some(child) = value.get("child") {
+        id(child)?;
+        require(value.get("externalId").is_none())?;
+    }
     let state = text(&value["state"])?;
     require(STATES.contains(&state))?;
     // A blocked task says why, and only a blocked task does.
@@ -200,7 +206,7 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                 .push(Value::String(key));
             next["next"] = json!(number + 1);
         }
-        "task.set" | "task.state" | "task.assign" | "task.remove" => {
+        "task.set" | "task.state" | "task.assign" | "task.link" | "task.unlink" | "task.remove" => {
             let (required, optional): (&[&str], &[&str]) = match action {
                 "task.set" => (
                     &["taskId", "title"],
@@ -208,6 +214,7 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                 ),
                 "task.state" => (&["taskId", "state"], &["reason"]),
                 "task.assign" => (&["taskId"], &["assignee"]),
+                "task.link" => (&["taskId", "pageId"], &[]),
                 _ => (&["taskId"], &[]),
             };
             keys(body, required, optional)?;
@@ -226,6 +233,8 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                     }
                 }
                 "task.state" => {
+                    // A linked task's state follows its page: nothing sets it.
+                    require(task.get("child").is_none())?;
                     let fields = task.as_object_mut().ok_or(Invalid)?;
                     fields.insert("state".into(), body["state"].clone());
                     match body.get("reason") {
@@ -239,6 +248,16 @@ pub fn apply(base: &Value, action: &str, body: &Value, attribution: &Value) -> R
                         Some(value) => fields.insert("assignee".into(), value.clone()),
                         None => fields.remove("assignee"),
                     };
+                }
+                "task.link" => {
+                    let child = id(&body["pageId"])?;
+                    let fields = task.as_object_mut().ok_or(Invalid)?;
+                    // Another page replaces nothing: the task is unlinked first.
+                    require(fields.get("child").is_none_or(|now| now == child))?;
+                    fields.insert("child".into(), json!(child));
+                }
+                "task.unlink" => {
+                    task.as_object_mut().ok_or(Invalid)?.remove("child");
                 }
                 _ => {
                     next["tasks"].as_object_mut().ok_or(Invalid)?.remove(key);
@@ -266,16 +285,43 @@ pub struct Derived {
     pub working: Vec<Value>,
     /// Flagged tasks waiting in review. The flag is display only until the owner can act on it.
     pub signoff: usize,
+    /// What each task that follows a page shows, when that page's stage is known; the others show
+    /// their own state.
+    pub states: BTreeMap<String, &'static str>,
+}
+/// What a task shows while its page is at `stage`: nothing yet is `todo`, work under way is
+/// `in-progress`, and a finished page is `done`, or `in-review` when the task waits for sign-off.
+pub fn linked_state(stage: &str, needs_signoff: bool) -> Option<&'static str> {
+    match stage {
+        "discussion" => Some("todo"),
+        "in-progress" => Some("in-progress"),
+        "done" if needs_signoff => Some("in-review"),
+        "done" => Some("done"),
+        _ => None,
+    }
 }
 pub fn derived(work: &Value) -> Result<Derived> {
+    derived_with(work, &|_| None)
+}
+/// `derived` where `stage_of` answers a linked page's stage. A page it cannot answer for (deleted,
+/// unreadable) leaves its task showing its own state.
+pub fn derived_with(work: &Value, stage_of: &dyn Fn(&str) -> Option<String>) -> Result<Derived> {
     validate(work)?;
     let tasks = object(&work["tasks"])?;
     let mut done = 0;
     let mut signoff = 0;
     let mut working: Vec<Value> = Vec::new();
+    let mut states = BTreeMap::new();
     for key in work["order"].as_array().ok_or(Invalid)? {
         let task = &tasks[text(key)?];
-        match task["state"].as_str() {
+        let followed = task["child"]
+            .as_str()
+            .and_then(|page| stage_of(page))
+            .and_then(|stage| linked_state(&stage, task.get("needsSignoff").is_some()));
+        if let Some(state) = followed {
+            states.insert(text(key)?.to_owned(), state);
+        }
+        match followed.or(task["state"].as_str()) {
             Some("done") => done += 1,
             Some("in-progress") => {
                 if let Some(assignee) = task.get("assignee").filter(|a| !working.contains(a)) {
@@ -298,12 +344,17 @@ pub fn derived(work: &Value) -> Result<Derived> {
         total,
         working,
         signoff,
+        states,
     })
 }
 impl Derived {
     pub fn to_value(&self) -> Value {
-        json!({"stage":self.stage,"done":self.done,"total":self.total,
-            "working":self.working,"signoff":self.signoff})
+        let mut value = json!({"stage":self.stage,"done":self.done,"total":self.total,
+            "working":self.working,"signoff":self.signoff});
+        if !self.states.is_empty() {
+            value["states"] = json!(self.states);
+        }
+        value
     }
 }
 
@@ -346,8 +397,12 @@ mod tests {
                     case["name"]
                 );
                 if let Some(derived) = case.get("derived") {
+                    // A case may say the stage of each page its tasks follow.
+                    let stage = |page: &str| case["stages"][page].as_str().map(str::to_owned);
                     assert_eq!(
-                        &super::derived(result.as_ref().unwrap()).unwrap().to_value(),
+                        &derived_with(result.as_ref().unwrap(), &stage)
+                            .unwrap()
+                            .to_value(),
                         derived,
                         "{}",
                         case["name"]
