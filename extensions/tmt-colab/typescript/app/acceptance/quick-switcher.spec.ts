@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+import { showAllPages } from '../test/home-list.js';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -40,6 +41,7 @@ test('served quick search crosses the Remote boundary, switches pages and keeps 
       await visited.goto(new URL(created.path, `${door.address}/`).href);
       await expect(visited.locator('.tmt-ui-header h1')).toHaveText(title);
       await visited.getByRole('link', { name: /^Colab · local/ }).click();
+      await showAllPages(visited);
       await expect(
         visited.locator(`[data-page-id="${created.pageId}"]`).getByRole('link'),
       ).toHaveText(title);

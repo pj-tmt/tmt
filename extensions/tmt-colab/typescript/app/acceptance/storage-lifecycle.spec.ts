@@ -190,11 +190,6 @@ test('principals: owner, a second paired device and a read-only link read; a rev
 
     await expect(panel.locator('button[aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
     await captureResponsive(first, 'files');
-    // The capture restored desktop width; wait for the media-query subscriber before
-    // pageAction chooses between the compact More menu and Source and export.
-    await expect(
-      first.getByRole('button', { name: text.sourceAndExport, exact: true }),
-    ).toBeVisible();
     await (await pageAction(first, 'Export page')).click();
     await expect(
       first
@@ -305,7 +300,10 @@ test('cross-resource refusal and deletion: another page, a forged hash and a del
       await chatPanel.getByRole('button', { name: text.messageAttach }).click();
       await (await pick).setFiles([chat]);
       await chatPanel.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
-      await expect(chatPanel.getByTestId('message-attachment')).toHaveCount(1, { timeout: 30_000 });
+      // Only a verified record is durable enough for export; the local echo is provisional.
+      await expect(
+        chatPanel.getByTestId('comment-entry').getByTestId('message-attachment'),
+      ).toHaveCount(1, { timeout: 30_000 });
 
       const manifest = JSON.parse(
         fs.readFileSync(

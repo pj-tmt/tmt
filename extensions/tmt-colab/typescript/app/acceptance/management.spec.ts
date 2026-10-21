@@ -119,7 +119,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(managementStatus(dialog)).toContainText('Done.');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Create a sharing link…', exact: true }).click();
-    await expect(dialog).toContainText('the browser opens it read-only whatever its permission.');
+    await expect(dialog).toContainText('Create a read-only link to this page.');
     const captureCopy = async (phase: 'confirm' | 'verified') => {
       for (const width of [1440, 390]) {
         await page.setViewportSize({ width, height: 900 });
@@ -273,7 +273,7 @@ test('member roles, shared/current joins and epoch advance admit the same owner 
     expect(detail().members.find((m: { id: string }) => m.id === shared).role).toBe('editor');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
     await dialog.getByRole('button', { name: 'Remove this member’s access…', exact: true }).click();
-    await dialog.getByRole('button', { name: "Confirm remove this member's access" }).click();
+    await dialog.getByRole('button', { name: "Remove this member's access", exact: true }).click();
     await expect(managementStatus(dialog)).toContainText('Done.');
     expect(detail().members.find((m: { id: string }) => m.id === shared).revoked).toBe(true);
     await dialog.getByRole('button', { name: 'Manage another change' }).click();

@@ -51,3 +51,11 @@ export function sealedRevision(entry: ObjectEntry): bigint {
   const envelope = Envelope.fromJson(binary(entry.envelope, UPDATE_ENVELOPE_BYTES));
   return decimal(decodeHeader(envelope.header()).context.membershipRevision);
 }
+
+/** Whether a sealed own entry is a checkpoint rather than an update. */
+export function sealedKind(entry: ObjectEntry): 'update' | 'checkpoint' {
+  const envelope = Envelope.fromJson(binary(entry.envelope, UPDATE_ENVELOPE_BYTES));
+  const { kind } = decodeHeader(envelope.header()).context;
+  requireValue(kind === 'update' || kind === 'checkpoint');
+  return kind;
+}
