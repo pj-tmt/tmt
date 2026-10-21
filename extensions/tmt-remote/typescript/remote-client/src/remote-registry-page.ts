@@ -1,3 +1,4 @@
+import type { RemoteShell } from './remote-shell.js';
 import { remoteMenu } from './remote-menu.js';
 import { remoteState, currentRemote } from './remote-state.js';
 /** Remote pages' public-reference consumer. It never probes a foreign origin or shares a key. */
@@ -37,6 +38,7 @@ function kindLabel(entry: RemoteReference): string {
 
 export function remoteRegistryPage(
   blocked: () => string = () => '',
+  shell?: RemoteShell,
 ): (state: string, address?: string) => void {
   const root = document.getElementById('remotes');
   if (!root) return () => {};
@@ -54,42 +56,45 @@ export function remoteRegistryPage(
   let currentDialog: HTMLDialogElement | undefined;
   let catalog = { version: 1 as const, entries: [] as readonly RemoteReference[] };
   const settings = new URL('settings', new URL('./', location.href));
-  const menu = remoteMenu({
-    refresh: () => render(),
-    open: (entry) => {
-      if (blocked()) return;
-      void remoteRegistry
-        .navigation(entry)
-        .then((url) => location.assign(url))
-        .catch((error: unknown) => showError(error, status));
+  const menu = remoteMenu(
+    {
+      refresh: () => render(),
+      open: (entry) => {
+        if (blocked()) return;
+        void remoteRegistry
+          .navigation(entry)
+          .then((url) => location.assign(url))
+          .catch((error: unknown) => showError(error, status));
+      },
+      add: () => {
+        if (document.documentElement.dataset.tmtPage === 'settings') add.click();
+        else location.assign(`${settings.href}#add-remote`);
+      },
+      recover: (action) => {
+        if (action === 'Retry') {
+          const retry = (document.getElementById('check') ??
+            document.getElementById('refresh')) as HTMLButtonElement | null;
+          if (retry && !retry.disabled) retry.click();
+          else location.assign(new URL('./', location.href).href);
+        } else if (document.documentElement.dataset.tmtPage === 'settings')
+          location.assign(new URL('./', location.href).href);
+        else {
+          const pair = [
+            'copy-refused-pair',
+            'copy-missing-pair',
+            'copy-unreadable-pair',
+            'copy-different-pair',
+          ]
+            .map((id) => document.getElementById(id))
+            .find((button) => button && button.getClientRects().length > 0);
+          pair?.scrollIntoView();
+          pair?.focus();
+        }
+      },
+      blocked,
     },
-    add: () => {
-      if (document.documentElement.dataset.tmtPage === 'settings') add.click();
-      else location.assign(`${settings.href}#add-remote`);
-    },
-    recover: (action) => {
-      if (action === 'Retry') {
-        const retry = (document.getElementById('check') ??
-          document.getElementById('refresh')) as HTMLButtonElement | null;
-        if (retry && !retry.disabled) retry.click();
-        else location.assign(new URL('./', location.href).href);
-      } else if (document.documentElement.dataset.tmtPage === 'settings')
-        location.assign(new URL('./', location.href).href);
-      else {
-        const pair = [
-          'copy-refused-pair',
-          'copy-missing-pair',
-          'copy-unreadable-pair',
-          'copy-different-pair',
-        ]
-          .map((id) => document.getElementById(id))
-          .find((button) => button && button.getClientRects().length > 0);
-        pair?.scrollIntoView();
-        pair?.focus();
-      }
-    },
-    blocked,
-  });
+    shell,
+  );
 
   const showError = (error: unknown, slot: HTMLElement): void => {
     slot.textContent =

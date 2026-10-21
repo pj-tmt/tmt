@@ -133,7 +133,7 @@ export const routes: readonly ShellRoute[] = [
     load: async () =>
       remotePage(settings, async () => {
         const { settingsPage } = await import(/* @vite-ignore */ settingsEntry);
-        await settingsPage();
+        await settingsPage(remoteShell());
       }),
   },
   {

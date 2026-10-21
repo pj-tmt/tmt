@@ -222,6 +222,13 @@ export function startShellHost(
   function go(href: string, { replace = false } = {}): boolean {
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
+    // A fragment on the same page is the page's own (a module section): the browser moves it and
+    // fires hashchange, as for any in-page link.
+    const here = new URL(window.location.href);
+    if (url.hash && url.pathname === here.pathname && url.search === here.search) {
+      if (url.hash !== here.hash) window.location.hash = url.hash;
+      return true;
+    }
     if (url.href !== window.location.href)
       window.history[replace ? 'replaceState' : 'pushState'](null, '', url.href);
     // A module's own router (Colab's) follows history through popstate, as on Back.

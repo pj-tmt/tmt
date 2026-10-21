@@ -3,7 +3,7 @@
 import type { ShellMenuItem } from '../../../../../design/browser-ui/src/shell.js';
 import type { RemoteCatalog, RemoteReference } from './remote-registry.js';
 import { remoteState, currentRemote } from './remote-state.js';
-import { remoteShell } from './remote-shell.js';
+import { remoteShell, type RemoteShell } from './remote-shell.js';
 
 interface Actions {
   /** Re-read the registry (another tab may have changed it); the page repaints the menu. */
@@ -13,8 +13,8 @@ interface Actions {
   recover(action: string): void;
   blocked(): string;
 }
-export function remoteMenu(actions: Actions) {
-  const shell = remoteShell();
+/** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
+export function remoteMenu(actions: Actions, shell: RemoteShell | undefined = remoteShell()) {
   if (!shell) return () => {};
   const page = document.documentElement.dataset.tmtPage;
   const landing = new URL('/remote/', location.href).href;

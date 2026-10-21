@@ -1394,8 +1394,8 @@ function homePage(shell) {
 }
 //#endregion
 //#region src/remote-menu.ts
-function remoteMenu(actions) {
-	const shell = remoteShell();
+/** `shell` is the mounted route's part of the app; a page bundled apart (settings) is handed it. */
+function remoteMenu(actions, shell = remoteShell()) {
 	if (!shell) return () => {};
 	const page = document.documentElement.dataset.tmtPage;
 	const landing = new URL("/remote/", location.href).href;
@@ -1797,7 +1797,7 @@ function field(label, value) {
 function kindLabel(entry) {
 	return entry.kind === "local" ? "Local" : "Firebase";
 }
-function remoteRegistryPage(blocked = () => "") {
+function remoteRegistryPage(blocked = () => "", shell) {
 	const root = document.getElementById("remotes");
 	if (!root) return () => {};
 	const fragment = location.hash;
@@ -1841,7 +1841,7 @@ function remoteRegistryPage(blocked = () => "") {
 			}
 		},
 		blocked
-	});
+	}, shell);
 	const showError = (error, slot) => {
 		slot.textContent = error instanceof RemoteRegistryError ? error.message : "The remotes could not be read";
 	};
@@ -2755,6 +2755,11 @@ function startShellHost(root, routes, options = {}) {
 	function go(href, { replace = false } = {}) {
 		const url = new URL(href, window.location.href);
 		if (url.origin !== window.location.origin || !matchRoute(routes, url.pathname)) return false;
+		const here = new URL(window.location.href);
+		if (url.hash && url.pathname === here.pathname && url.search === here.search) {
+			if (url.hash !== here.hash) window.location.hash = url.hash;
+			return true;
+		}
 		if (url.href !== window.location.href) window.history[replace ? "replaceState" : "pushState"](null, "", url.href);
 		if (matchRoute(routes, url.pathname) === current?.route) window.dispatchEvent(new PopStateEvent("popstate"));
 		else show();
@@ -3683,7 +3688,7 @@ var routes = [
 				/* @vite-ignore */
 				settingsEntry
 );
-			await settingsPage();
+			await settingsPage(remoteShell());
 		})
 	},
 	{
