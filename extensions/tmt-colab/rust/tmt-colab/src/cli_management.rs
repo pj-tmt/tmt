@@ -1318,27 +1318,7 @@ fn catalog_ids(catalog: &Value) -> Vec<String> {
         .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
         .collect()
 }
-/// The pages that are not archived: the pages a work-in-progress count covers.
-/// Every page of the space that is not deleted, archived ones included.
-pub(crate) fn all_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
-    let catalog = inspection::catalog(store, key)?;
-    Ok(catalog["pages"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
-        .collect())
-}
-pub(crate) fn active_page_ids(store: &Store, key: &Keyring) -> Result<Vec<String>> {
-    let catalog = inspection::catalog(store, key)?;
-    Ok(catalog["pages"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|page| page["archived"] != true)
-        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
-        .collect())
-}
+pub(crate) use tmt_colab::work_admission::{active_page_ids, all_page_ids};
 /// A page's work on one dim line: its stage, progress, who is working and the sign-offs waiting.
 fn work_line(work: &Value) -> String {
     let mut line = format!(

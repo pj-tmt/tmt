@@ -4982,6 +4982,185 @@ fn a_reused_operation_id_never_reports_success_for_a_different_save() {
     assert_eq!(status["state"], "committed", "{status}");
 }
 
+/// The first frame of `kind`, acknowledging every frame read: the connection sends at most eight
+/// frames before the peer acknowledges some, and a work action's reply follows commits' broadcasts.
+fn receive_acked(server: &Running, peer: &mut WebSocket<UnixStream>, kind: &str) -> Value {
+    loop {
+        let frame = receive(peer);
+        send(peer, server.frame("ack", json!({"cursors":[]})));
+        if frame["type"] == kind {
+            return frame;
+        }
+    }
+}
+const WORK_ONE: &str = "60000000-0000-4000-8000-000000000001";
+const WORK_TWO: &str = "60000000-0000-4000-8000-000000000002";
+const WORK_THREE: &str = "60000000-0000-4000-8000-000000000003";
+fn native_work(layout: &tmt_colab::keyring::Layout, key: &Keyring) -> Value {
+    let store = Store::read(layout).unwrap();
+    let mut decoder = tmt_colab::decoder::Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    let work = tmt_colab::page::read_work(&store, key, PAGE, &mut decoder)
+        .unwrap()
+        .work;
+    store.close().unwrap();
+    work
+}
+
+#[test]
+fn a_browser_work_action_commits_as_the_root_local_writer_and_answers_status() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    // Each action prepares natively, which outlasts the fixture's three-second read timeout when
+    // the machine is busy.
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
+        send(&mut peer, frame);
+    }
+    let saved = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(saved["state"], "committed", "{saved}");
+    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
+        send(
+            peer,
+            server.frame(
+                "work",
+                json!({"operationId":operation,"action":action,"body":body}),
+            ),
+        );
+        receive_acked(&server, peer, "workresult")
+    };
+    let first = work(
+        &mut peer,
+        WORK_ONE,
+        "task.add",
+        json!({"task":{"title":"Draft the export"}}),
+    );
+    assert_eq!(first["state"], "committed", "{first}");
+    assert_eq!(first["operationId"], WORK_ONE);
+    assert_eq!(first["taskId"], "T-1");
+    assert_eq!(
+        native_work(&layout, &key)["tasks"]["T-1"]["title"],
+        "Draft the export"
+    );
+    // The next task takes the next number, and a state change names no new task.
+    let second = work(
+        &mut peer,
+        WORK_TWO,
+        "task.add",
+        json!({"task":{"title":"Review it"}}),
+    );
+    assert_eq!(second["taskId"], "T-2", "{second}");
+    let moved = work(
+        &mut peer,
+        WORK_THREE,
+        "task.state",
+        json!({"taskId":"T-1","state":"in-progress"}),
+    );
+    assert_eq!(moved["state"], "committed", "{moved}");
+    assert!(moved.get("taskId").is_none(), "{moved}");
+    // Only status reports what an operation did, as for a save.
+    send(
+        &mut peer,
+        server.frame("savestatus", json!({"operationId":WORK_ONE})),
+    );
+    let status = receive_acked(&server, &mut peer, "saveresult");
+    assert_eq!(status["state"], "committed", "{status}");
+    assert_eq!(
+        native_work(&layout, &key)["tasks"]["T-1"]["state"],
+        "in-progress"
+    );
+}
+
+#[test]
+fn a_browser_work_action_meets_the_same_admission_as_the_write_command() {
+    let (server, layout, key, mut peer) = publish_fixture();
+    // Each action prepares natively, which outlasts the fixture's three-second read timeout when
+    // the machine is busy.
+    peer.get_ref()
+        .set_read_timeout(Some(Duration::from_secs(60)))
+        .unwrap();
+    for frame in server.save_frames(SAVE_ONE, "", "<p>A page with work</p>") {
+        send(&mut peer, frame);
+    }
+    receive_acked(&server, &mut peer, "saveresult");
+    let work = |peer: &mut _, operation: &str, action: &str, body: Value| {
+        send(
+            peer,
+            server.frame(
+                "work",
+                json!({"operationId":operation,"action":action,"body":body}),
+            ),
+        );
+        receive_acked(&server, peer, "workresult")
+    };
+    let agent = json!({"kind":"agent","name":"ada"});
+    let one = work(
+        &mut peer,
+        WORK_ONE,
+        "task.add",
+        json!({"task":{"title":"One","assignee":agent}}),
+    );
+    assert_eq!(one["state"], "committed", "{one}");
+    // The default limit is one task per agent: a second makes it hold two.
+    let over = work(
+        &mut peer,
+        WORK_TWO,
+        "task.add",
+        json!({"task":{"title":"Two","assignee":agent}}),
+    );
+    assert_eq!(over["state"], "rejected", "{over}");
+    assert_eq!(over["code"], "COLAB_WIP_LIMIT", "{over}");
+    assert!(over["message"].as_str().unwrap().contains("ada"), "{over}");
+    // A task the page does not have, and a link to a page that is not there, are refused too.
+    let gone = work(
+        &mut peer,
+        WORK_THREE,
+        "task.state",
+        json!({"taskId":"T-9","state":"done"}),
+    );
+    assert_eq!(gone["code"], "COLAB_INPUT_INVALID", "{gone}");
+    let link = work(
+        &mut peer,
+        "60000000-0000-4000-8000-000000000004",
+        "task.link",
+        json!({"taskId":"T-1","pageId":"70000000-0000-4000-8000-0000000000ff"}),
+    );
+    assert_eq!(link["code"], "COLAB_LINK_REFUSED", "{link}");
+    // Nothing else was written.
+    let tasks = native_work(&layout, &key)["order"].clone();
+    assert_eq!(tasks, json!(["T-1"]));
+    // An action the contract does not name is a protocol violation, and nothing is read for it.
+    send(
+        &mut peer,
+        server.frame(
+            "work",
+            json!({"operationId":"60000000-0000-4000-8000-000000000005",
+                "action":"task.explode","body":{}}),
+        ),
+    );
+    assert_eq!(receive_acked(&server, &mut peer, "error")["type"], "error");
+}
+
+#[test]
+fn a_public_reader_cannot_send_a_work_action() {
+    let server = Running::start(Tunnels::PRODUCT);
+    server.publish();
+    let session = server.reader_session();
+    let mut reader = server.reader_peer(&session);
+    send(
+        &mut reader,
+        server.reader_frame(
+            &session,
+            "work",
+            json!({"operationId":WORK_ONE,"action":"task.add","body":{"task":{"title":"x"}}}),
+        ),
+    );
+    assert_eq!(receive_until(&mut reader, "error").0["type"], "error");
+}
+
 #[test]
 fn a_public_reader_cannot_save_or_ask_about_a_save() {
     let server = Running::start(Tunnels::PRODUCT);

@@ -17,7 +17,9 @@ use tmt_colab::{
     keyring::{Keyring, Layout},
     page::{self, Fault},
     store::Store,
-    wip, work, work_index,
+    work,
+    work_admission::{self, Refused, Space},
+    work_index,
     work_links::{Graph, Refusal},
 };
 
@@ -337,39 +339,17 @@ fn action(group: &str, name: &str, args: &ArgMatches) -> Result<(&'static str, V
     })
 }
 
-fn quoted(name: &str) -> String {
-    if name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-    {
-        name.to_owned()
-    } else {
-        format!("'{}'", name.replace('\'', "'\\''"))
-    }
-}
-fn refusal(refusal: &wip::Refusal) -> Box<dyn std::error::Error + Send + Sync> {
-    let tasks: Vec<String> = refusal
-        .held
-        .iter()
-        .map(|held| format!("{} {}", &held.page[..8], held.task))
-        .collect();
-    let count = refusal.held.len() - 1;
-    fail(
-        "COLAB_WIP_LIMIT",
-        &format!(
-            "{} already holds {count} task{} (limit {}): {}. Finish, block or reassign one, or raise the limit with: tmt colab settings wip-limit {} {}",
-            refusal.agent,
-            if count == 1 { "" } else { "s" },
-            refusal.limit,
-            tasks.join(", "),
-            quoted(&refusal.agent),
-            refusal.limit + 1,
-        ),
-    )
-}
-
 fn short(page: &str) -> &str {
     page.get(..8).unwrap_or(page)
+}
+/// A refusal the shared admission names, as this command's fault.
+fn fault(
+    error: Box<dyn std::error::Error + Send + Sync>,
+) -> Box<dyn std::error::Error + Send + Sync> {
+    match error.downcast_ref::<Refused>() {
+        Some(refused) => fail(refused.code, &refused.message),
+        None => error,
+    }
 }
 fn link_refusal(
     why: &Refusal,
@@ -377,25 +357,7 @@ fn link_refusal(
     task: &str,
     child: &str,
 ) -> Box<dyn std::error::Error + Send + Sync> {
-    let message = match why {
-        Refusal::Itself => "A task cannot follow its own page.".to_owned(),
-        Refusal::Unavailable => format!(
-            "{} is not a page of this space, or cannot be read now.",
-            short(child)
-        ),
-        Refusal::HasParent { page, task } => format!(
-            "{} is already followed by {task} of {}. A page has one parent: stop that task following it first (tmt colab task unlink {} {task}).",
-            short(child),
-            short(page),
-            short(page)
-        ),
-        Refusal::Loop => format!(
-            "{} has {} below it, so {task} following it would make a loop.",
-            short(child),
-            short(page)
-        ),
-    };
-    fail("COLAB_LINK_REFUSED", &message)
+    fault(work_admission::link_refusal(why, page, task, child))
 }
 
 /// A work action that was written: the receipt and the work it was based on.
@@ -422,13 +384,6 @@ pub(crate) fn write_work(
     let page_id = resolve_page(&store, &key, page)?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let read = page::read_work(&store, &key, &page_id, &mut decoder)?;
-    if let Some(task) = body["taskId"].as_str()
-        && read.work["tasks"].get(task).is_none()
-    {
-        return Err(invalid(&format!(
-            "This page has no task {task}; tmt colab task ls shows its tasks."
-        )));
-    }
     // A page named by anything but its ID is read the way every command reads one; a page that is
     // not there is refused as a link would be.
     let linked;
@@ -443,34 +398,20 @@ pub(crate) fn write_work(
     };
     // Whatever the command read is the base unless the caller named one.
     let expected = expected.unwrap_or(&read.revision).to_owned();
-    if action.starts_with("task.") {
-        let after = work::apply(&read.work, action, body, &Value::Null)
-            .map_err(|_| invalid("Invalid task value or action; nothing was changed."))?;
-        // The space-wide scan is only needed when the change puts a task into an agent's hands.
-        if wip::held(&page_id, &after)
-            .iter()
-            .any(|task| !wip::held(&page_id, &read.work).contains(task))
-        {
-            let pages = crate::cli_management::active_page_ids(&store, &key)?;
-            let found = work_index::scan(&layout, &store, &key, &mut decoder, &pages)?;
-            let elsewhere = work_index::held_elsewhere(&found, &page_id);
-            let limits = tmt_colab::settings::read_or_default(root);
-            if let Some(over) = wip::admit(&page_id, &read.work, &after, &elsewhere, limits.wip()) {
-                return Err(refusal(&over));
-            }
-        }
-    }
-    if action == "task.link" {
-        let (task, child) = (
-            body["taskId"].as_str().unwrap_or_default(),
-            body["pageId"].as_str().unwrap_or_default(),
-        );
-        let pages = crate::cli_management::all_page_ids(&store, &key)?;
-        let found = work_index::scan(&layout, &store, &key, &mut decoder, &pages)?;
-        if let Some(why) = Graph(&found).refusal(&page_id, task, child) {
-            return Err(link_refusal(&why, &page_id, task, child));
-        }
-    }
+    work_admission::admit(
+        &Space {
+            root,
+            layout: &layout,
+            store: &store,
+            key: &key,
+        },
+        &mut decoder,
+        &page_id,
+        &read.work,
+        action,
+        body,
+    )
+    .map_err(fault)?;
     let display_agent = crate::core::caller_snapshot().map(|caller| {
         let mut value = json!({"name":caller.name});
         if let Some(id) = caller.agent_id {
@@ -488,6 +429,7 @@ pub(crate) fn write_work(
             body,
             display_agent,
             expected_revision: &expected,
+            operation_id: None,
         },
         &mut decoder,
         &now,

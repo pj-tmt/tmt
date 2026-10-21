@@ -181,6 +181,7 @@ impl<A: Admission> Server<A> {
                     for_request: true,
                     save,
                     hunks,
+                    work: None,
                 };
                 self.run_save_job(None, &job)?.settles()
             }
