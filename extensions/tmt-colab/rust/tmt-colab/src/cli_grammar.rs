@@ -158,9 +158,9 @@ pub fn extend(root: Command) -> Command {
                 .value_parser(["shared", "current"]),
         ),
     );
-    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. --expiring lists the pages due to be archived within seven days or already due. Expiry never deletes your local copy. Expiry is when the cloud copy ends; a page this machine never put in the cloud shows local only.")
+    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. --expiring lists the pages that auto-archive within seven days or are already due. Expiry never deletes your local copy. Expiry is when the cloud copy ends; a page this machine never put in the cloud shows local only.")
         .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue))
-        .arg(Arg::new("expiring").long("expiring").action(ArgAction::SetTrue).help("Only the pages due to be archived within 7 days"))
+        .arg(Arg::new("expiring").long("expiring").action(ArgAction::SetTrue).help("Show pages that auto-archive within 7 days or are already due."))
         .arg(Arg::new("project").long("project").value_name("NAME").help("Only the pages in this project")))
         .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry never deletes your local copy.").arg(page()))
         .subcommand(share)

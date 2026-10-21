@@ -1349,7 +1349,7 @@ fn archive_text(page: &Value, now_ms: u64) -> Option<String> {
     };
     let Some(at) = page["archiveAtMs"].as_u64() else {
         return Some(format!(
-            "after {days} {} without activity · no activity recorded yet",
+            "{days} {} after last activity (none recorded yet)",
             if days == 1 { "day" } else { "days" }
         ));
     };
@@ -1522,7 +1522,7 @@ fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
                     fields.push(("last activity".to_owned(), last_edit_text(active, now_ms)));
                 }
                 if let Some(archive) = archive_text(v, now_ms) {
-                    fields.push(("archive".to_owned(), archive));
+                    fields.push(("auto-archive".to_owned(), archive));
                 }
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));

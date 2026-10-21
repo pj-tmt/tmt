@@ -4546,9 +4546,9 @@ apply to the page (its own `retention.set`, else the space setting; null for nev
 `archiveAtMs` is `lastActivityAtMs` plus those days, or null when the page is already archived,
 never expires, has no recorded activity (an unknown activity is never an old one) or the time
 would not fit a record. `ls --expiring` lists the pages whose `archiveAtMs` is within seven days
-of now or already past. Human `show` and `retention` add `last activity` and `archive` lines
-(`never`, `in 12 days`, `◷ in 4 days` within seven days, `due now`, or `after N days without
-activity · no activity recorded yet`). Reading never refreshes the evidence.
+of now or already past. Human `show` and `retention` add `last activity` and `auto-archive` lines
+(`never`, `in 12 days`, `◷ in 4 days` within seven days, `due now`, or `N days after last activity
+(none recorded yet)`). Reading never refreshes the evidence.
 
 Firestore Rules deny expired reads; owner cleanup of expired cloud data is admitted.
 The browser/CLI cleanup caller is part of the pending relay binding. Optional Blaze

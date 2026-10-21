@@ -7324,6 +7324,7 @@ fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_
     assert_eq!(page["archiveAtMs"], active + 180 * day);
     let text = human(&["show", id]);
     assert!(text.contains("10 days ago"), "{text}");
+    assert!(text.contains("auto-archive"), "{text}");
     assert!(text.contains("in 169 days"), "{text}");
     assert!(!text.contains("◷ in 169"), "{text}");
     assert_eq!(expiring(), 0);
@@ -7345,7 +7346,7 @@ fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_
     assert_eq!(page["lastActivityAtMs"], json!(null));
     assert_eq!(page["archiveAfterDays"], 180);
     assert_eq!(page["archiveAtMs"], json!(null), "unknown is not old");
-    assert!(human(&["retention", id]).contains("no activity recorded yet"));
+    assert!(human(&["retention", id]).contains("180 days after last activity (none recorded yet)"));
     assert_eq!(expiring(), 0);
 
     // The space setting changes the days; `off` is never.
