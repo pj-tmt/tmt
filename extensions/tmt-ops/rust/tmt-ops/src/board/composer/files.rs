@@ -248,7 +248,7 @@ pub(super) fn size(bytes: u64) -> String {
 }
 
 /// The chip's text without its remove mark: `name · 1200×800 · 312 KB`, or in ASCII
-/// `name 1200x800`.
+/// `name 1200x800 312 KB`.
 pub(super) fn content(path: &str, info: &Info, ascii: bool) -> String {
     let name = name(path);
     let dims = info
@@ -256,14 +256,10 @@ pub(super) fn content(path: &str, info: &Info, ascii: bool) -> String {
         .as_ref()
         .and_then(|head| head.dims)
         .map(|(w, h)| format!("{w}{}{h}", if ascii { "x" } else { "×" }));
-    if ascii {
-        dims.map_or(name.clone(), |dims| format!("{name} {dims}"))
-    } else {
-        let mut parts = vec![name];
-        parts.extend(dims);
-        parts.push(size(info.size));
-        parts.join(" · ")
-    }
+    let mut parts = vec![name];
+    parts.extend(dims);
+    parts.push(size(info.size));
+    parts.join(if ascii { " " } else { " · " })
 }
 
 /// The text the editor reserves the chip's cells from.

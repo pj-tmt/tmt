@@ -1196,7 +1196,7 @@ reads `[Pasted … x]`. Other message forms retain their inline fold preview wit
 Ctrl-P for paste over 500 characters or eight lines.
 Dropping files onto the pane pastes their paths (quoted, escaped or `file://`); a paste that
 is only existing regular files, at most 16, becomes one chip per file, such as
-`screenshot.png · 1200×800 · 312 KB ×` (ASCII `[screenshot.png 1200x800 x]`). With no composer
+`screenshot.png · 1200×800 · 312 KB ×` (ASCII `[screenshot.png 1200x800 312 KB x]`). With no composer
 open it starts a message to the selected member; with nobody selected it says
 `Select an agent to send files` and inserts nothing. The chip shows the size at once; an
 image's size from its header and the popup's text fill in from a background read, and a

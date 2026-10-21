@@ -264,7 +264,7 @@ fn labels_and_popup_follow_what_is_known() {
     table.note(&file);
     let info = table.get(&file.path).unwrap().clone();
     assert_eq!(label(&file.path, &info), "screenshot.png · 312 KB ×");
-    assert_eq!(content(&file.path, &info, true), "screenshot.png");
+    assert_eq!(content(&file.path, &info, true), "screenshot.png 312 KB");
     assert!(popup(&file.path, &info).ends_with("Reading…"));
 
     let info = table
@@ -282,7 +282,10 @@ fn labels_and_popup_follow_what_is_known() {
         label(&file.path, &info),
         "screenshot.png · 1200×800 · 312 KB ×"
     );
-    assert_eq!(content(&file.path, &info, true), "screenshot.png 1200x800");
+    assert_eq!(
+        content(&file.path, &info, true),
+        "screenshot.png 1200x800 312 KB"
+    );
     let popup = popup(&file.path, &info);
     assert!(popup.starts_with("/a/screenshot.png\n\nSize: 312 KB (319488 bytes)"));
     assert!(popup.contains("Type: image/png") && popup.contains("Dimensions: 1200×800"));
@@ -414,7 +417,7 @@ fn a_later_probe_widens_the_chip_with_the_image_size() {
 }
 
 #[test]
-fn ascii_chips_use_brackets_and_no_size() {
+fn ascii_chips_use_brackets_and_keep_the_size() {
     let dir = Scratch::new("ascii");
     let image = dir.file("screenshot.png", &png(1440, 900));
     let mut app = open_composer();
@@ -425,7 +428,10 @@ fn ascii_chips_use_brackets_and_no_size() {
         head: head_of(&png(1440, 900)),
     });
     let screen = draw(&mut app, 100, 36);
-    assert!(screen.contains("[screenshot.png 1440x900 x]"), "{screen}");
+    assert!(
+        screen.contains("[screenshot.png 1440x900 29 B x]"),
+        "{screen}"
+    );
 }
 
 #[test]
