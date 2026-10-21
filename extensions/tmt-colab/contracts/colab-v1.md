@@ -116,7 +116,17 @@ archive ends that page's open sync connections with
 `RESYNC_REQUIRED`; their existing replacement path re-admits the read-only page.
 Writes, Ask, upload and thread status actions are removed; native admission still
 refuses their stale captures. Retained unsent drafts remain selectable with Copy.
-Archived export stays refused, and there is no unarchive operation.
+Archived export stays refused. An owner can restore an archived, non-deleted page with
+`page.unarchive`. Restore preserves the page ID, source, history, epochs, keys, recipients and
+sharing policy; deletion remains terminal. It restarts the retention clock by atomically
+updating `pages.last_activity_at_ms` with the signed statement, page projection and operation receipt.
+`pages.last_update_at_ms` remains the content-edit time; restoration does not change it.
+An exact committed retry returns its original receipt without restarting that clock again.
+A restore also ends existing page connections with `RESYNC_REQUIRED`. Replacement sessions
+must verify the current owner log and permissions before writes become available; retained
+drafts never send automatically. Cloud publication resumes through the existing activation
+path, publishing the open state and confirming its refreshed expiry through the normal cloud
+write. A local restore does not fabricate a confirmed cloud expiry.
 
 ### Attaching files in Chat and annotation conversations (#1854)
 
@@ -461,26 +471,27 @@ typed JSON. The operation-specific fields below are exact; keys/digests are
 canonical base64url, IDs/numbers follow the value table. History access
 follows the page's `page.history` mode, never possession of a new key.
 
-| Operation       | Payload fields / semantic constraints                                                                                                                    |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member.add`    | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; see [history modes](#current-view-baseline-and-history-modes) for earlier epochs |
-| `member.remove` | `memberId, cuts`; remove current authority and advance affected page epochs                                                                              |
-| `member.role`   | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                   |
-| `link.add`      | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                              |
-| `link.remove`   | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                     |
-| `device.revoke` | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability    |
-| `bridge.add`    | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                 |
-| `epoch.advance` | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                          |
-| `page.share`    | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for loopback public mode; earlier epochs only under `shared` history     |
-| `page.history`  | `pageId, mode`; `shared` (default when absent) or `current`; owner control only; applies to later joins                                                  |
-| `retention.set` | `pageId, days`; positive safe-integer day count or null for forever                                                                                      |
-| `page.archive`  | `pageId`; hide from active lists and freeze writes                                                                                                       |
-| `page.delete`   | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
+| Operation        | Payload fields / semantic constraints                                                                                                                    |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member.add`     | `memberId, role, signKey, encKey, pages`; role viewer/commenter/editor; see [history modes](#current-view-baseline-and-history-modes) for earlier epochs |
+| `member.remove`  | `memberId, cuts`; remove current authority and advance affected page epochs                                                                              |
+| `member.role`    | `memberId, role, cuts`; reductions commit affected streams; promotion grants no retroactive authorship                                                   |
+| `link.add`       | `linkId, role, linkSignKey, linkEncKey, pages`; role viewer/commenter/editor; keys match pinned derivations                                              |
+| `link.remove`    | `linkId, cuts`; revoke every device certified by the link and rotate affected epochs                                                                     |
+| `device.revoke`  | `deviceId, cuts`; revoke the selected identity/sessions/grants and rotate affected epochs; a surviving link seed remains a separate bearer capability    |
+| `bridge.add`     | `machineId, machineSignKey, encKey, pages`; an owner machine with the restricted bridge role, not editor                                                 |
+| `epoch.advance`  | `pageId, epoch, cuts, baseline, wraps`; next epoch, exact baseline descriptor, remaining-recipient signed wraps                                          |
+| `page.share`     | `pageId, mode, epoch, publishedKeys`; private/link/public; key publication only for loopback public mode; earlier epochs only under `shared` history     |
+| `page.history`   | `pageId, mode`; `shared` (default when absent) or `current`; owner control only; applies to later joins                                                  |
+| `retention.set`  | `pageId, days`; positive safe-integer day count or null for forever                                                                                      |
+| `page.archive`   | `pageId`; hide from active lists and freeze writes                                                                                                       |
+| `page.unarchive` | `pageId`; restore an archived, non-deleted page and restart its retention clock                                                                          |
+| `page.delete`    | `pageId`; cease access and remove backend ciphertext; never revive through replay                                                                        |
 
 `page.projects` and `project.manage` are not in this table: they are management requests that change
 display-only owner-store state and append no statement (see [Projects](#projects-3747)).
 
-**Page scope.** `epoch.advance`, `page.share`, `page.history`, `retention.set`, `page.archive` and
+**Page scope.** `epoch.advance`, `page.share`, `page.history`, `retention.set`, `page.archive`, `page.unarchive` and
 `page.delete` are page-scoped: each names exactly one page in `pageId` and changes only that page's
 policy (creating a page appends its first `page.share`). Every other operation (`member.*`, `link.*`,
 `device.revoke`, `bridge.add`) is not page-scoped, even when its payload lists pages: it can change who or
@@ -4576,16 +4587,21 @@ must match this space, use an admitted page context, and satisfy
 
 Request payloads contain user selections only, separate from owner statement DTOs:
 
-| Operation                                      | Exact request fields                                                         |
-| ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| `epoch.advance`, `page.archive`, `page.delete` | `pageId`                                                                     |
-| `page.share`, `page.history`                   | `pageId, mode`                                                               |
-| `retention.set`                                | `pageId, days` (positive safe integer or null)                               |
-| `member.add`                                   | `memberId, role, signKey, encKey, pages`                                     |
-| `member.remove`                                | `memberId, pages`                                                            |
-| `member.role`                                  | `memberId, role, pages`                                                      |
-| `link.add`                                     | `linkId, role, pages, seed`                                                  |
-| `link.remove`                                  | `linkId, pages, replacement` (required null, or a complete link-add request) |
+| Operation                                                        | Exact request fields                                                         |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `epoch.advance`, `page.archive`, `page.unarchive`, `page.delete` | `pageId`                                                                     |
+| `page.share`, `page.history`                                     | `pageId, mode`                                                               |
+| `retention.set`                                                  | `pageId, days` (positive safe integer or null)                               |
+| `member.add`                                                     | `memberId, role, signKey, encKey, pages`                                     |
+| `member.remove`                                                  | `memberId, pages`                                                            |
+| `member.role`                                                    | `memberId, role, pages`                                                      |
+| `link.add`                                                       | `linkId, role, pages, seed`                                                  |
+| `link.remove`                                                    | `linkId, pages, replacement` (required null, or a complete link-add request) |
+
+`page.unarchive` uses the same live owner management admission, expected owner-log head and
+operation-receipt binding as archive. A new request requires an archived, non-deleted target;
+an active or deleted target is refused. The owner signs exactly `{pageId}`: the browser cannot
+supply replacement keys, epochs, recipients, history, expiry or restored content.
 
 Page IDs match the framed initiating context. Page sets are sorted, unique and
 bounded to 256 generated IDs. The engine fences the affected assignment in its
@@ -4785,12 +4801,13 @@ or fabricated zero establishes it. The next admitted content edit starts evidenc
 legacy page. The time is the page's last edit and is not what expiry is computed from.
 
 Schema 15 adds nullable, nonnegative safe-integer `pages.last_activity_at_ms`, the page's
-last activity: the server clock at the last new admitted update of either namespace, so a
+last activity: the server clock at the last new admitted update of either namespace or an
+explicit owner `page.unarchive` (as defined above), so a
 content edit, a comment and a reply all count. The store holds sealed bytes and cannot tell a
 comment from an Ask record in the same `own` stream, so Ask records count too. The rules are
 those of `last_update_at_ms`: sampled in the receipt transaction, never decreasing, and never
 refreshed by exact replay, a failed or rolled-back update, a read, a checkpoint or a
-policy or epoch change. The migration leaves legacy times null without backfill. A page's
+other policy or epoch change. The migration leaves legacy times null without backfill. A page's
 effective activity is the later of `last_activity_at_ms` and `last_update_at_ms`; null is
 unknown, never old. No command reports the value yet.
 
@@ -6035,7 +6052,8 @@ the same dialog; local samples remain read-only. Home defaults to the All tab (a
 and offers an Archived tab; its rows offer archive and delete, each behind a confirmation that
 names the page, and a selection of rows takes them together (one signed statement per page, in
 order, stopping at the first refusal), and the dialog provides retention days/forever, archive and explicit
-delete confirmation. There is no unarchive action. Policy and complete recipient
+delete confirmation. An archived row offers `Restore…` with a named confirmation, using the
+same read/prepare/send/verify flow for `page.unarchive`. Policy and complete recipient
 assignments derive from the contiguous verified owner log, never discovery labels.
 
 Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,

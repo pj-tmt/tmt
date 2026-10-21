@@ -760,6 +760,24 @@ test('a live archive preserves Chat text for Copy and removes publication contro
   expect((await run(page, 'proof')).actions).toEqual([]);
 });
 
+test('a verified restore keeps a Chat draft inert until the reader sends', async ({ page }) => {
+  await mount(page);
+  const input = await compose(page);
+  const draft = '@Agent 1 Explain exactly';
+  await expect(input).toHaveText(draft, { useInnerText: true });
+  await run(page, 'archive');
+  const chat = page.getByTestId('chat-panel');
+  await expect(chat.locator('.archive-unsent-draft pre')).toHaveText(draft);
+  await run(page, 'restore');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live');
+  await expect(chat.getByRole('combobox', { name: 'Message', exact: true })).toHaveText(draft, {
+    useInnerText: true,
+  });
+  await expect(chat.locator('.archive-unsent-draft')).toHaveCount(0);
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  expect((await run(page, 'proof')).actions).toEqual([]);
+});
+
 test('archive keeps an open anchored draft mounted as read-only Copy text', async ({ page }) => {
   await page.goto('/');
   await run(page, 'mount');

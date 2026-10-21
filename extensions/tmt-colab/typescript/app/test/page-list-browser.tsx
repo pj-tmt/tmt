@@ -19,7 +19,7 @@ declare global {
     /** Hold the next `project.manage` request until `__releaseManage` runs. */
     __holdManage?: boolean;
     __releaseManage?: () => void;
-    /** Every archive and delete statement the owner accepted, in order. */
+    /** Every lifecycle statement the owner accepted, in order. */
     __pageOperations: { operation: string; pageId: string }[];
     /** `refuse`: the owner refuses the next statement; `refuse-second`: the one after the first it
      * accepts; `unverified`: its log cannot be read back. */
@@ -143,7 +143,9 @@ export async function mountPageList(
       state.pages =
         operation === 'page.delete'
           ? state.pages.filter((p) => p.id !== value.pageId)
-          : state.pages.map((p) => (p.id === value.pageId ? { ...p, archived: true } : p));
+          : state.pages.map((p) =>
+              p.id === value.pageId ? { ...p, archived: operation === 'page.archive' } : p,
+            );
       return {} as never;
     },
     verify: async (_pending, _ack) => {

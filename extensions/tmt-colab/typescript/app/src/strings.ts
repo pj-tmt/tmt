@@ -697,11 +697,15 @@ export const text = {
     confirmArchiveMany: (count: number) => `Archive ${count} pages?`,
     confirmDeleteMany: (count: number) => `Delete ${count} pages?`,
     confirmArchiveManyBody:
-      'Archived pages stay readable, but nobody can edit them. Archiving cannot be undone yet.',
+      'Archived pages stay readable, but nobody can edit them. You can restore them from Archived.',
+    confirmRestoreMany: (count: number) => `Restore ${count} pages?`,
+    confirmRestoreManyBody:
+      'These pages return to your active list and can be edited again. Their expiry starts over from today.',
     confirmDeleteManyBody:
       'The pages, their comments and their attachments are deleted. This cannot be undone.',
     moreTitles: (count: number) => `and ${count} more`,
     archivedMany: (count: number) => `Archived ${count} pages.`,
+    restoredMany: (count: number) => `Restored ${count} pages.`,
     deletedMany: (count: number) => `Deleted ${count} pages.`,
     awaitingMany: (count: number) =>
       `The owner acknowledged ${count} of the changes; their signed logs are not verified yet.`,
@@ -717,17 +721,25 @@ export const text = {
       } skipped.`,
     nothingToChange: 'Nothing to change.',
     archiveItem: 'Archive…',
+    restoreItem: 'Restore…',
     deleteItem: 'Delete…',
     confirmArchiveTitle: (title: string) => `Archive “${title}”?`,
     confirmArchive:
-      'An archived page stays readable, but nobody can edit it. Archiving cannot be undone yet.',
+      'An archived page stays readable, but nobody can edit it. You can restore it from Archived.',
+    restorePage: (title: string) => `Restore “${title}”`,
+    confirmRestoreTitle: (title: string) => `Restore “${title}”?`,
+    confirmRestore:
+      'This page returns to your active list and can be edited again. Its expiry starts over from today.',
     confirmDeleteTitle: (title: string) => `Delete “${title}”?`,
     confirmDelete: 'The page, its comments and its attachments are deleted. This cannot be undone.',
     archiveButton: 'Archive page',
     archiveButtonMany: 'Archive pages',
+    restoreButton: 'Restore page',
+    restoreButtonMany: 'Restore pages',
     deleteButtonMany: 'Delete pages',
     deleteButton: 'Delete page',
     archived: (title: string) => `Archived “${title}”.`,
+    restored: (title: string) => `Restored “${title}”.`,
     deleted: (title: string) => `Deleted “${title}”.`,
     awaiting: (title: string) =>
       `“${title}”: the owner acknowledged the change; its signed log is not verified yet. Open Manage page to verify it.`,

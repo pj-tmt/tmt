@@ -7,7 +7,7 @@ const t = text.pageList;
 /** A confirmation of many pages lists the first few by title and counts the rest. */
 const LISTED = 5;
 
-/** Archive and delete name what they change and say what cannot be undone. The host runs the
+/** Lifecycle actions name what they change and whether they can be undone. The host runs the
  * statements and reports the outcome in the list's status line, so the dialog only confirms. */
 export function PageOperationDialog({
   operation,
@@ -26,20 +26,35 @@ export function PageOperationDialog({
 }) {
   const deleting = operation === 'page.delete';
   const many = titles.length > 1;
-  const heading = many
-    ? deleting
-      ? t.confirmDeleteMany(titles.length)
-      : t.confirmArchiveMany(titles.length)
-    : deleting
-      ? t.confirmDeleteTitle(titles[0] ?? '')
-      : t.confirmArchiveTitle(titles[0] ?? '');
-  const body = many
-    ? deleting
-      ? t.confirmDeleteManyBody
-      : t.confirmArchiveManyBody
-    : deleting
-      ? t.confirmDelete
-      : t.confirmArchive;
+  const copy =
+    operation === 'page.unarchive'
+      ? {
+          title: t.confirmRestoreTitle,
+          many: t.confirmRestoreMany,
+          body: t.confirmRestore,
+          manyBody: t.confirmRestoreManyBody,
+          button: t.restoreButton,
+          manyButton: t.restoreButtonMany,
+        }
+      : deleting
+        ? {
+            title: t.confirmDeleteTitle,
+            many: t.confirmDeleteMany,
+            body: t.confirmDelete,
+            manyBody: t.confirmDeleteManyBody,
+            button: t.deleteButton,
+            manyButton: t.deleteButtonMany,
+          }
+        : {
+            title: t.confirmArchiveTitle,
+            many: t.confirmArchiveMany,
+            body: t.confirmArchive,
+            manyBody: t.confirmArchiveManyBody,
+            button: t.archiveButton,
+            manyButton: t.archiveButtonMany,
+          };
+  const heading = many ? copy.many(titles.length) : copy.title(titles[0] ?? '');
+  const body = many ? copy.manyBody : copy.body;
   return (
     <BrowserDialog
       open={operation !== undefined}
@@ -69,15 +84,7 @@ export function PageOperationDialog({
           <BrowserAction
             type="button"
             variant={deleting ? 'destructive' : 'primary'}
-            label={
-              deleting
-                ? many
-                  ? t.deleteButtonMany
-                  : t.deleteButton
-                : many
-                  ? t.archiveButtonMany
-                  : t.archiveButton
-            }
+            label={many ? copy.manyButton : copy.button}
             busy={busy}
             onActivate={onConfirm}
           />

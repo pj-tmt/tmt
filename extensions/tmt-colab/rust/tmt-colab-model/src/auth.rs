@@ -74,6 +74,7 @@ pub fn operation(value: &str) -> Result<()> {
             | "page.history"
             | "retention.set"
             | "page.archive"
+            | "page.unarchive"
             | "page.delete"
     ))
 }

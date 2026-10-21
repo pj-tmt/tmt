@@ -56,6 +56,7 @@ fn all_operation_schemas_and_bounded_sorted_lists() {
         ("page.history", json!({"pageId":p,"mode":"shared"})),
         ("retention.set", json!({"pageId":p,"days":null})),
         ("page.archive", json!({"pageId":p})),
+        ("page.unarchive", json!({"pageId":p})),
         ("page.delete", json!({"pageId":p})),
     ];
     for (op, value) in cases {

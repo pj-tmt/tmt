@@ -671,3 +671,58 @@ it('admits archived reads from signed policy while writes and deleted reads stay
     vi.useRealTimers();
   }
 });
+
+it('admits independent restore histories, rejects invalid histories before persistence, and keeps historical write cuts', async () => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/unarchive-v1.json', import.meta.url), 'utf8'),
+  );
+  vi.useFakeTimers();
+  vi.setSystemTime(50);
+  try {
+    for (const sample of corpus.cases) {
+      records.clear();
+      const a = new Admission(corpus.space, corpus.page, '1', hex(corpus.public), {
+        deviceId: corpus.page,
+      } as Registration);
+      const last = c.statement.Envelope.fromJson(c.text(JSON.stringify(sample.log.at(-1))));
+      const membership = {
+        revision: String(sample.log.length),
+        statementHash: c.encodeBinary(await last.hash()),
+        ownerKey: c.encodeBinary(hex(corpus.public)),
+        statements: sample.log.map(transport),
+        more: false,
+      };
+      if (!sample.admitted) {
+        await expect(a.membership(membership, true), sample.name).rejects.toThrow();
+        expect(a.head, sample.name).toBeNull();
+        expect(records.get(`log:${corpus.space}`), sample.name).toBeUndefined();
+        continue;
+      }
+      await a.membership(membership, true);
+      await a.chains([{ deviceId: corpus.page, chain: transport(corpus.chain) }]);
+      expect(a.archived, sample.name).toBe(sample.archived);
+      if (sample.archived || sample.deleted) expect(() => a.validatePage('private')).toThrow();
+      else expect(() => a.validatePage('private')).not.toThrow();
+      if (sample.deleted) expect(() => a.validateRead('private')).toThrow();
+      else expect(() => a.validateRead('private')).not.toThrow();
+      for (const [index, writable] of sample.writable.entries()) {
+        const context: c.Context = {
+          space: corpus.space,
+          page: corpus.page,
+          epoch: '1',
+          authorDevice: corpus.page,
+          kind: 'update',
+          namespace: 'own',
+          membershipRevision: String(index + 1),
+          streamSeq: '1',
+          prevHash: new Uint8Array(32),
+        };
+        const read = () => a.readAuthor(context, new Uint8Array(32));
+        if (writable) expect(read, `${sample.name} at ${index + 1}`).not.toThrow();
+        else expect(read, `${sample.name} at ${index + 1}`).toThrow();
+      }
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});

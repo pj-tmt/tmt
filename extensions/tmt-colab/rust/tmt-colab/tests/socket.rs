@@ -3134,15 +3134,70 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     assert_eq!(pages["pages"][0]["archived"], true);
     assert_eq!(pages["pages"][0]["sharing"], "link");
     assert_eq!(pages["pages"][0]["history"], "current");
-    let delete = local_management(
+    let restore = management_body(
         &server,
         "90000000-0000-4000-8000-000000000005",
         5,
+        "page.unarchive",
+        json!({"pageId":PAGE}),
+        DEVICE,
+        now(),
+    );
+    let restored = server.event(path, &header, &restore);
+    management_response(&server, &restored, "6");
+    match peer.read() {
+        Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "RESYNC_REQUIRED"),
+        other => panic!("restore reused the archived page admission: {other:?}"),
+    }
+    let mut peer = server.peer(DEVICE);
+    let frames = hello(&server, &mut peer, DEVICE);
+    assert_eq!(frames[0]["membershipHead"]["revision"], "6");
+    assert_eq!(server.event(path, &header, &restore), restored);
+    peer.send(Message::Ping(vec![6].into())).unwrap();
+    assert!(matches!(peer.read().unwrap(), Message::Pong(_)));
+    let page_list = server.request(&Running::get("/api/pages", &header));
+    let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(pages["pages"][0]["archived"], false);
+    assert_eq!(pages["pages"][0]["sharing"], "link");
+    assert_eq!(pages["pages"][0]["history"], "current");
+    // Only a newly admitted session with the restored membership cut can write.
+    let context = object::Context {
+        space: server.space.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+        kind: "update".into(),
+        namespace: "content".into(),
+        author_device: DEVICE.into(),
+        membership_revision: "6".into(),
+        stream_seq: "1".into(),
+        prev_hash: [0; 32],
+    };
+    let envelope = object::seal(&context, &[8; 32], &signing(DEVICE), b"restored update").unwrap();
+    send(
+        &mut peer,
+        server.frame(
+            "append",
+            json!({
+                "streamId":DEVICE,"seq":"1",
+                "envelopeHash":values::encode_binary(&envelope.hash().unwrap()),
+                "envelope":values::encode_binary(&envelope.to_json().unwrap())
+            }),
+        ),
+    );
+    let (receipt, before) = receive_until(&mut peer, "receipt");
+    assert_eq!(receipt["type"], "receipt");
+    if !before.iter().any(|frame| frame["type"] == "broadcast") {
+        assert_eq!(receive(&mut peer)["type"], "broadcast");
+    }
+    let delete = local_management(
+        &server,
+        "90000000-0000-4000-8000-000000000006",
+        6,
         "page.delete",
         json!({"pageId":PAGE}),
     );
     let deleted = server.event(tmt_colab::management::LOCAL_PATH, "", &delete);
-    management_response(&server, &deleted, "6");
+    management_response(&server, &deleted, "7");
     match peer.read() {
         Ok(Message::Close(Some(close))) => assert_eq!(close.reason, "DENIED"),
         other => panic!("delete left a subscribed peer alive: {other:?}"),
@@ -3158,8 +3213,8 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     );
     let db = server.oracle();
     for (table, expected) in [
-        ("membership_log", 6),
-        ("owner_operations", 6),
+        ("membership_log", 7),
+        ("owner_operations", 7),
         ("epoch_secrets", 0),
     ] {
         let count: i64 = db

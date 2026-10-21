@@ -163,6 +163,7 @@ pub enum Payload {
     PageHistory(PageHistory),
     RetentionSet(RetentionSet),
     Archive(Page),
+    Unarchive(Page),
     Delete(Page),
 }
 impl Payload {
@@ -175,7 +176,7 @@ impl Payload {
             Self::PageShare(p) => Some(&p.page_id),
             Self::PageHistory(p) => Some(&p.page_id),
             Self::RetentionSet(p) => Some(&p.page_id),
-            Self::Archive(p) | Self::Delete(p) => Some(&p.page_id),
+            Self::Archive(p) | Self::Unarchive(p) | Self::Delete(p) => Some(&p.page_id),
             Self::MemberAdd(_)
             | Self::MemberRemove(_)
             | Self::MemberRole(_)
@@ -345,6 +346,11 @@ pub fn decode(operation: &str, bytes: &[u8]) -> Result<Payload> {
             let v: Page = parse(bytes)?;
             values::generated_id(&v.page_id)?;
             Payload::Archive(v)
+        }
+        "page.unarchive" => {
+            let v: Page = parse(bytes)?;
+            values::generated_id(&v.page_id)?;
+            Payload::Unarchive(v)
         }
         "page.delete" => {
             let v: Page = parse(bytes)?;

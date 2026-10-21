@@ -408,6 +408,23 @@ fn the_page_row_is_written_again_when_its_content_changes_or_its_refresh_interva
 }
 
 #[test]
+fn restoring_an_archived_page_republishes_open_state_without_waiting_for_refresh() {
+    let mut rig = rig();
+    let hour = Duration::from_secs(3600);
+    let mut local = Fake {
+        rows: vec![page_row(&[("epoch", "1"), ("state", "archived")], hour)],
+        ..Fake::default()
+    };
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    // Restore keeps the epoch but changes the publication state immediately.
+    local.rows = vec![lifetime_row(&[("epoch", "1"), ("state", "open")], 30, hour)];
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    rig.publisher.pass(&mut local, &page()).unwrap();
+    assert_eq!(kinds(&rig), ["put pages/p", "put pages/p"]);
+    assert_eq!(local.page_rows, [30 * 86_400_000; 2]);
+}
+
+#[test]
 fn a_page_row_the_cloud_did_not_confirm_is_not_reported() {
     let mut rig = rig();
     rig.firestore.faults.lock().unwrap().refuse_next = Some(sync::Error {

@@ -636,3 +636,43 @@ it('unexpected management failures retain a safe cause while mapping to INVALID'
   expect((sensitive.cause as Error).message).not.toContain('A'.repeat(64));
   expect(managementFailure(new Error('Reply lost'), true).code).toBe('UNKNOWN');
 });
+
+it('restores only an archived page through signed preparation and verified log readback', async () => {
+  const f = await fixture();
+  await expect(
+    f.client.prepare(f.view, { operation: 'page.unarchive', value: { pageId: v.page } }),
+  ).rejects.toThrow();
+  await f.append('page.archive', { pageId: v.page });
+  const archived = project(page, f.log, hex(v.public));
+  expect(archived.page.archived).toBe(true);
+  const pending = await f.client.prepare(archived, {
+    operation: 'page.unarchive',
+    value: { pageId: v.page },
+  });
+  expect(pending.operation).toBe('page.unarchive');
+  await f.append('page.unarchive', { pageId: v.page });
+  // The catalog still says archived: only the signed log establishes restoration.
+  f.boot.pages = [{ ...page, archived: true }];
+  serve(f);
+  const restored = await f.client.verify(pending, acknowledgment(f, pending));
+  expect(restored.page.archived).toBe(false);
+  expect(restored.page.deleted).toBe(false);
+  expect(restored.page.epoch).toBe(archived.page.epoch);
+  expect(restored.links).toEqual(archived.links);
+  expect(restored.members).toEqual(archived.members);
+  expect(restored.page.sharing).toBe(archived.page.sharing);
+  await expect(
+    f.client.prepare(restored, {
+      operation: 'page.unarchive',
+      value: { pageId: v.page },
+    }),
+  ).rejects.toThrow();
+  await f.append('page.delete', { pageId: v.page });
+  const deleted = project(page, f.log, hex(v.public));
+  await expect(
+    f.client.prepare(deleted, {
+      operation: 'page.unarchive',
+      value: { pageId: v.page },
+    }),
+  ).rejects.toThrow();
+});
