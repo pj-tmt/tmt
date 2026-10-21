@@ -136,7 +136,7 @@ fn config_mutations_refuse_malformed_or_linked_inputs_without_replacing_them() {
     ] {
         fs::write(&config.paths.global_config, content).unwrap();
         assert_eq!(
-            config.set(setting, Scope::Global).unwrap_err().code,
+            config.set(setting.clone(), Scope::Global).unwrap_err().code,
             "CONFIG_ERROR"
         );
         assert_eq!(
@@ -148,7 +148,7 @@ fn config_mutations_refuse_malformed_or_linked_inputs_without_replacing_them() {
     let target = directory.path.join("foreign.json");
     fs::write(&target, b"{}").unwrap();
     symlink(&target, &config.paths.global_config).unwrap();
-    assert!(config.set(setting, Scope::Global).is_err());
+    assert!(config.set(setting.clone(), Scope::Global).is_err());
     assert_eq!(fs::read_link(&config.paths.global_config).unwrap(), target);
     assert_eq!(fs::read(&target).unwrap(), b"{}");
 }

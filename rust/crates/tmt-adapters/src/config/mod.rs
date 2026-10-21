@@ -164,7 +164,7 @@ impl ConfigFiles {
             &self.paths.global_dir,
             path,
             scope,
-            &document::set_retry(setting, scope),
+            &document::set_retry(&setting, scope),
             |value| {
                 document::set(value, setting, scope)?;
                 Ok(true)

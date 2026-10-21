@@ -6,7 +6,9 @@ use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::config::{ConfigFiles, ConfigPaths, Scope, ThemeProblem};
-use tmt_core::settings::{EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey};
+use tmt_core::settings::{
+    EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey, Settings,
+};
 
 fn invalid_setting(message: String) -> Failure {
     Failure::new("ERROR", message, 1)
@@ -213,6 +215,7 @@ fn show_json(
             "workspace": { "snapshotEnabled": settings.workspace_snapshot_enabled, "snapshotIntervalMs": settings.workspace_snapshot_interval_ms },
             "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
+            "user": { "name": effective_user_name(settings) },
             "theme": theme,
         },
         "sources": {
@@ -225,10 +228,20 @@ fn show_json(
             "workspace": { "snapshotEnabled": loaded.source(SettingKey::WorkspaceSnapshotEnabled), "snapshotIntervalMs": loaded.source(SettingKey::WorkspaceSnapshotIntervalMs) },
             "notifications": { "replyBatchWindowMs": loaded.source(SettingKey::ReplyBatchWindowMs), "typingQuietMs": loaded.source(SettingKey::TypingQuietMs) },
             "ui": { "paneBadge": loaded.source(SettingKey::PaneBadge) },
+            "user": { "name": loaded.source(SettingKey::UserName) },
             "theme": theme_source,
         },
         "paths": { "global": paths.global_config, "local": paths.local_config },
     })
+}
+
+/// The configured name, else the OS login name the person's identity would take.
+fn effective_user_name(settings: &Settings) -> Option<String> {
+    settings
+        .user_name
+        .as_ref()
+        .map(|name| name.as_str().to_string())
+        .or_else(tmt_adapters::user::login_name)
 }
 
 fn show_text(
@@ -309,6 +322,11 @@ fn show_text(
             SettingKey::PaneBadge,
             "ui.paneBadge",
             settings.pane_badge.as_str().to_string(),
+        ),
+        (
+            SettingKey::UserName,
+            "user.name",
+            effective_user_name(settings).unwrap_or_else(|| "unset".to_string()),
         ),
     ];
     use tmt_cli_style::{

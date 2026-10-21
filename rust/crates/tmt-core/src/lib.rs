@@ -25,6 +25,7 @@ pub mod retention;
 pub mod room;
 pub mod settings;
 pub mod skill_catalog;
+pub mod user;
 
 #[cfg(test)]
 mod identity_tests;
