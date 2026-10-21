@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { showAllPages } from '../test/home-list.js';
 import {
   binariesBuilt,
   remoteBinary,
@@ -385,12 +386,35 @@ test.describe('the door serving the TMT app', () => {
       expect(reads).toBeGreaterThanOrEqual(2);
     });
 
+    test('the list tab survives reload, Back and Forward in the TMT app', async ({ page }) => {
+      const id = await door!.createPage('Tab page', '<h1>Tab content</h1>');
+      await door!.pair(page);
+      await page.goto(`${door!.origin}/colab/`);
+      const all = page.getByRole('tab', { name: 'All', exact: true });
+      // A fresh visit to the bare list opens the default tab.
+      await expect(page.getByRole('tab', { name: /^In progress/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await showAllPages(page);
+      await page.reload();
+      await expect(all).toHaveAttribute('aria-selected', 'true');
+      await page.locator(`[data-page-id="${id}"] a`).click();
+      await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+      await page.goBack();
+      await expect(all).toHaveAttribute('aria-selected', 'true');
+      await page.goForward();
+      await expect.poll(() => here(page)).toBe(`/colab/pages/${id}`);
+      await expect(page.locator('.colab-route')).toBeVisible();
+    });
+
     test('a Recent card on Home opens its page in the same document', async ({ page }) => {
       const id = await door!.createPage('Recent page', '<h1>Recent content</h1>');
       await door!.pair(page);
       const card = page.locator('#home-recent').getByRole('link', { name: 'Recent page' });
       // Colab records titles in the background after a page-list read; Home lists them then.
       await page.goto(`${door!.origin}/colab/`);
+      await showAllPages(page);
       await expect(page.getByText('Recent page').first()).toBeVisible();
       await expect(async () => {
         await page.goto(`${door!.origin}/`);
@@ -437,7 +461,7 @@ test.describe('the door serving the TMT app', () => {
         await expect(page.locator('#access')).not.toContainText('connection limit');
         await go('/colab/');
         await expect(page.locator('.colab-route')).toBeVisible();
-        await expect(page.getByText('Session page').first()).toBeVisible();
+        await expect(page.getByRole('tab', { name: /^Discussion/ })).toBeVisible();
         await go('/remote/settings');
       }
       await expect(thisDevice).toBeVisible();
