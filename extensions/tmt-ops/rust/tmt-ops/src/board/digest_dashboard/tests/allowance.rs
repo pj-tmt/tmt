@@ -92,8 +92,9 @@ fn a_wide_row_shows_left_need_every_line_and_the_reset() {
     let mut app = digest(vec![claude()]);
     let rows = rows(&buffer(&mut app, 120, 40));
     assert!(
-        rows.iter().any(|row| row
-            .contains("Allowance · weekly windows and budgets · left at reset if this rate holds")),
+        rows.iter().any(
+            |row| row.contains("Allowance · weekly windows · left at reset if this rate holds")
+        ),
         "{}",
         rows.join("\n")
     );

@@ -62,7 +62,7 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let wide = wide(area.width);
     let title = if wide {
-        "Allowance · weekly windows and budgets · left at reset if this rate holds"
+        "Allowance · weekly windows · left at reset if this rate holds"
     } else {
         "Allowance · left at reset (worst of the lines)"
     };
