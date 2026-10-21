@@ -166,7 +166,7 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
             json!({"action":action,"job":view.document(),"warnings":view.warnings.iter().map(SquadError::to_json).collect::<Vec<_>>() }),
         );
     }
-    let actor = service::actor(core, config, flag(flags, "identity"))?;
+    let actor = service::actor(core, flag(flags, "identity"))?;
     let member = || -> Result<String, SquadError> {
         let name = flag(flags, "member").expect("member required");
         let shown = core.json(&["identity", "show", name])?;

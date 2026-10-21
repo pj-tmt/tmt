@@ -1303,7 +1303,8 @@ impl Config {
         Ok(names)
     }
 
-    /// Top-level `me`: the saved identity that is the user. Never guessed.
+    /// Top-level `me`: the user an earlier squad recorded. Core's `user.name`
+    /// owns the user now; `me::migrate` carries this record there once.
     pub fn me(&self) -> Result<Option<&str>, SquadError> {
         match self.document.get("me") {
             None => Ok(None),
@@ -1315,8 +1316,8 @@ impl Config {
         }
     }
 
-    /// Top-level `me_id`: the UUID `me` named when it was recorded, so `me`
-    /// follows an identity rename. Written by squad, never needed by hand.
+    /// Top-level `me_id`: the UUID `me` named when it was recorded (read only
+    /// by `me::migrate`, like `me`).
     pub fn me_id(&self) -> Result<Option<&str>, SquadError> {
         match self.document.get("me_id") {
             None => Ok(None),
@@ -2299,34 +2300,13 @@ impl Config {
         States::read(self.squad_table(squad)?, squad, layout)
     }
 
-    /// Writes `me` and its UUID `me_id` together by replacing the file
-    /// atomically. Refuses if another editor changed the file since it was
-    /// read, rather than overwriting their edit.
-    pub fn set_me(&mut self, name: &str, id: &str) -> Result<(), SquadError> {
-        self.write_me(Some((name, id)))
-    }
-
-    /// Removes `me` and `me_id` the same way; the rest of the file is kept.
+    /// Removes `me` and `me_id` by replacing the file atomically; the rest of
+    /// the file is kept. Refuses if another editor changed the file since it
+    /// was read, rather than overwriting their edit.
     pub fn clear_me(&mut self) -> Result<(), SquadError> {
-        self.write_me(None)
-    }
-
-    fn write_me(&mut self, me: Option<(&str, &str)>) -> Result<(), SquadError> {
-        self.write(|document| match me {
-            Some((name, id)) => {
-                document.insert(
-                    "me",
-                    Item::Value(value(name).into_value().expect("string value")),
-                );
-                document.insert(
-                    "me_id",
-                    Item::Value(value(id).into_value().expect("string value")),
-                );
-            }
-            None => {
-                document.remove("me");
-                document.remove("me_id");
-            }
+        self.write(|document| {
+            document.remove("me");
+            document.remove("me_id");
         })
     }
 
@@ -2721,7 +2701,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_publication_keeps_config_and_does_not_leak_the_draft_into_me_write() {
+    fn failed_publication_keeps_config_and_does_not_leak_the_draft_into_a_later_write() {
         use crate::theme::ThemeScope;
         use tmt_cli_style::Base;
         let path = temp("theme-failed-publish");
@@ -2743,10 +2723,10 @@ mod tests {
         assert_eq!(config.original.as_deref(), Some(original.as_bytes()));
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
         fs::remove_dir(staged).unwrap();
-        config
-            .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
-            .unwrap();
-        assert!(fs::read_to_string(&path).unwrap().contains(original));
+        config.set_tab_order(&["all".to_owned()]).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains(original), "{written}");
+        assert!(!written.contains("mono"), "{written}");
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
@@ -3235,41 +3215,6 @@ mod tests {
     }
 
     #[test]
-    fn me_is_written_without_disturbing_the_users_document() {
-        let path = temp("me");
-        let original = "# my board\n[squad.product]\nlayout = \"pr-queue\" # queue\n\n[bind]\no = \"open {pr_link}\"\n";
-        fs::write(&path, original).unwrap();
-        let mut config = Config::read(path.clone()).unwrap();
-        assert_eq!(config.me().unwrap(), None);
-        assert_eq!(config.layout("product").unwrap(), Layout::PrQueue);
-        assert_eq!(config.layout("other").unwrap(), Layout::Team);
-        config
-            .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
-            .unwrap();
-        let written = fs::read_to_string(&path).unwrap();
-        assert!(
-            written.contains(original),
-            "user bytes are preserved: {written}"
-        );
-        let reread = Config::read(path.clone()).unwrap();
-        assert_eq!(reread.me().unwrap(), Some("ada"));
-        assert_eq!(
-            reread.me_id().unwrap(),
-            Some("7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
-        );
-        fs::write(&path, "me = \"Someone\"\n").unwrap();
-        assert_eq!(
-            config
-                .set_me("ada", "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f")
-                .unwrap_err()
-                .code,
-            "SQUAD_CONFIG_CHANGED"
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "me = \"Someone\"\n");
-        let _ = fs::remove_dir_all(path.parent().unwrap());
-    }
-
-    #[test]
     fn clearing_me_removes_only_me_and_its_id() {
         let path = temp("clear-me");
         let user = "# my board\n[squad.product]\nlayout = \"pr-queue\" # queue\n";
@@ -3287,6 +3232,11 @@ mod tests {
             (None, None)
         );
         assert_eq!(reread.layout("product").unwrap(), Layout::PrQueue);
+        // An edit made after the read is refused, not overwritten.
+        let mut config = Config::read(path.clone()).unwrap();
+        fs::write(&path, "me = \"Someone\"\n").unwrap();
+        assert_eq!(config.clear_me().unwrap_err().code, "SQUAD_CONFIG_CHANGED");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "me = \"Someone\"\n");
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 

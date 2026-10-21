@@ -40,7 +40,7 @@ pub fn fetch(core: &Core, job: Fetch, now_ms: i64, places: &mut Places) -> Resul
         jobs,
         clock,
         place,
-        actor: service::actor(core, &job.config, None).map_err(|error| error.to_string()),
+        actor: service::actor(core, None).map_err(|error| error.to_string()),
         read_ms: now_ms,
     })
 }

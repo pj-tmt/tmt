@@ -1001,7 +1001,7 @@ fn load(
     let mut home_leads = None;
     let mut view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
-        let me = crate::me::you(crate::me::current(core, config)?, caller);
+        let me = crate::me::you(crate::me::current(core)?, caller);
         let (view, found) = if key == LEADS {
             leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
@@ -1782,6 +1782,7 @@ ls) printf '%s\n' '{"identities":[{"id":"S","name":"sol","presence":"offline"}]}
 api)
  input=$(cat)
  case "$input" in
+ *'"user.identity"'*) printf '%s\n' '{"error":{"code":"USER_NAME_UNAVAILABLE","message":"no name"}}'; exit 1 ;;
  *'"room":"P"'*) printf '%s\n' '{"members":[{"id":"S","name":"sol","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.state":"blocked","squad.product.pending":"approve"}},{"id":"W","name":"worker","lifetime":"saved","metadata":{"squad.product.task":"ship"}}]}' ;;
  *'"room":"Q"'*) printf '%s\n' '{"members":[]}' ;;
  *) exit 2 ;;
@@ -1887,6 +1888,7 @@ inbox)
 api)
  input=$(cat)
  case "$input" in
+ *'"user.identity"'*) printf '%s\n' '{"identityId":"7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f","name":"ben","created":false}' ;;
  *'"room":"P"'*) printf '%s\n' '{"members":[{"id":"S","name":"sol","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.state":"blocked","squad.product.task":"ship","usage.count":"1200"}},{"id":"L","name":"legacy","lifetime":"saved","metadata":{"squad.product.role":"lead","squad.product.pending":"review","usage.count":"950"}},{"id":"W","name":"worker","lifetime":"saved","metadata":{"squad.product.task":"hidden"}}]}' ;;
  *'"room":"Q"'*)
  if test -f "$root/fail-squad"; then printf '%s\n' '{"error":{"code":"READ_FAILED","message":"roster unavailable"}}'; exit 1; fi
@@ -1901,9 +1903,7 @@ esac
         let path = root.join("ops.toml");
         std::fs::write(
             &path,
-            r#"me = "ben"
-me_id = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f"
-[tabs]
+            r#"[tabs]
 hide = ["quiet", "tab:needs-me"]
 [bind]
 enter = "tab"
@@ -2013,11 +2013,7 @@ columns = [{ name = "member" }, { name = "ctx", from = "meta.usage.count", forma
     fn each_refresh_branch_reads_digest_once_including_deferred_attention() {
         use crate::cron_service::test_support::{Fixture, LEAD, USER, WORKER};
         let f = Fixture::new();
-        std::fs::write(
-            f.config.path(),
-            format!("me='Ben'\nme_id='{USER}'\n[tabs.active]\nfilter='name'\n"),
-        )
-        .unwrap();
+        std::fs::write(f.config.path(), "[tabs.active]\nfilter='name'\n").unwrap();
         f.change_model(|model| {
             model["members"][2]["metadata"]["squad.product.state"] = json!("blocked")
         });
@@ -2247,6 +2243,7 @@ if [ "$1" = api ]; then
     *'"storage.root"'*) printf '%s\n' '{{"dataRoot":"{root}"}}'; exit 0 ;;
     *'"rooms.roster"'*) printf '%s\n' '{roster}'; exit 0 ;;
     *'"changes.cursor"'*) printf '%s\n' '{{"cursor":0}}'; exit 0 ;;
+    *'"user.identity"'*) printf '%s\n' '{{"error":{{"code":"USER_NAME_UNAVAILABLE","message":"no name"}}}}'; exit 1 ;;
   esac
 fi
 printf '%s\n' '{{}}'

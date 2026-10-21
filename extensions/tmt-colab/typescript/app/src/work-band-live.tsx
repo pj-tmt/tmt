@@ -25,7 +25,14 @@ export function PageWorkBand({
       {...band}
       stageOf={stageOf}
       actions={(task, id, state) => (
-        <TaskControls key={id} id={id} task={task} state={state} work={work} />
+        <TaskControls
+          key={id}
+          id={id}
+          task={task}
+          state={state}
+          work={work}
+          pageHref={band.pageHref}
+        />
       )}
       listActions={<AddTask work={work} />}
     />

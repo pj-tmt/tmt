@@ -1,20 +1,27 @@
-//! Who the user is, and who sends. `ops.toml` may record the user's saved
-//! identity: the name a person reads (`me`) and the UUID that decides
-//! (`me_id`), so `me` follows an identity rename in core. The rename
-//! observation (`__tmt-hooks`) repairs the file at once; without hooks, the
-//! next command that reads `me` repairs it. Nothing here ever asks: `me` is
-//! optional, and what needs it derives it or says how to set it.
+//! Who the user is, and who sends. Core owns the person's identity: the
+//! `user.name` setting and the `user.identity` API operation (#513). This module
+//! asks Core and keeps no copy. A user an earlier `ops.toml` recorded (`me`,
+//! `me_id`) is carried into `user.name` once, then the record is dropped.
 
 use crate::{
     config::Config,
     core::{Core, SquadError},
 };
+use serde_json::json;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Me {
     pub id: String,
     pub name: String,
 }
+
+/// Core's codes for a name it cannot turn into an identity; each message names
+/// `tmt config set user.name <name>`. They mean "no user here", not a failure.
+const UNRESOLVED: [&str; 3] = [
+    "USER_NAME_UNAVAILABLE",
+    "USER_NAME_INVALID",
+    "USER_NAME_TAKEN",
+];
 
 /// `tmt identity show` by name or UUID; `None` when core has no such identity.
 fn lookup(core: &Core, selector: &str) -> Result<Option<Me>, SquadError> {
@@ -37,76 +44,109 @@ fn lookup(core: &Core, selector: &str) -> Result<Option<Me>, SquadError> {
     }
 }
 
-/// Who the user is. The UUID decides, as core's binding markers do: while
-/// `me_id` names an active identity, that identity is the user under its
-/// current name. Only when `me_id` is missing or no longer active does the
-/// name decide, and its UUID is what gets recorded.
-#[derive(Debug, PartialEq, Eq)]
-enum Decided {
-    ById { me: Me },
-    ByName { me: Me },
-}
-
-fn decide(core: &Core, config: &Config) -> Result<Option<(Decided, String)>, SquadError> {
-    let Some(name) = config.me()?.map(str::to_owned) else {
-        return Ok(None);
-    };
-    if let Some(id) = config.me_id()?
-        && let Some(me) = lookup(core, id)?
-    {
-        return Ok(Some((Decided::ById { me }, name)));
+/// The user: Core's `user.identity`, created and marked as a person on first
+/// use. `None` when Core cannot resolve a name (no login name, an invalid one,
+/// or agents holding both candidates).
+pub fn current(core: &Core) -> Result<Option<Me>, SquadError> {
+    match core.api("user.identity", json!({})) {
+        Ok(shown) => match (shown["identityId"].as_str(), shown["name"].as_str()) {
+            (Some(id), Some(name)) => Ok(Some(Me {
+                id: id.into(),
+                name: name.into(),
+            })),
+            _ => Err(SquadError::new(
+                "SQUAD_CORE_UNAVAILABLE",
+                "user.identity returned no identity.",
+            )),
+        },
+        Err(error) if UNRESOLVED.contains(&error.code.as_str()) => Ok(None),
+        Err(error) => Err(error),
     }
-    let me = lookup(core, &name)?.ok_or_else(|| {
-        SquadError::new(
-            "NAME_NOT_FOUND",
-            format!("Identity '{name}' was not found."),
-        )
-    })?;
-    Ok(Some((Decided::ByName { me }, name)))
 }
 
-/// The user, without touching `ops.toml`: for the board's refresh, which
-/// must neither write the user's file nor print over its screen.
-pub fn current(core: &Core, config: &Config) -> Result<Option<Me>, SquadError> {
-    Ok(decide(core, config)?.map(|(decided, _)| match decided {
-        Decided::ById { me } | Decided::ByName { me } => me,
-    }))
-}
-
-/// The user, with `ops.toml` brought up to date: a rename rewrites `me`, a
-/// missing `me_id` is recorded. When `me` was edited to name a different
-/// identity, `me_id` still decides and one warning says how to change who
-/// the user is. A failed write never fails the command; the next retries.
-pub fn resolve(core: &Core, config: &mut Config) -> Result<Option<Me>, SquadError> {
-    let Some((decided, written)) = decide(core, config)? else {
-        return Ok(None);
-    };
-    let me = match decided {
-        Decided::ById { me } => {
-            if me.name != written && lookup(core, &written)?.is_some_and(|other| other.id != me.id)
-            {
-                warn_edited(&written, &me.name);
-            }
-            me
+/// Carries the user an earlier `ops.toml` recorded into Core, once: the
+/// identity `me_id` names (else `me`) becomes `user.name` unless Core already
+/// has a name set, and the record is dropped. That identity also gets Core's
+/// `user` entry first when it has none, so `user.identity` reuses it even if
+/// a pane was ever bound to it (an unmarked bound identity is an agent and
+/// would be passed over for `<name>-user`). Without a record this reads
+/// nothing from Core. A failure keeps the record, so the next run retries.
+pub fn migrate(core: &Core, config: &mut Config) -> Result<(), SquadError> {
+    let name = config.me()?.map(str::to_owned);
+    let id = config.me_id()?.map(str::to_owned);
+    if name.is_none() && id.is_none() {
+        return Ok(());
+    }
+    if core.json(&["config", "show"])?["sources"]["user"]["name"] == "default" {
+        let recorded = match id {
+            Some(id) => lookup(core, &id)?,
+            None => None,
+        };
+        let recorded = match (recorded, name) {
+            (Some(recorded), _) => Some(recorded),
+            (None, Some(name)) => lookup(core, &name)?,
+            (None, None) => None,
+        };
+        if let Some(recorded) = recorded {
+            mark_as_person(core, &recorded.id)?;
+            set_name(core, &recorded.name)?;
         }
-        Decided::ByName { me } => me,
-    };
-    if me.name != written || config.me_id()? != Some(me.id.as_str()) {
-        let _ = config.set_me(&me.name, &me.id);
     }
-    Ok(Some(me))
+    config.clear_me()
 }
 
-/// `me` named someone else while `me_id` still names the user.
-fn warn_edited(written: &str, kept: &str) {
-    let mut stderr = tmt_cli_style::stream::stderr();
-    let terminal = stderr.terminal();
-    let _ = tmt_cli_style::message::warning(
-        &mut stderr,
-        terminal,
-        &format!("ops.toml named '{written}' as you, but me_id is {kept}; still acting as {kept}."),
-        Some(&format!("tmt ops squad me {written}")),
-    );
+/// Core's reserved `user` entry (the extension API contract's identity metadata
+/// section) for the migrated identity: written only when absent and the metadata table has room; an
+/// existing value, even `false`, is the person's own choice and is kept.
+fn mark_as_person(core: &Core, id: &str) -> Result<(), SquadError> {
+    let listed = core.json(&["identity", "meta", "list", "--identity", id])?;
+    if let Some(metadata) = listed["metadata"].as_object()
+        && (metadata.contains_key("user")
+            || metadata.len() >= crate::membership::METADATA_ENTRY_LIMIT)
+    {
+        return Ok(());
+    }
+    core.json(&["identity", "meta", "set", "user", "true", "--identity", id])
+        .map(drop)
+}
+
+fn set_name(core: &Core, name: &str) -> Result<(), SquadError> {
+    core.json(&["config", "set", "user.name", name, "--global"])
+        .map(drop)
+}
+
+/// `tmt ops squad me <name>`: the same as `tmt config set user.name <name>
+/// --global`, then the identity that name resolves to.
+pub fn set(core: &Core, name: &str) -> Result<Me, SquadError> {
+    set_name(core, name)?;
+    current(core)?.ok_or_else(|| {
+        SquadError::new(
+            "SQUAD_CORE_UNAVAILABLE",
+            "Core could not resolve the user name that was just set.",
+        )
+    })
+}
+
+/// An `identity.renamed` observation: when it is the user, `user.name` takes the
+/// new name now. The renamed identity is the user when it carries the `user`
+/// entry and the name in effect no longer resolves to any identity. Anything
+/// else is not squad's concern.
+pub fn renamed(core: &Core, identity_id: &str) -> Result<bool, SquadError> {
+    let Some(renamed) = lookup(core, identity_id)? else {
+        return Ok(false);
+    };
+    let listed = core.json(&["identity", "meta", "list", "--identity", &renamed.id])?;
+    if listed["metadata"]["user"] != "true" {
+        return Ok(false);
+    }
+    let shown = core.json(&["config", "show"])?;
+    if let Some(effective) = shown["resolved"]["user"]["name"].as_str()
+        && (effective == renamed.name || lookup(core, effective)?.is_some())
+    {
+        return Ok(false);
+    }
+    set_name(core, &renamed.name)?;
+    Ok(true)
 }
 
 /// The identity core attributes the invocation to (`tmt whoami`): `None`
@@ -140,8 +180,8 @@ pub struct Caller {
     pub saved: bool,
 }
 
-/// Who "waiting on you" is for: the recorded user, otherwise the saved
-/// identity bound to the calling pane. Temporary agents are never "you".
+/// Who "waiting on you" is for: the user, otherwise the saved identity bound
+/// to the calling pane. Temporary agents are never "you".
 pub fn you(recorded: Option<Me>, caller: Option<&Caller>) -> Option<Me> {
     recorded.or_else(|| {
         caller
@@ -166,109 +206,13 @@ impl Source {
     }
 }
 
-/// [`you`] for a command: `me` brought up to date, then the calling pane. A
-/// caller that core cannot attribute only means no one is "you" here.
-pub fn resolve_you(core: &Core, config: &mut Config) -> Result<Option<(Me, Source)>, SquadError> {
-    if let Some(recorded) = resolve(core, config)? {
+/// [`you`] for a command: the user, then the calling pane. A caller that core
+/// cannot attribute only means no one is "you" here.
+pub fn resolve_you(core: &Core) -> Result<Option<(Me, Source)>, SquadError> {
+    if let Some(recorded) = current(core)? {
         return Ok(Some((recorded, Source::Recorded)));
     }
     Ok(you(None, caller(core).ok().flatten().as_ref()).map(|pane| (pane, Source::Pane)))
-}
-
-/// `tmt ops squad me <name>`: a saved identity becomes the user.
-pub fn set(core: &Core, config: &mut Config, name: &str) -> Result<Me, SquadError> {
-    let shown = core.json(&["identity", "show", name])?;
-    let identity = &shown["identity"];
-    let (Some(id), Some(display)) = (identity["id"].as_str(), identity["name"].as_str()) else {
-        return Err(SquadError::new(
-            "SQUAD_CORE_UNAVAILABLE",
-            "tmt identity show returned no identity.",
-        ));
-    };
-    if identity["lifetime"] != "saved" {
-        return Err(SquadError::new(
-            "SQUAD_IDENTITY_NOT_SAVED",
-            format!(
-                "'{display}' is temporary; save it first with tmt identity create {display} (or tmt name -s)."
-            ),
-        ));
-    }
-    let me = Me {
-        id: id.into(),
-        name: display.into(),
-    };
-    record(config, &me)?;
-    let _ = mark_user(core, &me.id);
-    Ok(me)
-}
-
-/// Core's reserved identity-metadata entry for a person (the extension API
-/// contract's identity metadata section owns it): Digest never holds the
-/// messages or replies of an identity that carries it as `true`.
-const USER_KEY: &str = "user";
-
-/// Marks the identity `id` as a person in Core, so the recorded user need not
-/// run `tmt identity meta set user true`. Only an absent entry is written: an
-/// existing value is the person's own choice, the entry is never removed, and
-/// no other identity is touched. An identity Core does not know, or one at its
-/// metadata limit, is left alone. `Ok(true)` means an entry was written.
-pub fn mark_user(core: &Core, id: &str) -> Result<bool, SquadError> {
-    let Some(me) = lookup(core, id)? else {
-        return Ok(false);
-    };
-    let listed = core.json(&["identity", "meta", "list", "--identity", &me.id])?;
-    if let Some(metadata) = listed["metadata"].as_object()
-        && (metadata.contains_key(USER_KEY)
-            || metadata.len() >= crate::membership::METADATA_ENTRY_LIMIT)
-    {
-        return Ok(false);
-    }
-    core.json(&[
-        "identity",
-        "meta",
-        "set",
-        USER_KEY,
-        "true",
-        "--identity",
-        &me.id,
-    ])?;
-    Ok(true)
-}
-
-/// [`mark_user`] for the `me_id` in `ops.toml`, for the board's start. It is
-/// best effort: a missing record, an unknown identity or a Core error changes
-/// nothing and shows nothing, and the next start tries again.
-pub fn mark_recorded_user(core: &Core) {
-    let Ok(config) = Config::load(core) else {
-        return;
-    };
-    if let Ok(Some(id)) = config.me_id() {
-        let _ = mark_user(core, id);
-    }
-}
-
-/// An `identity.renamed` observation: when it is the user, `me` takes the
-/// new name now. Anything else is not squad's concern.
-pub fn renamed(core: &Core, config: &mut Config, identity_id: &str) -> Result<bool, SquadError> {
-    if config.me_id()? != Some(identity_id) {
-        return Ok(false);
-    }
-    let Some(current) = lookup(core, identity_id)? else {
-        return Ok(false);
-    };
-    if config.me()? == Some(current.name.as_str()) {
-        return Ok(false);
-    }
-    config.set_me(&current.name, &current.id)?;
-    Ok(true)
-}
-
-/// The saved identity, recorded with its UUID (`init --me`, `me <name>`).
-pub fn record(config: &mut Config, me: &Me) -> Result<(), SquadError> {
-    if config.me()? == Some(me.name.as_str()) && config.me_id()? == Some(me.id.as_str()) {
-        return Ok(());
-    }
-    config.set_me(&me.name, &me.id)
 }
 
 #[cfg(test)]
@@ -316,97 +260,301 @@ mod tests {
         found
     }
 
-    /// A stand-in tmt for the user mark: `identity show` answers `shown` with
-    /// `status`, `identity meta list` answers `listed`, and every call is
-    /// appended to a log that the test reads back with the outcome.
-    fn marking(
-        name: &str,
-        shown: &str,
-        status: i32,
-        listed: &str,
-    ) -> (Result<bool, SquadError>, String) {
-        let dir = std::env::temp_dir().join(format!("tmt-ops-mark-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("calls.log");
-        let fake = dir.join("tmt");
-        crate::test_support::write_ready_executable(
-            &fake,
-            &format!(
-                "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$1 $2\" in\n\
-                 'identity show') cat <<'EOF'\n{shown}\nEOF\nexit {status};;\n\
-                 'identity meta') case \"$3\" in list) cat <<'EOF'\n{listed}\nEOF\n;;\n\
-                 *) echo '{{\"ok\":true}}';; esac;;\nesac\n",
-                log.display()
-            ),
-        );
-        let outcome = mark_user(&Core::at(fake), "ben-id");
-        let calls = std::fs::read_to_string(&log).unwrap_or_default();
-        let _ = std::fs::remove_dir_all(dir);
-        (outcome, calls)
+    /// A stand-in tmt: every call is appended to a log, then answered by the
+    /// first rule whose pattern matches its arguments (`api` for any API
+    /// request); a call no rule matches fails with `UNEXPECTED`.
+    struct Fake {
+        dir: std::path::PathBuf,
+        core: Core,
     }
 
-    const BEN: &str = r#"{"identity":{"id":"ben-id","name":"ben","lifetime":"saved"}}"#;
-    const UNKNOWN: &str = r#"{"error":{"code":"NAME_NOT_FOUND","message":"not found"}}"#;
+    impl Fake {
+        fn new(name: &str, rules: &[(&str, &str, i32)]) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("tmt-ops-me-{name}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let log = dir.join("calls.log");
+            let arms: String = rules
+                .iter()
+                .map(|(pattern, document, status)| {
+                    format!("'{pattern}') cat <<'EOF'\n{document}\nEOF\nexit {status};;\n")
+                })
+                .collect();
+            let executable = dir.join("tmt");
+            crate::test_support::write_ready_executable(
+                &executable,
+                &format!(
+                    "#!/bin/sh\necho \"$*\" >> '{}'\ncase \"$*\" in\n{arms}\
+                     *) echo '{{\"error\":{{\"code\":\"UNEXPECTED\",\"message\":\"unexpected call\"}}}}'; exit 1;;\nesac\n",
+                    log.display()
+                ),
+            );
+            Self {
+                core: Core::at(executable),
+                dir,
+            }
+        }
 
-    #[test]
-    fn the_recorded_user_is_marked_once_and_an_existing_entry_is_left_alone() {
-        let (outcome, calls) = marking(
-            "absent",
-            BEN,
-            0,
-            r#"{"metadata":{"squad.mkt.lead":"true"}}"#,
-        );
-        assert!(outcome.unwrap(), "an absent entry is written");
-        let sets = calls
-            .lines()
-            .filter(|line| line.starts_with("identity meta set"))
-            .collect::<Vec<_>>();
-        assert_eq!(sets.len(), 1, "exactly one write: {calls}");
-        assert!(
-            sets[0].starts_with("identity meta set user true --identity ben-id"),
-            "the write marks the recorded identity: {}",
-            sets[0]
-        );
-        for kept in [
-            r#"{"metadata":{"user":"true"}}"#,
-            r#"{"metadata":{"user":"false"}}"#,
-        ] {
-            let (outcome, calls) = marking("present", BEN, 0, kept);
-            assert!(
-                !outcome.unwrap(),
-                "an existing value is the person's choice: {kept}"
-            );
-            assert!(
-                !calls.contains("identity meta set"),
-                "nothing written for {kept}: {calls}"
-            );
+        fn calls(&self) -> Vec<String> {
+            std::fs::read_to_string(self.dir.join("calls.log"))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        }
+
+        fn sets(&self) -> Vec<String> {
+            self.calls()
+                .into_iter()
+                .filter(|call| call.starts_with("config set"))
+                .collect()
+        }
+
+        fn marks(&self) -> Vec<String> {
+            self.calls()
+                .into_iter()
+                .filter(|call| call.starts_with("identity meta set"))
+                .collect()
         }
     }
 
+    impl Drop for Fake {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    const BEN_ID: &str = "7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f";
+    const USER: &str =
+        r#"{"identityId":"7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f","name":"ben","created":false}"#;
+    const BEN_UI: &str = r#"{"identity":{"id":"7c41e9d2-77aa-4c3d-9f10-3b2a1c0d9e8f","name":"ben-ui","lifetime":"saved"}}"#;
+    const NOT_FOUND: &str = r#"{"error":{"code":"NAME_NOT_FOUND","message":"not found"}}"#;
+    const UNSET: &str =
+        r#"{"sources":{"user":{"name":"default"}},"resolved":{"user":{"name":"benhsieh"}}}"#;
+    const SET: &str =
+        r#"{"sources":{"user":{"name":"global"}},"resolved":{"user":{"name":"ben"}}}"#;
+    const OK: &str = r#"{"ok":true}"#;
+    const NO_META: &str = r#"{"metadata":{}}"#;
+    const MARKED: &str = r#"{"metadata":{"user":"false"}}"#;
+
+    fn legacy(name: &str, text: &str) -> (std::path::PathBuf, Config) {
+        let dir =
+            std::env::temp_dir().join(format!("tmt-ops-legacy-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ops.toml");
+        std::fs::write(&path, text).unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        (path, config)
+    }
+
+    fn recorded_ben_ui() -> String {
+        format!("me = \"ben-ui\"\nme_id = \"{BEN_ID}\"\n[squad.product]\nlayout = \"pr-queue\"\n")
+    }
+
     #[test]
-    fn an_unknown_identity_or_a_full_metadata_table_is_never_written() {
-        let (outcome, calls) = marking("unknown", UNKNOWN, 3, r#"{"metadata":{}}"#);
-        assert!(
-            !outcome.unwrap(),
-            "an identity core does not know is not marked"
+    fn the_user_is_what_core_resolves_and_an_unresolvable_name_is_no_user() {
+        let fake = Fake::new("current", &[("api", USER, 0)]);
+        assert_eq!(
+            current(&fake.core).unwrap(),
+            Some(Me {
+                id: BEN_ID.into(),
+                name: "ben".into()
+            })
         );
-        assert!(
-            !calls.contains("identity meta"),
-            "no metadata call at all: {calls}"
+        for code in [
+            "USER_NAME_UNAVAILABLE",
+            "USER_NAME_INVALID",
+            "USER_NAME_TAKEN",
+        ] {
+            let document = format!(r#"{{"error":{{"code":"{code}","message":"set one"}}}}"#);
+            let fake = Fake::new(code, &[("api", &document, 1)]);
+            assert_eq!(current(&fake.core).unwrap(), None, "{code}");
+        }
+        let broken = r#"{"error":{"code":"API_UNAVAILABLE","message":"down"}}"#;
+        let fake = Fake::new("down", &[("api", broken, 1)]);
+        assert_eq!(current(&fake.core).unwrap_err().code, "API_UNAVAILABLE");
+    }
+
+    #[test]
+    fn a_recorded_user_moves_into_core_once_by_its_uuid_and_the_record_is_dropped() {
+        let (path, mut config) = legacy("moves", &recorded_ben_ui());
+        let fake = Fake::new(
+            "moves",
+            &[
+                ("config show --json", UNSET, 0),
+                (&format!("identity show {BEN_ID} --json"), BEN_UI, 0),
+                (
+                    &format!("identity meta list --identity {BEN_ID} --json"),
+                    NO_META,
+                    0,
+                ),
+                (
+                    &format!("identity meta set user true --identity {BEN_ID} --json"),
+                    OK,
+                    0,
+                ),
+                ("config set user.name ben-ui --global --json", OK, 0),
+            ],
         );
-        let full = format!(
-            r#"{{"metadata":{{{}}}}}"#,
-            (0..crate::membership::METADATA_ENTRY_LIMIT)
-                .map(|n| format!(r#""k{n}":"v""#))
-                .collect::<Vec<_>>()
-                .join(",")
+        migrate(&fake.core, &mut config).unwrap();
+        assert_eq!(fake.sets(), ["config set user.name ben-ui --global --json"]);
+        // The person is marked before the name points at it.
+        assert_eq!(
+            fake.marks(),
+            [format!(
+                "identity meta set user true --identity {BEN_ID} --json"
+            )]
         );
-        let (outcome, calls) = marking("full", BEN, 0, &full);
-        assert!(!outcome.unwrap(), "a table at its limit is left alone");
-        assert!(
-            !calls.contains("identity meta set"),
-            "no write at the limit: {calls}"
+        let order: Vec<_> = fake.calls();
+        let mark = order
+            .iter()
+            .position(|c| c.starts_with("identity meta set"))
+            .unwrap();
+        let set = order
+            .iter()
+            .position(|c| c.starts_with("config set"))
+            .unwrap();
+        assert!(mark < set, "{order:?}");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after, "[squad.product]\nlayout = \"pr-queue\"\n");
+        // The record is gone, so a second run asks Core nothing.
+        let calls = fake.calls().len();
+        migrate(&fake.core, &mut config).unwrap();
+        assert_eq!(fake.calls().len(), calls);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_existing_user_entry_is_the_persons_choice_and_is_never_overwritten() {
+        let (path, mut config) = legacy("marked", &recorded_ben_ui());
+        let fake = Fake::new(
+            "marked",
+            &[
+                ("config show --json", UNSET, 0),
+                (&format!("identity show {BEN_ID} --json"), BEN_UI, 0),
+                (
+                    &format!("identity meta list --identity {BEN_ID} --json"),
+                    MARKED,
+                    0,
+                ),
+                ("config set user.name ben-ui --global --json", OK, 0),
+            ],
         );
+        migrate(&fake.core, &mut config).unwrap();
+        assert!(fake.marks().is_empty(), "{:?}", fake.calls());
+        assert_eq!(fake.sets().len(), 1);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_name_core_already_has_wins_and_an_unknown_record_sets_nothing() {
+        let (path, mut config) = legacy("wins", &recorded_ben_ui());
+        let fake = Fake::new("wins", &[("config show --json", SET, 0)]);
+        migrate(&fake.core, &mut config).unwrap();
+        assert!(fake.sets().is_empty(), "Core's own name is not replaced");
+        assert_eq!(config.me().unwrap(), None);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+        let (path, mut config) = legacy("gone", "me = \"ghost\"\n");
+        let fake = Fake::new(
+            "gone",
+            &[
+                ("config show --json", UNSET, 0),
+                ("identity show ghost --json", NOT_FOUND, 3),
+            ],
+        );
+        migrate(&fake.core, &mut config).unwrap();
+        assert!(fake.sets().is_empty(), "nothing to carry over");
+        assert_eq!(config.me().unwrap(), None);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_failed_move_keeps_the_record_for_the_next_run() {
+        let (path, mut config) = legacy("failed", &recorded_ben_ui());
+        let refused = r#"{"error":{"code":"CONFIG_ERROR","message":"no"}}"#;
+        let fake = Fake::new(
+            "failed",
+            &[
+                ("config show --json", UNSET, 0),
+                (&format!("identity show {BEN_ID} --json"), BEN_UI, 0),
+                (
+                    &format!("identity meta list --identity {BEN_ID} --json"),
+                    MARKED,
+                    0,
+                ),
+                ("config set user.name ben-ui --global --json", refused, 1),
+            ],
+        );
+        assert_eq!(
+            migrate(&fake.core, &mut config).unwrap_err().code,
+            "CONFIG_ERROR"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), recorded_ben_ui());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn me_sets_the_core_name_then_returns_the_identity_it_resolves_to() {
+        let fake = Fake::new(
+            "set",
+            &[
+                ("config set user.name ben --global --json", OK, 0),
+                ("api", USER, 0),
+            ],
+        );
+        assert_eq!(set(&fake.core, "ben").unwrap().id, BEN_ID);
+        assert_eq!(fake.sets(), ["config set user.name ben --global --json"]);
+    }
+
+    #[test]
+    fn a_renamed_user_identity_carries_user_name_along_and_nobody_else_does() {
+        let renamed_ben =
+            format!(r#"{{"identity":{{"id":"{BEN_ID}","name":"benjamin","lifetime":"saved"}}}}"#);
+        let list = |name: &str| format!("identity meta list --identity {name} --json");
+        let user_mark = r#"{"metadata":{"user":"true"}}"#;
+        let show = format!("identity show {BEN_ID} --json");
+
+        // The name in effect no longer resolves: the user was renamed.
+        let fake = Fake::new(
+            "renamed",
+            &[
+                (&show, &renamed_ben, 0),
+                (&list(BEN_ID), user_mark, 0),
+                ("config show --json", SET, 0),
+                ("identity show ben --json", NOT_FOUND, 3),
+                ("config set user.name benjamin --global --json", OK, 0),
+            ],
+        );
+        assert!(renamed(&fake.core, BEN_ID).unwrap());
+        assert_eq!(
+            fake.sets(),
+            ["config set user.name benjamin --global --json"]
+        );
+
+        // The name in effect still names an identity: someone else was renamed.
+        let fake = Fake::new(
+            "other",
+            &[
+                (&show, &renamed_ben, 0),
+                (&list(BEN_ID), user_mark, 0),
+                ("config show --json", SET, 0),
+                ("identity show ben --json", BEN_UI, 0),
+            ],
+        );
+        assert!(!renamed(&fake.core, BEN_ID).unwrap());
+        assert!(fake.sets().is_empty());
+
+        // An agent was renamed.
+        let fake = Fake::new(
+            "agent",
+            &[
+                (&show, &renamed_ben, 0),
+                (&list(BEN_ID), r#"{"metadata":{}}"#, 0),
+            ],
+        );
+        assert!(!renamed(&fake.core, BEN_ID).unwrap());
+        assert!(fake.sets().is_empty());
     }
 
     #[test]

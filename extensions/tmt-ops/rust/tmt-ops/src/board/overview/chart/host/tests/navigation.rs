@@ -108,7 +108,7 @@ fn disabled_each_stays_in_the_menu_and_refuses_without_changing_the_grid() {
     let before = state.selection;
     let mut menu = dropdown::Dropdown::new(&state, Focus::Each);
     menu.selected = 1; // 5m is visible after Auto, despite exceeding 720.
-    assert_eq!(menu.choose(), Err("30d needs Each >= 1h".into()));
+    assert_eq!(menu.choose(), Err("30d needs at least 1h per bar".into()));
     menu.selected = 4; // 1h gives exactly 720 buckets.
     assert_eq!(menu.choose(), Ok(Target::Each(Each::Fixed(60))));
     assert_eq!(state.selection, before);
@@ -123,7 +123,7 @@ fn dropdown_keeps_the_underlying_chart_and_updates_auto_preview_after_resize() {
         let source = Rc::clone(app.usage_chart.borrow().observed.as_ref().unwrap());
         super::super::open_dropdown(&mut app, Focus::Each);
         let open = paint(&mut app, 103, 51);
-        assert!(text(&open).contains("Auto (6h)"));
+        assert!(text(&open).contains("Automatic (6h per bar)"));
         for y in 5..10 {
             for x in 0..60 {
                 assert_eq!(
@@ -138,8 +138,42 @@ fn dropdown_keeps_the_underlying_chart_and_updates_auto_preview_after_resize() {
             app.usage_chart.borrow().observed.as_ref().unwrap()
         ));
         let wide = paint(&mut app, 200, 51);
-        assert!(text(&wide).contains("Auto (2h)"));
+        assert!(text(&wide).contains("Automatic (2h per bar)"));
         assert_eq!(app.usage_chart.borrow().each, Each::Fixed(60));
+    });
+}
+
+#[test]
+fn time_per_bar_choices_remain_complete_in_narrow_and_themed_menus() {
+    use crate::board::overview::chart::format;
+    let _no_commands = crate::runner::forbid_commands();
+    crate::status::with_now_ms(fixtures::NOW, || {
+        for (_, look) in crate::board::home::tests::oracle::looks() {
+            for width in [60, 80, 100, 160] {
+                let mut app = cases::board_case("usage-each-menu", look, width);
+                let shown = text(&paint(&mut app, width, 51));
+                let interval = format::interval(
+                    Each::Auto
+                        .resolve(10_080, app.usage_chart.borrow().viewport.width)
+                        .each_minutes,
+                );
+                assert!(
+                    shown.contains(&format!("Automatic ({interval} per bar)")),
+                    "{width}: {shown}"
+                );
+                assert!(shown.contains("1h per bar"));
+                assert!(shown.contains("Time per bar"));
+                assert!(!shown.contains("Each "));
+
+                let mut app = cases::board_case("usage-auto", look, width);
+                let shown = text(&paint(&mut app, width, 51));
+                let state = app.usage_chart.borrow();
+                if state.hits.iter().any(|hit| hit.target == Target::OpenEach) {
+                    let interval = format::interval(state.selection.each_minutes);
+                    assert!(shown.contains(&format!("{interval} per bar (auto) ▾")));
+                }
+            }
+        }
     });
 }
 
@@ -262,14 +296,14 @@ fn moving_over_a_disabled_choice_repaints_its_reason_without_selecting_it() {
         // The evidence case starts with the reason already visible.
         assert!(app.move_pointer(moved(0, 0)));
         assert!(app.move_pointer(moved(x, y)));
-        assert!(text(&paint(&mut app, 103, 51)).contains("30d needs Each >= 1h"));
+        assert!(text(&paint(&mut app, 103, 51)).contains("30d needs at least 1h per bar"));
         assert!(!app.move_pointer(moved(x, y)));
         assert_eq!(
             app.usage_chart.borrow().dropdown.as_ref().unwrap().selected,
             selected
         );
         assert!(app.move_pointer(moved(0, 0)));
-        assert!(!text(&paint(&mut app, 103, 51)).contains("30d needs Each >= 1h"));
+        assert!(!text(&paint(&mut app, 103, 51)).contains("30d needs at least 1h per bar"));
     });
 }
 

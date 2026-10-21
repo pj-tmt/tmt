@@ -798,7 +798,10 @@ export class Live implements PageBinding {
     }
     settled(result);
     await this.#showsRevision(result.revision);
-    return result.taskId === undefined ? {} : { taskId: result.taskId };
+    return {
+      ...(result.taskId === undefined ? {} : { taskId: result.taskId }),
+      ...(result.childPage === undefined ? {} : { childPage: result.childPage }),
+    };
   }
   /** The serve counts every device but its own as "other". This device's own changes are not
    * other devices': it can combine them itself, so the page-size surface counts them as its own. */

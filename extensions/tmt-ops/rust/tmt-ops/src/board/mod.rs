@@ -1373,12 +1373,10 @@ pub fn run(
     // background, so the first request waits until `configure_background` has run.
     let invoker_tmux = effects::tmux_socket().is_some();
     let worker = refresh::Worker::spawn(core.clone(), invoker_tmux, events.clone(), trace.clone());
-    let config = timing::measure(startup.as_ref(), "startup.Config::load", || {
+    let mut config = timing::measure(startup.as_ref(), "startup.Config::load", || {
         Config::load(&core)
     })?;
-    // The recorded user is marked as a person in Core off the screen's path.
-    let marker = core.clone();
-    std::thread::spawn(move || crate::me::mark_recorded_user(&marker));
+    crate::me::migrate(&core, &mut config)?;
     let (preference, startup_notice) = config.startup_tab();
     let cold_tab = view_state::startup_destination(startup_tab, preference, resume.is_some());
     if cold_tab.is_some()

@@ -136,7 +136,7 @@ fn reads_are_unrestricted_and_actor_admission_never_falls_back_from_a_member() {
     assert!(!f.directory.join("ops").exists());
     let bytes = fs::read(f.config.path()).unwrap();
     f.change_model(|m| m["caller"] = json!(WORKER));
-    let member = actor(&f.core, &f.config, None).unwrap();
+    let member = actor(&f.core, None).unwrap();
     assert_eq!(member.id, WORKER);
     assert_eq!(
         f.add(&member, WORKER).err().unwrap().code,
@@ -144,7 +144,7 @@ fn reads_are_unrestricted_and_actor_admission_never_falls_back_from_a_member() {
     );
     f.change_model(|m| m["caller"] = json!("ambiguous"));
     assert_eq!(
-        actor(&f.core, &f.config, None).unwrap_err().code,
+        actor(&f.core, None).unwrap_err().code,
         "CALLER_IDENTITY_AMBIGUOUS"
     );
     let job = f.add(&f.actor(LEAD), WORKER).unwrap().job.job;
@@ -170,7 +170,7 @@ fn locked_revision_room_and_membership_guards_preserve_the_published_job() {
         "SQUAD_CRON_REVISION_CONFLICT"
     );
     assert_eq!(
-        authorize_write(&f.core, &f.config, &JobKey::of(&job), &user, job.revision)
+        authorize_write(&f.core, &JobKey::of(&job), &user, job.revision)
             .unwrap_err()
             .code,
         "SQUAD_CRON_REVISION_CONFLICT"

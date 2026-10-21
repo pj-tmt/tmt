@@ -120,7 +120,7 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     let key = JobKey::of(&paused);
     let before = stored_jobs(&f.directory);
     let id = manual_operation().unwrap();
-    let accepted = send_now(&f.core, &f.config, &key, &lead, paused.revision, &id).unwrap();
+    let accepted = send_now(&f.core, &key, &lead, paused.revision, &id).unwrap();
     assert_eq!(accepted["dispatch"]["operationId"], id);
     assert_eq!(before, stored_jobs(&f.directory));
     let model = f.model();
@@ -138,7 +138,6 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     assert_eq!(
         send_now(
             &f.core,
-            &f.config,
             &key,
             &lead,
             job.revision,
@@ -151,7 +150,6 @@ fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     assert_eq!(
         send_now(
             &f.core,
-            &f.config,
             &key,
             &f.actor(WORKER),
             paused.revision,
@@ -172,7 +170,7 @@ fn an_older_core_that_refuses_origin_is_asked_again_once_without_it() {
     f.change_model(|model| model["rejectOrigin"] = json!(true));
     let id = manual_operation().unwrap();
     let key = JobKey::of(&job);
-    let accepted = send_now(&f.core, &f.config, &key, &lead, job.revision, &id).unwrap();
+    let accepted = send_now(&f.core, &key, &lead, job.revision, &id).unwrap();
     assert_eq!(accepted["dispatch"]["operationId"], id);
     let model = f.model();
     let calls = request_calls(&model);
