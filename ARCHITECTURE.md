@@ -403,12 +403,12 @@ use `squad` (alias `sq`). Releases use `tmt-ops-v<version>`.
 [Ops](.agents/skills/tmt-ops-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md)
 own module/drawing boundaries and verification.
 
-- **Seam.** Ops uses public `tmt --json`/`tmt api` (minute `workspace.capture`) and starts `tmt digest tick`
-  through `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`. Digest owns
-  locking, deadlines and delivery. No direct Core state, tmux or provider writes.
-  The guard rejects TMT-to-Ops and Ops-to-Core Cargo/source edges. Dependencies
-  are `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and dev-only
-  `tmt-test-support`. New API methods need tmt-lead review.
+- **Seam.** Ops calls public `tmt --json`/`tmt api` (minute `workspace.capture`) and
+  `tmt digest tick` via `TMT_EXECUTABLE` (else PATH), bounded by `tmt-invoke`.
+  Digest owns locks, deadlines and delivery. No direct Core state, tmux or
+  provider writes. The guard bans TMT-to-Ops and Ops-to-Core Cargo/source edges.
+  Uses `tmt-tui`, `tmt-cli-style`, `tmt-invoke`, `tmt-extension-state` and
+  dev-only `tmt-test-support`. tmt-lead reviews new APIs.
 - **Data.** Squads are Core rooms `squad-<name>`; fields are identity metadata
   `squad.<name>.<field>`, with no Ops membership store. Ops owns `<dataRoot>/ops`
   (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-ops` caches. The workspace
