@@ -381,6 +381,8 @@ test('Needs-you entries are links and modified activation leaves this page uncha
     const seen = window as unknown as { clicks: MouseEvent[]; opened: unknown[][] };
     seen.clicks = [];
     seen.opened = [];
+    // The events are kept and read after the click, so `defaultPrevented` is the final answer of
+    // every handler, not what a capture-phase listener sees before the app's.
     for (const type of ['click', 'auxclick'])
       window.addEventListener(type, (event) => seen.clicks.push(event as MouseEvent), true);
     window.open = (...args: unknown[]) => {
