@@ -46,13 +46,13 @@ pub enum Invocation {
     Init,
     WorkspaceRestore {
         socket: Option<String>,
-        name: Option<tmt_core::workspace::SnapshotName>,
+        name: Option<tmt_core::workspace::SnapshotSelector>,
         expect: Option<String>,
         layout_only: bool,
     },
     WorkspaceShow {
         socket: Option<String>,
-        name: Option<tmt_core::workspace::SnapshotName>,
+        name: Option<tmt_core::workspace::SnapshotSelector>,
     },
     WorkspaceSave {
         socket: Option<String>,

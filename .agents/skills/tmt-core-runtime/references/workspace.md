@@ -4,77 +4,49 @@ Core's pure `workspace` values describe remembered structure. The adapters own
 capture, the versioned JSON codec and private publication; `ConfigPaths` alone
 chooses the location. Snapshots are recovery input, never authority for binding,
 presence, delivery or launching a provider. No SQLite migration, extension
-registry, timer, daemon or detached worker participates.
+registry, Core timer, daemon or detached worker participates.
 
-## Location and format
+The normative document, retention and selection definitions live in the
+[workspace recovery contract](../../../../contracts/workspace-v1.md). Core owns
+pure generation/selection policy; adapters own immutable bytes, the index and
+publication lock; CLI owns preview, consent and restore composition.
 
-Each selected host socket has
-`<global_dir>/workspace/<lowercase-sha256(socket-bytes)>/latest.json`. The directory
-is private and owned, publication uses a stable nonblocking advisory lock, and a
-staged 0600 file is synced and atomically renamed. Readers get a complete old or
-new document. Contention coalesces overlapping events by skipping their optional
-work; the last successful publication wins. Malformed or unsupported previous
-data, failed acquisition, oversized topology or uncertain evidence preserves the
-previous snapshot. No foreign files or lock inodes are removed.
+## Capture and publication owners
 
-Version 1 records `capturedAtMs`, `server` (socket, native PID/start incarnation,
-optional TMT server UUID), `sessions`, `windows` and `panes`. Sessions retain
-indexed window links and which link is active; linked windows are deduplicated by
-ID. Windows retain names, full and visible layout strings, dimensions and active
-pane. Panes retain their window/index, geometry and cwd. Unbound panes are ordinary
-shells. Optional identity annotations retain exact UUID/lifetime/binding,
-remembered harness/session/mode and channel choice; no transcript, provider
-environment, credentials or agent command line is copied.
+`ConfigPaths` selects the private socket directory. The built-in host makes one
+bounded `list-panes -a -F` topology read. PID/start observations are batched, and
+native ancestry is cached across panes without a per-pane subprocess fallback.
+Unknown ancestry omits an optional command annotation. One read-only joined
+storage projection supplies current unretired bindings and preferences without
+initialization, migration, reconciliation or housekeeping. Marker, binding,
+server, pane PID and recorded native pane incarnation must agree before an
+identity is annotated. Mismatch never retires or repairs durable state. External
+hosts without a capture port skip.
 
-The built-in host makes one bounded `list-panes -a -F` topology read. Native
-process evidence fences the selected server, pane and external-command owners.
-One read-only joined storage projection supplies current unretired bindings and
-preferences without initialization, migration, reconciliation or housekeeping.
-Marker, binding, server, pane PID and recorded native pane incarnation must agree
-before an identity is annotated. Mismatch leaves an ordinary pane and never
-retires or repairs durable state. External hosts without a capture port skip.
+Publication keeps immutable generation bytes ahead of the atomic catalogue,
+then updates the legacy projection and prunes only verified owned orphans.
+Readers use the committed catalogue even if a crash left the legacy projection
+behind. A valid legacy latest is adopted on the first changed publication;
+named save continues to copy that legacy projection byte-for-byte. Recovery
+content equality excludes capture time, so no-change publication preserves
+recovery bytes and timestamps. The pure Core catalogue owns retention, shrink
+classification and the protected baseline; IO callers do not duplicate it.
 
-## Named snapshots and digest selection
+## Recovery commands
 
-`tmt workspace save <name> [--socket PATH] [--json]` copies the published
-`latest.json` byte-for-byte to `saved-<name>.json` in the same socket directory.
-It preserves the original capture timestamp; it does not capture current layout
-or change automatic cadence. Names contain 1–64 lowercase ASCII letters, digits,
-underscores or hyphens, starting with a letter or digit; `latest` is reserved.
-Each socket permits 16 named snapshots, excluding latest. Save and
-`tmt workspace rm <name>` share the automatic publisher's stable nonblocking
-lock. Manual contention is `WORKSPACE_BUSY` (exit 5); automatic capture still
-coalesces. Named publication atomically links a complete synced 0600 stage with
-no replacement. Duplicate names return `WORKSPACE_SNAPSHOT_EXISTS` (exit 5),
-and a full socket returns `WORKSPACE_SNAPSHOT_LIMIT` (exit 1). Named bytes remain
-immutable until explicit removal; names may then be reused. Removal refuses
-malformed or symlinked input and never removes latest or foreign files.
+`workspace ls` lists generations and manual names with capture age, pane/agent
+counts and protected status. `show` and `restore` accept a manual name or an
+immutable `g:<sha256>` selector. Missing explicit selectors never fall back.
+Restore acquires its selected bytes once; `--expect` checks that same acquisition.
+Smaller choices use the existing CLI consent owner before any effect, with
+noninteractive refusal and an exact pinned retry. Only a completed explicit
+restore can update its observed protected choice under the publication lock;
+a newer concurrent baseline wins.
 
-`tmt workspace ls [--socket PATH] [--json]` (hidden alias `list`) performs bounded
-enumeration without capture or initialization. Version 1 JSON is `{version,socket,snapshots}`, with
-latest first (`name:null`) followed by named entries sorted by name. Each entry
-has `name`, `digest` and `capturedAtMs`; no available documents means an empty
-list. Invalid recognized documents fail the operation rather than appearing as
-usable snapshots. Save returns `{version,socket,name,digest,capturedAtMs}`;
-remove returns `{version,socket,name,removed:true}`. Missing named selections
-return `WORKSPACE_SNAPSHOT_NOT_FOUND` (exit 3). Invalid name or digest syntax is
-an ordinary parser `USAGE_ERROR`.
-
-Show and restore accept an optional name; omission selects latest. Show's
-version 1 JSON adds `name` and `digest` to its existing topology and actions.
-The digest is lowercase SHA-256 of the exact acquired file bytes, including
-whitespace, never a re-encoding or a live-state checksum.
-`restore [<name>] --expect <digest>` validates and compares one acquisition
-before identity reads or host effects. A mismatch is
-`WORKSPACE_SNAPSHOT_CHANGED` (exit 5) and changes no recovery or durable state.
-An accepted restore retains that in-memory input for all effects, so publication
-or removal after admission cannot substitute a different document. Restore's
-JSON adds the admitted name and digest. There is no token store or lock held
-through launches; live-state and ownership rechecks remain required.
-
-An explicit socket selects tmux recovery even outside its original pane. An
-implicitly selected external host returns `WORKSPACE_HOST_UNSUPPORTED` (exit 1),
-not an empty inventory. No new driver port or permission is introduced.
+Manual save/remove retain the independent 16-name cap and no-clobber publication.
+Names and automatic generation selectors have disjoint grammars. Listing, preview
+and acquisition perform no capture, initialization or repair. Automatic document
+selection never substitutes a same-name identity for its recorded UUID.
 
 ## Events and policy
 
@@ -99,11 +71,21 @@ writes.
 Committed binding changes request capture after their output. Foreground launches
 capture before child spawn and after owned completion/retirement; no snapshot IO
 is inserted between spawn and the launch owner's protected storage close.
-Admitted SessionStart/SessionEnd callbacks may capture only after their context is
-written and flushed, with strict remaining-budget headroom for acquisition,
-subprocess cleanup and the existing output reserve. Stop and UserPromptSubmit
-never capture. All errors are advisory and cannot change trigger output, error or
-exit status. Manual layout edits appear at the next eligible event.
+Admitted provider callbacks (including prompt, Stop and activity observations)
+may request optional capture after their context is written and flushed, with
+strict remaining-budget headroom for acquisition, cleanup and the output reserve.
+The ToolFinished storage-only no-op shortcut still performs no host probe.
+Provider attempts share the publication try-lock and a 30-second native-incarnation
+cadence; only the separately named ephemeral coordination record changes for an
+unchanged recovery. Due attempts read topology once and publish only changed
+recovery content. All errors are advisory to the admitted event.
+
+`workspace.capture` is the public, recorded-socket-only backstop port; its strict
+input, aggregate budget, bounded counts and native fences live in the
+[contract](../../../../contracts/workspace-v1.md#capture-triggers-and-public-backstop).
+An optional Ops minute consumer uses its own existing cancellation lifecycle;
+Core installs no tmux hooks, scheduled jobs or background owner. Pure reads still
+perform no automatic capture.
 
 ## External foreground dispatch
 

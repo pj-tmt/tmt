@@ -1063,6 +1063,19 @@ or retrieval.
 
 ## Command syntax, installation, and updates
 
+### Workspace recovery
+
+Use `tmt workspace ls --socket <original-path> --json` to inspect retained
+recovery generations when the original pane is gone, then
+`tmt workspace show <generation> --socket <original-path> --json` to preview.
+A generation is selected as `g:<sha256>`; manual names still work. Automatic
+restore prefers protected recovery that records agents. A smaller choice
+needs the user's confirmation, or an explicit selector and matching `--expect`
+digest in noninteractive use. Snapshots never prove an agent is live or permit
+replacing existing panes; a full restore still resumes agents only through the
+normal `tmt run --resume` checks. See the
+[workspace contract](https://github.com/pj-tmt/tmt/blob/main/contracts/workspace-v1.md).
+
 ### Command option scope
 
 Options apply only to commands that use them. `--timeout`, `--delay`,

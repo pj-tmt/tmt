@@ -12,18 +12,19 @@ use tmt_adapters::{
 
 pub fn execute(
     socket: Option<&str>,
-    name: Option<&tmt_core::workspace::SnapshotName>,
+    name: Option<&tmt_core::workspace::SnapshotSelector>,
     mode: OutputMode,
 ) -> io::Result<u8> {
     let outcome: Result<_, Failure> = (|| {
         let (paths, socket, host) = crate::workspace_snapshot_command::context(socket)?;
-        let document = workspace::saved::acquire(&paths, &socket, name, None).map_err(|error| {
-            crate::workspace_snapshot_command::failure(
-                error,
-                "WORKSPACE_PLAN_UNAVAILABLE",
-                name.is_none(),
-            )
-        })?;
+        let document =
+            workspace::saved::acquire_selected(&paths, &socket, name, None).map_err(|error| {
+                crate::workspace_snapshot_command::failure(
+                    error,
+                    "WORKSPACE_PLAN_UNAVAILABLE",
+                    name.is_none(),
+                )
+            })?;
         let input = plan::read_document(
             &paths,
             &socket,

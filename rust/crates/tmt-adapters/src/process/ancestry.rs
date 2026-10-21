@@ -79,7 +79,7 @@ pub struct StartOrder {
 }
 
 impl StartOrder {
-    pub(super) fn precise(seconds: u64, micros: u32) -> Self {
+    pub(crate) fn precise(seconds: u64, micros: u32) -> Self {
         Self {
             seconds,
             micros: Some(micros),
@@ -96,7 +96,7 @@ impl StartOrder {
     /// Whether this start is later than `other`. Two starts of different
     /// resolution compare at whole seconds: a child read by ps at 10 s (its
     /// real start 10.7 s) under a parent read natively at 10.3 s is in order.
-    fn later_than(self, other: Self) -> bool {
+    pub(crate) fn later_than(self, other: Self) -> bool {
         match (self.micros, other.micros) {
             (Some(own), Some(theirs)) => (self.seconds, own) > (other.seconds, theirs),
             _ => self.seconds > other.seconds,

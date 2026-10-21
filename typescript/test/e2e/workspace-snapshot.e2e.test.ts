@@ -78,7 +78,273 @@ function submitForeground(
   fixture.tmux(['send-keys', '-t', pane, 'Enter']);
 }
 
+// New workspace lifecycle/cost cases additionally fence every call by the exact
+// fixture socket, and require a recorded created-server incarnation for cleanup.
+function guardWorkspaceServer(fixture: E2EFixture) {
+  const socket = fixture.socketPath;
+  const invoke = fixture.tmux.bind(fixture);
+  let incarnation = '';
+  const assertPrivate = () => {
+    const relative = path.relative(fixture.socketRoot, socket);
+    expect(path.isAbsolute(socket)).toBe(true);
+    expect(relative.length).toBeGreaterThan(0);
+    expect(path.isAbsolute(relative) || relative.startsWith('..')).toBe(false);
+    expect(path.basename(socket)).not.toBe('default');
+    expect(socket).not.toBe(`/private/tmp/tmux-${process.getuid!()}/default`);
+    expect(socket).not.toBe(
+      path.join(process.env.TMUX_TMPDIR ?? '/tmp', `tmux-${process.getuid!()}`, 'default')
+    );
+  };
+  const createdServer = () => {
+    assertPrivate();
+    incarnation = invoke(['-S', socket, 'display-message', '-p', '#{pid}|#{start_time}']).trim();
+    expect(Number(incarnation.split('|')[0])).toBe(fixture.serverPid);
+  };
+  createdServer();
+  fixture.tmux = (args) => {
+    assertPrivate();
+    if (args.includes('kill-server'))
+      expect(invoke(['-S', socket, 'display-message', '-p', '#{pid}|#{start_time}']).trim()).toBe(
+        incarnation
+      );
+    return invoke(['-S', socket, ...args]);
+  };
+  return { createdServer };
+}
+
 describe('event-driven workspace recovery snapshots', () => {
+  it('retains the pre-crash generation after restart and restores that protected layout by default', async () => {
+    await withRestoreFixture(async (fixture) => {
+      const socket = fixture.socketPath;
+      const guard = guardWorkspaceServer(fixture);
+      const panes = [fixture.pane];
+      for (let index = 1; index < 4; index++)
+        panes.push((await fixture.createMockPane(`recovery-${index}`)).pane);
+      fixture.tmux(['rename-session', '-t', 'e2e', 'pre-crash']);
+      for (const [index, pane] of panes.entries()) {
+        const named = await fixture.runJsonCli(['name', `Recovery ${index}`, '-s'], { pane });
+        expect(named.code, named.stderr + named.stdout).toBe(0);
+      }
+      const rich = readSnapshot(fixture);
+      expect(rich.panes).toHaveLength(4);
+      expect(rich.panes.filter((pane) => pane.identity)).toHaveLength(4);
+      const richBytes = fs.readFileSync(snapshotPath(fixture));
+      const digest = createHash('sha256').update(richBytes).digest('hex');
+      const richFile = path.join(path.dirname(snapshotPath(fixture)), `auto-${digest}.json`);
+      expect(fs.readFileSync(richFile)).toEqual(richBytes);
+      const oldPid = fixture.serverPid;
+      await fixture.restartServer();
+      guard.createdServer();
+      expect(fixture.serverPid).not.toBe(oldPid);
+      const named = await fixture.runJsonCli(['name', 'After Restart', '-s']);
+      expect(named.code, named.stderr + named.stdout).toBe(0);
+      expect(readSnapshot(fixture).panes).toHaveLength(1);
+      const listing = await fixture.runJsonCli<{
+        snapshots: Array<{
+          generation: string;
+          panes: number;
+          agents: number;
+          protected: boolean;
+          shrink: boolean;
+        }>;
+      }>(['workspace', 'ls', '--socket', socket]);
+      expect(listing.code, listing.stderr + listing.stdout).toBe(0);
+      expect(listing.json!.snapshots[0]).toMatchObject({
+        panes: 1,
+        agents: 1,
+        shrink: true,
+        protected: false,
+      });
+      expect(
+        listing.json!.snapshots.find((entry) => entry.generation === `g:${digest}`)
+      ).toMatchObject({ panes: 4, agents: 4, protected: true, shrink: false });
+      expect(fs.readFileSync(richFile)).toEqual(richBytes);
+      const preview = await fixture.runJsonCli<{ generation: string; snapshot: Snapshot }>(
+        ['workspace', 'show', '--socket', socket],
+        { outsideTmux: true }
+      );
+      expect(preview.code, preview.stderr + preview.stdout).toBe(0);
+      expect(preview.json!.generation).toBe(`g:${digest}`);
+      expect(preview.json!.snapshot).toEqual(rich);
+      const restored = await fixture.runJsonCli<LayoutRestore & { generation: string }>(
+        ['workspace', 'restore', '--layout-only', '--socket', socket],
+        { outsideTmux: true }
+      );
+      expect(restored.code, restored.stderr + restored.stdout).toBe(0);
+      expect(restored.json!.generation).toBe(`g:${digest}`);
+      expect(restored.json!.sessions).toContainEqual(
+        expect.objectContaining({ name: 'pre-crash', action: 'created' })
+      );
+      expect(
+        fixture
+          .tmux(['list-panes', '-t', 'pre-crash', '-a', '-F', '#{session_name}'])
+          .trim()
+          .split('\n')
+          .filter((name) => name === 'pre-crash')
+      ).toHaveLength(4);
+      expect(fs.readFileSync(richFile)).toEqual(richBytes);
+    });
+  });
+
+  it('measures unchanged capture cost on 32 panes including child CPU, one topology read and no recovery rewrite', async () => {
+    await withRestoreFixture(async (fixture) => {
+      guardWorkspaceServer(fixture);
+      const bound = [fixture.pane];
+      for (let index = 1; index < 8; index++)
+        bound.push((await fixture.createMockPane(`meter-agent-${index}`)).pane);
+      for (let index = 8; index < 31; index++) fixture.createShellPane(`meter-shell-${index}`);
+      const meter = fixture.createShellPane('capture-meter').pane;
+      for (const [index, pane] of bound.entries())
+        expect((await fixture.runJsonCli(['name', `Meter ${index}`, '-s'], { pane })).code).toBe(0);
+      expect(readSnapshot(fixture).panes).toHaveLength(32);
+      const directory = path.dirname(snapshotPath(fixture));
+      const recovery = () =>
+        fs
+          .readdirSync(directory)
+          .filter((name) => name !== 'capture-attempt.json')
+          .sort()
+          .map((name) => {
+            const filename = path.join(directory, name);
+            const metadata = fs.statSync(filename);
+            return {
+              name,
+              bytes: fs.readFileSync(filename).toString('base64'),
+              inode: metadata.ino,
+              mtimeMs: metadata.mtimeMs,
+            };
+          });
+      const before = recovery();
+      const samples = 12;
+      const script = path.join(fixture.root, 'capture-cost.py');
+      const result = path.join(fixture.root, 'capture-cost.json');
+      const status = path.join(fixture.root, 'capture-cost.status');
+      const psLog = path.join(fixture.root, 'capture-ps.log');
+      const ps = path.join(fixture.wrapperDir, 'ps');
+      expect(fs.existsSync(ps)).toBe(false);
+      writeExecutable(
+        ps,
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> ${quote(psLog)}\nexec /usr/bin/ps "$@"\n`
+      );
+      fs.writeFileSync(
+        script,
+        `
+import json, os, pathlib, resource, subprocess, sys, time
+root=pathlib.Path(${JSON.stringify(directory)})
+result=pathlib.Path(${JSON.stringify(result)})
+env=dict(os.environ)
+env.pop('TMUX',None);env.pop('TMUX_PANE',None)
+env['TMT_HOME']=${JSON.stringify(fixture.globalDir)}
+command=${JSON.stringify([fixture.executables.cli.executable, ...fixture.executables.cli.args, 'api'])}
+request=json.dumps({'version':1,'operation':'workspace.capture','input':{}})
+if len(sys.argv)>1 and sys.argv[1]=='changed':
+    completed=subprocess.run(command,input=request,text=True,capture_output=True,env=env,timeout=3)
+    assert completed.returncode==0,(completed.returncode,completed.stdout,completed.stderr)
+    assert completed.stderr=='',completed.stderr
+    assert json.loads(completed.stdout)=={'attempted':1,'published':1,'skipped':0},completed.stdout
+    positive=pathlib.Path(str(result)+'.positive')
+    stage=pathlib.Path(str(positive)+'.tmp');stage.write_text(completed.stdout);stage.replace(positive)
+    raise SystemExit(0)
+samples=[]
+for index in range(${samples}):
+    stamp=root/'capture-attempt.json'
+    if stamp.exists():
+        value=json.loads(stamp.read_text());value['attemptedAtMs']=0
+        stamp.write_text(json.dumps(value))
+    before=resource.getrusage(resource.RUSAGE_CHILDREN);start=time.monotonic()
+    completed=subprocess.run(command,input=request,text=True,capture_output=True,env=env,timeout=3)
+    elapsed=time.monotonic()-start;after=resource.getrusage(resource.RUSAGE_CHILDREN)
+    assert completed.returncode==0,(completed.returncode,completed.stdout,completed.stderr)
+    assert completed.stderr=='',completed.stderr
+    assert json.loads(completed.stdout)=={'attempted':1,'published':0,'skipped':0},completed.stdout
+    samples.append({'cpuMs':1000*((after.ru_utime+after.ru_stime)-(before.ru_utime+before.ru_stime)),'wallMs':1000*elapsed})
+value={'panes':32,'agents':8,'periodMs':30000,'samples':samples}
+stage=pathlib.Path(str(result)+'.tmp');stage.write_text(json.dumps(value));stage.replace(result)
+`
+      );
+      const trace = installTmuxTrace(fixture);
+      trace.clear();
+      const command = ['env', `TMT_HOME=${fixture.globalDir}`, 'python3', script]
+        .map(quote)
+        .join(' ');
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        meter,
+        '-l',
+        `${command}; printf '%s' "$?" > ${quote(status)}`,
+      ]);
+      fixture.tmux(['send-keys', '-t', meter, 'Enter']);
+      expect(
+        await waitForFileContent(status, {
+          timeoutMs: 20_000,
+          description: 'isolated capture CPU samples',
+        })
+      ).toBe('0');
+      const measured = JSON.parse(fs.readFileSync(result, 'utf8')) as {
+        samples: Array<{ cpuMs: number; wallMs: number }>;
+      };
+      expect(measured.samples).toHaveLength(samples);
+      const cpu = measured.samples.map((sample) => sample.cpuMs);
+      const mean = cpu.reduce((sum, value) => sum + value, 0) / samples;
+      console.log(
+        'workspace capture cost',
+        JSON.stringify({
+          panes: 32,
+          agents: 8,
+          samples,
+          meanCpuMs: mean,
+          maxCpuMs: Math.max(...cpu),
+          cpuPercentAt30s: mean / 300,
+          targetPercent: 0.2,
+        })
+      );
+      expect(
+        Math.max(...cpu),
+        'each due attempt must use less than 1% of one CPU at 30s'
+      ).toBeLessThan(300);
+      expect(trace.commands().filter((command) => command === 'list-panes')).toHaveLength(samples);
+      expect(fs.existsSync(psLog) ? fs.readFileSync(psLog, 'utf8') : '').toBe('');
+      expect(recovery()).toEqual(before);
+      // An attempted callback can fail silently. A changed-layout positive
+      // control proves this same real API path can acquire and publish content.
+      fixture.tmux(['rename-window', '-t', meter, 'capture-publish-control']);
+      const stamp = path.join(directory, 'capture-attempt.json');
+      const attempt = JSON.parse(fs.readFileSync(stamp, 'utf8'));
+      fs.writeFileSync(stamp, JSON.stringify({ ...attempt, attemptedAtMs: 0 }));
+      const changedCommand = ['env', `TMT_HOME=${fixture.globalDir}`, 'python3', script, 'changed']
+        .map(quote)
+        .join(' ');
+      fixture.tmux(['send-keys', '-t', meter, '-l', changedCommand]);
+      fixture.tmux(['send-keys', '-t', meter, 'Enter']);
+      expect(
+        JSON.parse(
+          await waitForFileContent(`${result}.positive`, {
+            timeoutMs: 20_000,
+            description: 'changed capture publishes through the real API',
+          })
+        )
+      ).toEqual({ attempted: 1, published: 1, skipped: 0 });
+      const changedBytes = fs.readFileSync(snapshotPath(fixture));
+      expect(changedBytes).not.toEqual(
+        Buffer.from(before.find((entry) => entry.name === 'latest.json')!.bytes, 'base64')
+      );
+      expect(
+        readSnapshot(fixture).windows.some((window) => window.name === 'capture-publish-control')
+      ).toBe(true);
+      const changedDigest = createHash('sha256').update(changedBytes).digest('hex');
+      expect(fs.readFileSync(path.join(directory, `auto-${changedDigest}.json`))).toEqual(
+        changedBytes
+      );
+      const catalogue = JSON.parse(
+        fs.readFileSync(path.join(directory, 'generations.json'), 'utf8')
+      );
+      expect(catalogue.entries.at(-1).id).toBe(`g:${changedDigest}`);
+      expect(trace.commands().filter((command) => command === 'list-panes')).toHaveLength(
+        samples + 1
+      );
+    });
+  });
+
   it('previews current durable resume state without changing layout, snapshot or identity data', async () => {
     await withE2EFixture(async (fixture) => {
       const bound = await fixture.runJsonCli<{ id: string }>(['name', 'Preview Old Name', '-s']);
@@ -95,7 +361,7 @@ describe('event-driven workspace recovery snapshots', () => {
         (await fixture.runJsonCli(['rename', 'Preview Old Name', 'Preview Current Name'])).code
       ).toBe(0);
       // The recovery input intentionally predates the current name/preferences.
-      fs.writeFileSync(snapshotPath(fixture), JSON.stringify(synthetic));
+      recoveryInput(fixture, synthetic);
       const database = new Database(path.join(fixture.globalDir, 'tmt.db'));
       try {
         database
@@ -484,7 +750,7 @@ server.listen(${JSON.stringify(gate)}, () => {
     });
   });
 
-  it('captures launch and resume events and admits only session boundaries for hook capture', async () => {
+  it('captures admitted launch, resume and provider hook observations', async () => {
     await withE2EFixture(async (fixture) => {
       const pane = fixture.createShellPane('snapshot-provider').pane;
       const session = '33333333-3333-4333-8333-333333333333';
@@ -578,14 +844,11 @@ server.listen(${JSON.stringify(gate)}, () => {
           JSON.parse(JSON.parse(results[1].stdout).context).hookSpecificOutput.additionalContext
         ).toContain(identity.id);
         expect(JSON.parse(results[5].stdout).context).toBe('');
-        for (const index of [1, 5]) {
+        for (const index of [1, 3, 4, 5]) {
           expect(JSON.parse(results[index].stdout).workspace).toMatchObject({
             socket: fixture.socketPath,
             pid: fixture.serverPid,
           });
-        }
-        for (const index of [3, 4]) {
-          expect(JSON.parse(results[index].stdout).workspace).toBeNull();
         }
         // Completion capture independently reflects the durable hook session.
         expect(
@@ -648,7 +911,7 @@ describe('rate-gated workspace command refresh', () => {
       fixture.tmux(['rename-window', '-t', originalWindow, 'manual-edit']);
       // Controlled timestamp avoids waiting for a real clock interval.
       initial.capturedAtMs = Date.now() + 60_000;
-      fs.writeFileSync(latest, JSON.stringify(initial), { mode: 0o600 });
+      recoveryInput(fixture, initial);
       const fresh = fs.readFileSync(latest, 'utf8');
       let sequence = 0;
       // A changing command and a talk-to-pane command keep the snapshot fresh.
@@ -669,7 +932,7 @@ describe('rate-gated workspace command refresh', () => {
       await run(refreshing);
       expect(fs.readFileSync(latest, 'utf8')).toBe(fresh);
       initial.capturedAtMs = 1;
-      fs.writeFileSync(latest, JSON.stringify(initial), { mode: 0o600 });
+      recoveryInput(fixture, initial);
       const stale = fs.readFileSync(latest, 'utf8');
       for (const read of reads) {
         await run(read);
@@ -690,7 +953,7 @@ describe('rate-gated workspace command refresh', () => {
           .code
       ).toBe(0);
       updated.capturedAtMs = 1;
-      fs.writeFileSync(latest, JSON.stringify(updated), { mode: 0o600 });
+      recoveryInput(fixture, updated);
       const eventOnly = fs.readFileSync(latest, 'utf8');
       fixture.tmux(['rename-window', '-t', originalWindow, 'event-only-edit']);
       await run(refreshing);
@@ -708,7 +971,7 @@ describe('rate-gated workspace command refresh', () => {
       const latest = snapshotPath(fixture);
       const prior = readSnapshot(fixture);
       prior.capturedAtMs = 1;
-      fs.writeFileSync(latest, JSON.stringify(prior), { mode: 0o600 });
+      recoveryInput(fixture, prior);
       const bytes = fs.readFileSync(latest, 'utf8');
       const result = await fixture.runJsonCli(['identity', 'list']);
       expect(result.code).toBe(0);
@@ -1088,8 +1351,16 @@ server.listen(${JSON.stringify(gates[index])}, () => {
   });
 });
 
-function recoveryInput(fixture: E2EFixture, snapshot: Snapshot) {
-  fs.writeFileSync(snapshotPath(fixture), JSON.stringify(snapshot));
+// Synthetic codec/restore and command-cadence scenarios explicitly exercise
+// legacy stores. Production automatic generations remain immutable and indexed;
+// overwriting only the legacy projection must never substitute for that index.
+function recoveryInput(fixture: E2EFixture, snapshot: Snapshot | string) {
+  fs.writeFileSync(
+    snapshotPath(fixture),
+    typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot),
+    { mode: 0o600 }
+  );
+  fs.rmSync(path.join(path.dirname(snapshotPath(fixture)), 'generations.json'), { force: true });
 }
 
 async function withRestoreFixture(callback: (fixture: E2EFixture) => Promise<void>) {
@@ -1560,7 +1831,7 @@ describe('named workspace selection and digest admission', () => {
       const original = readSnapshot(fixture);
       original.sessions[0].name = 'guard-frozen';
       const bytes = `${JSON.stringify(original)}\n`;
-      fs.writeFileSync(snapshotPath(fixture), bytes);
+      recoveryInput(fixture, bytes);
       const selected = ['--socket', fixture.socketPath];
       const saved = await fixture.runJsonCli<{ digest: string }>([
         'workspace',
@@ -1580,7 +1851,7 @@ describe('named workspace selection and digest admission', () => {
       expect(fs.readFileSync(snapshotPath(fixture), 'utf8')).not.toBe(bytes);
       expect(fs.readFileSync(named, 'utf8')).toBe(bytes);
       const changed = { ...original, capturedAtMs: original.capturedAtMs + 1 };
-      fs.writeFileSync(snapshotPath(fixture), JSON.stringify(changed));
+      recoveryInput(fixture, changed);
       const database = path.join(fixture.globalDir, 'tmt.db');
       const databaseBytes = fs.readFileSync(database);
       const trace = installTmuxTrace(fixture);
@@ -1606,7 +1877,7 @@ describe('named workspace selection and digest admission', () => {
       expect(fixture.tmux(['has-session', '-t', 'e2e'])).toBe('');
       expect(fs.readFileSync(database)).toEqual(databaseBytes);
       // The first live host read is a deterministic barrier after acquisition.
-      fs.writeFileSync(snapshotPath(fixture), bytes);
+      recoveryInput(fixture, bytes);
       const replacement = structuredClone(original);
       replacement.sessions[0].name = 'guard-replacement';
       const wrapper = path.join(fixture.wrapperDir, 'tmux');
