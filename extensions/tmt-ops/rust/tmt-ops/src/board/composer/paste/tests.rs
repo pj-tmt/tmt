@@ -200,6 +200,22 @@ fn paste_closes_preview_and_inserts_once_at_the_kept_caret() {
     assert_eq!(caret, 7 + raw.len());
     app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
     assert!(app.paste_preview_shown());
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 36)).unwrap();
+    terminal
+        .draw(|frame| {
+            crate::board::view::prepare(&mut app, frame.area());
+            crate::board::view::render(frame, &app);
+        })
+        .unwrap();
+    let painted: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(painted.contains("Pasted · 501 chars · 1 line"));
+    assert!(!painted.contains("501 chars · 1 lines"));
     let incoming = "new 漢字\r\n";
     assert_eq!(app.paste(incoming), Effect::None);
     assert!(!app.paste_preview_shown());
