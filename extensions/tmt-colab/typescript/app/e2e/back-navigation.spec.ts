@@ -46,8 +46,9 @@ for (const start of ['/colab/', `/r/abcdefghijklmnop/x/colab/#space=${'a'.repeat
 test('Back from a list opened through a page entry keeps the whole trail', async ({ page }) => {
   await mount(page, '/p/c0000001');
   await expect(body(page, 1)).toBeVisible();
+  // The header's Colab link (the shell's rail and module menu also name Colab).
   await app(page)
-    .getByRole('link', { name: /^Colab/ })
+    .getByRole('link', { name: /^Colab · / })
     .click();
   await app(page).getByRole('link', { name: 'Page 2' }).click();
   await expect(body(page, 2)).toBeVisible();
@@ -77,8 +78,9 @@ test('selecting a thread keeps the open page loaded, and entering a page again l
   await expect(page).toHaveURL(/\/p\/c0000001#t=00000000-0000-4000-8000-000000000002$/);
   expect(await loads(page)).toBe(1);
   await expect(body(page, 1)).toBeVisible();
+  // The header's Colab link (the shell's rail and module menu also name Colab).
   await app(page)
-    .getByRole('link', { name: /^Colab/ })
+    .getByRole('link', { name: /^Colab · / })
     .click();
   await app(page).getByRole('link', { name: 'Page 1' }).click();
   await expect(body(page, 1)).toBeVisible();
