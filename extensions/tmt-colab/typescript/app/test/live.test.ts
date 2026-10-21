@@ -51,7 +51,7 @@ const connectionPlans = vi.hoisted(
     }[],
 );
 const unseen = vi.hoisted(() => ({ cuts: new Set<object>(), startUnseen: false }));
-const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn() }));
+const saves = vi.hoisted(() => ({ save: vi.fn(), status: vi.fn(), work: vi.fn() }));
 const mutations = vi.hoisted(() => ({
   submitOwn: vi.fn(),
   submitOwnRecords: vi.fn(),
@@ -142,6 +142,9 @@ vi.mock('../src/connection.js', () => ({
     }
     saveStatus(operationId: string) {
       return saves.status(this, operationId);
+    }
+    work(operationId: string, action: string, body: unknown) {
+      return saves.work(this, operationId, action, body);
     }
     get active() {
       return this.close.mock.calls.length === 0;
@@ -1835,6 +1838,7 @@ function openLive() {
   connections.length = 0;
   saves.save.mockReset();
   saves.status.mockReset();
+  saves.work.mockReset();
   return new Live(
     new URL('https://example.test/colab/'),
     {
@@ -2181,6 +2185,81 @@ it('restore resync replaces archived admission before publishing writable policy
     expect(await live.snapshot()).toMatchObject({ source: 'retained', archived: false });
     // Catch-up sends subscription frames; it must never publish an old draft.
     expect(restored.send.mock.calls.map(([type]) => type)).toEqual(['subscribe']);
+  } finally {
+    live.close();
+  }
+});
+
+const worked = (operationId: string, fields: Partial<SaveResult> = {}): SaveResult => ({
+  operationId,
+  state: 'committed',
+  revision: 'v1:revision',
+  ...fields,
+});
+
+it('a work action is sent once with its closed body and resolves with the ID a task.add made', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    saves.work.mockImplementation(async (_connection, operationId) =>
+      worked(operationId, { taskId: 'T-4' } as Partial<SaveResult>),
+    );
+    await expect(live.work('task.add', { task: { title: 'Publish' } })).resolves.toEqual({
+      taskId: 'T-4',
+    });
+    expect(saves.work).toHaveBeenCalledOnce();
+    expect(saves.work.mock.calls[0].slice(1)).toEqual([
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+      'task.add',
+      { task: { title: 'Publish' } },
+    ]);
+    expect(saves.status).not.toHaveBeenCalled();
+  } finally {
+    live.close();
+  }
+});
+
+it("a refused work action throws the serve's code and words, and is not sent again", async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    saves.work.mockImplementation(async (_connection, operationId) =>
+      worked(operationId, {
+        state: 'rejected',
+        revision: undefined,
+        code: 'COLAB_WIP_LIMIT',
+        message: 'Atlas would hold T-1, T-2 (limit 1)',
+      }),
+    );
+    const refused = await live
+      .work('task.assign', { taskId: 'T-2', assignee: { kind: 'agent', name: 'Atlas' } })
+      .catch((error) => error);
+    expect(refused).toBeInstanceOf(SaveRefused);
+    expect(refused).toMatchObject({
+      code: 'COLAB_WIP_LIMIT',
+      message: 'Atlas would hold T-1, T-2 (limit 1)',
+    });
+    expect(saves.work).toHaveBeenCalledOnce();
+  } finally {
+    live.close();
+  }
+});
+
+it('a work action whose reply was lost asks for the operation status exactly once, never resending', async () => {
+  const live = openLive();
+  try {
+    await live.snapshot();
+    const first = connections.at(-1)!;
+    saves.work.mockImplementationOnce(async (connection) => {
+      connection.failed(new Error('Sync disconnected'));
+      throw new Error('Sync disconnected');
+    });
+    saves.status.mockImplementation(async (_connection, operationId) => worked(operationId));
+    await live.work('task.state', { taskId: 'T-2', state: 'done' });
+    expect(connections.at(-1)).not.toBe(first);
+    expect(saves.work).toHaveBeenCalledOnce();
+    expect(saves.status).toHaveBeenCalledOnce();
+    expect(saves.status.mock.calls[0][1]).toBe(saves.work.mock.calls[0][1]);
   } finally {
     live.close();
   }

@@ -1,5 +1,5 @@
 import { ShellPage } from './shell-page.js';
-import { WorkBand } from './work-band.js';
+import { PageWorkBand } from './work-band-live.js';
 import { usePageLinks } from './page-link-bar.js';
 import { usePageLayers } from './page-layers.js';
 import { AgentActivityProvider } from './components/agent-activity.js';
@@ -2029,8 +2029,11 @@ function Page() {
       <div className="workspace">
         {pageLinkBar}
         {view.work && (
-          <WorkBand
+          <PageWorkBand
             work={view.work}
+            binding={snapshot.binding}
+            transport={transport}
+            space={space}
             pageHref={(pageId) =>
               router.history.createHref(
                 router.buildLocation({ to: '/pages/$pageId', params: { pageId } }).publicHref,

@@ -12,6 +12,7 @@ import type { ExportBundle } from './export.js';
 import type { ManagementPort } from './management.js';
 import type { ReadingDetails } from './reading-details.js';
 import type { OwnState, Projection } from './fold-protocol.js';
+import type { WorkAction } from './save.js';
 export interface PageView extends Projection {
   /** The document is shown, but its threads and asks are still being verified: `threads`, `asks`
    * and `threadPresentations` are absent, never empty, so nothing unverified reads as verified. */
@@ -67,6 +68,10 @@ export interface PageSnapshot extends PageSummary {
 export interface SaveOutcome {
   merged: boolean;
 }
+/** What a work action made: the ID of a committed `task.add`. */
+export interface WorkOutcome {
+  taskId?: string;
+}
 export interface PageBinding {
   readonly ask?: AskBinding;
   readonly discussion?: ThreadBinding;
@@ -79,6 +84,11 @@ export interface PageBinding {
   /** Save the source the editor opened as `base` changed into `source`, merging it into a page
    * that moved meanwhile; a typed change also sets or removes document attachment references. */
   edit(source: string, base: string, attachments?: attachment.DocumentChange): Promise<SaveOutcome>;
+  /** Whether this device may change the page's work (the owner device's alone). */
+  canWork?(): boolean;
+  /** One closed work action, committed by the serve; the new value follows through `subscribe`.
+   * Throws `SaveRefused` with the serve's code (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …). */
+  work?(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome>;
   /** How full the page is, from the serve. Present only where this device may save. */
   usage?(): Promise<PageUsage>;
   /** Combine this serve's own stream and report what changed. Present only where `usage` is. */

@@ -623,7 +623,8 @@ groups, reviews) from the admitted owner fold and `page_check::summary`'s static
 associations (200 ms projection bound), without executing authored code or trusting device labels.
 The shared needs-you vectors pin native/browser parity. A missing summary is unknown, never a false
 zero. Returning through the existing Home loader or reloading reads again; while a non-archived
-page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`).
+page lacks a summary the visible list also reads every 2 s, at most 15 times (`home-fill.ts`;
+`rereadInPlace` puts the window back, since the router scrolls to the top when a load renders).
 
 `page-layers.ts` composes the existing question/review/reading owners for the page; the action
 owners report lifetime separately from stale-outcome presentation fences.
@@ -865,11 +866,22 @@ controls, and the shared and hosted readers keep `ShellNotice`.
 
 An ordinary page whose view carries `work` (`PageSnapshot.work`, then every live projection) draws
 `WorkBand` (`work-band.tsx`) in the page route between the link bar and the canvas, so it scrolls
-with the page and pushes it down when the list opens. It is read-only: `derivedWork` gives the
-stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and `work-detail.tsx`
-shows one, with an `actions` slot for the controls that write (#4051 slice 2) and an optional
-`parent` breadcrumb for a page that follows a task (#4118). A shell page never draws it. The browser
-has no stage resolver for linked pages yet, so a task that follows a page shows its own state.
+with the page and pushes it down when the list opens. The band itself is read-only: `derivedWork`
+gives the stage, progress, workers and sign-off count; `work-list.tsx` lists the tasks and
+`work-detail.tsx` shows one, with an `actions` slot, a `listActions` slot and an optional `parent`
+breadcrumb for a page that follows a task (#4118). Where this device may change the work
+(`PageBinding.canWork`, the owner device's alone), `PageWorkBand` (`work-band-live.tsx`) fills the
+slots from `work-controls.tsx`: state (with a reason for blocked), sign-off and send back, assign,
+edit title and detail, remove after a second click, and add a task by title. Each control sends one
+closed action through `PageBinding.work`, which `Live` runs as a `work` frame (`Connection.work`,
+answered by `workresult`; a lost reply is settled by one `savestatus`, never resent). Nothing is
+applied locally: one action is in flight at a time, and the list changes when the page's own stream
+brings the commit back. A refusal (`COLAB_WIP_LIMIT`, `COLAB_STALE_BASE`, …) is told in the serve's
+words and changes nothing. A shell page never draws it. The browser
+takes a followed page's stage from the owner list's summaries (`useLinkedStage`, `work-stages.ts`: the list
+the viewer last loaded, then one fresh read, and only when some task follows a page); a page the list
+does not name, or whose summary has not arrived, leaves its task showing its own stored state, as the
+page list does. A band with a summary and no task offers the owner the add-task field directly.
 `work-people.tsx` is the one place an assignee is drawn (`AgentChip` for an agent).
 
 ## Short owner-page links

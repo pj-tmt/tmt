@@ -2654,8 +2654,8 @@ A task is a closed object whose optional fields are omitted, never `null`:
 
 Text is inert and contains no control characters (except the line feeds of `detail`) or unpaired
 surrogates. A criterion records what makes the task acceptable; nothing in this version ticks it
-or runs a command. `needsSignoff` is stored and counted, and only that: nothing lets the owner act
-on it or gates a state change on it, so it is display data until the owner can answer it.
+or runs a command. `needsSignoff` is stored and counted; it gates no state change. The owner
+answers it from the band by moving the task to `done` (sign off) or back to `in-progress`.
 
 Each action is trial-applied to a detached admitted document. Only a schema-valid whole result
 becomes an ordinary signed content publication. The nine closed bodies are:
@@ -2685,10 +2685,14 @@ Derived values are computed from the tasks and never stored or edited. The stage
 `discussion` with no task, `done` when every task is done, and `in-progress` otherwise. Progress
 is the done count over the total. Who is working is the assignees of `in-progress` tasks, each
 once, in task order. Sign-off is the count of `in-review` tasks with `needsSignoff`. The browser
-folds the value and validates it, and the page route draws it as a status band under the header
-(read-only): the two summary lines, the stage, progress, who works and the sign-off count, with the
-task list and a task's detail opening in place and pushing the page down. The band scrolls with the
-page, and a page with no summary and no task draws none. Page export includes it as `work.json`
+folds the value and validates it, and the page route draws it as a status band under the header:
+the two summary lines, the stage, progress, who works and the sign-off count, with the task list
+and a task's detail opening in place and pushing the page down. On the owner device the open task
+carries controls (state, sign-off, assign, edit, remove) and the list an add-task field, each sending
+one closed action as a [browser work action](#browser-work-actions-4051); the value changes only
+when the page's own stream brings the commit back, and a refusal is shown with the serve's words.
+Every other device sees the band read-only. The band scrolls with the page, and a page with no
+summary and no task draws none. Page export includes it as `work.json`
 (see [Plaintext page export](#plaintext-page-export-1309)). Native and browser consume the shared
 `work-v1.json` vectors.
 
@@ -5106,7 +5110,8 @@ The list's needs-you filter keeps the pages whose summary says `waiting`. A page
 summary is unknown, never a false zero, so the filter does not count it. Navigation back to Home
 or a browser reload makes the existing owner-list read again. While a page that is not archived
 still has no summary, the visible Home list also reads again every 2 s, at most 15 times, and stops
-at once when every page has one or the route changes; a hidden tab does not read. Chapter reading
+at once when every page has one or the route changes; a hidden tab does not read, and a re-read
+leaves the window where the reader scrolled. Chapter reading
 descriptors use the separate bounded owner-only read below; they never enter discovery.
 
 The values come from the owner fold, which is too slow for a list read, so the serving process

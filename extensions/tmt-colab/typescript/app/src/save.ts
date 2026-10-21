@@ -23,6 +23,22 @@ export interface SaveResult {
   conflicts?: number[];
 }
 
+/** The one reply to a `work` frame: a save's fields, plus the ID a committed `task.add` made. */
+export interface WorkResult extends SaveResult {
+  taskId?: string;
+}
+/** The closed work actions a browser sends (contract: Work); the serve refuses any other. */
+export type WorkAction =
+  | 'summary.set'
+  | 'summary.clear'
+  | 'task.add'
+  | 'task.set'
+  | 'task.state'
+  | 'task.assign'
+  | 'task.link'
+  | 'task.unlink'
+  | 'task.remove';
+
 /** The source is over the page limit; nothing was sent. */
 export class SaveTooLarge extends Error {
   constructor(
@@ -128,6 +144,14 @@ export function saveResult(frame: Record<string, unknown>, operationId: string):
     ...(typeof frame.message === 'string' ? { message: frame.message } : {}),
     ...(Array.isArray(conflicts) ? { conflicts: conflicts as number[] } : {}),
   };
+}
+export function workResult(frame: Record<string, unknown>, operationId: string): WorkResult {
+  const { taskId, ...rest } = frame;
+  requireValue(
+    taskId === undefined ||
+      (frame.state === 'committed' && typeof taskId === 'string' && /^T-[0-9]{1,7}$/.test(taskId)),
+  );
+  return { ...saveResult(rest, operationId), ...(typeof taskId === 'string' ? { taskId } : {}) };
 }
 /** A settled result as the outcome the caller sees: success returns, everything else throws. */
 export function settled(result: SaveResult): SaveResult {

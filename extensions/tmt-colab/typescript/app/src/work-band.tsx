@@ -14,6 +14,8 @@ export interface WorkParent {
 }
 export interface WorkBandProps extends TaskDetailSlots {
   work: Work;
+  /** Below the list and the open task: where a new task is made and a refusal is told. */
+  listActions?: ReactNode;
   /** Where this page's own work sits in a parent page's task list. */
   parent?: WorkParent;
   pageHref?(pageId: string): string;
@@ -25,7 +27,14 @@ export interface WorkBandProps extends TaskDetailSlots {
  * Where the page stands: two summary lines, progress and who works, then the tasks one step away.
  * It scrolls with the page, never sticks, and opening the list pushes the page down in place.
  */
-export function WorkBand({ work, parent, pageHref, stageOf, ...slots }: WorkBandProps): ReactNode {
+export function WorkBand({
+  work,
+  listActions,
+  parent,
+  pageHref,
+  stageOf,
+  ...slots
+}: WorkBandProps): ReactNode {
   const derived = useMemo(() => derivedWork(work, stageOf), [work, stageOf]);
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string>();
@@ -86,6 +95,7 @@ export function WorkBand({ work, parent, pageHref, stageOf, ...slots }: WorkBand
           </button>
         )}
       </div>
+      {derived.total === 0 && listActions && <div className="work-body">{listActions}</div>}
       {open && (
         <div className="work-body" id={listId}>
           <WorkList
@@ -104,6 +114,7 @@ export function WorkBand({ work, parent, pageHref, stageOf, ...slots }: WorkBand
               {...slots}
             />
           )}
+          {listActions}
         </div>
       )}
     </section>

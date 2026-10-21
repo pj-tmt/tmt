@@ -38,7 +38,7 @@ export interface Task {
   reason?: string;
   assignee?: Assignee;
   acceptance?: Criterion[];
-  /** Display only until the owner can act on it; present only when true. */
+  /** The task waits for the owner's sign-off; present only when true. */
   needsSignoff?: true;
   externalId?: string;
   /** The page this task follows; excludes `externalId`, and the task's state is then its page's. */
@@ -60,7 +60,7 @@ export interface Derived {
   total: number;
   /** The assignees of in-progress tasks, each once, in task order. */
   working: Assignee[];
-  /** Flagged tasks waiting in review. The flag is display only until the owner can act on it. */
+  /** Flagged tasks waiting in review. The owner answers the flag from the band (sign off or send back). */
   signoff: number;
   /** What each task that follows a page shows, when that page's stage is known; present only when
    * some task does. The other tasks show their own state. */

@@ -14,7 +14,7 @@ import { LiveAsk, pageAsks } from './live-ask.js';
 import { attachment, digest, encodeBinary, requireValue, text as bytesOf } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import { AdmissionRefusedError, ReopenFailedError, type Registration } from './registration.js';
-import type { PageBinding, PageSnapshot, PageView, SaveOutcome } from './transport.js';
+import type { PageBinding, PageSnapshot, PageView, SaveOutcome, WorkOutcome } from './transport.js';
 import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { classify, SYNC_DISCONNECTED } from './connection-state.js';
 import { Admission } from './admission.js';
@@ -24,8 +24,11 @@ import {
   SAVE_REOPEN_MS,
   SaveOutcomeUnknown,
   SaveTooLarge,
+  settled,
   settledAgainst,
   type SaveResult,
+  type WorkAction,
+  type WorkResult,
 } from './save.js';
 import { hunksOf } from './save-hunks.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
@@ -770,6 +773,33 @@ export class Live implements PageBinding {
     );
     return { merged: result.merged === true };
   }
+  /** Whether this device may change the page's work: the owner device's alone. */
+  canWork(): boolean {
+    return (
+      !this.#closed &&
+      !this.#error &&
+      this.#connection?.admission.ownerDevice(this.registration.deviceId) === true
+    );
+  }
+  /** One closed work action, committed by the serve as the owner's own write. Nothing is applied
+   * here: the new value arrives through the page's own stream, and this resolves once the page
+   * shows the commit (or the wait ran out). A refusal throws `SaveRefused` with the serve's code;
+   * a lost reply is settled by exactly one status request, and the action is never sent again. */
+  async work(action: WorkAction, body: Record<string, unknown>): Promise<WorkOutcome> {
+    if (this.#closed || this.#error) throw new Error('Page editing unavailable');
+    const c = await this.#current;
+    const operationId = crypto.randomUUID();
+    let result: WorkResult;
+    try {
+      result = await c.work(operationId, action, body);
+    } catch (error) {
+      if (!(error instanceof Error) || c.active) throw error;
+      result = await this.#settleLost(c, operationId);
+    }
+    settled(result);
+    await this.#showsRevision(result.revision);
+    return result.taskId === undefined ? {} : { taskId: result.taskId };
+  }
   /** The serve counts every device but its own as "other". This device's own changes are not
    * other devices': it can combine them itself, so the page-size surface counts them as its own. */
   #mine(usage: PageUsage, own: number): PageUsage {
@@ -861,6 +891,17 @@ export class Live implements PageBinding {
       if (Date.now() >= deadline) return;
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
+  }
+  async #showsRevision(revision: string | undefined) {
+    if (revision === undefined) return;
+    const deadline = Date.now() + SAVE_REOPEN_MS;
+    while (
+      !this.#closed &&
+      !this.#error &&
+      Date.now() < deadline &&
+      (await this.#connection?.objects.revision().catch(() => null)) !== revision
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
   }
   close() {
     if (this.#closed) return;

@@ -1,5 +1,5 @@
 import { HomeTitleLink } from './home-titles.js';
-import { useSummaryFill } from './home-fill.js';
+import { rereadInPlace, useSummaryFill } from './home-fill.js';
 import { useHomeSpace, useSpaceTitle } from './home-space.js';
 import {
   BrowserAction,
@@ -316,7 +316,7 @@ export function Home() {
   const port = transport.management;
   // The owner folds summaries in the background: while an active page has none the list reads again.
   useSummaryFill(port ? homePages.filter((p) => !p.archived && !p.summary).length : 0, () =>
-    router.invalidate(),
+    rereadInPlace(() => router.invalidate()),
   );
   const archived = !!port && search.archived === true;
   // Only the owner app has tabs; a list without them is every active page, as All is.
