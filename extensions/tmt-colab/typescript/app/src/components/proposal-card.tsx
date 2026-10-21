@@ -1,6 +1,6 @@
 import { BrowserAction } from '@tmt/browser-ui/react';
-import { Check, CircleCheck, CircleDot, X } from 'lucide-react';
-import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { Check, CircleCheck, CircleDot, LoaderCircle, X } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ThreadView } from '../thread-records.js';
 import type { ProposalOutcome } from '../proposal-actions.js';
 import { useNotificationBlock } from '../use-notification-block.js';
@@ -61,7 +61,24 @@ export function ProposalCard({
   const focused = useRef<HTMLElement | null>(null);
   const returning = useRef(false);
   const busy = sending || outcome?.state === 'deciding' || outcome?.state === 'notifying';
+  const deciding = outcome?.state === 'deciding';
+  // The decision being saved: only its button carries the busy mark, though both stay inert.
+  const [pressed, setPressed] = useState<'approved' | 'declined'>();
   const decision = thread.decision?.decision;
+  const deciders = !decision && (!outcome || deciding);
+  // The row's height while the decision buttons stand in it (they may wrap), held once they are
+  // gone so the decided state replaces them at the same height.
+  const actions = useRef<HTMLDivElement>(null);
+  const [rowHeight, setRowHeight] = useState<number>();
+  useLayoutEffect(() => {
+    const node = actions.current;
+    if (!deciders || !node) return;
+    const measure = () => setRowHeight(node.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [deciders]);
   useLayoutEffect(() => {
     const node = card.current;
     if (!node) return;
@@ -163,8 +180,14 @@ export function ProposalCard({
       )}
       {(!thread.resolved || historyOpen) && <p className="proposal-body">{proposal.body}</p>}
       {!readOnly && !thread.resolved && (
-        <div className="proposal-actions">
-          {!decision && !outcome && !thread.resolved && (
+        <div
+          className="proposal-actions"
+          ref={actions}
+          style={!deciders && rowHeight ? { minBlockSize: rowHeight } : undefined}
+        >
+          {deciders && (
+            // While the decision saves the buttons stay where they are, inert, and the busy mark
+            // is the only sign: the row moves nothing until the decision stands in its place.
             <>
               <span className="proposal-approve">
                 <BrowserAction
@@ -172,8 +195,16 @@ export function ProposalCard({
                   variant="primary"
                   label={text.proposalApprove}
                   disabled={disabled || !canDecide}
+                  busy={deciding}
+                  busyMark={
+                    <LoaderCircle
+                      className={pressed === 'approved' ? undefined : 'proposal-unpressed'}
+                    />
+                  }
                   onActivate={(e) => {
-                    if (e.isTrusted) decide('approved');
+                    if (!e.isTrusted) return;
+                    setPressed('approved');
+                    decide('approved');
                   }}
                 />
               </span>
@@ -182,8 +213,16 @@ export function ProposalCard({
                 variant="primary"
                 label={text.proposalDecline}
                 disabled={disabled || !canDecide}
+                busy={deciding}
+                busyMark={
+                  <LoaderCircle
+                    className={pressed === 'declined' ? undefined : 'proposal-unpressed'}
+                  />
+                }
                 onActivate={(e) => {
-                  if (e.isTrusted) decide('declined');
+                  if (!e.isTrusted) return;
+                  setPressed('declined');
+                  decide('declined');
                 }}
               />
             </>
@@ -217,8 +256,6 @@ export function ProposalCard({
         </div>
       )}
       {statusError && <p role="alert">{text.commentFailed}</p>}
-      {outcome?.state === 'deciding' && <p role="status">{text.proposalSaving}</p>}
-      {outcome?.state === 'notifying' && <p role="status">{text.askPreparing}</p>}
       {outcome?.state === 'failed' && <p role="alert">{text.proposalNotifyFailed}</p>}
       {outcome?.state === 'uncertain' && (
         <p role="status">

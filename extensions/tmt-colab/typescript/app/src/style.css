@@ -1504,6 +1504,16 @@ body:has(.needs-you-header-menu) {
   flex-wrap: wrap;
 }
 
+/* A text button has no border, so the row would shrink by its width once the decision buttons are
+   gone: the decided row stands at the height of the one it replaces. */
+.proposal-actions .tmt-ui-action[data-variant='text'] {
+  border: var(--tmt-ui-action-border-width) solid transparent;
+}
+/* The busy mark of the decision not being saved keeps the button's width without showing. */
+.proposal-unpressed {
+  visibility: hidden;
+}
+
 .proposal-actions .proposal-resolve {
   margin-inline-start: auto;
   color: var(--c-muted);
