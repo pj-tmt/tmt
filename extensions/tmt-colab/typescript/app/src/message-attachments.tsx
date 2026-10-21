@@ -139,6 +139,7 @@ function FileTile({
         label={text.attachmentDownload}
         icon={<Download />}
         disabled={disabled || !download}
+        aria-disabled={disabled || !download || undefined}
         onActivate={(event) => {
           if (event.isTrusted) download?.();
         }}

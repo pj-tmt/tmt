@@ -112,8 +112,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   `message-attachments.tsx` own composer controls and visible message tiles respectively.
   Sent-image grids in threads, Chat and answers share `attachment-tray.css`: top-aligned
   equal thumbnails, single-line ellipsized name/size labels, and the full filename in its title.
-  A single image reserves a centred 200×120 frame before decoding; `scale-down` preserves
-  small images at natural size against the existing thumbnail background.
+  A single image reserves a 200×120 frame before decoding; `scale-down` preserves
+  small images at natural size, aligned to the top left against the existing thumbnail background.
   `attachment-raster.ts` rechecks bounded raster bytes before data-URL conversion;
   `attachment-preview.tsx` owns the modal viewer and return focus. Message thumbnails
   retain display URLs only for their live binding/scope/reference; hidden overflow images
