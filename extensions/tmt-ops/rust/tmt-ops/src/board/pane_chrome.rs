@@ -15,6 +15,9 @@ use unicode_width::UnicodeWidthStr;
 /// Panes shorter than this draw their top rule only.
 const BOXED_MIN_HEIGHT: u16 = 6;
 
+/// Panes narrower than this keep their content against the frame.
+const INSET_MIN_WIDTH: u16 = 20;
+
 /// Whether a pane of this size draws all four sides of its frame.
 pub(super) fn boxed(area: Rect) -> bool {
     area.height >= BOXED_MIN_HEIGHT && area.width >= 3
@@ -130,7 +133,14 @@ pub(super) fn paint(frame: &mut Frame, app: &App, area: Rect, pane: Pane, title:
             line,
         ),
     );
-    Rect::new(area.x + 1, area.y + 1, area.width - 2, area.height - 2)
+    // Content is inset by one cell from each side, unless the pane is too narrow to spare them.
+    let inset = u16::from(area.width >= INSET_MIN_WIDTH);
+    Rect::new(
+        area.x + 1 + inset,
+        area.y + 1,
+        area.width - 2 - 2 * inset,
+        area.height - 2,
+    )
 }
 
 /// The Agents tab has no boxed panes: its two columns are told apart by their control rules. The

@@ -104,7 +104,7 @@ fn the_focused_pane_has_a_heavy_bright_frame_and_the_others_light_dim_lines() {
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer();
-            assert_eq!(inside, Rect::new(3, 2, 48, 6));
+            assert_eq!(inside, Rect::new(4, 2, 46, 6));
             let [tl, tr, bl, br] = corners(true);
             assert_eq!(buffer[(2, 1)].symbol(), tl);
             assert_eq!(buffer[(51, 1)].symbol(), tr);
@@ -202,7 +202,7 @@ fn long_focused_titles_keep_the_back_hint_and_short_panes_keep_only_the_top_rule
                 Pane::Replies,
                 &"long".repeat(80),
             );
-            assert_eq!(boxed, Rect::new(3, 2, 48, 6));
+            assert_eq!(boxed, Rect::new(4, 2, 46, 6));
             // A pane too short to afford the sides keeps the cells below its rule.
             frame
                 .buffer_mut()
