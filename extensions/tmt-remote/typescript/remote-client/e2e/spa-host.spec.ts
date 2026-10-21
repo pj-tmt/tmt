@@ -230,18 +230,29 @@ test.describe('the door', () => {
     expect(policy).not.toMatch(/unsafe-|\*|https?:/);
   });
 
-  test('keeps the shell CSP no wider than the strictest replaced page', async () => {
-    // TODO(ux-4, door): SHELL_POLICY in pages.rs adds img-src 'self', font-src, worker-src and
-    // frame-src 'self' (for Colab's own assets and its embedded frames) to the pairing page's
-    // policy. Either narrow the shell's policy or restate the condition with remote-lead.
-    test.fail(true, 'shell CSP is wider than the pairing page policy');
-    const shell = parsePolicy((await get('/')).headers.get('content-security-policy')!);
-    const strictest = parsePolicy(
-      (await get('/remote/pair')).headers.get('content-security-policy')!,
+  test('pins the shell CSP: the page policy plus only what the Colab route needs', async () => {
+    // Agreed with tmt-lead and remote-lead (#3937): the pairing page's policy plus exactly
+    // img-src 'self', worker-src 'self', frame-src 'self' and object-src 'none'. Any widening fails.
+    const page =
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    const shell =
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
+    for (const path of ['/', '/remote/', '/settings', '/colab/', '/colab/pages/x'])
+      expect((await get(path)).headers.get('content-security-policy'), path).toBe(shell);
+    // Pairing keeps its own document and the page policy, with its bootstrap's hash only.
+    const pairing = (await get('/remote/pair')).headers.get('content-security-policy')!;
+    expect(pairing.replace(/ 'sha256-[^']+'/, '')).toBe(page);
+    // No wider than Colab's app document policy (tmt-colab browser_policy.rs POLICY).
+    const source = await readFile(
+      fileURLToPath(
+        new URL('../../../../tmt-colab/rust/tmt-colab/src/browser_policy.rs', import.meta.url),
+      ),
+      'utf8',
     );
-    for (const [name, sources] of shell) {
-      const allowed = new Set(strictest.get(name) ?? strictest.get('default-src') ?? ["'none'"]);
-      for (const source of sources) expect(allowed, `${name} ${source}`).toContain(source);
+    const colab = parsePolicy(/pub const POLICY: &str = "([^"]+)"/.exec(source)![1]!);
+    for (const [name, sources] of parsePolicy(shell)) {
+      const allowed = new Set(colab.get(name) ?? colab.get('default-src') ?? ["'none'"]);
+      for (const value of sources) expect(allowed, `${name} ${value}`).toContain(value);
     }
   });
 });

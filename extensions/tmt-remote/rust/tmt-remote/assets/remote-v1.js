@@ -1497,15 +1497,18 @@ function remoteMenu(actions, shell = remoteShell()) {
 		});
 	}
 	paint();
-	const menu = document.querySelector(".tmt-ui-module-menu");
 	const refresh = () => {
 		paint();
 		actions.refresh();
 	};
-	menu?.addEventListener("pointerenter", refresh);
-	menu?.addEventListener("focusin", (event) => {
-		if (!menu.contains(event.relatedTarget)) refresh();
-	});
+	const lifetime = new AbortController();
+	addEventListener("pagehide", () => lifetime.abort(), { once: true });
+	const entered = (event) => {
+		const menu = event.target?.closest?.(".tmt-ui-module-menu");
+		if (menu && !menu.contains(event.relatedTarget)) refresh();
+	};
+	document.addEventListener("pointerover", entered, { signal: lifetime.signal });
+	document.addEventListener("focusin", entered, { signal: lifetime.signal });
 	if (page === "settings") shell.describe();
 	return (next, observed, checkedAddress) => {
 		catalog = next;

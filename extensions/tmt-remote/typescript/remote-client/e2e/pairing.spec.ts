@@ -516,7 +516,8 @@ test('native automatic opening is single-use, strips history and reuses a paired
   expect(response?.headers()['referrer-policy']).toBe('no-referrer');
   expect(response?.headers()['content-security-policy']).toContain("'sha256-");
   expect(response?.headers()['content-security-policy']).not.toContain("'unsafe-inline'");
-  await page.waitForURL(`${origin}/p/abcd`);
+  // The short page link now redirects into the one TMT app.
+  await page.waitForURL(`${origin}/colab/p/abcd`);
   const list = () =>
     JSON.parse(execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' })) as {
       devices: { clientId: string; origin: string; issuedAtMs: number; scopes: string[] }[];
@@ -650,41 +651,50 @@ test('short public entries preserve the browser URL and map the SDK mount withou
   const network: string[] = [];
   const mount = `${new URL(mounts).pathname}colab/`;
   page.on('request', (request) => network.push(request.url()));
-  for (const path of ['/colab', '/colab/', '/p/abcd#t=thread-canary', '/read/abcd#read-canary']) {
-    const address = `${origin}${path}`;
-    const response = await page.goto(address);
-    expect(response?.status()).toBe(200);
-    expect(response?.request().redirectedFrom()).toBeNull();
-    expect(page.url()).toBe(address);
-    await expect(page.locator('#context')).toHaveText('none');
-    const lookup = await page.evaluate(() =>
+  const lookup = () =>
+    page.evaluate(() =>
       fetch('/sdk/mount', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: location.pathname }),
       }).then((reply) => reply.json()),
     );
-    expect(lookup).toEqual({
-      machineId: expect.any(String),
-      windowId: expect.any(String),
-      address: mounts.slice(0, -3),
-      extension: 'colab',
-      mount,
-    });
-    expect((await page.reload())?.status()).toBe(200);
+  const colab = {
+    machineId: expect.any(String),
+    windowId: expect.any(String),
+    address: mounts.slice(0, -3),
+    extension: 'colab',
+    mount,
+  };
+  // `/colab/...` is a route of the one TMT app: the door serves the app document itself and
+  // forwards nothing; `/sdk/mount` still names Colab's mount for it.
+  for (const path of ['/colab', '/colab/']) {
+    const address = `${origin}${path}`;
+    const response = await page.goto(address);
+    expect(response?.status()).toBe(200);
+    expect(response?.request().redirectedFrom()).toBeNull();
     expect(page.url()).toBe(address);
-    await expect(page.locator('#context')).toHaveText('none');
+    await expect(page.locator('.tmt-ui-shell')).toBeVisible();
+    expect(await lookup()).toEqual(colab);
   }
-  expect(publicHeads.map((head) => head.split(' ')[1])).toEqual([
-    '/',
-    '/',
-    '/',
-    '/',
-    '/p/abcd',
-    '/p/abcd',
-    '/read/abcd',
-    '/read/abcd',
-  ]);
+  // A short page link redirects into the app; the browser keeps its fragment.
+  const short = await page.goto(`${origin}/p/abcd#t=thread-canary`);
+  expect(short?.status()).toBe(200);
+  expect(short?.request().redirectedFrom()?.url()).toBe(`${origin}/p/abcd`);
+  expect(page.url()).toBe(`${origin}/colab/p/abcd#t=thread-canary`);
+  expect(await lookup()).toEqual(colab);
+  // The reader stays the forwarded public entry, its URL untouched.
+  const address = `${origin}/read/abcd#read-canary`;
+  const response = await page.goto(address);
+  expect(response?.status()).toBe(200);
+  expect(response?.request().redirectedFrom()).toBeNull();
+  expect(page.url()).toBe(address);
+  await expect(page.locator('#context')).toHaveText('none');
+  expect(await lookup()).toEqual(colab);
+  expect((await page.reload())?.status()).toBe(200);
+  expect(page.url()).toBe(address);
+  await expect(page.locator('#context')).toHaveText('none');
+  expect(publicHeads.map((head) => head.split(' ')[1])).toEqual(['/read/abcd', '/read/abcd']);
   for (const head of publicHeads) {
     expect(head).toContain(`tmt-mount: ${mount}\r\n`);
     expect(head).not.toMatch(/^cookie:|^tmt-device-context:|^tmt-origin:|^upgrade:/im);
@@ -693,10 +703,10 @@ test('short public entries preserve the browser URL and map the SDK mount withou
   expect(network.every((url) => !url.includes('#'))).toBe(true);
   // BFCache restoration need not return a new network response.
   await page.goBack();
-  expect(page.url()).toBe(`${origin}/p/abcd#t=thread-canary`);
-  await expect(page.locator('#context')).toHaveText('none');
+  expect(page.url()).toBe(`${origin}/colab/p/abcd#t=thread-canary`);
   await page.goForward();
-  expect(page.url()).toBe(`${origin}/read/abcd#read-canary`);
+  expect(page.url()).toBe(address);
+  await expect(page.locator('#context')).toHaveText('none');
   await page.close();
 });
 
@@ -1005,7 +1015,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'pairingPage',
     'remoteRegistry',
     'reopenSession',
-    'shellPage',
+    'shellApp',
     'syncDocumentPath',
     'transportUrl',
     'validateSyncDiscovery',
@@ -1531,7 +1541,8 @@ test('browser pages consume shared presentation in both schemes and fit desktop 
             rule: '1px',
             background: tokenRgb('surface', 'sheet', colorScheme),
             markViewBox: '0 0 96 96',
-            markPaths: 4,
+            // The static brand mark (design/browser-ui/generated/brand-mark-static.svg).
+            markPaths: 5,
             wordmarkText: 'Remote',
             headings: 1,
           });
@@ -1694,14 +1705,9 @@ test('the native entry checks once and presents all seven evidenced states witho
       );
   };
   const captureEntry = async (state: string): Promise<void> => {
-    await expect(page.locator('#notice')).toHaveAttribute(
-      'data-tone',
-      state === 'connected'
-        ? 'working'
-        : ['not-paired', 'checking', 'different-machine'].includes(state)
-          ? 'waiting'
-          : 'blocked',
-    );
+    // Remote connection states are words only, in the neutral tone (the agent marks' tones mean
+    // agent states, not these).
+    await expect(page.locator('#notice')).toHaveAttribute('data-tone', 'neutral');
     await expect(page.locator('#command-pair, #command-devices, #command-status')).toHaveCount(0);
     const commands = page.locator('.entry-steps:visible code');
     const expected = ['not-accepted', 'pairing-unreadable', 'checking', 'connected'].includes(state)
@@ -4681,6 +4687,9 @@ test('the Remote module menu lists both origins and keeps settings drafts across
     );
     const ownName = page.getByRole('textbox', { name: /^Device name for Registry A$/ });
     await ownName.fill('Unsent Remote name');
+    // The settings route opened in the same document, so the pointer is still on the menu; leave
+    // it, as a person does to type the name, then come back.
+    await page.mouse.move(1000, 600);
     await menu.hover();
     await expect(foreignItem).toHaveAttribute('aria-disabled', 'true');
     await expect(foreignItem).toHaveAttribute(
@@ -4834,6 +4843,7 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
       'Sectioned TMT settings: theme choice and marked sample data',
       [1440, 390],
       ['light', 'dark'],
+    );
     // The theme is a per-browser choice that applies at once and can return to the device.
     const themes = page.getByRole('tablist', { name: 'Theme' });
     await expect(themes.getByRole('tab', { selected: true })).toHaveText('System');
@@ -4843,7 +4853,6 @@ test('Home and TMT settings render in the shell and fit both sizes and themes', 
     await expect(page.locator('html')).not.toHaveAttribute('data-theme');
     // Without a Core read the sections show marked sample data, never invented as real.
     await expect(page.locator('#tmt-settings-note')).toContainText('Sample data');
-    );
     // The only route-prefixed read is the owner's composed shell (display data).
     expect(
       calls
