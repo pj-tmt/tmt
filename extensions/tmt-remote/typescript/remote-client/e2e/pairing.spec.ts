@@ -3944,6 +3944,17 @@ for (const [width, theme] of [
     try {
       // The pressed action's delayed mark is the only busy signal: no words, no grey, no shift.
       await expect(slot).toHaveText('');
+      // A click on the fenced recover action mid-write starts nothing: no request, no new words.
+      const during: string[] = [];
+      const record = (request: { url(): string }) => during.push(request.url());
+      page.on('request', record);
+      await page.evaluate(async () => {
+        (document.querySelector('[data-recover]') as HTMLElement).click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      });
+      page.off('request', record);
+      expect(during).toEqual([]);
+      await expect(slot).toHaveText('');
       await expect(renameButton).toHaveAttribute('aria-busy', 'true');
       await expect(renameButton).toHaveAttribute('aria-disabled', 'true');
       expect(await renameButton.evaluate((button) => (button as HTMLButtonElement).disabled)).toBe(

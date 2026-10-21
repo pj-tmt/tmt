@@ -33,7 +33,7 @@
     "src/overlay.ts": "37c0a2bbd673dc15c1ca1efe5b4fe09bce7087b6bf73c70a377b5f513d129325",
     "src/popup.ts": "d76753fe162d2945d9ae6aae0bbefca1233ded3d2b9783be2dad5262666bd4ba",
     "src/react.ts": "35d87042df5e3c4e69bc4fe5f738bc8de53ec7acc3ffedccfce196db11d35121",
-    "src/static.ts": "649247198f66b43e9e54bba1188a930bb6d82289c8a45e12a30280f565872ae5",
+    "src/static.ts": "41fab20d7e2b30513ddd2346bde2af128a0aa1c08889dff65a97f9f30736f444",
     "src/tabs.css": "964e247b8e4840386744c6666a784bc8f03095e319a9fb4939d59776378003bf",
     "src/tabs.tsx": "7c8bf39073e629410ca607b2a94bf2c65a0d8a88fed936e3f62a636a11d8adcf",
     "src/toggle.css": "a37695c236bf4ccdc9d5dc24941b79bc4c3d78f6dfe0f6be4eefcac482cb7aa5",

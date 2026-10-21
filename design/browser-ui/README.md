@@ -123,7 +123,9 @@ without changing host padding or typography. Without a mark, both
 states retain label-only geometry. The mark is delay-gated: busy shorter than
 400 ms shows nothing, and a mark once shown stays at least 400 ms after busy ends
 (`busy-mark.ts`; `useBusyMark` and its two constants are exported for hosts that show
-their own pending mark on the same timing). Busy keeps the control's appearance, focus and readable label:
+their own pending mark on the same timing). A page without React uses the React-free
+`createBusyMarkGate` (`@tmt/browser-ui/busy-mark`) and `createActionMark` (`@tmt/browser-ui/static`),
+which builds the reserved mark slot an Action carries. Busy keeps the control's appearance, focus and readable label:
 it sets `aria-busy` and `aria-disabled`, not native `disabled`, and the click
 handler fences activation and cancels a busy submit's form submission. `disabled`
 keeps the native disabled styling and wins over busy, without a mark.
