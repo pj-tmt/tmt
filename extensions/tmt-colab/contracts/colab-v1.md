@@ -4539,6 +4539,17 @@ overrides it (`forever` never archives), and one function decides which applies:
 several machines serve one space the shortest wins. The setting signs nothing and changes no
 stored statement. Nothing applies it yet; the scheduled archive of #2600 will.
 
+The local management reads (`ls`, `show`, `retention`) report it per page; the catalog the
+browser is served does not carry it. `lastActivityAtMs` is the page's effective activity (the later of the last activity and
+the last content edit; null when neither was ever recorded), `archiveAfterDays` is the days that
+apply to the page (its own `retention.set`, else the space setting; null for never), and
+`archiveAtMs` is `lastActivityAtMs` plus those days, or null when the page is already archived,
+never expires, has no recorded activity (an unknown activity is never an old one) or the time
+would not fit a record. `ls --expiring` lists the pages whose `archiveAtMs` is within seven days
+of now or already past. Human `show` and `retention` add `last activity` and `archive` lines
+(`never`, `in 12 days`, `◷ in 4 days` within seven days, `due now`, or `after N days without
+activity · no activity recorded yet`). Reading never refreshes the evidence.
+
 Firestore Rules deny expired reads; owner cleanup of expired cloud data is admitted.
 The browser/CLI cleanup caller is part of the pending relay binding. Optional Blaze
 TTL is eventual physical cleanup, not timely revocation.
@@ -4667,7 +4678,7 @@ Command names precede operands, following the shared CLI style audit (the lead's
 #1307 decision replaces the positional-first #1111 sketch):
 
 ```text
-ls [--archived]
+ls [--archived] [--expiring]
 show <page>
 share mode <page> <private|link|public>
 share link list <page>
@@ -4763,11 +4774,12 @@ conflicts and an unsaved request cannot revive the deleted page.
 
 Link listings return `{pageId, membershipHead, links}`.
 Retention reads return `{membershipHead, page:{pageId, retentionDays,
-lastUpdateAtMs, expiresAtMs, warnings}}`.
+lastUpdateAtMs, lastActivityAtMs, archiveAfterDays, archiveAtMs, expiresAtMs, warnings}}`.
 Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
 space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
 links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
-sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.
+sharing, history, archived, retentionDays, lastUpdateAtMs, lastActivityAtMs,
+archiveAfterDays, archiveAtMs, expiresAtMs, warnings`.
 IDs, epochs and revisions retain canonical full values; times are UTC
 milliseconds. Policy derives from verified owner statements; titles require the
 authenticated fold and isolated decoder. Archived titles are null with

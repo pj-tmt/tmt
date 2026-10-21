@@ -5,15 +5,23 @@ use crate::{
     decoder::{Decoder, layout_of_meta},
     fold,
     keyring::Keyring,
+    page_expiry::SpaceExpiry,
     store::{Store, owner::OwnerFault},
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use tmt_colab_model::values;
 
+/// The local catalog for a caller that needs the pages, their policy and the membership head. Its
+/// expiry fields assume the default page expiry; [`catalog_for`] applies the space's setting.
 pub fn catalog(store: &Store, key: &Keyring) -> Result<Value> {
+    catalog_for(store, key, SpaceExpiry::default())
+}
+
+/// [`catalog`] with each page's archive time judged by this space's page expiry setting.
+pub fn catalog_for(store: &Store, key: &Keyring, space: SpaceExpiry) -> Result<Value> {
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
-        let mut catalog = tx.page_list()?;
+        let mut catalog = tx.page_list_for_cli(space)?;
         let head = tx.head().map(|h| {
             json!({"revision":h.revision.to_string(),
             "statementHash":values::encode_binary(&h.hash)})

@@ -7270,6 +7270,117 @@ fn the_page_expiry_setting_is_days_off_or_default_and_keeps_other_settings() {
     assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
 }
 #[test]
+fn the_archive_view_judges_last_activity_by_the_space_setting_and_the_pages_own_retention() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[]}"#);
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Idle page",
+        "--layout",
+        "column",
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let day = 86_400_000u64;
+    let now = || {
+        u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    };
+    // Only fixture SQL sets the evidence; production sets it from admitted updates.
+    let set_times = |updated: Option<u64>, active: Option<u64>| {
+        let db = rusqlite::Connection::open(pilot.root.join("selected/colab/space.db")).unwrap();
+        let as_sql = |ms: Option<u64>| ms.map(|value| i64::try_from(value).unwrap());
+        db.execute(
+            "UPDATE pages SET last_update_at_ms=?1, last_activity_at_ms=?2",
+            rusqlite::params![as_sql(updated), as_sql(active)],
+        )
+        .unwrap();
+    };
+    let read = || pilot.call(&["retention", id, "--json"])["page"].clone();
+    let human = |args: &[&str]| {
+        let out = pilot.command().args(args).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let expiring = || {
+        let listed = pilot.call(&["ls", "--expiring", "--json"]);
+        listed["pages"].as_array().unwrap().len()
+    };
+
+    // The default is 180 days since the last activity; the due time is that activity plus it.
+    let active = now() - 10 * day;
+    set_times(Some(now() - 20 * day), Some(active));
+    let page = read();
+    assert_eq!(page["lastActivityAtMs"], active);
+    assert_eq!(page["archiveAfterDays"], 180);
+    assert_eq!(page["archiveAtMs"], active + 180 * day);
+    let text = human(&["show", id]);
+    assert!(text.contains("10 days ago"), "{text}");
+    assert!(text.contains("in 169 days"), "{text}");
+    assert!(!text.contains("◷ in 169"), "{text}");
+    assert_eq!(expiring(), 0);
+
+    // Within seven days of the due time it is marked and listed; past it, it is due now.
+    set_times(None, Some(now() - 175 * day - 3_600_000));
+    assert!(human(&["retention", id]).contains("◷ in 4 days"));
+    assert_eq!(expiring(), 1);
+    set_times(None, Some(now() - 200 * day));
+    assert!(human(&["retention", id]).contains("due now"));
+    assert_eq!(expiring(), 1);
+
+    // Content-edit time is the evidence before any activity was recorded; with neither it is unknown.
+    let edited = now() - 5 * day;
+    set_times(Some(edited), None);
+    assert_eq!(read()["lastActivityAtMs"], edited);
+    set_times(None, None);
+    let page = read();
+    assert_eq!(page["lastActivityAtMs"], json!(null));
+    assert_eq!(page["archiveAfterDays"], 180);
+    assert_eq!(page["archiveAtMs"], json!(null), "unknown is not old");
+    assert!(human(&["retention", id]).contains("no activity recorded yet"));
+    assert_eq!(expiring(), 0);
+
+    // The space setting changes the days; `off` is never.
+    set_times(None, Some(now() - 10 * day));
+    pilot.call(&["settings", "page-expiry", "30", "--json"]);
+    assert_eq!(read()["archiveAfterDays"], 30);
+    assert!(human(&["retention", id]).contains("in 19 days"));
+    pilot.call(&["settings", "page-expiry", "off", "--json"]);
+    let page = read();
+    assert_eq!(page["archiveAfterDays"], json!(null));
+    assert_eq!(page["archiveAtMs"], json!(null));
+    assert!(human(&["retention", id]).contains("never"));
+    assert_eq!(expiring(), 0);
+
+    // A page's own retention wins over the space setting, and forever never archives.
+    pilot.call(&["retention", id, "7", "--json"]);
+    let page = read();
+    assert_eq!(page["archiveAfterDays"], 7);
+    assert_eq!(page["retentionDays"], 7);
+    assert_eq!(expiring(), 1, "10 days idle against 7 days");
+    pilot.call(&["retention", id, "forever", "--json"]);
+    assert_eq!(read()["archiveAfterDays"], json!(null));
+    assert_eq!(expiring(), 0);
+
+    // The same fields are in the list and detail, and no read changed the evidence.
+    pilot.call(&["settings", "page-expiry", "default", "--json"]);
+    pilot.call(&["retention", id, "90", "--json"]);
+    let listed = pilot.call(&["ls", "--json"]);
+    assert_eq!(listed["pages"][0]["archiveAfterDays"], 90);
+    assert_eq!(
+        pilot.call(&["show", id, "--json"])["page"]["archiveAfterDays"],
+        90
+    );
+}
+#[test]
 fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
     use std::time::{SystemTime, UNIX_EPOCH};
     let pilot = Pilot::new(None);

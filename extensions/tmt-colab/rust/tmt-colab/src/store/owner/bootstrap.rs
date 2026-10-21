@@ -1,5 +1,6 @@
 //! Bounded bootstrap reads on the existing owner snapshot, without secret export.
 use super::*;
+use crate::page_expiry::{PageRetention, SpaceExpiry, archive_at_ms, effective_days};
 
 pub(crate) struct MembershipPage {
     pub statements: Vec<serde_json::Value>,
@@ -232,24 +233,40 @@ impl OwnerTransaction<'_> {
         }
         Ok(out)
     }
+    /// The catalog the browser is served: exactly the page fields the owner socket declares.
     pub(crate) fn page_list(&self) -> Result<serde_json::Value> {
-        let mut query = self
-            .tx
-            .prepare("SELECT page,epoch,last_update_at_ms FROM pages ORDER BY page LIMIT 1001")?;
+        self.page_list_with(None)
+    }
+    /// The catalog of the local management CLI: the page fields plus when each page was last active
+    /// and when the space's expiry setting says it is archived (#2600).
+    pub(crate) fn page_list_for_cli(&self, space: SpaceExpiry) -> Result<serde_json::Value> {
+        self.page_list_with(Some(space))
+    }
+    fn page_list_with(&self, space: Option<SpaceExpiry>) -> Result<serde_json::Value> {
+        let mut query = self.tx.prepare(
+            "SELECT page,epoch,last_update_at_ms,last_activity_at_ms FROM pages ORDER BY page LIMIT 1001",
+        )?;
         let rows = query.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, Option<i64>>(2)?,
+                r.get::<_, Option<i64>>(3)?,
             ))
         })?;
         let mut pages = std::collections::BTreeMap::new();
+        let mut activity = std::collections::BTreeMap::new();
         for row in rows {
-            let (id, epoch, updated) = row?;
+            let (id, epoch, updated, active) = row?;
             let updated = updated
                 .map(u64::try_from)
                 .transpose()
                 .map_err(|_| OwnerFault::Invalid)?;
+            let active = active
+                .map(u64::try_from)
+                .transpose()
+                .map_err(|_| OwnerFault::Invalid)?;
+            activity.insert(id.clone(), active.max(updated));
             values::generated_id(&id)?;
             values::decimal(&epoch, false)?;
             if pages.len() == 1000 {
@@ -258,6 +275,7 @@ impl OwnerTransaction<'_> {
             pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated}));
         }
         let known_ids: Vec<String> = pages.keys().cloned().collect();
+        let mut retention: std::collections::BTreeMap<String, PageRetention> = Default::default();
         // Projects are display-only owner-store state (never a log statement): the rows of the pages
         // that exist, sorted; a deleted page's rows are removed with its data.
         let mut projects: std::collections::BTreeMap<String, Vec<String>> = Default::default();
@@ -308,6 +326,13 @@ impl OwnerTransaction<'_> {
                             payload::Days::Forever => serde_json::Value::Null,
                             payload::Days::Count(n) => serde_json::json!(n),
                         };
+                        retention.insert(
+                            p.page_id.clone(),
+                            match p.days {
+                                payload::Days::Forever => PageRetention::Forever,
+                                payload::Days::Count(n) => PageRetention::Days(n),
+                            },
+                        );
                     }
                 }
                 payload::Payload::Archive(p) => {
@@ -370,6 +395,21 @@ impl OwnerTransaction<'_> {
         }
         for (id, page) in pages.iter_mut() {
             page["projects"] = serde_json::json!(projects.remove(id).unwrap_or_default());
+        }
+        if let Some(space) = space {
+            for (id, page) in pages.iter_mut() {
+                let active = activity.get(id).copied().flatten();
+                let page_retention = retention.get(id).copied().unwrap_or(PageRetention::Inherit);
+                let days = effective_days(page_retention, space);
+                page["lastActivityAtMs"] = serde_json::json!(active);
+                page["archiveAfterDays"] = serde_json::json!(days);
+                // An archived page is past this; a page whose activity is unknown has no due time.
+                page["archiveAtMs"] = serde_json::json!(if page["archived"] == true {
+                    None
+                } else {
+                    archive_at_ms(active, days)
+                });
+            }
         }
         let page_ids: Vec<_> = known_ids
             .iter()
